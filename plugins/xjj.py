@@ -11,7 +11,7 @@ __plugin__ = {
     "name": "小姐姐视频",
     "id": "xjj",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
     "scope": "user",
     "default_enabled": False,

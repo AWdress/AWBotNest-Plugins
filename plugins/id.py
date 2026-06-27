@@ -11,7 +11,7 @@ __plugin__ = {
     "name": "查ID",
     "id": "id",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "scope": "user",
     "default_enabled": False,

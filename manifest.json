@@ -2,43 +2,64 @@
   "id": {
     "name": "查ID",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "path": "plugins/id.py"
   },
   "xjj": {
     "name": "小姐姐视频",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
     "path": "plugins/xjj.py"
   },
   "self_delete": {
     "name": "删除自己消息",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
     "path": "plugins/self_delete.py"
   },
   "zpr": {
     "name": "P站图片",
     "version": "1.0.0",
-    "author": "AW",
+    "author": "AWdress",
     "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
     "path": "plugins/zpr.py"
   },
   "keyword_auto_reply": {
     "name": "关键词自动回复",
     "version": "1.0.1",
-    "author": "AW",
+    "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
     "path": "plugins/keyword_auto_reply.py"
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
     "version": "1.0.3",
-    "author": "AW",
+    "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发一条消息。可选每天定点、每隔几小时、每隔几分钟。",
     "path": "plugins/custom_auto_reply.py"
+  },
+  "jupai": {
+    "name": "举牌",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。",
+    "path": "plugins/jupai.py"
+  },
+  "zf": {
+    "name": "转发复读",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。",
+    "path": "plugins/zf.py"
+  },
+  "getmsg": {
+    "name": "取消息结构",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 发到你的收藏夹，便于调试。",
+    "path": "plugins/getmsg.py"
   }
 }

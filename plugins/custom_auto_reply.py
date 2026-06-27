@@ -9,7 +9,7 @@ __plugin__ = {
     "name": "定时自动回复",
     "id": "custom_auto_reply",
     "version": "1.0.3",
-    "author": "AW",
+    "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发一条消息。可选每天定点、每隔几小时、每隔几分钟。",
     "scope": "user",
     "default_enabled": False,
