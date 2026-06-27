@@ -124,5 +124,12 @@
     "author": "AWdress",
     "description": "监控群红包并自动抢：按钮红包自动点击、口令红包自动发口令、图片口令OCR识别，含陷阱防护。",
     "path": "plugins/red_packet/"
+  },
+  "auto_lottery": {
+    "name": "自动抽奖",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "自动识别群内抽奖消息并参与，中奖记录与可选自动发奖。",
+    "path": "plugins/auto_lottery/"
   }
 }
