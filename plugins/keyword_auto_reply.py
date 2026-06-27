@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
     "scope": "user",
@@ -66,6 +66,11 @@ __plugin__ = {
             "min": 0, "max": 600, "step": 10, "section": "范围与冷却",
             "help": "回复发出后多少秒自动撤回；0 = 不删除。",
         },
+        "blacklist_ids": {
+            "type": "text", "default": "", "label": "屏蔽用户ID",
+            "section": "范围与冷却",
+            "help": "这些用户的消息不触发回复。一行一个或逗号分隔的用户ID。",
+        },
     },
 }
 
@@ -103,6 +108,20 @@ def _check_chat_id(chat_id: int, chat_ids_str: str) -> bool:
         return chat_id in allowed
     except ValueError:
         return True
+
+
+def _parse_blacklist(raw) -> set[int]:
+    """解析屏蔽用户ID（支持换行或逗号分隔）。"""
+    ids: set[int] = set()
+    for part in re.split(r"[,\s]+", str(raw or "")):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.add(int(part))
+        except ValueError:
+            pass
+    return ids
 
 
 def _render(reply: str, message=None) -> str:
@@ -168,6 +187,10 @@ async def setup(ctx):
         me = getattr(client, "me", None)
         account_id = me.id if me else id(client)
         midnight_reset = bool(cfg.get("midnight_reset", False))
+        blacklist = _parse_blacklist(cfg.get("blacklist_ids", ""))
+        # 屏蔽名单用户的消息不触发
+        if message.from_user and message.from_user.id in blacklist:
+            return
         try:
             cooldown_secs = max(0.0, float(cfg.get("cooldown_hours", 24))) * 3600
         except (ValueError, TypeError):

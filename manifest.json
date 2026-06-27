@@ -29,7 +29,7 @@
   },
   "keyword_auto_reply": {
     "name": "关键词自动回复",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
     "path": "plugins/keyword_auto_reply.py"
@@ -103,5 +103,12 @@
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "path": "plugins/quiz_game/"
+  },
+  "bomb_game": {
+    "name": "数字炸弹",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
+    "path": "plugins/bomb_game/"
   }
 }
