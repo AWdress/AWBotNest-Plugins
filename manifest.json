@@ -138,5 +138,26 @@
     "author": "AWdress",
     "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、倍投计算。",
     "path": "plugins/zhuque_lottery/"
+  },
+  "auto_avatar": {
+    "name": "自动换头像",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "定时把账号头像换成图片池里随机一张。回复图片发 .avataradd 加入池子，.avatarlist/.avatarclear 管理。",
+    "path": "plugins/auto_avatar.py"
+  },
+  "u2_dmhy": {
+    "name": "U2送糖",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
+    "path": "plugins/u2_dmhy.py"
+  },
+  "red_packet_send": {
+    "name": "发红包",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "用你的账号在群里发拼手气红包：群友回复参与，按拼手气随机分配并自动发放魔力。",
+    "path": "plugins/red_packet_send/"
   }
 }
