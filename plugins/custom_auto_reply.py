@@ -1,74 +1,72 @@
 # =============================================================================
 # AWBotNest 插件：定时自动回复（custom_auto_reply）
 #
-# 由 AWLottery/schedulers/universal/custom_auto_reply.py 迁移而来。
-# 按 cron 定时用用户账号向指定会话发送消息，支持：
-#   - 多任务（JSON 数组配置），每任务独立 cron
-#   - 可选活动日期范围（不在范围内则跳过）
-#   - 多账号逐个发送
-#   - 可选把发送结果通知到某个会话（Bot）
-#
-# 原项目用 TOML state_manager + SCHEDULER 开关管理多任务；平台改为
-# 在 config_schema 多行文本里放 JSON 数组，setup 时为每个任务注册 ctx.schedule。
-#
-# 注意：定时任务在 setup 时按当前配置注册。改了任务配置后，需在平台
-#       「重载」本插件（或关一次再开）让新配置重新注册生效。
+# 用户账号按设定的时间，自动向指定会话发送一条消息。
+# 配置全是普通表单项，照着填即可，无需懂 JSON / cron。
 # =============================================================================
-
-import json
-from datetime import datetime, timezone, timedelta
 
 __plugin__ = {
     "name": "定时自动回复",
     "id": "custom_auto_reply",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "author": "AW",
-    "description": "按 cron 定时用用户账号向指定会话发消息。支持多任务、活动日期范围、多账号、结果通知。",
+    "description": "到点自动用你的账号往指定群/会话发一条消息。可选每天定点、每隔几小时、每隔几分钟。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
-        "notify_chat_id": {
-            "type": "string", "default": "", "label": "结果通知会话ID",
-            "section": "参数",
-            "help": "发送成功/失败后用 Bot 通知到此会话；留空则不通知。",
+        # —— 必填：发给谁、发什么 ——
+        "target_chat_id": {
+            "type": "string", "default": "", "label": "发送到哪个会话",
+            "section": "发送内容",
+            "help": "群组/频道ID（形如 -1001234567890）或 @用户名。不知道ID可先用「查ID」插件获取。",
         },
-        "tasks": {
-            "type": "text", "default": "[]", "label": "定时任务(JSON)",
-            "section": "任务",
-            "help": (
-                "JSON 数组，每个任务字段：\n"
-                "id(任务标识)、name(任务名，可选)、\n"
-                "target_chat_id(目标会话ID或@username)、message(消息内容)、\n"
-                "hour(cron 小时，如 \"0,3,6,9,12,15,18,21\"，默认每小时)、\n"
-                "minute(cron 分钟，默认 0)、\n"
-                "start_date / end_date(可选，'YYYY-MM-DD HH:MM:SS'，东八区，限定活动期)。\n"
-                '例：[{"id":"morning","target_chat_id":-1001234567890,'
-                '"message":"早安","hour":"8","minute":"0"}]'
-            ),
+        "message": {
+            "type": "text", "default": "", "label": "发送的消息",
+            "section": "发送内容", "help": "要定时发出去的文字内容。",
+        },
+
+        # —— 发送频率 ——
+        "frequency": {
+            "type": "select", "default": "daily", "label": "发送频率",
+            "section": "发送时间",
+            "options": [
+                {"value": "daily", "label": "每天定点发一次"},
+                {"value": "hours", "label": "每隔几小时发一次"},
+                {"value": "minutes", "label": "每隔几分钟发一次"},
+            ],
+        },
+        "daily_hour": {
+            "type": "slider", "default": 9, "label": "每天几点", "min": 0, "max": 23, "step": 1,
+            "section": "发送时间", "help": "24 小时制，0~23 点。", "show_if": {"frequency": "daily"},
+        },
+        "daily_minute": {
+            "type": "slider", "default": 0, "label": "几分", "min": 0, "max": 59, "step": 1,
+            "section": "发送时间", "show_if": {"frequency": "daily"},
+        },
+        "every_hours": {
+            "type": "slider", "default": 3, "label": "每隔几小时", "min": 1, "max": 24, "step": 1,
+            "section": "发送时间", "show_if": {"frequency": "hours"},
+        },
+        "every_minutes": {
+            "type": "slider", "default": 30, "label": "每隔几分钟", "min": 1, "max": 180, "step": 1,
+            "section": "发送时间", "show_if": {"frequency": "minutes"},
+        },
+
+        # —— 可选 ——
+        "notify_chat_id": {
+            "type": "string", "default": "", "label": "结果通知到（可选）",
+            "section": "高级（可选）",
+            "help": "发送成功/失败后用机器人通知到这个会话；留空就不通知。",
         },
     },
 }
 
-# 东八区
-_TZ8 = timezone(timedelta(hours=8))
-
-
-def _parse_tasks(raw) -> list[dict]:
-    """解析任务 JSON，容错返回列表。"""
-    if isinstance(raw, list):
-        return raw
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-
 
 def _normalize_chat_id(raw):
-    """目标会话：@username 原样，数字转 int。"""
-    s = str(raw).strip()
+    """目标会话：@用户名 原样返回，纯数字转 int，非法返回 None。"""
+    s = str(raw or "").strip()
+    if not s:
+        return None
     if s.startswith("@"):
         return s
     try:
@@ -78,7 +76,7 @@ def _normalize_chat_id(raw):
 
 
 def _build_message_link(target_chat_id, msg_id) -> str:
-    """根据目标类型构建消息链接（尽力而为）。"""
+    """尽力构建一条消息的可点击链接。"""
     if isinstance(target_chat_id, int) and target_chat_id < 0:
         gid = str(target_chat_id).replace("-100", "")
         return f"https://t.me/c/{gid}/{msg_id}"
@@ -90,44 +88,25 @@ def _build_message_link(target_chat_id, msg_id) -> str:
     return f"消息ID: {msg_id}"
 
 
-def _make_action(ctx, task: dict):
-    """为单个任务生成 cron 回调函数。"""
-    task_id = str(task.get("id") or "task")
-    task_name = task.get("name") or task_id
-    target_raw = task.get("target_chat_id")
-    message_text = task.get("message", "")
-    start_date_str = task.get("start_date")
-    end_date_str = task.get("end_date")
-
+def _make_action(ctx):
+    """生成定时回调：读取当前配置 → 用所有已连接用户账号发送。"""
     async def _action():
-        # 日期范围检查
-        now = datetime.now(_TZ8)
-        if start_date_str and end_date_str:
-            try:
-                start = datetime.strptime(start_date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=_TZ8)
-                end = datetime.strptime(end_date_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=_TZ8)
-                if not (start <= now <= end):
-                    ctx.log.debug("[定时回复] 任务 %s 不在活动时间范围，跳过", task_id)
-                    return
-            except ValueError as e:
-                ctx.log.error("[定时回复] 任务 %s 日期格式错误: %s", task_id, e)
-                return
-
-        target = _normalize_chat_id(target_raw)
+        cfg = ctx.config
+        target = _normalize_chat_id(cfg.get("target_chat_id"))
+        message_text = (cfg.get("message") or "").strip()
         if target is None:
-            ctx.log.error("[定时回复] 任务 %s 目标会话ID无效: %r", task_id, target_raw)
+            ctx.log.error("[定时回复] 目标会话未设置或格式错误")
             return
         if not message_text:
-            ctx.log.error("[定时回复] 任务 %s 未设置消息内容", task_id)
+            ctx.log.error("[定时回复] 消息内容为空")
             return
 
         user_apps = ctx.user_apps
         if not user_apps:
-            ctx.log.error("[定时回复] 任务 %s 无已连接用户账号，跳过", task_id)
+            ctx.log.error("[定时回复] 没有已连接的用户账号，跳过")
             return
 
-        notify_id = _normalize_chat_id(ctx.config.get("notify_chat_id", "")) if ctx.config.get("notify_chat_id") else None
-        now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        notify_id = _normalize_chat_id(cfg.get("notify_chat_id"))
 
         for app in user_apps:
             me = getattr(app, "me", None)
@@ -137,15 +116,14 @@ def _make_action(ctx, task: dict):
                 acct = getattr(app, "name", "未知账号")
             try:
                 sent = await app.send_message(target, message_text)
-                ctx.log.info("[定时回复] 任务 %s [%s] 发送成功 msg=%s", task_id, acct, sent.id)
+                ctx.log.info("[定时回复] [%s] 发送成功 msg=%s", acct, sent.id)
             except Exception as send_err:  # noqa: BLE001
-                ctx.log.error("[定时回复] 任务 %s [%s] 发送失败: %r", task_id, acct, send_err)
+                ctx.log.error("[定时回复] [%s] 发送失败: %r", acct, send_err)
                 if notify_id:
                     try:
                         await ctx.bot.send(
                             notify_id,
-                            f"❌ **定时回复失败**\n\n👤 账号：{acct}\n📋 任务：{task_name}\n"
-                            f"🎯 目标：{target}\n⚠️ 错误：{send_err}",
+                            f"❌ **定时回复失败**\n\n👤 账号：{acct}\n🎯 目标：{target}\n⚠️ 错误：{send_err}",
                         )
                     except Exception:
                         pass
@@ -157,47 +135,40 @@ def _make_action(ctx, task: dict):
                 try:
                     await ctx.bot.send(
                         notify_id,
-                        f"🎉 **定时回复已发送**\n\n👤 账号：{acct}\n📋 任务名称：{task_name}\n"
-                        f"📅 发送时间：{now_str}\n🎯 目标聊天：{target}\n📝 消息内容：\n{preview}\n\n🔗 {link}",
+                        f"🎉 **定时回复已发送**\n\n👤 账号：{acct}\n🎯 目标：{target}\n📝 内容：\n{preview}\n\n🔗 {link}",
                         disable_web_page_preview=True,
                     )
-                except Exception as notify_err:  # noqa: BLE001
-                    ctx.log.error("[定时回复] 任务 %s [%s] 通知失败: %r", task_id, acct, notify_err)
+                except Exception:
+                    pass
 
     return _action
 
 
 async def setup(ctx):
-    tasks = _parse_tasks(ctx.config.get("tasks", "[]"))
-    if not tasks:
-        ctx.log.info("[定时回复] 未配置任何任务")
+    cfg = ctx.config
+    if not (cfg.get("message") or "").strip() or _normalize_chat_id(cfg.get("target_chat_id")) is None:
+        ctx.log.info("[定时回复] 尚未填写目标会话或消息内容，未注册定时任务")
         return
 
-    registered = 0
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-        if task.get("enabled", True) is False:
-            continue
-        task_id = str(task.get("id") or f"task{registered}")
-        hour = str(task.get("hour", "*"))
-        minute = str(task.get("minute", "0"))
-        try:
-            ctx.schedule(
-                _make_action(ctx, task),
-                "cron",
-                hour=hour,
-                minute=minute,
-                id=task_id,
-            )
-            registered += 1
-            ctx.log.info("[定时回复] 已注册任务 %s (hour=%s minute=%s)", task_id, hour, minute)
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("[定时回复] 注册任务 %s 失败: %r", task_id, e)
+    action = _make_action(ctx)
+    freq = cfg.get("frequency", "daily")
 
-    ctx.log.info("[定时回复] 共注册 %d 个定时任务", registered)
+    # 按频率注册定时任务（改配置后需在平台「重载」本插件以重新注册）
+    if freq == "hours":
+        hours = int(cfg.get("every_hours", 3) or 3)
+        ctx.schedule(action, "interval", hours=hours, id="定时回复")
+        ctx.log.info("[定时回复] 已注册：每 %d 小时一次", hours)
+    elif freq == "minutes":
+        minutes = int(cfg.get("every_minutes", 30) or 30)
+        ctx.schedule(action, "interval", minutes=minutes, id="定时回复")
+        ctx.log.info("[定时回复] 已注册：每 %d 分钟一次", minutes)
+    else:  # daily
+        hour = int(cfg.get("daily_hour", 9) or 0)
+        minute = int(cfg.get("daily_minute", 0) or 0)
+        ctx.schedule(action, "cron", hour=hour, minute=minute, id="定时回复")
+        ctx.log.info("[定时回复] 已注册：每天 %02d:%02d", hour, minute)
 
 
 async def teardown(ctx):
-    # ctx.schedule 注册的任务由平台在停用时自动移除，无需手动处理
+    # ctx.schedule 注册的任务由平台停用时自动移除
     pass

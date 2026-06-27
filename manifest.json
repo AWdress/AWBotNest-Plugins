@@ -13,18 +13,32 @@
     "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
     "path": "plugins/xjj.py"
   },
-  "keyword_auto_reply": {
-    "name": "关键词自动回复",
+  "self_delete": {
+    "name": "删除自己消息",
     "version": "1.0.0",
     "author": "AW",
-    "description": "监听群消息，命中关键词自动回复。支持多规则、匹配方式、冷却、限群、自动删除、模板变量。",
+    "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
+    "path": "plugins/self_delete.py"
+  },
+  "zpr": {
+    "name": "P站图片",
+    "version": "1.0.0",
+    "author": "AW",
+    "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
+    "path": "plugins/zpr.py"
+  },
+  "keyword_auto_reply": {
+    "name": "关键词自动回复",
+    "version": "2.0.0",
+    "author": "AW",
+    "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
     "path": "plugins/keyword_auto_reply.py"
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
-    "version": "1.0.0",
+    "version": "2.0.0",
     "author": "AW",
-    "description": "按 cron 定时用用户账号向指定会话发消息。支持多任务、活动日期范围、多账号、结果通知。",
+    "description": "到点自动用你的账号往指定群/会话发一条消息。可选每天定点、每隔几小时、每隔几分钟。",
     "path": "plugins/custom_auto_reply.py"
   }
 }

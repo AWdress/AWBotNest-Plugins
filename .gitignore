@@ -3,3 +3,6 @@ __pycache__/
 .venv/
 data/
 .DS_Store
+
+# 内部迁移追踪文档，不公开到仓库
+MIGRATION.md
