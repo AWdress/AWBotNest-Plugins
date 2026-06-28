@@ -36,9 +36,9 @@
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
-    "description": "到点自动用你的账号往指定群/会话发一条消息。可选每天定点、每隔几小时/几分钟，或直接填 cron 表达式。注册后会按规则反复发送。",
+    "description": "到点自动用你的账号往指定群/会话发一条消息，支持多个会话。可选每天定点、每隔几小时/几分钟，或直接填 cron 表达式。注册后会按规则反复发送。",
     "path": "plugins/custom_auto_reply.py"
   },
   "jupai": {
