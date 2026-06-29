@@ -12,6 +12,32 @@ def extract_text(message) -> str:
     return (getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
 
 
+def classify_packet(blob: str, mine_keywords: list[str], normal_keywords: list[str]) -> str:
+    """根据文字判定红包类型。blob 可以是 caption、OCR 文字，或两者拼接。
+
+    返回:
+      "mine"   —— 命中雷包关键词（雷包优先，最高优先级）
+      "normal" —— 未命中雷包词，且命中正常红包放行词
+      "unknown"—— 都没命中（上层 fail-closed：当雷包跳过）
+
+    注意雷包文案含「这不是红包」——内含「红包」二字，故必须雷包词优先，
+    不能见到「红包」就放行。
+    """
+    text = blob or ""
+    # 1) 雷包词优先
+    for kw in mine_keywords:
+        kw = (kw or "").strip()
+        if kw and kw in text:
+            return "mine"
+    # 2) 正常红包放行词
+    for kw in normal_keywords:
+        kw = (kw or "").strip()
+        if kw and kw in text:
+            return "normal"
+    return "unknown"
+
+
+
 def find_numbered_buttons(message) -> list[tuple[int, int]]:
     """返回所有未抢数字按钮的 (row, col) 列表（癫影积分红包）。"""
     result: list[tuple[int, int]] = []
