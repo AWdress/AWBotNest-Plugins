@@ -20,7 +20,7 @@ from ._snatch import find_snatch_button, is_lucky_packet
 __plugin__ = {
     "name": "拼手气红包(HDSKY)",
     "id": "hdsky_redpacket",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -134,13 +134,13 @@ async def setup(ctx):
             records.add_history({"type": "拼手气红包", "group_id": message.chat.id, "result": str(rtext), "ok": True})
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
-                    f"拼手气红包-已抢\n{getattr(message.chat,'title','')} ({message.chat.id})\n{rtext}\n{getattr(message,'link','')}",
+                    f"拼手气红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{rtext}\n\n{getattr(message,'link','')}",
                     level="success")
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[拼手气红包] 点击失败 chat=%s msg=%s: %r", message.chat.id, message.id, e)
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
-                    f"拼手气红包-点击失败\n{getattr(message.chat,'title','')} ({message.chat.id})\n{e}",
+                    f"拼手气红包-点击失败\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{e}",
                     level="error")
 
     ctx.log.info("[拼手气红包] 已加载")

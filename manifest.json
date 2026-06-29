@@ -78,7 +78,7 @@
   },
   "hdhive_lottery": {
     "name": "HDHive抽奖",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "path": "plugins/hdhive_lottery.py"
@@ -113,21 +113,21 @@
   },
   "transfer": {
     "name": "多站点转账",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。",
     "path": "plugins/transfer/"
   },
   "hdsky_redpacket": {
     "name": "拼手气红包(HDSKY)",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "监控天空(HDSKY)群拼手气红包，自动点击「抢红包」按钮。可选 /red 占位发言应对「限最近发言人」。",
     "path": "plugins/hdsky_redpacket/"
   },
   "dyp_redpacket": {
     "name": "癫影积分红包",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "监控癫影小助手发的积分红包，逐个点击未抢数字按钮（✅1~✅9 已抢的跳过），抢到一格即停。发包bot/群组内置写死。",
     "path": "plugins/dyp_redpacket/"
@@ -141,14 +141,14 @@
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。",
     "path": "plugins/auto_lottery/"
   },
   "zhuque_lottery": {
     "name": "朱雀",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、倍投计算。",
     "path": "plugins/zhuque_lottery/"
@@ -176,7 +176,7 @@
   },
   "common_lottery": {
     "name": "通用抽奖",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "path": "plugins/common_lottery.py"

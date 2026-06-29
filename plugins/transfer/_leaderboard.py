@@ -69,19 +69,25 @@ def render_text(entries: list[dict], site_name: str, bonus_name: str,
 
 def render_user_summary(stat: dict, bonus_name: str, direction: str,
                         user_name: str, amount: float) -> str:
-    """单笔转账后的个人累计文案（用于 notification）。"""
+    """单笔转账后的个人累计文案（用于 notification）。
+
+    统计块（累计/总榜）用 <blockquote> 包起来 —— TG 客户端默认 HTML parse mode 会
+    渲染成一个分隔开的引用块，恢复迁移前「正文 + 分隔统计块」的观感。用户名走
+    HTML 转义，避免名字里的 < & 破坏标签。
+    """
     title_word = "打赏" if direction == "in" else "赏赐"
+    name = _html_escape(user_name)
     if direction == "in":
-        head = (f"{user_name} 大佬，感谢打赏！\n"
+        head = (f"{name} 大佬，感谢打赏！\n"
                 f"本次收到：{_fmt_amount(abs(amount))} {bonus_name}")
     else:
-        head = (f"{user_name}\n"
+        head = (f"{name}\n"
                 f"这是赏赐你的 {_fmt_amount(abs(amount))} {bonus_name}，拿去花！")
     rank_str = f"第 {stat['rank']} 名" if stat.get("rank", -1) > 0 else "—"
     tail = (f"累计{title_word}：{stat['count']} 次，共 "
             f"{_fmt_amount(stat['total'])} {bonus_name}\n"
             f"{title_word}总榜：{rank_str}")
-    return f"{head}\n{tail}"
+    return f"{head}\n<blockquote>{tail}</blockquote>"
 
 
 def _imgkit_available() -> bool:

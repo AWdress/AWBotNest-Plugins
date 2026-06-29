@@ -15,7 +15,7 @@ from random import randint
 __plugin__ = {
     "name": "HDHive抽奖",
     "id": "hdhive_lottery",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "scope": "user",
@@ -138,7 +138,7 @@ async def setup(ctx):
             if notify:
                 try:
                     await ctx.notify(
-                        f"HDHive抽奖参与成功\n奖品：{info['prize']}\n口令：{info['keyword']}\n来源：{message.link}",
+                        f"HDHive抽奖参与成功\n\n奖品：{info['prize']}\n\n口令：{info['keyword']}\n\n来源：{message.link}",
                         level="success", category="HDHive抽奖", account=client,
                     )
                 except Exception:
@@ -148,7 +148,7 @@ async def setup(ctx):
             if notify:
                 try:
                     await ctx.notify(
-                        f"HDHive抽奖参与失败\n奖品：{info['prize']}\n原因：{e}\n来源：{message.link}",
+                        f"HDHive抽奖参与失败\n\n奖品：{info['prize']}\n\n原因：{e}\n\n来源：{message.link}",
                         level="error", category="HDHive抽奖", account=client,
                     )
                 except Exception:
@@ -179,7 +179,7 @@ async def setup(ctx):
             ctx.log.info("[HDHive抽奖] 中奖！奖励=%s", prize)
             try:
                 await ctx.notify(
-                    f"HDHive抽奖中奖啦\n奖品：{prize}\n中奖人：{', '.join(winner_names) or '(未解析)'}\n来源：{message.link}",
+                    f"HDHive抽奖中奖啦\n\n奖品：{prize}\n\n中奖人：{', '.join(winner_names) or '(未解析)'}\n\n来源：{message.link}",
                     level="success", category="HDHive抽奖", account=client,
                 )
             except Exception:

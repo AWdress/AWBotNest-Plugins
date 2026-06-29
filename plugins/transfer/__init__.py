@@ -41,7 +41,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -445,7 +445,8 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
             if entries:
                 table = lb.render_text(entries, site.site_name, site.bonus_name,
                                        direction, owner_name)
-                text = f"{text}\n\n{table}"
+                # 榜单包进 <blockquote>，与致谢文案的统计块风格一致（分隔引用块）
+                text = f"{text}\n<blockquote>{table}</blockquote>"
             sent = await message.reply(text)
     except Exception as e:
         ctx.log.warning("发送致谢消息失败: %s", e)

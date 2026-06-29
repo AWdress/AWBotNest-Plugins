@@ -20,7 +20,7 @@ from ._snatch import extract_text, find_numbered_buttons, is_snatch_success
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -109,7 +109,7 @@ async def setup(ctx):
                     records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": rstr, "ok": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
-                            f"癫影积分红包-已抢\n{getattr(message.chat,'title','')} ({message.chat.id})\n{rstr}\n{getattr(message,'link','')}",
+                            f"癫影积分红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{rstr}\n\n{getattr(message,'link','')}",
                             level="success")
                     return
                 await asyncio.sleep(0.3)
@@ -119,7 +119,7 @@ async def setup(ctx):
         # 全部试完未抢到
         if cfg.get("notify_owner", True):
             await _notify(ctx, client,
-                f"癫影积分红包-未抢到\n{getattr(message.chat,'title','')} ({message.chat.id})\n所有格子均已被抢完",
+                f"癫影积分红包-未抢到\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n所有格子均已被抢完",
                 level="info")
 
     ctx.log.info("[癫影积分红包] 已加载")

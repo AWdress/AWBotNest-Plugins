@@ -42,7 +42,7 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -837,7 +837,9 @@ async def _handle_redpocket(ctx, client, message):
             ctx.log.info("抢到红包 %s: %s 灵石(第%s次)", redpocket_name, bonus, retry + 1)
             if ctx.config.get("owner_notify", True):
                 await ctx.notify(
-                    f"{red_from_user}发的朱雀红包 {redpocket_name}：抢了 {retry + 1} 次，成功抢到 {bonus} 灵石",
+                    f"{red_from_user} 发的朱雀红包\n\n"
+                    f"{redpocket_name}\n\n"
+                    f"抢了 {retry + 1} 次，成功抢到 {bonus} 灵石",
                     level="success", category="红包雨", account=client,
                 )
             return
@@ -952,11 +954,12 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
         entries = _build_leaderboard(raw, direction, _LEADERBOARD_SIZE)
         if entries:
             lines = [f"个人{table_title}总榜 TOP{len(entries)}："]
-            medals = ["", "", ""]
+            medals = ["No.1", "No.2", "No.3"]
             for i, e in enumerate(entries):
                 medal = medals[i] if i < 3 else f"{i + 1}."
                 lines.append(f"{medal} {e['name']} {e['total']:,.0f}（{e['count']}次）")
-            body += "\n" + "\n".join(lines)
+            # 正文与榜单之间空一行分隔
+            body += "\n\n" + "\n".join(lines)
 
     await ctx.notify(body, level="info", category="转账", account=client)
 
