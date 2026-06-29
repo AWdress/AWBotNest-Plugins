@@ -127,9 +127,9 @@
   },
   "dyp_redpacket": {
     "name": "癫影积分红包",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "监控癫影小助手发的积分红包，逐个点击未抢数字按钮（✅1~✅9 已抢的跳过），抢到一格即停。发包bot/群组内置写死。",
+    "description": "监控癫影小助手发的积分红包，逐个点击未抢数字按钮（✅1~✅9 已抢的跳过），抢到一格即停。可选雷包检测：消息文本判定为主、OCR 识别配图兜底防伪装，识别不出时保守跳过。发包bot/群组内置写死。",
     "path": "plugins/dyp_redpacket/"
   },
   "yingchao_redpacket": {
