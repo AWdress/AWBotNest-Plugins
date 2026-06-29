@@ -43,7 +43,7 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -132,7 +132,7 @@ __plugin__ = {
         "trap_enable_prize_pattern_check": {
             "type": "boolean", "default": True, "label": "启用关键词检测",
             "section": "陷阱检测", "show_if": {"trap_enabled": True},
-            "help": "检测奖品名/参与关键词/简介/整条消息是否命中可疑关键词。",
+            "help": "检测奖品名/参与关键词/简介是否命中可疑关键词。",
         },
         "trap_enable_creator_blacklist": {
             "type": "boolean", "default": True, "label": "启用创建者黑名单",
@@ -163,7 +163,7 @@ __plugin__ = {
             "label": "可疑关键词", "section": "陷阱检测",
             "show_if": {"trap_enable_prize_pattern_check": True},
             "help": "逗号或换行分隔（对应 suspicious_keywords）。"
-                    "奖品/参与词/简介/消息命中任一则判为陷阱。",
+                    "仅 奖品名/参与词/简介 命中任一则判为陷阱。",
         },
         # ═══════════ 抽奖等待时间（LOTTERY_WAIT_TIME section）═══════════
         "lottery_wait_enabled": {

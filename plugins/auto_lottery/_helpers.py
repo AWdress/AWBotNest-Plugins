@@ -387,8 +387,8 @@ def is_trap_lottery(message_text: str, lottery_info: dict, *,
     检测是否为陷阱抽奖。返回 (是否陷阱, 触发原因)。对应原 TRAP_LOTTERY_DETECTION。
 
     检测项（任一命中即判定为陷阱），各项受对应子开关控制：
-      - 可疑关键词(enable_prize_pattern_check)：奖品/参与关键词/简介/整条消息命中
-        suspicious_keywords。
+      - 可疑关键词(enable_prize_pattern_check)：仅 奖品名称/参与关键词/简介 命中
+        suspicious_keywords（不扫整条消息，避免昵称/群名/按钮文案误杀）。
       - 创建者黑名单(enable_creator_blacklist)：boss_ID 命中 blacklist_creator_ids。
       - 参与人数(enable_participant_check)：单人抽奖(max==1) 或 参与人数 <= max_participants
         (且 max_participants>1) 判为陷阱。
@@ -397,13 +397,12 @@ def is_trap_lottery(message_text: str, lottery_info: dict, *,
     blacklist_creator_ids = [str(b) for b in (blacklist_creator_ids or [])]
     reasons: list[str] = []
 
-    # 1. 可疑关键词检测
+    # 1. 可疑关键词检测（只查 奖品名称 / 参与关键词 / 简介，不查整条消息，避免误杀）
     if enable_prize_pattern_check and suspicious_keywords:
         haystacks = [
             lottery_info.get("prize", ""),
             lottery_info.get("keyword", ""),
             lottery_info.get("description", ""),
-            message_text or "",
         ]
         joined = "\n".join(haystacks)
         target = joined if case_sensitive else joined.lower()
