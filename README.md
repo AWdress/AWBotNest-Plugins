@@ -61,6 +61,7 @@ async def teardown(ctx):
 | 过滤器 | `ctx.filters.text` / `.photo` / `.command("x")` / `.outgoing` / `.incoming` / `.group`，可 `& \| ~` 组合 |
 | 注册消息 | `@ctx.on_message(filter, group=0, target="auto")` |
 | 注册回调 | `@ctx.on_callback(filter, group=0, target="auto")` |
+| 中断传播 | `raise ctx.StopPropagation`（在 handler 内主动阻止后续插件再处理这条消息，谨慎用） |
 | Bot 发送 | `await ctx.bot.send(chat_id, text)` / `ctx.bot.send_photo(...)` |
 | 用户发送 | `await ctx.user.send(chat_id, text)` |
 | 全部用户账号 | `ctx.user_apps`（多账号场景） |
@@ -74,6 +75,10 @@ async def teardown(ctx):
 | 清理回调 | `ctx.add_cleanup(fn)` |
 
 `target`：`"user"` / `"bot"` / `"both"` / `"auto"`（按插件 scope 自动选择）。
+
+**group 隔离（不会互相"吃消息"）**：Pyrogram 在同一 group 内只跑第一个匹配的 handler。平台给**每个插件分配独立的 group 区间**，所以不同插件即使都监听同类消息也各自都能收到。你写的 `group=` 是「**本插件内部**的相对优先级」（数值越小越先），平台自动平移到你的区间——不用关心别的插件用了什么 group。想"我处理了就别让后面的插件再处理"，在 handler 里 `raise ctx.StopPropagation`。
+
+**多账号下的账号范围**：`scope=user`/`both` 的插件默认挂到**所有**已连接用户账号；用户可在插件卡片「账号」按钮里选择只应用到部分账号（空=全部），改动后自动重挂。
 
 ### 4. config_schema（插件配置）
 
@@ -135,14 +140,56 @@ async def teardown(ctx):
 
 ## 当前插件
 
+### 工具 / 常用
+
 | 插件 | id | 触发 | scope | 说明 |
 |------|----|------|-------|------|
 | 查ID | `id` | `/id` `.id`（可回复消息） | user | 查群组ID / 用户ID / 用户名 |
 | 小姐姐视频 | `xjj` | `/xjj` `.xjj` | user | 拉取随机短视频 |
 | 删除自己消息 | `self_delete` | `/dme 数字` `.dme 数字` | user | 删除当前会话里自己最近发的若干条消息 |
 | P站图片 | `zpr` | `/zpr` `/zp`（及 `.` 前缀） | user | 二次元图片，`/zp` 附带原图文件 |
+| 举牌 | `jupai` | `/jupai 文字`（可回复消息） | user | 把文字转成举牌人图片 |
+| 转发复读 | `zf` | `/zf [次数]`（回复消息） | user | 把被回复消息在当前会话转发/复读若干次 |
+| 取消息结构 | `getmsg` | `/getmsg`（回复消息） | user | 导出该消息原始结构为 txt 发到收藏夹，调试用 |
+| AI 助手 | `ai` | 私聊/群@ / `/ai`（回复消息） | user | AI 人形对话（带记忆），`/ai` 解释或解答（支持图片） |
+
+### 自动化 / 定时
+
+| 插件 | id | 触发 | scope | 说明 |
+|------|----|------|-------|------|
 | 关键词自动回复 | `keyword_auto_reply` | 监听群消息 | user | 一行一条「关键词=回复」，支持冷却、限群、自动删除、模板变量 |
-| 定时自动回复 | `custom_auto_reply` | 定时 | user | 每天定点 / 每隔几小时 / 每隔几分钟，向指定会话发消息 |
+| 定时自动回复 | `custom_auto_reply` | 定时 | user | 每个会话单独设时间和内容（定点 / 间隔 / cron） |
+| 自动报时昵称 | `auto_changename` | 定时 | user | 定时把昵称改成当前时间，支持自定义模板 |
+| 自动换头像 | `auto_avatar` | 定时 / `.avataradd` 等 | user | 定时随机换头像，回复图片 `.avataradd` 入池，`.avatarlist/.avatarclear` 管理 |
+
+### PT 站 / 媒体
+
+| 插件 | id | 触发 | scope | 说明 |
+|------|----|------|-------|------|
+| 115列表转发 | `trans115search` | 监听来源会话 | user | 把机器人发的「列表」消息自动转发到目标会话 |
+| 影巢115媒体监控 | `movie_monitor_115` | 监听频道 | user | 监控 115 分享，TMDB 识别 + 查 Emby，缺失转发 CMS 入库 |
+| U2送糖 | `u2_dmhy` | `/u2` `/u2s`（带 cookie） | user | 给 u2.dmhy.org 用户赠送 UCoin，单人/批量，自带冷却 |
+| 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
+| 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
+
+### 群游戏（自建）
+
+| 插件 | id | 触发 | scope | 说明 |
+|------|----|------|-------|------|
+| 趣味答题 | `quiz_game` | 群发「开启答题」 | user | 出题抢答，答对自动发魔力奖励，支持连胜加成（AI/天行出题） |
+| 数字炸弹 | `bomb_game` | 群内开启后参与 | both | 回复+金额组奖池，轮流猜数字，爆炸者出局，中奖按比例分池 |
+| 发红包 | `red_packet_send` | 群里发包 | user | 用你的账号发拼手气红包，群友回复参与，自动分配发放魔力 |
+
+### 抽奖 / 抢红包（自动参与）
+
+| 插件 | id | 触发 | scope | 说明 |
+|------|----|------|-------|------|
+| HDHive抽奖 | `hdhive_lottery` | 监听抽奖消息 | user | 随机等待后发口令参与，开奖检测中奖并通知 |
+| 小菜抽奖 | `auto_lottery` | 监听抽奖消息 | user | 时间段/奖品关键词匹配 → 陷阱检测 → 随机等待参与 → 中奖感谢/发奖 |
+| 通用抽奖 | `common_lottery` | 监听抽奖消息 | user | 自动参与 @Lottery8Bot 等：解析口令、按需自动加群、随机等待发口令 |
+| 拼手气红包(HDSKY) | `hdsky_redpacket` | 监听天空群红包 | user | 自动点「抢红包」按钮，可选 `/red` 占位发言应对「限最近发言人」 |
+| 癫影积分红包 | `dyp_redpacket` | 监听癫影助手红包 | user | 逐个点未抢数字按钮（已抢跳过），抢到一格即停，发包bot/群内置 |
+| 影巢口令红包（测试） | `yingchao_redpacket` | 监听指定发包人 | user | OCR 识别图片口令或复制他人口令参与，含陷阱防护 |
 
 ---
 
