@@ -21,7 +21,7 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -38,15 +38,15 @@ __plugin__ = {
             "show_if": {"dyp_enabled": True},
         },
         "dyp_mine_detection": {
-            "type": "boolean", "default": True, "label": "雷包检测",
+            "type": "boolean", "default": True, "label": "雷包OCR兜底",
             "section": "癫影积分红包", "show_if": {"dyp_enabled": True},
-            "help": "点按钮前先判定是否雷包，是则整包跳过。先看消息文本(免费即时)，再用OCR识别配图兜底(防对方把文本改得和红包一样)。识别不出时按「保守跳过」处理，宁可不抢也不踩雷。",
+            "help": "雷包文本防护始终生效(命中雷包关键词必跳，不受此开关控制)。本开关只控制额外的「OCR识别配图」兜底——防对方把文本洗得和红包一样。开(推荐)：文本认不出时识图再判，仍认不出则保守跳过；关：只靠文本判定。",
         },
         "dyp_mine_keywords": {
             "type": "text", "default": "雷包,不是红包,剩余雷位,踩雷,扣除积分,扣除,雷位,中雷,炸弹",
             "label": "雷包关键词(命中即跳)", "section": "癫影积分红包",
-            "show_if": {"dyp_enabled": True, "dyp_mine_detection": True},
-            "help": "逗号或换行分隔。消息文本或配图文字命中其中任一 → 判定雷包、整包跳过。优先级最高。",
+            "show_if": {"dyp_enabled": True},
+            "help": "逗号或换行分隔。消息文本或配图文字命中其中任一 → 判定雷包、整包跳过。始终生效(不受OCR兜底开关影响)，优先级最高。",
         },
         "dyp_normal_keywords": {
             "type": "text", "default": "分值,份数,余位,正常奖励,领取积分",
@@ -114,29 +114,32 @@ async def setup(ctx):
         if not _click_once(client, message):
             return
 
-        # ───────── 雷包检测：caption 文本 + OCR 配图，雷包优先、fail-closed ─────────
-        if cfg.get("dyp_mine_detection", True):
-            mine_kw = parse_keywords(cfg.get("dyp_mine_keywords", ""))
-            normal_kw = parse_keywords(cfg.get("dyp_normal_keywords", ""))
-            caption = extract_text(message)
+        # ───────── 雷包文本防护（始终生效，不受开关控制，等同老版"靠文本排除"）─────────
+        mine_kw = parse_keywords(cfg.get("dyp_mine_keywords", ""))
+        normal_kw = parse_keywords(cfg.get("dyp_normal_keywords", ""))
+        caption = extract_text(message)
+        verdict = classify_packet(caption, mine_kw, normal_kw)
+        if verdict == "mine":
+            ctx.log.info("[癫影积分红包] 文本判定为雷包，跳过 msg=%s", message.id)
+            records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
+            if cfg.get("notify_owner", True):
+                await _notify(ctx, client,
+                    f"癫影积分红包-雷包跳过\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{getattr(message,'link','')}",
+                    level="warning")
+            return
 
-            # 第一层：caption 文本（免费即时）。命中雷包词直接跳，不必 OCR。
-            verdict = classify_packet(caption, mine_kw, normal_kw)
-            ocr_text = ""
-            if verdict != "mine":
-                # 第二层：OCR 配图兜底（防对方把文本改得和红包一样）。
-                img = await _download_image(client, message, ctx.log)
-                if img:
-                    ocr_text = await _ocr.recognize_text(img, ctx.log)
-                # caption + OCR 合并再判（雷包优先）
-                verdict = classify_packet(f"{caption}\n{ocr_text}", mine_kw, normal_kw)
-
+        # ───────── OCR 配图兜底 + 保守跳过（受开关控制，防对方把文本洗得和红包一样）─────────
+        # 仅在文本未能确认为正常红包时才动用 OCR（正常红包文本已含放行词，无需识图）。
+        if cfg.get("dyp_mine_detection", True) and verdict != "normal":
+            img = await _download_image(client, message, ctx.log)
+            ocr_text = await _ocr.recognize_text(img, ctx.log) if img else ""
+            verdict = classify_packet(f"{caption}\n{ocr_text}", mine_kw, normal_kw)
             if verdict == "mine":
-                ctx.log.info("[癫影积分红包] 判定为雷包，跳过 msg=%s", message.id)
+                ctx.log.info("[癫影积分红包] OCR判定为雷包，跳过 msg=%s", message.id)
                 records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
                 if cfg.get("notify_owner", True):
                     await _notify(ctx, client,
-                        f"癫影积分红包-雷包跳过\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{getattr(message,'link','')}",
+                        f"癫影积分红包-雷包跳过(OCR)\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{getattr(message,'link','')}",
                         level="warning")
                 return
             if verdict == "unknown" and cfg.get("dyp_mine_failclosed", True):
