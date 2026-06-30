@@ -1,5 +1,5 @@
 # =============================================================================
-# AWBotNest 插件：影巢 115 媒体监控（movie_monitor_115）
+# AWBotNest 插件：115 媒体监控（movie_monitor_115）
 #
 # 监控指定频道里的 115 分享消息，解析标题/年份 → TMDB 识别 → 查 Emby 媒体库，
 # 库里没有的就把 115 链接转发给 CMS 入库机器人。也支持 /getmedia 手动查 TMDB。
@@ -16,7 +16,7 @@ from pathlib import Path
 from ._tmdb import TmdbApi, get_emby_tmdb_ids
 
 __plugin__ = {
-    "name": "影巢115媒体监控",
+    "name": "115媒体监控",
     "id": "movie_monitor_115",
     "version": "1.0.2",
     "author": "AWdress",
@@ -91,18 +91,18 @@ async def _send_115_links(client, cfg, message, title, year, ctx):
     """提取 115 链接并发给 CMS 机器人。"""
     cmsbot = _normalize(cfg.get("cmsbot"))
     if cmsbot is None:
-        ctx.log.warning("[影巢监控] 未配置 CMS 机器人，跳过发送")
+        ctx.log.warning("[115监控] 未配置 CMS 机器人，跳过发送")
         return
     links = _LINK_PATTERN.findall(message.caption or "")
     if not links:
-        ctx.log.warning("[影巢监控] 未找到 115 链接")
+        ctx.log.warning("[115监控] 未找到 115 链接")
         return
     for link in links:
         try:
             await client.send_message(cmsbot, link)
-            ctx.log.info("[影巢监控] 已发送 [%s %s]: %s", title, year, link)
+            ctx.log.info("[115监控] 已发送 [%s %s]: %s", title, year, link)
         except Exception as e:  # noqa: BLE001
-            ctx.log.error("[影巢监控] 发送链接失败: %r", e)
+            ctx.log.error("[115监控] 发送链接失败: %r", e)
 
 
 async def _search_and_send(client, cfg, title, year, complete_series, message, ctx):
@@ -111,7 +111,7 @@ async def _search_and_send(client, cfg, title, year, complete_series, message, c
     tmdb = TmdbApi(cfg.get("tmdbapi", ""), bool(cfg.get("proxy_enable", False)), cfg.get("proxy_url", ""))
     results = await tmdb.search_all(title, year, ctx.log)
     if not results:
-        ctx.log.info("[影巢监控] TMDB 无结果 | %s %s", title, year)
+        ctx.log.info("[115监控] TMDB 无结果 | %s %s", title, year)
         return
 
     idx = next(
@@ -124,7 +124,7 @@ async def _search_and_send(client, cfg, title, year, complete_series, message, c
     media = results[idx]
     tmdb_id = media.get("id", "")
     media_type = media.get("media_type", "")
-    ctx.log.info("[影巢监控] TMDB 匹配 | %s (%s) id=%s type=%s",
+    ctx.log.info("[115监控] TMDB 匹配 | %s (%s) id=%s type=%s",
                  media.get("title") or media.get("name"), year, tmdb_id, media_type)
 
     async def check_and_send():
@@ -132,11 +132,11 @@ async def _search_and_send(client, cfg, title, year, complete_series, message, c
             ids = await get_emby_tmdb_ids(cfg.get("embyserver", ""), cfg.get("embyapi", ""),
                                           title, media_type, ctx.log)
             if ids and str(tmdb_id) in ids:
-                ctx.log.info("[影巢监控] 已在媒体库 | %s id=%s", title, tmdb_id)
+                ctx.log.info("[115监控] 已在媒体库 | %s id=%s", title, tmdb_id)
             else:
                 await _send_115_links(client, cfg, message, title, year, ctx)
         except Exception as e:  # noqa: BLE001
-            ctx.log.error("[影巢监控] 检查媒体失败 | %s: %r", title, e)
+            ctx.log.error("[115监控] 检查媒体失败 | %s: %r", title, e)
 
     if media_type == "movie":
         await check_and_send()
@@ -144,7 +144,7 @@ async def _search_and_send(client, cfg, title, year, complete_series, message, c
         if complete_series:
             await check_and_send()
         else:
-            ctx.log.info("[影巢监控] 剧集未完结 | %s id=%s", title, tmdb_id)
+            ctx.log.info("[115监控] 剧集未完结 | %s id=%s", title, tmdb_id)
 
 
 async def setup(ctx):
@@ -186,9 +186,9 @@ async def setup(ctx):
 
         if title and year:
             if any(w in title for w in block_words):
-                ctx.log.info("[影巢监控] %s %s 命中屏蔽词，跳过", title, year)
+                ctx.log.info("[115监控] %s %s 命中屏蔽词，跳过", title, year)
             else:
-                ctx.log.info("[影巢监控] 检索 [%s] %s %s", message.chat.title, title, year)
+                ctx.log.info("[115监控] 检索 [%s] %s %s", message.chat.title, title, year)
                 await _search_and_send(client, cfg, title, year, complete_series, message, ctx)
 
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
@@ -217,7 +217,7 @@ async def setup(ctx):
             except Exception:
                 pass
         except Exception as e:  # noqa: BLE001
-            ctx.log.error("[影巢监控] /getmedia 失败: %r", e)
+            ctx.log.error("[115监控] /getmedia 失败: %r", e)
             try:
                 await message.edit(f"查询失败: {e.__class__.__name__}")
             except Exception:
