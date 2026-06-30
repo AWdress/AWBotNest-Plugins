@@ -21,7 +21,7 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -52,10 +52,10 @@ __plugin__ = {
             "help": "逗号或换行分隔。消息文本或配图文字命中其中任一 → 判定雷包、整包跳过。始终生效(不受OCR兜底开关影响)，优先级最高。",
         },
         "dyp_normal_keywords": {
-            "type": "text", "default": "分值,份数,余位,正常奖励,领取积分",
+            "type": "text", "default": "积分红包,分值,份数,余位,正常奖励,领取积分",
             "label": "正常红包放行词", "section": "癫影积分红包",
             "show_if": {"dyp_enabled": True, "dyp_mine_detection": True},
-            "help": "逗号或换行分隔。仅当未命中雷包词、且命中其中任一放行词时才抢。两者都没命中时按「保守跳过」处理。",
+            "help": "逗号或换行分隔。命中其中任一且未命中雷包词 → 判定正常红包、照常抢。其中「积分红包」是原项目验证过的可靠特征，始终内置生效。",
         },
         "dyp_mine_failclosed": {
             "type": "boolean", "default": True, "label": "识别不出时保守跳过",
@@ -120,6 +120,10 @@ async def setup(ctx):
         # ───────── 雷包文本防护（始终生效，不受开关控制，等同老版"靠文本排除"）─────────
         mine_kw = parse_keywords(cfg.get("dyp_mine_keywords", ""))
         normal_kw = parse_keywords(cfg.get("dyp_normal_keywords", ""))
+        # "积分红包" 是原项目验证过的正常红包可靠特征（正常包文本含它、雷包"这不是红包"不含），
+        # 始终作为放行信号，不依赖用户已存的配置，避免误判正常红包为"类型不明"被保守跳过。
+        if "积分红包" not in normal_kw:
+            normal_kw.append("积分红包")
         caption = extract_text(message)
         verdict = classify_packet(caption, mine_kw, normal_kw)
         if verdict == "mine":
