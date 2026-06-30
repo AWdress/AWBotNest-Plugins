@@ -1,14 +1,14 @@
 # =============================================================================
-# AWBotNest 插件：115 列表转发（trans115search）
+# AWBotNest 插件：115 搜索结果转发（trans115search）
 #
 # 监听指定来源会话里某机器人发出的「列表」消息，转发到你指定的目标会话。
 # 用你的用户账号监听，用机器人把内容转发到目标会话。
 # =============================================================================
 
 __plugin__ = {
-    "name": "115列表转发",
+    "name": "115搜索结果转发",
     "id": "trans115search",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
     "scope": "user",
@@ -56,14 +56,21 @@ async def setup(ctx):
         fu = message.from_user
         if not (fu and fu.is_bot):
             return
-        text = message.caption or message.text or ""
+        # 文本和实体要取自同一来源：caption 类消息的格式实体在 caption_entities，
+        # 普通文本消息的在 entities。取错会把列表里的链接/格式丢掉。
+        if message.caption:
+            text = message.caption
+            entities = message.caption_entities
+        else:
+            text = message.text or ""
+            entities = message.entities
         if keyword and keyword not in text:
             return
 
         try:
             await ctx.bot.send(
                 target, text,
-                entities=message.entities,
+                entities=entities,
                 disable_web_page_preview=True,
             )
         except Exception as e:  # noqa: BLE001
