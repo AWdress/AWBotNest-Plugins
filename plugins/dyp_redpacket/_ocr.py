@@ -6,7 +6,9 @@
 # 里的大字，防止对方后期把 caption 文本改得和正常红包一样。
 #
 # 引擎优先级（都为可选依赖，缺失自动降级，不阻止插件加载）：
-#   1. RapidOCR(rapidocr_onnxruntime) —— 中文多行场景文字，识别雷包配图的首选。
+#   1. RapidOCR(rapidocr 2.x+) —— 中文多行场景文字，识别雷包配图的首选。
+#      注意用新包名 `rapidocr`（支持 Python 3.13）；旧包 `rapidocr_onnxruntime`
+#      钉死 <3.13 无法在平台(3.13)安装，已弃用。
 #   2. ddddocr —— 单行验证码模型，仅作兜底（对场景文字识别率低）。
 # 两者都不可用时 recognize_text() 返回空串，由上层 fail-closed 逻辑决定跳过。
 # =============================================================================
@@ -25,7 +27,7 @@ def _get_rapid(log=None):
     global _rapid
     if _rapid is None:
         try:
-            from rapidocr_onnxruntime import RapidOCR
+            from rapidocr import RapidOCR
             _rapid = RapidOCR()
             if log:
                 log.info("[癫影积分红包] RapidOCR 初始化成功")
@@ -50,7 +52,7 @@ def _get_dddd(log=None):
 def ocr_available() -> bool:
     """任一 OCR 引擎可 import 即视为可用（只检测 import，不强制初始化）。"""
     try:
-        import rapidocr_onnxruntime  # noqa: F401
+        import rapidocr  # noqa: F401
         return True
     except Exception:
         pass
@@ -80,10 +82,11 @@ def _recognize_sync(img_bytes: bytes, log=None) -> str:
         arr = _to_ndarray(img_bytes)
         if arr is not None:
             try:
-                result, _ = rapid(arr)
-                if result:
-                    # result: [[box, text, score], ...]
-                    texts = [str(item[1]) for item in result if len(item) >= 2 and item[1]]
+                result = rapid(arr)
+                # rapidocr 2.x+ 返回 RapidOCROutput 对象，.txts 为字符串元组（可能 None）
+                txts = getattr(result, "txts", None)
+                if txts:
+                    texts = [str(t) for t in txts if t]
                     blob = "".join(texts)
                     if blob.strip():
                         if log:

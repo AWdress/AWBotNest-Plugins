@@ -21,13 +21,13 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "description": "监控癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过），抢到一格即停。雷包文本防护始终生效；可选OCR识别配图兜底防伪装。发包bot/群组内置写死。",
     "requirements": [
-        "rapidocr_onnxruntime>=1.3",  # OCR配图兜底（雷包检测第二层）。缺失时降级为纯文本判定，不影响基础抢包。
+        "rapidocr>=2",  # OCR配图兜底（雷包检测第二层），支持 Python 3.13。缺失时降级为纯文本判定，不影响基础抢包。
     ],
     "config_schema": {
         "dyp_enabled": {
