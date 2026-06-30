@@ -62,6 +62,13 @@
     "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。",
     "path": "plugins/getmsg.py"
   },
+  "probe": {
+    "name": "插件开发探针",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。",
+    "path": "plugins/probe.py"
+  },
   "auto_changename": {
     "name": "自动报时昵称",
     "version": "1.0.0",
