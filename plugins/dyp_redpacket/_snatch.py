@@ -6,10 +6,24 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+
+
+def sanitize(text: str) -> str:
+    """清除零宽/不可见格式字符。
+
+    癫影把零宽字符（U+200B 等，Unicode 类别 Cf）塞进「红包」「雷包」等关键词里
+    防自动抢包脚本匹配（如「红​包」中间有 U+200B，`"红包" in text` 会失败）。
+    匹配前统一清掉，让门槛与判定恢复，且对其往任意词塞零宽字符免疫。
+    """
+    if not text:
+        return text
+    return "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
 
 
 def extract_text(message) -> str:
-    return (getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
+    raw = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    return sanitize(raw).strip()
 
 
 def classify_packet(blob: str, mine_keywords: list[str], normal_keywords: list[str]) -> str:

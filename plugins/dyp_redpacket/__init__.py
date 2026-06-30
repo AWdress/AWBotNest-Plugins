@@ -21,7 +21,7 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
