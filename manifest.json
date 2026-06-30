@@ -57,9 +57,9 @@
   },
   "getmsg": {
     "name": "取消息结构",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "author": "AWdress",
-    "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 发到你的收藏夹，便于调试。",
+    "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。",
     "path": "plugins/getmsg.py"
   },
   "auto_changename": {
