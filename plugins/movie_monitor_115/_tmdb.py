@@ -5,8 +5,7 @@
 import re
 from typing import List, Optional
 
-import aiohttp
-from aiohttp import ClientTimeout
+import httpx
 
 
 class TmdbApi:
@@ -19,11 +18,11 @@ class TmdbApi:
         self.proxy_enable = proxy_enable
         self.proxy_url = proxy_url
 
-    def _kwargs(self, params: dict) -> dict:
-        kwargs = {"params": params, "ssl": False}
+    def _client(self) -> httpx.AsyncClient:
+        kwargs = {"timeout": 10, "verify": False}
         if self.proxy_enable and self.proxy_url:
             kwargs["proxy"] = self.proxy_url
-        return kwargs
+        return httpx.AsyncClient(**kwargs)
 
     async def search_all(self, title: str, year: str = None, log=None) -> List[dict]:
         movie = await self._search(f"{self.base_url}/search/movie", title,
@@ -42,15 +41,13 @@ class TmdbApi:
         params = {"api_key": self.api_key, "language": self.language, "query": title}
         params.update({k: v for k, v in extra.items() if v})
         try:
-            timeout = ClientTimeout(total=10)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url, **self._kwargs(params)) as resp:
-                    resp.raise_for_status()
-                    data = await resp.json()
-                    return data.get("results", [])
+            async with self._client() as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                return resp.json().get("results", [])
         except Exception as e:  # noqa: BLE001
             if log:
-                log.error("[影巢监控] TMDB 查询失败: %r", e)
+                log.error("[115监控] TMDB 查询失败: %r", e)
             return []
 
     @staticmethod
@@ -86,15 +83,15 @@ async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str,
         "Limit": 10, "IncludeSearchTypes": "false", "api_key": emby_api,
     }
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                res = await resp.json()
-                items = res.get("Items") if res else None
-                if not items:
-                    return []
-                return [it["ProviderIds"].get("Tmdb") for it in items
-                        if "Tmdb" in it.get("ProviderIds", {})]
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, params=params)
+            res = resp.json()
+            items = res.get("Items") if res else None
+            if not items:
+                return []
+            return [it["ProviderIds"].get("Tmdb") for it in items
+                    if "Tmdb" in it.get("ProviderIds", {})]
     except Exception as e:  # noqa: BLE001
         if log:
-            log.error("[影巢监控] 连接 Emby 失败: %r", e)
+            log.error("[115监控] 连接 Emby 失败: %r", e)
         return []
