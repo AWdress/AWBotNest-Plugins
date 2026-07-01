@@ -44,7 +44,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -53,7 +53,7 @@ __plugin__ = {
         # —— 站点（群组ID/转账bot 内置写死；每站点一行 chips，点选功能）——
         # 一个 multiselect = 一行标签：启用 / 群内致谢 / 打赏榜(转入) / 赏赐榜(转出)。
         "site_audiences": {
-            "type": "multiselect", "default": ["on"], "label": "Audiences · 爆米花", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "Audiences · 爆米花", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
@@ -62,7 +62,7 @@ __plugin__ = {
         },
 
         "site_hddolby": {
-            "type": "multiselect", "default": ["on"], "label": "HDDolby · 鲸币", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "HDDolby · 鲸币", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
@@ -70,7 +70,7 @@ __plugin__ = {
         },
 
         "site_azusa": {
-            "type": "multiselect", "default": ["on"], "label": "Azusa · 魔力值", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "Azusa · 魔力值", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
@@ -78,7 +78,7 @@ __plugin__ = {
         },
 
         "site_zm": {
-            "type": "multiselect", "default": ["on"], "label": "ZmPT · 电力", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "ZmPT · 电力", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
@@ -87,7 +87,7 @@ __plugin__ = {
         },
 
         "site_springsunday": {
-            "type": "multiselect", "default": ["on"], "label": "SpringSunday · 茉莉（含两个群）", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "SpringSunday · 茉莉（含两个群）", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
@@ -95,7 +95,7 @@ __plugin__ = {
         },
 
         "site_hdsky": {
-            "type": "multiselect", "default": ["on"], "label": "HDSky · 银元", "section": "站点",
+            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "HDSky · 银元", "section": "站点",
             "options": [
                 {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
                 {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
