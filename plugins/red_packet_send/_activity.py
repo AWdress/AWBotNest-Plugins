@@ -221,7 +221,8 @@ class ActivityManager:
 
         await self._schedule_cleanup(client, chat_id)
 
-        reply_target_id = message.reply_to_message.id if message.reply_to_message else message.id
+        # 命令本身待会儿删掉，只有当创建者是「回复某条消息」发的命令时才保留回复指向
+        reply_target_id = message.reply_to_message.id if message.reply_to_message else None
 
         caption = (
             f"🧧 幸运红包  #{rp_id}\n"
@@ -262,6 +263,12 @@ class ActivityManager:
             )
         if sent_msg:
             activity["msg_ids"].append(sent_msg.id)
+
+        # 删除创建命令本身（`创建红包 总额 个数`），保持群内整洁
+        try:
+            await message.delete()
+        except Exception as e:  # noqa: BLE001
+            self.ctx.log.warning("[发红包] 删除创建命令失败: %r", e)
 
         self.ctx.log.info(
             "[发红包] 群 %s 创建活动 #%s：%s魔力/%s个，验证码=%s",

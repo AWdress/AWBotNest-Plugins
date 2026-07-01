@@ -27,7 +27,7 @@ from ._activity import ActivityManager, cancel_all_tasks, is_create_command, to_
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
