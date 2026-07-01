@@ -67,26 +67,32 @@ def builtin_site_keys() -> list[tuple[str, str, str, bool]]:
 
 
 def build_active_sites(config) -> dict[int, list["SiteConfig"]]:
-    """根据 config 里每站点的开关，构建 {chat_id: [SiteConfig]}。
+    """根据 config 里每站点的 multiselect 标签，构建 {chat_id: [SiteConfig]}。
 
-    每站点读三个开关键：
-      site_<key>_enabled   是否监听该站（关=完全不处理该群）
-      site_<key>_notify    群内致谢开关
-      site_<key>_lb_in     致谢附转入(打赏)榜
-      site_<key>_lb_out    致谢附转出(赏赐)榜
+    每站点读一个键 site_<key>（multiselect，值为已选标签列表）：
+      "on"     启用监听（不含则完全不处理该群）
+      "notify" 群内致谢
+      "lb_in"  致谢附打赏榜(转入)
+      "lb_out" 致谢附赏赐榜(转出)
     群组ID / botID / 货币 / 解析方式全部取内置写死值。
     """
     result: dict[int, list[SiteConfig]] = {}
     for (key, _disp, chat_ids, bot_id, bonus, parser, amount_pat, default_on) in _BUILTIN_SITES:
-        if not config.get(f"site_{key}_enabled", default_on):
+        default_flags = ["on"] if default_on else []
+        flags = config.get(f"site_{key}", default_flags)
+        if isinstance(flags, str):
+            flags = [flags]
+        if not isinstance(flags, (list, tuple)):
+            flags = default_flags
+        if "on" not in flags:
             continue
         try:
             amount_re = re.compile(amount_pat) if amount_pat else _DEFAULT_AMOUNT_RE
         except re.error:
             amount_re = _DEFAULT_AMOUNT_RE
-        notify = bool(config.get(f"site_{key}_notify", False))
-        lb_in = bool(config.get(f"site_{key}_lb_in", False))
-        lb_out = bool(config.get(f"site_{key}_lb_out", False))
+        notify = "notify" in flags
+        lb_in = "lb_in" in flags
+        lb_out = "lb_out" in flags
         for chat_id in chat_ids:
             cfg = SiteConfig(chat_id, key, bot_id, bonus, amount_re, parser,
                              notify, lb_in, lb_out)
