@@ -32,8 +32,8 @@ class SiteConfig(NamedTuple):
     bot_id: int           # 该群转账 bot 的数字 ID（0 = 不校验发送者）
     bonus_name: str       # 货币单位（爆米花/魔力值/茉莉…）
     amount_re: re.Pattern # 金额正则（parser=reply 时用）
-    parser: str           # "reply"（默认，正则抓 bot 文本，抓不到回退 +金额）
-                          # | "plus"（强制取回复链里的 +金额 消息）
+    parser: str           # "reply"（默认，只从 bot 文本正则抓金额，对齐原项目 audiences/hddolby/azusa/zm）
+                          # | "plus"（只取回复链里的 +金额 消息，对齐原项目 springsunday/mock）
                           # | "hdsky"（实体解析，专用分支）
     # ── per-site 开关（对应原项目 state.toml 里 [站点名大写] 段的三项）──
     # 三者均为 Optional[bool]：None = 继承对应全局开关；True/False = 本站点显式覆盖。
@@ -51,7 +51,6 @@ class SiteConfig(NamedTuple):
 _BUILTIN_SITES = [
     # key,         display,        chat_ids,                          bot_id,     bonus,   parser,  amount_re,                       default_on
     ("audiences",   "Audiences",   [-1002372175195],                  2053736484, "爆米花", "reply", "",                              True),
-    ("ptvicomo",    "PTVicomo",    [-1002022762746],                  7124396542, "象草",   "reply", r".+ 发送了 (\d+) 象草",        True),
     ("hddolby",     "HDDolby",     [-1002131053667],                  6474948384, "鲸币",   "reply", r"成功转账(\d+)",                True),
     ("azusa",       "Azusa",       [-1002132909147],                  6696869468, "魔力值", "reply", r"成功赠送\s*(\d+)\s*魔力值",     True),
     ("zm",          "ZmPT",        [-1001664998164],                  7192791419, "电力",   "reply", r"转账成功！已转账\s*(\d+)\s*电力", True),

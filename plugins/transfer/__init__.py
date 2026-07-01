@@ -16,15 +16,17 @@
 #   6. MY_TGID → ctx.owner_id；通知走 ctx.notify。
 #
 # 解析差异（读完原项目 transform_*.py 确认）：
-#   - audiences/ptvicomo/hddolby/azusa/zm：同一回复链形态，仅金额正则不同 → parser=reply。
+#   - audiences/hddolby/azusa/zm：同一回复链形态，仅金额正则不同 → parser=reply。
 #   - springsunday/mock：回复链相同，但金额取「+金额」消息 → parser=plus。
 #   - hdsky：实体解析 + outgoing 缓存，形态特殊 → parser=hdsky（专用分支）。
+#   - ptvicomo：站点已关停，去除（原为 parser=reply）。
 #   - u2dmhy：不是监听器（是带 cookie 的 HTTP 送礼命令），与「监听转账记录排行榜」
 #     无关，不迁入本插件。
 # =============================================================================
 
 import asyncio
 import random
+import re
 
 from ._sites import (
     build_active_sites, detect_direction, counterparty_message,
@@ -41,7 +43,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.6",
+    "version": "1.1.0",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -53,11 +55,6 @@ __plugin__ = {
         "site_audiences_notify":    {"type": "boolean", "default": False, "label": "Audiences 群内致谢", "section": "Audiences", "show_if": {"site_audiences_enabled": True}},
         "site_audiences_lb_in":     {"type": "boolean", "default": False, "label": "Audiences 致谢附打赏榜(转入)", "section": "Audiences", "show_if": {"site_audiences_notify": True}},
         "site_audiences_lb_out":    {"type": "boolean", "default": False, "label": "Audiences 致谢附赏赐榜(转出)", "section": "Audiences", "show_if": {"site_audiences_notify": True}},
-
-        "site_ptvicomo_enabled":    {"type": "boolean", "default": True,  "label": "PTVicomo 启用", "section": "PTVicomo"},
-        "site_ptvicomo_notify":     {"type": "boolean", "default": False, "label": "PTVicomo 群内致谢", "section": "PTVicomo", "show_if": {"site_ptvicomo_enabled": True}},
-        "site_ptvicomo_lb_in":      {"type": "boolean", "default": False, "label": "PTVicomo 致谢附打赏榜(转入)", "section": "PTVicomo", "show_if": {"site_ptvicomo_notify": True}},
-        "site_ptvicomo_lb_out":     {"type": "boolean", "default": False, "label": "PTVicomo 致谢附赏赐榜(转出)", "section": "PTVicomo", "show_if": {"site_ptvicomo_notify": True}},
 
         "site_hddolby_enabled":     {"type": "boolean", "default": True,  "label": "HDDolby 启用", "section": "HDDolby"},
         "site_hddolby_notify":      {"type": "boolean", "default": False, "label": "HDDolby 群内致谢", "section": "HDDolby", "show_if": {"site_hddolby_enabled": True}},
@@ -187,10 +184,13 @@ async def setup(ctx):
             fu = message.from_user
             if not fu:
                 return
-            # 找到匹配的站点配置（按 bot_id；bot_id=0 不校验）
+            # 找到匹配的站点配置（按发送者 id；bot_id=0 不校验）。
+            # 注意：不额外要求 is_bot —— 原项目 azusa/zm 的转账通知账号按 id 直接匹配、
+            # 并未要求是 bot（其它站点用 create_bot_filter 才带 is_bot）。TG 用户 id 唯一，
+            # 仅按 id 匹配既能命中所有站点，又不会误配，还修好了 azusa/zm 不触发的问题。
             site = None
             for s in sites:
-                if s.bot_id == 0 or (getattr(fu, "is_bot", False) and fu.id == s.bot_id):
+                if s.bot_id == 0 or fu.id == s.bot_id:
                     site = s
                     break
             if site is None:
@@ -274,22 +274,33 @@ async def teardown(ctx):
     ctx.log.info("多站点转账插件已停用")
 
 
+# 转账失败/确认类提示词：命中则不是一笔成功转账，跳过。
+# 对齐原项目 cmct_pay_keyword（排除 转账金额过大/余额不足/转账失败）+ ssd「请确认你的转账」。
+# 对 reply 解析的站点，其金额正则本身要求「成功/转账成功」等字样，天然不会命中失败消息；
+# 但 plus 解析（springsunday/mock）金额取自「+金额」消息、不校验 bot 文本，
+# 若不排除，bot 回复的「请确认你的转账 / 转账失败」会被误记成一笔转账。
+_TRANSFER_SKIP_KEYWORDS = (
+    "转账金额过大", "余额不足", "转账失败", "请确认你的转账", "确认你的转账",
+)
+
+
 # ─── 通用站点处理（reply / plus）──────────────────────────────────────────────
 async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
     direction = detect_direction(message)
     if direction is None:
         return
 
-    # 金额提取
-    bot_text = message.text or getattr(message, "caption", None)
+    # 金额提取（严格对齐原项目：reply 站只从 bot 文本取，plus 站只从「+金额」取）
+    bot_text = message.text or getattr(message, "caption", None) or ""
+    # 失败/确认提示 → 不是成功转账，跳过
+    if any(k in bot_text for k in _TRANSFER_SKIP_KEYWORDS):
+        return
     if site.parser == "plus":
+        # springsunday/mock：金额取回复链里的「+金额」消息
         plus_msg = plus_amount_message(message, direction)
         amount_str = extract_plus_amount(getattr(plus_msg, "text", None))
-    else:  # reply
+    else:  # reply：audiences/hddolby/azusa/zm，金额取自 bot 文本，不回退「+金额」
         amount_str = extract_amount_from_text(bot_text, site.amount_re)
-        if amount_str is None:
-            plus_msg = plus_amount_message(message, direction)
-            amount_str = extract_plus_amount(getattr(plus_msg, "text", None))
     if amount_str is None:
         return
     try:
@@ -301,12 +312,21 @@ async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
 
     cp_msg = counterparty_message(message, direction)
     user_id, user_name = user_identity(cp_msg)
+    # 回复目标 = 对手方消息（原项目 transform_message）；拿不到则回复 bot 确认消息
+    target = cp_msg or message
 
-    await _record_and_notify(ctx, store, client, message, site, direction,
+    await _record_and_notify(ctx, store, client, message, target, site, direction,
                              user_id, user_name, amount, rank_size_fn)
 
 
-# ─── hdsky 专用处理（实体解析）────────────────────────────────────────────────
+# ─── hdsky 专用处理（广播式转账，严格对齐原项目 self_received/self_mentioned）──
+# HDSky 转账 bot 会「广播」群里的每一笔转账，是独立消息（不在回复链上）：
+#   第1行：{转出方昵称} · 🥇 · 🥈 · 🥉        （昵称常是数学粗体等花体 unicode）
+#   第2行：已向 {收款方} 转赠 {金额} 银元，...
+# 方向判定完全复刻原项目 filters/custom_filters.py：
+#   self_received：文本含「已向 {我} 转赠」            → 我是收款方（in/get）
+#   self_mentioned：有指向我的实体，或（粗体还原后）文本以我的名字开头 → 我是转出方（out/pay）
+#   两者都不满足 = 别人转给别人，直接忽略（旧逻辑误判为「我转出」，是排行榜误触发的根因）。
 async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_fn):
     text = message.text or ""
     amount_str = extract_amount_from_text(text, site.amount_re)
@@ -316,40 +336,72 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_
         amount = float(amount_str)
     except ValueError:
         return
+    if amount <= 0:
+        return
 
-    me_id = client.me.id if client.me else 0
     me = client.me
     full_name = ""
     if me:
-        full_name = " ".join(filter(None, [me.first_name, getattr(me, "last_name", None)]))
-
-    # 方向：文本含「已向 {me} 转赠」=转入(self_received)；以自己名字开头=转出(self_mentioned)
-    is_in = bool(full_name and f"已向 {full_name} 转赠" in text)
-    # 取第一个非自己的 text_mention 实体作为对手方
+        full_name = " ".join(filter(None, [getattr(me, "first_name", None),
+                                           getattr(me, "last_name", None)]))
     entities = getattr(message, "entities", None) or []
+    entity_self = any(getattr(e, "user", None) and getattr(e.user, "is_self", False)
+                      for e in entities)
     other_entity = next((e for e in entities
                          if getattr(e, "user", None) and not getattr(e.user, "is_self", False)),
                         None)
 
-    if is_in:
+    self_received = bool(full_name and f"已向 {full_name} 转赠" in text)
+    self_mentioned = entity_self or bool(
+        full_name and _strip_math_bold(text).startswith(full_name))
+
+    if self_received:
         direction = "in"
+        # 对手方 = 转出方：第一个非自己的 text_mention，或取首行名字
         if other_entity:
             user_id, user_name = user_identity_from_user(other_entity.user)
         else:
             name = text.split("\n")[0].strip() or "未知用户"
             user_id, user_name = 0, name[:48]
-    else:
+        # 回复目标：bot 消息若在回复链上 → 回复源消息，否则回复 bot 广播消息本身
+        target = getattr(message, "reply_to_message", None) or message
+    elif self_mentioned:
         direction = "out"
+        # 对手方 = 收款方：第一个非自己的 text_mention，或「已向 X 转赠」里的 X
         if other_entity:
             user_id, user_name = user_identity_from_user(other_entity.user)
         else:
-            import re
             m = re.search(r"已向\s+(.+?)\s+转赠", text)
             name = (m.group(1) if m else "未知用户").strip()
             user_id, user_name = 0, name[:48]
+        # 回复目标：我发起转账时回复的那条（收款人）消息（缓存的 id），拿不到则不指定回复
+        target = None
+        cached = pay_cache.pop(message.chat.id, 0)
+        if cached:
+            try:
+                target = await client.get_messages(message.chat.id, cached)
+            except Exception:
+                target = None
+    else:
+        # 这笔转账与我无关（别人转给别人），忽略，不记账、不触发排行榜
+        return
 
-    await _record_and_notify(ctx, store, client, message, site, direction,
+    await _record_and_notify(ctx, store, client, message, target, site, direction,
                              user_id, user_name, amount, rank_size_fn)
+
+
+def _strip_math_bold(text: str) -> str:
+    """将 Unicode 数学粗体字母(U+1D400–U+1D433)还原为普通 ASCII（复刻原项目）。"""
+    out = []
+    for c in text:
+        cp = ord(c)
+        if 0x1D400 <= cp <= 0x1D419:
+            out.append(chr(cp - 0x1D400 + 0x41))   # 粗体 A-Z → A-Z
+        elif 0x1D41A <= cp <= 0x1D433:
+            out.append(chr(cp - 0x1D41A + 0x61))   # 粗体 a-z → a-z
+        else:
+            out.append(c)
+    return "".join(out)
 
 
 def user_identity_from_user(fu) -> tuple[int, str]:
@@ -368,7 +420,11 @@ def user_identity_from_user(fu) -> tuple[int, str]:
 
 
 # ─── 记录 + 通知 ───────────────────────────────────────────────────────────────
-async def _record_and_notify(ctx, store, client, message, site, direction,
+# 对齐原项目 core/services/transfer_service.py::_send_combined_notification：
+#   - 记录 → 组合致谢；致谢/榜单回复「对手方消息」（target），而非 bot 确认消息。
+#   - 图片模式：致谢正文 + <i>附注</i> 作为图片 caption；发图失败回退精修版文字榜。
+#   - 文字模式/无图能力：致谢正文 + <blockquote>精修版文字榜</blockquote>。
+async def _record_and_notify(ctx, store, client, message, target, site, direction,
                              user_id, user_name, amount, rank_size_fn):
     # 去重（防 bot 消息 + 编辑双触发）
     if store.is_duplicate(site.site_name, direction, message.chat.id, message.id, amount):
@@ -402,7 +458,8 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
     if dmax > 0 and dmax >= dmin:
         await asyncio.sleep(random.uniform(dmin, dmax))
 
-    text = lb.render_user_summary(stat, site.bonus_name, direction, user_name, amount)
+    text = lb.render_user_summary(stat, site.bonus_name, direction,
+                                  user_name, amount, user_id)
 
     # 排行榜开关：转入看 leaderboard（缺省继承 leaderboard_in），
     #             转出看 payleaderboard（缺省继承 leaderboard_out）。
@@ -417,6 +474,7 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
         entries = store.leaderboard(site.site_name, direction, rank_size_fn())
 
     owner_name = client.me.first_name if client.me else ""
+    chat_id = message.chat.id
     sent = None
     want_image = ctx.config.get("rank_output", "text") == "image"
     try:
@@ -424,9 +482,9 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
             img = lb.render_image(entries, site.site_name, site.bonus_name,
                                   direction, owner_name, ctx.data_dir)
             if img:
-                cap = text + "\n\n" + "（榜单见图）"
+                cap = text + lb.render_extra(owner_name, direction, len(entries))
                 try:
-                    sent = await message.reply_photo(img, caption=cap)
+                    sent = await _send_reply(client, chat_id, target, photo=img, caption=cap)
                 except Exception as photo_err:  # noqa: BLE001 - 发图失败回退文本
                     ctx.log.warning("[排行榜] 发图失败，回退文本: %r", photo_err)
                 finally:
@@ -437,17 +495,14 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
                     except Exception:
                         pass
             else:
-                ctx.log.warning("[排行榜] 出图未生成（render_image 返回空，imgkit=%s pil=%s），回退文本",
+                ctx.log.warning("[排行榜] 出图未生成（imgkit=%s pil=%s），回退文本",
                                 lb._imgkit_available(), lb._pil_available())
-        elif entries and not want_image:
-            ctx.log.info("[排行榜] 输出形式=文本（rank_output 未设为 image），如需图片请在配置里改「排行榜输出形式」")
         if sent is None:
             if entries:
-                table = lb.render_text(entries, site.site_name, site.bonus_name,
-                                       direction, owner_name)
-                # 榜单包进 <blockquote>，与致谢文案的统计块风格一致（分隔引用块）
+                table = lb.render_text_fallback(entries, owner_name, direction,
+                                                site.bonus_name)
                 text = f"{text}\n<blockquote>{table}</blockquote>"
-            sent = await message.reply(text)
+            sent = await _send_reply(client, chat_id, target, text=text)
     except Exception as e:
         ctx.log.warning("发送致谢消息失败: %s", e)
         return
@@ -455,6 +510,17 @@ async def _record_and_notify(ctx, store, client, message, site, direction,
     # 15 秒后自删
     if sent is not None:
         asyncio.create_task(_auto_delete(sent, 15))
+
+
+async def _send_reply(client, chat_id, target, text=None, photo=None, caption=None):
+    """回复对手方消息（target 为 Message 对象）；target 为空则直接发到群（不指定回复）。"""
+    if photo is not None:
+        if target is not None:
+            return await target.reply_photo(photo, caption=caption)
+        return await client.send_photo(chat_id, photo, caption=caption)
+    if target is not None:
+        return await target.reply(text)
+    return await client.send_message(chat_id, text)
 
 
 # ─── 排行榜命令 ──────────────────────────────────────────────────────────────
