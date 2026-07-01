@@ -25,6 +25,23 @@ _RECENT_MAX = 200
 _DEDUPE_TTL = 8.0  # 秒
 
 
+def _agg_key(user_id, user_name) -> str:
+    """排行榜聚合键。
+
+    有真实 uid → 用 uid 字符串；uid 缺失/为 0（如 hdsky 广播只给名字、无 text_mention）
+    → 用 "name:<名字>"，避免不同的人都并进 uid=0 一条里（金额混算、名字互相覆盖）。
+    """
+    try:
+        if user_id and int(user_id) != 0:
+            return str(int(user_id))
+    except (ValueError, TypeError):
+        if user_id:
+            return str(user_id)
+    name = (user_name or "").strip()
+    return f"name:{name}" if name else "0"
+
+
+
 class RecordStore:
     """转账记录存取 + 排行榜聚合（基于 ctx.kv）。"""
 
@@ -56,7 +73,7 @@ class RecordStore:
         amount = abs(float(amount))
         agg = self._load_agg(site)
         side = agg.setdefault(direction, {})
-        uid = str(user_id)
+        uid = _agg_key(user_id, user_name)
         entry = side.get(uid) or {"name": user_name, "total": 0.0, "count": 0}
         entry["name"] = user_name or entry.get("name") or f"用户{user_id}"
         entry["total"] = round(float(entry["total"]) + amount, 4)
