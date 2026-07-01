@@ -43,7 +43,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -281,6 +281,7 @@ async def teardown(ctx):
 # 若不排除，bot 回复的「请确认你的转账 / 转账失败」会被误记成一笔转账。
 _TRANSFER_SKIP_KEYWORDS = (
     "转账金额过大", "余额不足", "转账失败", "请确认你的转账", "确认你的转账",
+    "请输入正确数量", "限额", "失败", "不足", "错误",
 )
 
 
@@ -329,6 +330,9 @@ async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
 #   两者都不满足 = 别人转给别人，直接忽略（旧逻辑误判为「我转出」，是排行榜误触发的根因）。
 async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_fn):
     text = message.text or ""
+    # 失败/确认提示（限额、余额不足、请输入正确数量等）→ 不是成功转账，跳过
+    if any(k in text for k in _TRANSFER_SKIP_KEYWORDS):
+        return
     amount_str = extract_amount_from_text(text, site.amount_re)
     if amount_str is None:
         return

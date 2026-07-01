@@ -50,7 +50,7 @@ class SiteConfig(NamedTuple):
 # =============================================================================
 _BUILTIN_SITES = [
     # key,         display,        chat_ids,                          bot_id,     bonus,   parser,  amount_re,                       default_on
-    ("audiences",   "Audiences",   [-1002372175195],                  2053736484, "爆米花", "reply", "",                              True),
+    ("audiences",   "Audiences",   [-1002372175195],                  2053736484, "爆米花", "reply", r"送给.+?(\d+)\s*粒?爆米花", True),
     ("hddolby",     "HDDolby",     [-1002131053667],                  6474948384, "鲸币",   "reply", r"成功转账(\d+)",                True),
     ("azusa",       "Azusa",       [-1002132909147],                  6696869468, "魔力值", "reply", r"成功赠送\s*(\d+)\s*魔力值",     True),
     ("zm",          "ZmPT",        [-1001664998164],                  7192791419, "电力",   "reply", r"转账成功！已转账\s*(\d+)\s*电力", True),
