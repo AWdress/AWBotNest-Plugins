@@ -13,10 +13,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import re
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
+
+from ._captcha import generate_code, render_captcha
 
 # 后台任务集合（超时结算 + 延迟删除），teardown 时统一 cancel
 _BG_TASKS: set = set()
@@ -79,59 +82,32 @@ def acct_id(client) -> int:
 
 def is_create_command(
     text: str,
-    reply_msg,
     create_word: str,
     max_amount: int,
     max_count: int,
-) -> Optional[Tuple[float, int, str]]:
+) -> Optional[Tuple[float, int]]:
     """检查是否是创建红包命令。
 
-    支持格式：
-      <命令词> 总金额 红包数量 关键词
-      <命令词> 总金额 红包数量          （回复贴图消息时，贴图即口令）
-    返回 (总金额, 红包数量, 关键词) 或 None。
+    新格式（验证码模式，不再需要口令/贴图）：
+      <命令词> 总金额 红包数量
+    口令由系统随机生成验证码图片，群友肉眼识别后打出内容才算参与。
+    返回 (总金额, 红包数量) 或 None。
     """
     text = (text or "").strip()
     word = re.escape(create_word)
 
-    # 回复贴图：<命令词> 金额 数量
-    if reply_msg is not None and getattr(reply_msg, "sticker", None):
-        m = re.match(rf"^{word}\s+(\d+(?:\.\d+)?)\s+(\d+)$", text)
-        if m:
-            total_amount = float(m.group(1))
-            packet_count = int(m.group(2))
-            if total_amount <= 0 or packet_count <= 0:
-                return None
-            if max_amount > 0 and total_amount > max_amount:
-                return None
-            if max_count > 0 and packet_count > max_count:
-                return None
-            try:
-                file_id = reply_msg.sticker.file_id
-                unique_id = reply_msg.sticker.file_unique_id
-                if not file_id or not unique_id:
-                    return None
-                keyword = f"sticker:{file_id}:{unique_id}"
-            except AttributeError:
-                return None
-            return total_amount, packet_count, keyword
-
-    # 普通文本关键词：<命令词> 金额 数量 关键词
-    m = re.match(rf"^{word}\s+(\d+(?:\.\d+)?)\s+(\d+)\s+(.+)$", text)
-    if m:
-        total_amount = float(m.group(1))
-        packet_count = int(m.group(2))
-        keyword = m.group(3).strip()
-        if total_amount <= 0 or packet_count <= 0 or not keyword:
-            return None
-        if len(keyword) > 100 or not keyword.isprintable():
-            return None
-        if max_amount > 0 and total_amount > max_amount:
-            return None
-        if max_count > 0 and packet_count > max_count:
-            return None
-        return total_amount, packet_count, keyword
-    return None
+    m = re.match(rf"^{word}\s+(\d+(?:\.\d+)?)\s+(\d+)$", text)
+    if not m:
+        return None
+    total_amount = float(m.group(1))
+    packet_count = int(m.group(2))
+    if total_amount <= 0 or packet_count <= 0:
+        return None
+    if max_amount > 0 and total_amount > max_amount:
+        return None
+    if max_count > 0 and packet_count > max_count:
+        return None
+    return total_amount, packet_count
 
 
 def allocate_amount(activity: Dict) -> float:
@@ -181,9 +157,13 @@ class ActivityManager:
     def _cfg(self, name, default):
         return self.ctx.config.get(name, default)
 
+    def _data_dir(self):
+        """插件独享可写目录（存验证码临时图）。"""
+        return getattr(self.ctx, "data_dir", ".")
+
     # —— 创建活动 ——
-    async def create_redpacket(self, client, message, params: Tuple[float, int, str]) -> bool:
-        total_amount, packet_count, keyword = params
+    async def create_redpacket(self, client, message, params: Tuple[float, int]) -> bool:
+        total_amount, packet_count = params
         total_amount = int(round(total_amount))
         chat_id = message.chat.id
         key = self._key(client, chat_id)
@@ -200,6 +180,11 @@ class ActivityManager:
         if key not in self.locks:
             self.locks[key] = asyncio.Lock()
 
+        # 随机验证码 + 图片（防脚本）：验证码即参与口令
+        code_length = to_int(self._cfg("code_length", 4), 4)
+        code = generate_code(code_length)
+        captcha_path = render_captcha(code, self._data_dir())
+
         activity = {
             "client": client,
             "chat_id": chat_id,
@@ -209,7 +194,8 @@ class ActivityManager:
             "packet_count": packet_count,
             "remaining_count": packet_count,
             "remaining_amount": total_amount,
-            "keyword": keyword,
+            "keyword": code,            # 验证码内容即参与口令（大小写不敏感匹配）
+            "captcha_path": captcha_path,
             "participants": [],
             "distributed_amount": 0,
             "status": "进行中",
@@ -223,60 +209,43 @@ class ActivityManager:
 
         reply_target_id = message.reply_to_message.id if message.reply_to_message else message.id
 
-        if keyword.startswith("sticker:"):
+        caption = (
+            f"幸运红包活动创建成功！\n"
+            f"总金额：{total_amount} 魔力\n"
+            f"红包数量：{packet_count} 个\n"
+            f"参与方式：识别上图验证码，发送图中的字符即可参与（不区分大小写）"
+        )
+
+        sent_msg = None
+        if captcha_path:
             try:
-                sticker_file_id = keyword.split(":", 2)[1]
-                sticker_msg = await client.send_sticker(
+                sent_msg = await client.send_photo(
                     chat_id=chat_id,
-                    sticker=sticker_file_id,
+                    photo=captcha_path,
+                    caption=caption,
                     reply_to_message_id=reply_target_id,
                 )
-                if sticker_msg:
-                    activity["msg_ids"].append(sticker_msg.id)
-                create_msg = (
-                    f"幸运红包活动创建成功！\n"
-                    f"总金额：{total_amount} 魔力\n"
-                    f"红包数量：{packet_count} 个\n"
-                    f"参与方式：发送上方的贴图表情\n"
-                    f"发送相同的贴图即可参与抢红包！"
-                )
-                txt_msg = await client.send_message(
-                    chat_id=chat_id,
-                    text=create_msg,
-                    reply_to_message_id=sticker_msg.id if sticker_msg else reply_target_id,
-                )
-                if txt_msg:
-                    activity["msg_ids"].append(txt_msg.id)
             except Exception as e:  # noqa: BLE001
-                self.ctx.log.warning("[发红包] 发送贴图失败，回退文本: %r", e)
-                create_msg = (
+                self.ctx.log.warning("[发红包] 发送验证码图片失败，回退文本: %r", e)
+
+        if sent_msg is None:
+            # PIL 缺失或发图失败：降级为文本公布验证码（仍可玩，防脚本能力下降）
+            sent_msg = await client.send_message(
+                chat_id=chat_id,
+                text=(
                     f"幸运红包活动创建成功！\n"
                     f"总金额：{total_amount} 魔力\n"
                     f"红包数量：{packet_count} 个\n"
-                    f"参与方式：发送指定的贴图表情\n"
-                    f"回复原始消息查看参与贴图！"
-                )
-                txt_msg = await client.send_message(
-                    chat_id=chat_id, text=create_msg, reply_to_message_id=reply_target_id
-                )
-                if txt_msg:
-                    activity["msg_ids"].append(txt_msg.id)
-        else:
-            create_msg = (
-                f"幸运红包活动创建成功！\n"
-                f"总金额：{total_amount} 魔力\n"
-                f"红包数量：{packet_count} 个\n"
-                f"参与关键词：{keyword}\n"
-                f"发送与关键词完全一致的消息即可参与抢红包！"
+                    f"参与口令：{code}\n"
+                    f"发送与口令一致的消息即可参与（不区分大小写）"
+                ),
+                reply_to_message_id=reply_target_id,
             )
-            txt_msg = await client.send_message(
-                chat_id=chat_id, text=create_msg, reply_to_message_id=reply_target_id
-            )
-            if txt_msg:
-                activity["msg_ids"].append(txt_msg.id)
+        if sent_msg:
+            activity["msg_ids"].append(sent_msg.id)
 
         self.ctx.log.info(
-            "[发红包] 群 %s 创建活动：%s魔力/%s个，口令=%s", chat_id, total_amount, packet_count, keyword
+            "[发红包] 群 %s 创建活动：%s魔力/%s个，验证码=%s", chat_id, total_amount, packet_count, code
         )
         return True
 
@@ -331,22 +300,8 @@ class ActivityManager:
             if any(p["user_id"] == user_id for p in activity["participants"]):
                 return False
 
-            # 口令/贴图匹配
-            keyword_matched = False
-            if activity["keyword"].startswith("sticker:"):
-                kw_parts = activity["keyword"].split(":", 2)
-                sticker = message.sticker or (
-                    message.reply_to_message.sticker if message.reply_to_message else None
-                )
-                if sticker and len(kw_parts) == 3:
-                    keyword_matched = sticker.file_unique_id == kw_parts[2]
-                elif sticker and len(kw_parts) >= 2:
-                    keyword_matched = sticker.file_id == kw_parts[1]
-            else:
-                if activity["keyword"].lower() == text.lower().strip():
-                    keyword_matched = True
-
-            if not keyword_matched:
+            # 验证码匹配（不区分大小写、去首尾空白）
+            if activity["keyword"].strip().lower() != text.strip().lower():
                 return False
 
             amount = allocate_amount(activity)
@@ -476,6 +431,13 @@ class ActivityManager:
             t = self.cleanup_tasks.pop(key, None)
             if t and not t.done():
                 t.cancel()
+            # 清理验证码临时图片
+            cpath = activity.get("captcha_path")
+            if cpath:
+                try:
+                    os.remove(cpath)
+                except OSError:
+                    pass
 
     # —— 用户手动结束（仅创建者）——
     async def end_activity_by_user(self, client, message) -> bool:
@@ -501,36 +463,31 @@ class ActivityManager:
             return
         participants = activity["participants"]
 
-        if activity["keyword"].startswith("sticker:"):
-            try:
-                sticker_file_id = activity["keyword"].split(":", 2)[1]
-                await client.send_sticker(chat_id, sticker_file_id)
-                status_msg = (
-                    f"幸运红包活动进行中\n"
-                    f"总金额：{activity['total_amount']} 魔力\n"
-                    f"剩余红包：{activity['remaining_count']} 个\n"
-                    f"已参与：{len(participants)} 人\n"
-                    f"参与方式：发送上方的贴图表情\n"
-                    f"剩余金额：{int(round(activity['remaining_amount']))} 魔力"
-                )
-            except Exception:  # noqa: BLE001
-                status_msg = (
-                    f"幸运红包活动进行中\n"
-                    f"总金额：{activity['total_amount']} 魔力\n"
-                    f"剩余红包：{activity['remaining_count']} 个\n"
-                    f"已参与：{len(participants)} 人\n"
-                    f"参与方式：发送指定的贴图表情\n"
-                    f"剩余金额：{int(round(activity['remaining_amount']))} 魔力"
-                )
-        else:
-            status_msg = (
-                f"幸运红包活动进行中\n"
-                f"总金额：{activity['total_amount']} 魔力\n"
-                f"剩余红包：{activity['remaining_count']} 个\n"
-                f"已参与：{len(participants)} 人\n"
-                f"参与关键词：\"{activity['keyword']}\"\n"
-                f"剩余金额：{int(round(activity['remaining_amount']))} 魔力"
+        stat_lines = (
+            f"总金额：{activity['total_amount']} 魔力\n"
+            f"剩余红包：{activity['remaining_count']} 个\n"
+            f"已参与：{len(participants)} 人\n"
+            f"剩余金额：{int(round(activity['remaining_amount']))} 魔力"
+        )
+        captcha_path = activity.get("captcha_path")
+
+        # 优先重发验证码图片（让后来者也能看清），不在文本里泄露验证码
+        if captcha_path and os.path.exists(captcha_path):
+            caption = (
+                f"幸运红包活动进行中\n{stat_lines}\n"
+                f"参与方式：识别上图验证码，发送图中的字符即可参与（不区分大小写）"
             )
+            try:
+                await client.send_photo(chat_id, captcha_path, caption=caption)
+                return
+            except Exception as e:  # noqa: BLE001
+                self.ctx.log.warning("[发红包] 状态重发验证码图失败，回退文本: %r", e)
+
+        # 图片不可用：文本模式下公布口令
+        status_msg = (
+            f"幸运红包活动进行中\n{stat_lines}\n"
+            f"参与口令：{activity['keyword']}"
+        )
         try:
             await client.send_message(chat_id, status_msg)
         except Exception as e:  # noqa: BLE001
@@ -542,5 +499,12 @@ class ActivityManager:
             t = self.cleanup_tasks.pop(key, None)
             if t and not t.done():
                 t.cancel()
+        for activity in self.active.values():
+            cpath = activity.get("captcha_path")
+            if cpath:
+                try:
+                    os.remove(cpath)
+                except OSError:
+                    pass
         self.active.clear()
         self.locks.clear()

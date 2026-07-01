@@ -1,14 +1,16 @@
 # =============================================================================
 # AWBotNest 插件：发红包（red_packet_send）
 #
-# 用你的「用户账号」在群里发拼手气红包：
-#   1. 你发命令 `创建红包 总额 个数 口令`（或回复贴图 `创建红包 总额 个数`）创建活动；
-#   2. 群友发送与口令一致的消息（或相同贴图）参与；
-#   3. 按拼手气随机分配，用 `+金额` reply 给每个参与者（群转账bot实际打款）；
-#   4. 抢完或超时后自动结算公布；创建者可发 `结束红包` 提前结束、`红包状态` 查看进度。
+# 用你的「用户账号」在群里发拼手气红包（验证码防脚本版）：
+#   1. 你发命令 `创建红包 总额 个数` 创建活动；
+#   2. 系统随机生成一张扭曲验证码图片发到群里作为参与口令；
+#   3. 群友肉眼识别验证码、发送图中字符（不区分大小写）参与，脚本无法自动匹配；
+#   4. 按拼手气随机分配，用 `+金额` reply 给每个参与者（群转账bot实际打款）；
+#   5. 抢完或超时后自动结算公布；创建者可发 `结束红包` 提前结束、`红包状态` 查看进度。
 #
 # 迁移自 AWLottery plugins/user/games/red_packet.py（InstantRedPacketMonitor）的
-# 发包侧。抢别人红包的功能已单独迁为 red_packet 插件，本插件不涉及。
+# 发包侧。原「固定文本口令 / 贴图口令」参与方式脚本可秒匹配，已重构为验证码图片。
+# 验证码用 PIL 纯 Python 绘制（平台 venv 已装 Pillow），见 _captcha.py。
 #
 # 不依赖平台 service / DB / libs.others：
 #   - build_user_markdown_link → _activity.build_user_link
@@ -25,11 +27,11 @@ from ._activity import ActivityManager, cancel_all_tasks, is_create_command, to_
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "用你的账号在群里发拼手气红包：群友回复参与，按拼手气随机分配并自动发放魔力。",
+    "description": "用你的账号在群里发拼手气红包：创建时随机生成验证码图片，群友识别并输入验证码才算参与（防脚本），按拼手气随机分配并自动发放魔力。",
     "config_schema": {
         "enabled": {
             "type": "boolean", "default": True, "label": "启用发红包",
@@ -41,17 +43,24 @@ __plugin__ = {
         "create_word": {
             "type": "string", "default": "创建红包", "label": "创建命令词",
             "section": "命令",
-            "help": "命令格式：`创建命令词 总额 个数 口令`，或回复贴图发 `创建命令词 总额 个数`。",
+            "help": "命令格式：`创建命令词 总额 个数`。系统会随机生成一张验证码图片作为参与口令。",
         },
         "status_word": {
             "type": "string", "default": "红包状态", "label": "查看状态命令词",
             "section": "命令",
-            "help": "发送该命令词查看当前群红包活动进度。",
+            "help": "发送该命令词查看当前群红包活动进度（会重发验证码图片）。",
         },
         "end_word": {
             "type": "string", "default": "结束红包", "label": "结束命令词",
             "section": "命令",
             "help": "创建者发送该命令词可提前结束活动。",
+        },
+
+        # ───────── 验证码 ─────────
+        "code_length": {
+            "type": "number", "default": 4, "label": "验证码位数",
+            "min": 4, "max": 8, "step": 1, "section": "验证码",
+            "help": "随机验证码字符数（4-8）。用去混淆字符集（不含 0/O/1/I/L），不区分大小写。",
         },
 
         # ───────── 限制 ─────────
@@ -113,7 +122,6 @@ async def setup(ctx):
         create_word = ctx.config.get("create_word", "创建红包") or "创建红包"
         params = is_create_command(
             message.text,
-            message.reply_to_message,
             create_word,
             to_int(ctx.config.get("max_amount", 0), 0),
             to_int(ctx.config.get("max_count", 0), 0),
@@ -141,9 +149,9 @@ async def setup(ctx):
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[发红包] 状态/结束命令失败: %r", e)
 
-    # ───────── 群友参与：群内进来的消息（incoming：文本或贴图）─────────
+    # ───────── 群友参与：群内进来的文本消息（incoming）─────────
     @ctx.on_message(
-        ctx.filters.incoming & ctx.filters.group & (ctx.filters.text | ctx.filters.sticker),
+        ctx.filters.incoming & ctx.filters.group & ctx.filters.text,
         group=5,
     )
     async def on_participation(client, message):
