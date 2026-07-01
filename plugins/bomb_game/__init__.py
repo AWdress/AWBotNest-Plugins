@@ -22,7 +22,7 @@ from ._game import NumberBombGame
 __plugin__ = {
     "name": "数字炸弹",
     "id": "bomb_game",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "scope": "both",
@@ -249,8 +249,12 @@ async def setup(ctx):
             ctx.log.info("用户 %s 已入待确认，等待转账bot确认", user_id)
 
     # ── 用户侧 handler 2：严格模式下监听转账 bot 的确认消息 ──────────────────
-    # 转账 bot 在群里回复某条消息、文本含金额数字 → 表示「有人给被回复者转了X」。
-    # 这里：bot 回复的是参与者的 +金额 消息，从该消息解析参与者 user_id 与金额。
+    # 验证逻辑对齐「多站点转账排行榜」的 GET(转入)判定：转账 bot 的确认消息处在回复链上
+    #   bot确认 → 回复 → 玩家的「+金额」 → 回复 → 我发的游戏开始消息(is_self)
+    # 即 message.reply_to_message.reply_to_message.from_user.is_self（command_to_me）——
+    # 只有这样才证明玩家真的把 entry_fee「转给了我(游戏主)」，防白嫖。参与者=+金额发送者，
+    # 金额优先取「+金额」文本（可靠），回退 bot 确认文本里的数字。同时兼容个别 bot 直接回复
+    # 「+金额」(无更深一层)的形态：只要被回复的 +金额 又回复了我的开始消息即认。
     @ctx.on_message(
         ctx.filters.incoming & ctx.filters.group & ctx.filters.bot,
         group=-3, target="user",
@@ -277,12 +281,20 @@ async def setup(ctx):
             if not (replied and replied.from_user):
                 return
 
-            # 参与者 = 被回复消息的发送者；金额取被回复消息的 +N（更可靠）
+            # 关键：验证这是「转给我」的转账 —— 参与者的 +金额 回复的是「我」发的消息。
+            # 与排行榜 GET(command_to_me) 判定一致：把群里别人之间的转账排除掉，防白嫖。
+            # 若拿不到更深一层回复（个别 bot 形态）则无法判定，退回按 待确认+金额 继续。
+            my_msg = getattr(replied, "reply_to_message", None)
+            if my_msg is not None:
+                mf = getattr(my_msg, "from_user", None)
+                if not (mf and getattr(mf, "is_self", False)):
+                    return  # 明确是转给别人的，不算参与
+
+            # 参与者 = 被回复消息(+金额)的发送者；金额取 +N（更可靠），回退 bot 文本数字
             participant = replied.from_user
             user_id = participant.id
             plus_amount = parse_plus_amount(text_of(replied))
             if plus_amount is None:
-                # 退而取 bot 确认文本里的金额
                 bonus = extract_amount(message.text or message.caption)
                 if bonus is None:
                     return
