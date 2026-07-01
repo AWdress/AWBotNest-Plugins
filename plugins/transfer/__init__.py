@@ -44,96 +44,117 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.14",
+    "version": "1.0.15",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点可配置。",
     "config_schema": {
-        # —— 站点开关（群组ID/转账bot 全部内置写死，用户只开关功能）——
-        # 每个站点 4 个开关：启用监听 / 群内致谢 / 致谢附转入榜 / 致谢附转出榜
-        "site_audiences_enabled":   {"type": "boolean", "default": True,  "label": "Audiences 启用", "section": "Audiences"},
-        "site_audiences_notify":    {"type": "boolean", "default": False, "label": "Audiences 群内致谢", "section": "Audiences", "show_if": {"site_audiences_enabled": True}},
-        "site_audiences_lb_in":     {"type": "boolean", "default": False, "label": "Audiences 致谢附打赏榜(转入)", "section": "Audiences", "show_if": {"site_audiences_notify": True}},
-        "site_audiences_lb_out":    {"type": "boolean", "default": False, "label": "Audiences 致谢附赏赐榜(转出)", "section": "Audiences", "show_if": {"site_audiences_notify": True}},
-
-        "site_hddolby_enabled":     {"type": "boolean", "default": True,  "label": "HDDolby 启用", "section": "HDDolby"},
-        "site_hddolby_notify":      {"type": "boolean", "default": False, "label": "HDDolby 群内致谢", "section": "HDDolby", "show_if": {"site_hddolby_enabled": True}},
-        "site_hddolby_lb_in":       {"type": "boolean", "default": False, "label": "HDDolby 致谢附打赏榜(转入)", "section": "HDDolby", "show_if": {"site_hddolby_notify": True}},
-        "site_hddolby_lb_out":      {"type": "boolean", "default": False, "label": "HDDolby 致谢附赏赐榜(转出)", "section": "HDDolby", "show_if": {"site_hddolby_notify": True}},
-
-        "site_azusa_enabled":       {"type": "boolean", "default": True,  "label": "Azusa 启用", "section": "Azusa"},
-        "site_azusa_notify":        {"type": "boolean", "default": False, "label": "Azusa 群内致谢", "section": "Azusa", "show_if": {"site_azusa_enabled": True}},
-        "site_azusa_lb_in":         {"type": "boolean", "default": False, "label": "Azusa 致谢附打赏榜(转入)", "section": "Azusa", "show_if": {"site_azusa_notify": True}},
-        "site_azusa_lb_out":        {"type": "boolean", "default": False, "label": "Azusa 致谢附赏赐榜(转出)", "section": "Azusa", "show_if": {"site_azusa_notify": True}},
-
-        "site_zm_enabled":          {"type": "boolean", "default": True,  "label": "ZmPT 启用", "section": "ZmPT"},
-        "site_zm_notify":           {"type": "boolean", "default": False, "label": "ZmPT 群内致谢", "section": "ZmPT", "show_if": {"site_zm_enabled": True}},
-        "site_zm_lb_in":            {"type": "boolean", "default": False, "label": "ZmPT 致谢附打赏榜(转入)", "section": "ZmPT", "show_if": {"site_zm_notify": True}},
-        "site_zm_lb_out":           {"type": "boolean", "default": False, "label": "ZmPT 致谢附赏赐榜(转出)", "section": "ZmPT", "show_if": {"site_zm_notify": True}},
-
-        "site_springsunday_enabled":{"type": "boolean", "default": True,  "label": "SpringSunday 启用(含两个群)", "section": "SpringSunday"},
-        "site_springsunday_notify": {"type": "boolean", "default": False, "label": "SpringSunday 群内致谢", "section": "SpringSunday", "show_if": {"site_springsunday_enabled": True}},
-        "site_springsunday_lb_in":  {"type": "boolean", "default": False, "label": "SpringSunday 致谢附打赏榜(转入)", "section": "SpringSunday", "show_if": {"site_springsunday_notify": True}},
-        "site_springsunday_lb_out": {"type": "boolean", "default": False, "label": "SpringSunday 致谢附赏赐榜(转出)", "section": "SpringSunday", "show_if": {"site_springsunday_notify": True}},
-
-        "site_hdsky_enabled":       {"type": "boolean", "default": True,  "label": "HDSky 启用", "section": "HDSky"},
-        "site_hdsky_notify":        {"type": "boolean", "default": False, "label": "HDSky 群内致谢", "section": "HDSky", "show_if": {"site_hdsky_enabled": True}},
-        "site_hdsky_lb_in":         {"type": "boolean", "default": False, "label": "HDSky 致谢附打赏榜(转入)", "section": "HDSky", "show_if": {"site_hdsky_notify": True}},
-        "site_hdsky_lb_out":        {"type": "boolean", "default": False, "label": "HDSky 致谢附赏赐榜(转出)", "section": "HDSky", "show_if": {"site_hdsky_notify": True}},
-
-        "site_mocktest_enabled":    {"type": "boolean", "default": False, "label": "MockTest(测试) 启用", "section": "MockTest", "help": "测试站点，默认关闭。"},
-        "site_mocktest_notify":     {"type": "boolean", "default": False, "label": "MockTest 群内致谢", "section": "MockTest", "show_if": {"site_mocktest_enabled": True}},
-        "site_mocktest_lb_in":      {"type": "boolean", "default": False, "label": "MockTest 致谢附转入榜", "section": "MockTest", "show_if": {"site_mocktest_notify": True}},
-        "site_mocktest_lb_out":     {"type": "boolean", "default": False, "label": "MockTest 致谢附转出榜", "section": "MockTest", "show_if": {"site_mocktest_notify": True}},
-
-        # —— 致谢延迟 ——
-        "notify_delay_min": {
-            "type": "number", "default": 0, "label": "致谢延迟最小(秒)",
-            "min": 0, "max": 300, "section": "致谢延迟",
-            "help": "记录到转账后等待若干秒再发致谢，模拟人工。",
+        # —— 站点（群组ID/转账bot 内置写死；每站点一行 chips，点选功能）——
+        # 一个 multiselect = 一行标签：启用 / 群内致谢 / 打赏榜(转入) / 赏赐榜(转出)。
+        "site_audiences": {
+            "type": "multiselect", "default": ["on"], "label": "Audiences · 爆米花", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+            "help": "点亮标签开启对应功能：启用=监听记录；群内致谢=收/发后群里回一句；打赏榜/赏赐榜=致谢里附转入/转出排行榜。",
         },
-        "notify_delay_max": {
-            "type": "number", "default": 0, "label": "致谢延迟最大(秒)",
-            "min": 0, "max": 300, "section": "致谢延迟",
+
+        "site_hddolby": {
+            "type": "multiselect", "default": ["on"], "label": "HDDolby · 鲸币", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
         },
+
+        "site_azusa": {
+            "type": "multiselect", "default": ["on"], "label": "Azusa · 魔力值", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+        },
+
+        "site_zm": {
+            "type": "multiselect", "default": ["on"], "label": "ZmPT · 电力", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+            "help": "ZmPT 群有发消息延迟，致谢/榜单会自动延后约 11 秒发出（写死，无需设置）。",
+        },
+
+        "site_springsunday": {
+            "type": "multiselect", "default": ["on"], "label": "SpringSunday · 茉莉（含两个群）", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+        },
+
+        "site_hdsky": {
+            "type": "multiselect", "default": ["on"], "label": "HDSky · 银元", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+        },
+
+        "site_mocktest": {
+            "type": "multiselect", "default": [], "label": "MockTest · 测试（默认关）", "section": "站点",
+            "options": [
+                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
+                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
+            ],
+        },
+
         # —— 排行榜 ——
-        "rank_command": {
-            "type": "string", "default": "转账排行", "label": "排行榜命令词",
+        "rank_output": {
+            "type": "select", "default": "image", "label": "排行榜输出形式",
+            "options": [
+                {"value": "image", "label": "图片（默认）"},
+                {"value": "text", "label": "文本"},
+            ],
             "section": "排行榜",
-            "help": "自己在任意聊天发「.<命令词> [站点key] [in/out]」即可拉取排行榜。"
-                    "如 .转账排行 audiences in。不带站点=逐站点输出。",
+            "help": "图片优先用 wkhtmltoimage（装了的话），否则 Pillow 纯 Python 绘制，失败回退文本。",
         },
         "rank_size": {
             "type": "slider", "default": 10, "label": "排行榜人数", "min": 3, "max": 30,
             "step": 1, "section": "排行榜",
         },
-        "rank_output": {
-            "type": "select", "default": "text", "label": "排行榜输出形式",
-            "options": [
-                {"value": "text", "label": "文本（始终可用）"},
-                {"value": "image", "label": "图片（自带 PIL 即可出图，失败自动回退文本）"},
-            ],
+        "rank_command": {
+            "type": "string", "default": "转账排行", "label": "排行榜命令词",
             "section": "排行榜",
-            "help": "图片模式优先用 wkhtmltoimage（若系统装了），否则用 Pillow 纯 Python 绘制，无需额外装系统依赖。",
+            "help": "在任意聊天发「.<命令词> [站点] [in/out]」拉取排行榜，如 .转账排行 hdsky in。",
         },
-        # —— 通知中心 ——
-        "owner_notify": {
-            "type": "boolean", "default": False, "label": "转账推送给平台主人",
-            "section": "通知中心",
-            "help": "每笔记录到的转账，额外用平台通知中心推一条给主人（ctx.notify）。",
+
+        # —— 致谢延迟 ——
+        "notify_delay_min": {
+            "type": "number", "default": 0, "label": "致谢延迟最小(秒)",
+            "min": 0, "max": 300, "section": "致谢延迟",
+            "help": "记录到转账后等待若干秒再发致谢，模拟人工（0=不等）。",
         },
-        # —— SpringSunday 大额确认 ——
+        "notify_delay_max": {
+            "type": "number", "default": 0, "label": "致谢延迟最大(秒)",
+            "min": 0, "max": 300, "section": "致谢延迟",
+        },
+
+        # —— 进阶 ——
         "ssd_click_mode": {
-            "type": "select", "default": "off", "label": "SSD大额转账自动确认",
+            "type": "select", "default": "off", "label": "SSD 大额转账自动确认",
             "options": [
-                {"value": "off", "label": "关闭（不自动点）"},
-                {"value": "once", "label": "单次确认（点第一行按钮）"},
-                {"value": "5min", "label": "5分钟确认（点第二行按钮）"},
+                {"value": "off", "label": "关闭"},
+                {"value": "once", "label": "单次确认"},
+                {"value": "5min", "label": "5分钟确认"},
             ],
-            "section": "SSD大额确认",
-            "help": "springsunday 转账金额过大时，转账bot会回复你一条「请确认你的转账」并附确认按钮。"
-                    "开启后自动点对应按钮。对应原项目 SPRINGSUNDAY.ssd_click（off/once/5min）。",
+            "section": "进阶",
+            "help": "springsunday 大额转账时 bot 会要你点确认按钮，开启后自动点。",
+        },
+        "owner_notify": {
+            "type": "boolean", "default": False, "label": "每笔转账推送给平台主人",
+            "section": "进阶",
         },
     },
 }
