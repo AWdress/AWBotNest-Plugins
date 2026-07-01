@@ -43,7 +43,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -207,13 +207,14 @@ async def setup(ctx):
 
     # 同一分派逻辑再挂一份「编辑消息」监听：springsunday 大额转账需确认，确认后 bot
     # 会「编辑」之前那条提示消息来送达成功结果，ctx.on_message 收不到编辑，故补挂
-    # on_edited_message。去重按 (site,dir,chat,message.id,amount) 防同条消息多次编辑重复记。
-    # hasattr 兜底：老平台没有 on_edited_message 时不崩，仅记一条告警。
+    # on_edited_message（平台标准能力，见 SPEC）。去重按 message.id 防同条多次编辑重复记。
+    # hasattr 兜底：平台实例未升级到含该能力的版本时静默降级（不崩、不刷警告），
+    # 升级平台后编辑监听自动生效。
     if hasattr(ctx, "on_edited_message"):
         ctx.on_edited_message(ctx.filters.incoming & ctx.filters.group, group=-4,
                               target="user")(on_transfer_bot)
     else:
-        ctx.log.warning("平台不支持 on_edited_message，SSD 大额确认后的编辑成功消息无法记录，请升级平台")
+        ctx.log.debug("当前平台实例无 on_edited_message，SSD 大额确认后的编辑消息暂不记录（升级平台后自动生效）")
 
     # ── handler 3：排行榜命令（自己发出的 .<命令词>）────────────────────────────
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-3, target="user")
