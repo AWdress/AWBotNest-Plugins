@@ -27,7 +27,7 @@ from ._activity import ActivityManager, cancel_all_tasks, is_create_command, to_
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -94,7 +94,7 @@ __plugin__ = {
         "congrats_text": {
             "type": "string", "default": "恭喜 {name} 抢到 {amount} 魔力！",
             "label": "祝贺文案", "section": "发放与文案",
-            "help": "发放后的祝贺消息，可用 {name}（昵称）、{amount}（金额）占位。",
+            "help": "发放后的祝贺消息，可用 {name}（昵称）、{amount}（金额）、{id}（红包编号）占位。消息前会自动带上「🧧 #编号」。",
         },
 
         # ───────── 屏蔽 ─────────

@@ -161,6 +161,18 @@ class ActivityManager:
         """插件独享可写目录（存验证码临时图）。"""
         return getattr(self.ctx, "data_dir", ".")
 
+    def _next_id(self) -> int:
+        """全局递增红包编号（持久化到 kv，重启不重复，便于后期对照）。"""
+        try:
+            n = int(self.ctx.kv.get("rp_seq", 0) or 0) + 1
+        except Exception:  # noqa: BLE001
+            n = 1
+        try:
+            self.ctx.kv.set("rp_seq", n)
+        except Exception:  # noqa: BLE001
+            pass
+        return n
+
     # —— 创建活动 ——
     async def create_redpacket(self, client, message, params: Tuple[float, int]) -> bool:
         total_amount, packet_count = params
@@ -184,10 +196,12 @@ class ActivityManager:
         code_length = to_int(self._cfg("code_length", 4), 4)
         code = generate_code(code_length)
         captcha_path = render_captcha(code, self._data_dir())
+        rp_id = self._next_id()
 
         activity = {
             "client": client,
             "chat_id": chat_id,
+            "rp_id": rp_id,
             "creator_id": user_id,
             "creator_name": username,
             "total_amount": total_amount,
@@ -210,10 +224,13 @@ class ActivityManager:
         reply_target_id = message.reply_to_message.id if message.reply_to_message else message.id
 
         caption = (
-            f"幸运红包活动创建成功！\n"
-            f"总金额：{total_amount} 魔力\n"
-            f"红包数量：{packet_count} 个\n"
-            f"参与方式：识别上图验证码，发送图中的字符即可参与（不区分大小写）"
+            f"🧧 幸运红包  #{rp_id}\n"
+            f"━━━━━━━━━━━━━\n"
+            f"💰 总金额    {total_amount} 魔力\n"
+            f"🎁 数量      {packet_count} 个\n"
+            f"━━━━━━━━━━━━━\n"
+            f"👉 识别上方验证码图片\n"
+            f"　  发送图中字符即可参与（不区分大小写）"
         )
 
         sent_msg = None
@@ -233,11 +250,13 @@ class ActivityManager:
             sent_msg = await client.send_message(
                 chat_id=chat_id,
                 text=(
-                    f"幸运红包活动创建成功！\n"
-                    f"总金额：{total_amount} 魔力\n"
-                    f"红包数量：{packet_count} 个\n"
-                    f"参与口令：{code}\n"
-                    f"发送与口令一致的消息即可参与（不区分大小写）"
+                    f"🧧 幸运红包  #{rp_id}\n"
+                    f"━━━━━━━━━━━━━\n"
+                    f"💰 总金额    {total_amount} 魔力\n"
+                    f"🎁 数量      {packet_count} 个\n"
+                    f"🔑 口令      {code}\n"
+                    f"━━━━━━━━━━━━━\n"
+                    f"👉 发送与口令一致的消息即可参与（不区分大小写）"
                 ),
                 reply_to_message_id=reply_target_id,
             )
@@ -245,7 +264,8 @@ class ActivityManager:
             activity["msg_ids"].append(sent_msg.id)
 
         self.ctx.log.info(
-            "[发红包] 群 %s 创建活动：%s魔力/%s个，验证码=%s", chat_id, total_amount, packet_count, code
+            "[发红包] 群 %s 创建活动 #%s：%s魔力/%s个，验证码=%s",
+            chat_id, rp_id, total_amount, packet_count, code,
         )
         return True
 
@@ -334,23 +354,25 @@ class ActivityManager:
             prefix = str(self._cfg("transfer_prefix", "+") or "+")
             congrats_tpl = self._cfg("congrats_text", "恭喜 {name} 抢到 {amount} 魔力！") \
                 or "恭喜 {name} 抢到 {amount} 魔力！"
+            activity = self.active.get(key)
+            rp_id = activity.get("rp_id", 0) if activity else 0
 
-            # 先发简洁金额（+xxx），转账bot据此打款
+            # 先发简洁金额（+xxx），转账bot据此打款（此条务必保持纯金额，勿加装饰）
             msg1 = await client.send_message(
                 chat_id=chat_id,
                 text=f"{prefix}{int_amount}",
                 reply_to_message_id=message.id,
             )
-            # 再发祝贺消息
+            # 再发祝贺消息（带红包编号，便于事后对照打款记录）
             try:
-                congrats = congrats_tpl.format(name=username, amount=int_amount)
+                congrats = congrats_tpl.format(name=username, amount=int_amount, id=rp_id)
             except (KeyError, IndexError, ValueError):
                 congrats = f"恭喜 {username} 抢到 {int_amount} 魔力！"
+            congrats = f"🧧 #{rp_id}｜{congrats}"
             msg2 = await client.send_message(
                 chat_id=chat_id, text=congrats, reply_to_message_id=message.id
             )
 
-            activity = self.active.get(key)
             if activity:
                 if msg1:
                     activity["msg_ids"].append(msg1.id)
@@ -375,23 +397,26 @@ class ActivityManager:
 
         try:
             participants = activity["participants"]
+            rp_id = activity.get("rp_id", 0)
             sorted_p = sorted(participants, key=lambda p: p["amount"], reverse=True)
+            medals = ["🥇", "🥈", "🥉"]
             detail_lines = "\n".join(
-                f"• {p['username']}：{int(round(p['amount']))} 魔力" for p in sorted_p
+                f"{medals[i] if i < 3 else '　•'} {p['username']}　{int(round(p['amount']))} 魔力"
+                for i, p in enumerate(sorted_p)
             )
             if sorted_p:
                 best = sorted_p[0]
-                lucky_line = f"\n\n手气最佳：{best['username']}（{int(round(best['amount']))} 魔力）"
+                lucky_line = f"\n\n🏆 手气最佳：{best['username']}（{int(round(best['amount']))} 魔力）"
             else:
                 lucky_line = ""
 
             end_msg = (
-                f"幸运红包活动已结束！\n"
-                f"活动统计：\n"
-                f"总参与人数：{len(participants)} 人\n"
-                f"总发放金额：{int(round(activity['distributed_amount']))} 魔力\n"
-                f"总红包数量：{activity['packet_count']} 个"
-                + (f"\n\n领取明细：\n{detail_lines}" if detail_lines else "")
+                f"🧧 幸运红包  #{rp_id} · 已结束\n"
+                f"━━━━━━━━━━━━━\n"
+                f"👥 参与人数  {len(participants)} 人\n"
+                f"💵 发放金额  {int(round(activity['distributed_amount']))} 魔力\n"
+                f"🎁 红包个数  {activity['packet_count']} 个"
+                + (f"\n━━━━━━━━━━━━━\n📋 领取明细\n{detail_lines}" if detail_lines else "")
                 + lucky_line
             )
 
@@ -462,20 +487,24 @@ class ActivityManager:
             await client.send_message(chat_id, "当前群组没有进行中的红包活动")
             return
         participants = activity["participants"]
+        rp_id = activity.get("rp_id", 0)
 
+        header = f"🧧 幸运红包  #{rp_id} · 进行中"
         stat_lines = (
-            f"总金额：{activity['total_amount']} 魔力\n"
-            f"剩余红包：{activity['remaining_count']} 个\n"
-            f"已参与：{len(participants)} 人\n"
-            f"剩余金额：{int(round(activity['remaining_amount']))} 魔力"
+            f"━━━━━━━━━━━━━\n"
+            f"💰 总金额    {activity['total_amount']} 魔力\n"
+            f"🎁 剩余      {activity['remaining_count']} / {activity['packet_count']} 个\n"
+            f"💵 剩余金额  {int(round(activity['remaining_amount']))} 魔力\n"
+            f"👥 已参与    {len(participants)} 人"
         )
         captcha_path = activity.get("captcha_path")
 
         # 优先重发验证码图片（让后来者也能看清），不在文本里泄露验证码
         if captcha_path and os.path.exists(captcha_path):
             caption = (
-                f"幸运红包活动进行中\n{stat_lines}\n"
-                f"参与方式：识别上图验证码，发送图中的字符即可参与（不区分大小写）"
+                f"{header}\n{stat_lines}\n"
+                f"━━━━━━━━━━━━━\n"
+                f"👉 识别上图验证码，发送图中字符参与（不区分大小写）"
             )
             try:
                 await client.send_photo(chat_id, captcha_path, caption=caption)
@@ -485,8 +514,8 @@ class ActivityManager:
 
         # 图片不可用：文本模式下公布口令
         status_msg = (
-            f"幸运红包活动进行中\n{stat_lines}\n"
-            f"参与口令：{activity['keyword']}"
+            f"{header}\n{stat_lines}\n"
+            f"🔑 参与口令  {activity['keyword']}"
         )
         try:
             await client.send_message(chat_id, status_msg)
