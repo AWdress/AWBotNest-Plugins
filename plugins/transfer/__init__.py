@@ -27,6 +27,7 @@
 import asyncio
 import random
 import re
+import time
 
 from ._sites import (
     build_active_sites, detect_direction, counterparty_message,
@@ -43,7 +44,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -144,6 +145,9 @@ async def setup(ctx):
 
     # hdsky 专用：缓存自己发出的回复消息（"+金额"），key=chat_id → 被回复消息id
     hdsky_pay_cache: dict[int, int] = {}
+    # hdsky 专用：缓存「别人回复我的 +金额」的发送者（含真实 uid），供转入方向取对手方 uid。
+    # 每条 (金额, uid, name, 单调时间戳)，广播到达时按金额匹配最近一条。
+    hdsky_get_senders: list[tuple[float, int, str, float]] = []
 
     def _sites():
         """根据每站点开关构建 {chat_id: [SiteConfig]}（群组/bot 内置写死）。"""
@@ -174,6 +178,32 @@ async def setup(ctx):
         except Exception as e:
             ctx.log.debug("hdsky 缓存失败: %s", e)
 
+    # ── handler 1b：hdsky 缓存「别人回复我的 +金额」发送者（供转入取真实 uid）─────
+    @ctx.on_message(ctx.filters.incoming & ctx.filters.group & ctx.filters.reply,
+                    group=-5, target="user")
+    async def cache_incoming_plus(client, message):
+        try:
+            sites = _sites().get(message.chat.id)
+            if not sites or not any(s.parser == "hdsky" for s in sites):
+                return
+            mm = re.match(r"^\+?\s*(\d+(?:\.\d+)?)\s*$", (message.text or "").strip())
+            if not mm:
+                return
+            rtm = getattr(message, "reply_to_message", None)
+            # 必须是「回复我」的 +金额（对方要转给我）
+            if not (rtm and getattr(rtm, "from_user", None)
+                    and getattr(rtm.from_user, "is_self", False)):
+                return
+            fu = message.from_user
+            if not fu or getattr(fu, "is_self", False):
+                return
+            uid, name = user_identity_from_user(fu)
+            now = time.monotonic()
+            hdsky_get_senders[:] = [x for x in hdsky_get_senders if now - x[3] <= 120]
+            hdsky_get_senders.append((round(float(mm.group(1)), 4), uid, name, now))
+        except Exception as e:
+            ctx.log.debug("hdsky +金额 发送者缓存失败: %s", e)
+
     # ── handler 2：通用转账监听（所有配置群的 bot 消息）──────────────────────────
     @ctx.on_message(ctx.filters.incoming & ctx.filters.group, group=-4, target="user")
     async def on_transfer_bot(client, message):
@@ -198,7 +228,7 @@ async def setup(ctx):
 
             if site.parser == "hdsky":
                 await _handle_hdsky(ctx, store, client, message, site,
-                                    hdsky_pay_cache, _rank_size)
+                                    hdsky_pay_cache, hdsky_get_senders, _rank_size)
                 return
 
             await _handle_generic(ctx, store, client, message, site, _rank_size)
@@ -328,14 +358,15 @@ async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
 
 
 # ─── hdsky 专用处理（广播式转账，严格对齐原项目 self_received/self_mentioned）──
-# HDSky 转账 bot 会「广播」群里的每一笔转账，是独立消息（不在回复链上）：
+# HDSky 转账 bot 会「广播」群里的每一笔转账，是独立消息（不在回复链上，且常无 text_mention 实体）：
 #   第1行：{转出方昵称} · 🥇 · 🥈 · 🥉        （昵称常是数学粗体等花体 unicode）
 #   第2行：已向 {收款方} 转赠 {金额} 银元，...
-# 方向判定完全复刻原项目 filters/custom_filters.py：
-#   self_received：文本含「已向 {我} 转赠」            → 我是收款方（in/get）
-#   self_mentioned：有指向我的实体，或（粗体还原后）文本以我的名字开头 → 我是转出方（out/pay）
-#   两者都不满足 = 别人转给别人，直接忽略（旧逻辑误判为「我转出」，是排行榜误触发的根因）。
-async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_fn):
+# 方向判定复刻原项目：self_received（含「已向 {我} 转赠」）=转入；self_mentioned（实体指向我，
+#   或粗体还原后文本以我名字开头）=转出；都不满足 = 别人转别人，忽略。
+# 对手方真实 uid 广播里没有，改从「+金额」回复链取（对齐用户反馈）：
+#   转出：我的「+金额」回复的那条消息 = 收款人（pay_cache→get_messages→from_user）；
+#   转入：别人回复我的「+金额」发送者 = 转出方（hdsky_get_senders 按金额缓存）。
+async def _handle_hdsky(ctx, store, client, message, site, pay_cache, get_senders, rank_size_fn):
     text = message.text or ""
     # 失败/确认提示（限额、余额不足、请输入正确数量等）→ 不是成功转账，跳过
     if any(k in text for k in _TRANSFER_SKIP_KEYWORDS):
@@ -368,9 +399,13 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_
 
     if self_received:
         direction = "in"
-        # 对手方 = 转出方：第一个非自己的 text_mention，或取首行名字
+        # 对手方 = 转出方：① 广播里的非我实体；② 别人回复我「+金额」的发送者（真实 uid）；
+        #                  ③ 兜底取首行名字（uid=0）
+        popped = _pop_get_sender(get_senders, amount)
         if other_entity:
             user_id, user_name = user_identity_from_user(other_entity.user)
+        elif popped:
+            user_id, user_name = popped
         else:
             name = text.split("\n")[0].strip() or "未知用户"
             user_id, user_name = 0, name[:48]
@@ -378,14 +413,7 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_
         target = getattr(message, "reply_to_message", None) or message
     elif self_mentioned:
         direction = "out"
-        # 对手方 = 收款方：第一个非自己的 text_mention，或「已向 X 转赠」里的 X
-        if other_entity:
-            user_id, user_name = user_identity_from_user(other_entity.user)
-        else:
-            m = re.search(r"已向\s+(.+?)\s+转赠", text)
-            name = (m.group(1) if m else "未知用户").strip()
-            user_id, user_name = 0, name[:48]
-        # 回复目标：我发起转账时回复的那条（收款人）消息（缓存的 id），拿不到则不指定回复
+        # 回复目标 = 我发起转账时「+金额」回复的那条（收款人）消息（缓存 id → 拉取）
         target = None
         cached = pay_cache.pop(message.chat.id, 0)
         if cached:
@@ -393,12 +421,35 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, rank_size_
                 target = await client.get_messages(message.chat.id, cached)
             except Exception:
                 target = None
+        # 对手方 = 收款方：① 回复目标消息的 from_user（真实 uid）；② 广播非我实体；
+        #                  ③ 兜底「已向 X 转赠」里的 X（uid=0）
+        cp_fu = getattr(target, "from_user", None) if target else None
+        if cp_fu and not getattr(cp_fu, "is_self", False):
+            user_id, user_name = user_identity_from_user(cp_fu)
+        elif other_entity:
+            user_id, user_name = user_identity_from_user(other_entity.user)
+        else:
+            m = re.search(r"已向\s+(.+?)\s+转赠", text)
+            name = (m.group(1) if m else "未知用户").strip()
+            user_id, user_name = 0, name[:48]
     else:
         # 这笔转账与我无关（别人转给别人），忽略，不记账、不触发排行榜
         return
 
     await _record_and_notify(ctx, store, client, message, target, site, direction,
                              user_id, user_name, amount, rank_size_fn)
+
+
+def _pop_get_sender(get_senders, amount):
+    """从「别人回复我 +金额」缓存里，按金额取最近一条发送者 (uid, name)；无则 None。"""
+    amt = round(float(amount), 4)
+    now = time.monotonic()
+    for i in range(len(get_senders) - 1, -1, -1):
+        a, uid, name, ts = get_senders[i]
+        if a == amt and now - ts <= 120:
+            get_senders.pop(i)
+            return uid, name
+    return None
 
 
 def _strip_math_bold(text: str) -> str:
