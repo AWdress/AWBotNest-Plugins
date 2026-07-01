@@ -169,9 +169,9 @@
   },
   "u2_dmhy": {
     "name": "U2送糖",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
-    "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
+    "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却，可走代理。",
     "path": "plugins/u2_dmhy.py"
   },
   "red_packet_send": {
