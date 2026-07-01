@@ -234,12 +234,8 @@ async def setup(ctx):
     # ── handler 4：springsunday 大额转账自动点确认按钮（ssd_click）────────────────
     # 原项目 transform_ssd.py：转账金额过大时转账bot 回复「请确认你的转账」并附确认按钮，
     # 按 SPRINGSUNDAY.ssd_click（off/once/5min）自动点。这里复刻该逻辑。
-    #
-    # 平台支持情况（已核对 kernel/context.py）：ctx.on_message 只注册 pyrogram
-    #    MessageHandler，平台未提供 on_edited_message / EditedMessageHandler。原项目对
-    #    ssd 同时挂了 on_message 和 on_edited_message（确认消息可能是 bot「先发占位再编辑」
-    #    得到的）。平台暂不支持监听编辑消息，故 ssd 编辑确认可能漏 —— 这里只能用普通
-    #    on_message 兜底（绝大多数情况下确认按钮随新消息到达，可正常点中）。
+    # 确认提示是 bot 新发的消息（带按钮），用 on_message 即可点中；点确认后 bot 会「编辑」
+    # 该消息送达成功结果，那条编辑由上面的 on_edited_message 分派记账（本插件 1.0.9+）。
     @ctx.on_message(ctx.filters.incoming & ctx.filters.group & ctx.filters.reply,
                     group=-3, target="user")
     async def ssd_confirm_click(client, message):
