@@ -43,7 +43,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.2.0",
+    "version": "1.0.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
