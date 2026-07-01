@@ -40,6 +40,23 @@ def cancel_all_tasks() -> None:
     _BG_TASKS.clear()
 
 
+async def _auto_delete(message, delay: int) -> None:
+    """延迟删除一条消息（用于命令回执/提示等临时消息）。"""
+    try:
+        await asyncio.sleep(delay)
+        await message.delete()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def delete_message(message) -> None:
+    """立即删除一条消息（命令秒删用），失败静默。"""
+    try:
+        await message.delete()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
 
 def build_user_link(uid: int, name: str) -> str:
@@ -85,29 +102,36 @@ def is_create_command(
     create_word: str,
     max_amount: int,
     max_count: int,
-) -> Optional[Tuple[float, int]]:
+) -> Optional[Tuple[float, int, Optional[str]]]:
     """检查是否是创建红包命令。
 
-    新格式（验证码模式，不再需要口令/贴图）：
-      <命令词> 总金额 红包数量
-    口令由系统随机生成验证码图片，群友肉眼识别后打出内容才算参与。
-    返回 (总金额, 红包数量) 或 None。
+    格式（验证码模式，不再需要贴图）：
+      <命令词> 总金额 红包数量                → 系统随机生成验证码图片
+      <命令词> 总金额 红包数量 自定义口令      → 用自定义口令渲染成验证码图片
+    口令均以图片形式呈现（防复制粘贴脚本），群友肉眼识别后打出内容才算参与。
+    返回 (总金额, 红包数量, 自定义口令或None) 或 None。
     """
     text = (text or "").strip()
     word = re.escape(create_word)
 
-    m = re.match(rf"^{word}\s+(\d+(?:\.\d+)?)\s+(\d+)$", text)
+    m = re.match(rf"^{word}\s+(\d+(?:\.\d+)?)\s+(\d+)(?:\s+(.+))?$", text, re.S)
     if not m:
         return None
     total_amount = float(m.group(1))
     packet_count = int(m.group(2))
+    custom = (m.group(3) or "").strip()
     if total_amount <= 0 or packet_count <= 0:
         return None
     if max_amount > 0 and total_amount > max_amount:
         return None
     if max_count > 0 and packet_count > max_count:
         return None
-    return total_amount, packet_count
+    if custom:
+        # 自定义口令：限长 + 单行（渲染成图片，太长图会过宽）
+        custom = " ".join(custom.split())
+        if len(custom) > 30:
+            custom = custom[:30]
+    return total_amount, packet_count, (custom or None)
 
 
 def allocate_amount(activity: Dict) -> float:
@@ -174,8 +198,8 @@ class ActivityManager:
         return n
 
     # —— 创建活动 ——
-    async def create_redpacket(self, client, message, params: Tuple[float, int]) -> bool:
-        total_amount, packet_count = params
+    async def create_redpacket(self, client, message, params: Tuple[float, int, Optional[str]]) -> bool:
+        total_amount, packet_count, custom_code = params
         total_amount = int(round(total_amount))
         chat_id = message.chat.id
         key = self._key(client, chat_id)
@@ -186,15 +210,20 @@ class ActivityManager:
         )
 
         if key in self.active:
-            await message.reply("当前群组已有进行中的红包活动，请等待活动结束后再创建新的活动。")
+            notice = await client.send_message(
+                chat_id, "当前群组已有进行中的红包活动，请等待活动结束后再创建。")
+            if notice:
+                _track(asyncio.create_task(_auto_delete(notice, 8)))
             return False
 
         if key not in self.locks:
             self.locks[key] = asyncio.Lock()
 
-        # 随机验证码 + 图片（防脚本）：验证码即参与口令
-        code_length = to_int(self._cfg("code_length", 4), 4)
-        code = generate_code(code_length)
+        # 口令即参与凭证：自定义口令优先，否则随机验证码；均渲染成扭曲图片防脚本
+        if custom_code:
+            code = custom_code
+        else:
+            code = generate_code(to_int(self._cfg("code_length", 4), 4))
         captcha_path = render_captcha(code, self._data_dir())
         rp_id = self._next_id()
 
@@ -263,12 +292,6 @@ class ActivityManager:
             )
         if sent_msg:
             activity["msg_ids"].append(sent_msg.id)
-
-        # 删除创建命令本身（`创建红包 总额 个数`），保持群内整洁
-        try:
-            await message.delete()
-        except Exception as e:  # noqa: BLE001
-            self.ctx.log.warning("[发红包] 删除创建命令失败: %r", e)
 
         self.ctx.log.info(
             "[发红包] 群 %s 创建活动 #%s：%s魔力/%s个，验证码=%s",
@@ -477,11 +500,15 @@ class ActivityManager:
         key = self._key(client, chat_id)
         activity = self.active.get(key)
         if not activity:
-            await message.reply("当前群组没有进行中的红包活动")
+            notice = await client.send_message(chat_id, "当前群组没有进行中的红包活动")
+            if notice:
+                _track(asyncio.create_task(_auto_delete(notice, 8)))
             return False
         user_id = message.from_user.id if message.from_user else 0
         if activity["creator_id"] != user_id:
-            await message.reply("只有红包创建者才能结束活动")
+            notice = await client.send_message(chat_id, "只有红包创建者才能结束活动")
+            if notice:
+                _track(asyncio.create_task(_auto_delete(notice, 8)))
             return False
         await self.end_activity(client, chat_id)
         return True

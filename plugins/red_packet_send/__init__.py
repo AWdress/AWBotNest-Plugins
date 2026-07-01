@@ -22,16 +22,18 @@
 # =============================================================================
 from __future__ import annotations
 
-from ._activity import ActivityManager, cancel_all_tasks, is_create_command, to_int
+from ._activity import (
+    ActivityManager, cancel_all_tasks, is_create_command, to_int, delete_message,
+)
 
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "用你的账号在群里发拼手气红包：创建时随机生成验证码图片，群友识别并输入验证码才算参与（防脚本），按拼手气随机分配并自动发放魔力。",
+    "description": "用你的账号在群里发拼手气红包：创建时把随机验证码（或你自定义的口令）渲染成图片，群友识别并输入才算参与（防脚本）；命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。",
     "config_schema": {
         "enabled": {
             "type": "boolean", "default": True, "label": "启用发红包",
@@ -43,17 +45,17 @@ __plugin__ = {
         "create_word": {
             "type": "string", "default": "创建红包", "label": "创建命令词",
             "section": "命令",
-            "help": "命令格式：`创建命令词 总额 个数`。系统会随机生成一张验证码图片作为参与口令。",
+            "help": "命令格式：`创建命令词 总额 个数`（随机验证码图片），或 `创建命令词 总额 个数 自定义口令`（把口令渲染成图片，最多30字，支持中文）。命令发出后自动秒删。",
         },
         "status_word": {
             "type": "string", "default": "红包状态", "label": "查看状态命令词",
             "section": "命令",
-            "help": "发送该命令词查看当前群红包活动进度（会重发验证码图片）。",
+            "help": "发送该命令词查看当前群红包活动进度（会重发验证码图片）。命令自动秒删。",
         },
         "end_word": {
             "type": "string", "default": "结束红包", "label": "结束命令词",
             "section": "命令",
-            "help": "创建者发送该命令词可提前结束活动。",
+            "help": "创建者发送该命令词可提前结束活动。命令自动秒删。",
         },
 
         # ───────── 验证码 ─────────
@@ -132,6 +134,9 @@ async def setup(ctx):
             await _manager.create_redpacket(client, message, params)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[发红包] 创建活动失败: %r", e)
+        finally:
+            # 命令秒删：保持群内整洁，也避免口令以可复制的文本形式留在群里
+            await delete_message(message)
 
     # ───────── 查看状态 / 结束：你的账号发出命令（outgoing）─────────
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text & ctx.filters.group, group=-9)
@@ -141,13 +146,17 @@ async def setup(ctx):
         text = (message.text or "").strip()
         status_word = ctx.config.get("status_word", "红包状态") or "红包状态"
         end_word = ctx.config.get("end_word", "结束红包") or "结束红包"
+        if text != status_word and text != end_word:
+            return
         try:
             if text == status_word:
                 await _manager.get_activity_status(client, message.chat.id)
-            elif text == end_word:
+            else:
                 await _manager.end_activity_by_user(client, message)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[发红包] 状态/结束命令失败: %r", e)
+        finally:
+            await delete_message(message)
 
     # ───────── 群友参与：群内进来的文本消息（incoming）─────────
     @ctx.on_message(

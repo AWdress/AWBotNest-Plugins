@@ -20,7 +20,7 @@ from typing import Optional
 # 去掉易混淆字符：0/O、1/I/L
 _CHARSET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
-# 字体候选（ASCII 字符任意字体都能画，优先粗体更清晰）
+# 字体候选（纯 ASCII 验证码：优先粗体拉丁字更清晰）
 _FONT_PATHS = [
     r"C:\Windows\Fonts\arialbd.ttf",
     r"C:\Windows\Fonts\Arial.ttf",
@@ -33,6 +33,20 @@ _FONT_PATHS = [
     "/System/Library/Fonts/PingFang.ttc",
 ]
 
+# 中文/非 ASCII 口令字体候选（必须能画 CJK，否则显示豆腐块）
+_FONT_PATHS_CJK = [
+    r"C:\Windows\Fonts\msyhbd.ttc",
+    r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\simhei.ttf",
+    r"C:\Windows\Fonts\simsun.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+]
+
 
 def generate_code(length: int = 4) -> str:
     """生成随机验证码字符串（去混淆字符集）。"""
@@ -40,9 +54,15 @@ def generate_code(length: int = 4) -> str:
     return "".join(random.choice(_CHARSET) for _ in range(length))
 
 
-def _load_font(size: int):
+def _has_cjk(text: str) -> bool:
+    """口令是否含非 ASCII（中文等），决定选哪套字体。"""
+    return any(ord(c) > 127 for c in text)
+
+
+def _load_font(size: int, prefer_cjk: bool = False):
     from PIL import ImageFont
-    for p in _FONT_PATHS:
+    paths = _FONT_PATHS_CJK if prefer_cjk else _FONT_PATHS
+    for p in paths:
         if os.path.exists(p):
             try:
                 return ImageFont.truetype(p, size)
@@ -52,9 +72,10 @@ def _load_font(size: int):
 
 
 def render_captcha(code: str, out_dir) -> Optional[str]:
-    """把验证码渲染成扭曲图片，返回 PNG 文件路径；PIL 不可用时返回 None。
+    """把验证码/口令渲染成扭曲图片，返回 PNG 文件路径；PIL 不可用时返回 None。
 
     每个字符单独渲染到透明小图后随机旋转再贴回，叠加干扰线与噪点。
+    支持自定义中文口令（自动切换 CJK 字体、加宽字距）。
     """
     try:
         from PIL import Image, ImageDraw
@@ -62,11 +83,12 @@ def render_captcha(code: str, out_dir) -> Optional[str]:
         return None
 
     try:
+        cjk = _has_cjk(code)
         n = max(1, len(code))
-        char_w = 46
+        char_w = 54 if cjk else 46
         pad = 18
         W = n * char_w + pad * 2
-        H = 84
+        H = 92 if cjk else 84
 
         # 浅色随机背景
         bg = (random.randint(232, 255), random.randint(232, 255), random.randint(232, 255))
@@ -79,7 +101,7 @@ def render_captcha(code: str, out_dir) -> Optional[str]:
             c = (random.randint(150, 220), random.randint(150, 220), random.randint(150, 220))
             draw.point(xy, fill=c)
 
-        font = _load_font(46)
+        font = _load_font(48 if cjk else 46, prefer_cjk=cjk)
 
         # 逐字绘制：随机深色 + 旋转 + 上下偏移 + 轻微重叠
         x = pad
@@ -87,7 +109,7 @@ def render_captcha(code: str, out_dir) -> Optional[str]:
             color = (random.randint(0, 110), random.randint(0, 110), random.randint(0, 110))
             layer = Image.new("RGBA", (char_w + 12, H), (0, 0, 0, 0))
             ld = ImageDraw.Draw(layer)
-            y = random.randint(6, 22)
+            y = random.randint(4, 18)
             ld.text((random.randint(2, 8), y), ch, font=font, fill=color + (255,))
             angle = random.randint(-32, 32)
             layer = layer.rotate(angle, expand=0, resample=Image.BICUBIC)
