@@ -290,7 +290,7 @@ def _html_template(site: str, title: str, bonus_name: str, rows: str,
     <body>
         <div class="card">
             <div class="header">
-                <div class="title">🌟 {display_name} 的数据终端</div>
+                <div class="title">{display_name} 的数据终端</div>
                 <div class="subtitle">>>> {site} {title}排行榜 TOP {count} <<<</div>
             </div>
             <table>
@@ -307,7 +307,7 @@ def _html_template(site: str, title: str, bonus_name: str, rows: str,
                 </tbody>
             </table>
             <div class="footer">
-                📊 数据实时同步更新 · 祝您好运连连 ☘️
+                数据实时同步更新 · 祝您好运连连 ☘️
             </div>
         </div>
     </body>
@@ -435,7 +435,7 @@ def _render_image_pil(entries: list[dict], site_name: str, bonus_name: str,
         img.paste(band, (x0, y0), hmask)
 
         cx = (x0 + x1) / 2
-        t_title = f"🌟 {owner} 的数据终端".strip()
+        t_title = f"{owner} 的数据终端".strip()
         tw = _tw(d, t_title, f_title)
         d.text((cx - tw / 2, y0 + 18), t_title, font=f_title, fill=(255, 255, 255))
         t_sub = f">>> {site_name.upper()} {title}排行榜 TOP {n} <<<"

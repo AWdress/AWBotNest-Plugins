@@ -120,7 +120,7 @@
   },
   "transfer": {
     "name": "多站点转账",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。",
     "path": "plugins/transfer/"
