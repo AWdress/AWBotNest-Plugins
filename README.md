@@ -64,6 +64,7 @@ async def teardown(ctx):
 |------|------|
 | 过滤器 | `ctx.filters.text` / `.photo` / `.command("x")` / `.outgoing` / `.incoming` / `.group`，可 `& \| ~` 组合 |
 | 注册消息 | `@ctx.on_message(filter, group=0, target="auto")` |
+| 注册编辑消息 | `@ctx.on_edited_message(filter, group=0, target="auto")`（仅消息被编辑时触发，用法同 on_message；适合「先发再编辑送达结果」的 bot） |
 | 注册回调 | `@ctx.on_callback(filter, group=0, target="auto")` |
 | 中断传播 | `raise ctx.StopPropagation`（在 handler 内主动阻止后续插件再处理这条消息，谨慎用） |
 | Bot 发送 | `await ctx.bot.send(chat_id, text)` / `ctx.bot.send_photo(...)` |
@@ -130,7 +131,7 @@ async def teardown(ctx):
 4. **不要 `print`**，用 `ctx.log`。
 5. **插件之间不要互相 import**。共用逻辑写成 `_` 开头的辅助文件，或下沉到平台。
 6. **业务配置只进 `config_schema`**，禁止读写平台配置；持久化用 `ctx.kv`（关系型存储表名须带 `<plugin_id>_` 前缀）。
-7. 自管理资源（后台 task、连接等）必须在 `teardown` 或 `ctx.add_cleanup` 里释放；`ctx.on_message` / `ctx.schedule` 注册的由平台自动清理。
+7. 自管理资源（后台 task、连接等）必须在 `teardown` 或 `ctx.add_cleanup` 里释放；`ctx.on_message` / `ctx.on_edited_message` / `ctx.on_callback` / `ctx.schedule` 注册的由平台自动清理。
 
 ---
 
