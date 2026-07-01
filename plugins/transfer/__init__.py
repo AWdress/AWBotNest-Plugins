@@ -44,7 +44,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -321,6 +321,12 @@ _TRANSFER_SKIP_KEYWORDS = (
     "请输入正确数量", "限额", "失败", "不足", "错误",
 )
 
+# 按站点写死的「发致谢/榜单前」延迟（秒）。某些群有发消息延迟（慢速模式），
+# 立即回复会失败/被限流，故固定等一会儿再发。不暴露给用户配置。
+_SITE_SEND_DELAY = {
+    "zm": 11,   # ZmPT 群有发消息延迟
+}
+
 
 # ─── 通用站点处理（reply / plus）──────────────────────────────────────────────
 async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
@@ -519,6 +525,12 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     dmax = _safe_int(ctx.config.get("notify_delay_max", 0), 0)
     if dmax > 0 and dmax >= dmin:
         await asyncio.sleep(random.uniform(dmin, dmax))
+
+    # 按站点写死的发送延迟：zm 群有发消息延迟（慢速模式），发致谢/榜单前固定等若干秒，
+    # 不走用户配置。取与上面通用延迟不叠加的「至少等这么久」语义。
+    forced = _SITE_SEND_DELAY.get(site.site_name, 0)
+    if forced > 0:
+        await asyncio.sleep(forced)
 
     text = lb.render_user_summary(stat, site.bonus_name, direction,
                                   user_name, amount, user_id)
