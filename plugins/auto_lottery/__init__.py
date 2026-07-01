@@ -43,7 +43,7 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -584,15 +584,18 @@ async def setup(ctx):
         fu = message.from_user
         if not (fu and fu.is_bot and fu.id == bot_id):
             return
-        groups = _all_lottery_groups(cfg)
-        if message.chat.id not in groups:
-            return
+        # 群组过滤只作用于「中奖社交回应」（感谢/黑幕/回用户名）——你只在自动参与的群里
+        # 发这些社交消息，对齐原项目 lottery_draw_result 的 all_groups 过滤。
+        # 发奖不受此限制：发奖是给「自己发起的抽奖」的中奖者发，与在哪些群自动参与无关，
+        # 原项目 record_lottery_result 本就没有群组过滤。迁移时把两者合并到一个 handler
+        # 并在开头统一过滤，导致没把开奖群配进「自动参与群组」时发奖完全不触发。
+        in_lottery_group = message.chat.id in _all_lottery_groups(cfg)
 
-        # ── 中奖社交回应（仅自动开奖消息含中奖信息块）──
-        if is_auto:
+        # ── 中奖社交回应（仅自动开奖消息含中奖信息块，且在自动参与群组内）──
+        if is_auto and in_lottery_group:
             await _handle_win_reactions(client, message)
 
-        # ── 发奖记录 / 发放 ──
+        # ── 发奖记录 / 发放（不限群组，对齐原项目 record_lottery_result）──
         if cfg.get("auto_prize_enabled", False):
             _spawn(_handle_prize(client, message, "手动开奖" if is_manual else "自动开奖"))
 

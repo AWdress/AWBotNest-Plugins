@@ -148,7 +148,7 @@
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。",
     "path": "plugins/auto_lottery/"
