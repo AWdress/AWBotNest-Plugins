@@ -197,6 +197,11 @@ class ActivityManager:
             pass
         return n
 
+    def _make_code(self, prefix: str = "") -> str:
+        """生成参与口令：固定前缀 + 随机防挂码（无前缀时整体即随机验证码）。"""
+        suffix = generate_code(to_int(self._cfg("code_length", 4), 4))
+        return f"{prefix}{suffix}" if prefix else suffix
+
     # —— 创建活动 ——
     async def create_redpacket(self, client, message, params: Tuple[float, int, Optional[str]]) -> bool:
         total_amount, packet_count, custom_code = params
@@ -219,11 +224,10 @@ class ActivityManager:
         if key not in self.locks:
             self.locks[key] = asyncio.Lock()
 
-        # 口令即参与凭证：自定义口令优先，否则随机验证码；均渲染成扭曲图片防脚本
-        if custom_code:
-            code = custom_code
-        else:
-            code = generate_code(to_int(self._cfg("code_length", 4), 4))
+        # 口令即参与凭证：自定义口令做「固定前缀」，后面永远拼一段随机「防挂码」，
+        # 整体渲染成扭曲图片防脚本。无自定义口令时整个就是随机验证码。
+        prefix = custom_code or ""
+        code = self._make_code(prefix)
         captcha_path = render_captcha(code, self._data_dir())
         rp_id = self._next_id()
 
@@ -237,10 +241,11 @@ class ActivityManager:
             "packet_count": packet_count,
             "remaining_count": packet_count,
             "remaining_amount": total_amount,
-            "keyword": code,            # 验证码内容即参与口令（大小写不敏感匹配）
+            "keyword": code,            # 参与口令 = 前缀 + 随机防挂码（大小写不敏感匹配）
+            "prefix": prefix,           # 自定义口令固定前缀，轮换时保留
             "captcha_path": captcha_path,
             "captcha_msg_id": None,      # 当前验证码图片消息ID（轮换时删旧发新）
-            "custom": bool(custom_code),  # 自定义口令：固定不轮换
+            "custom": bool(custom_code),  # 是否带自定义口令前缀
             "participants": [],
             "distributed_amount": 0,
             "status": "进行中",
@@ -262,7 +267,7 @@ class ActivityManager:
             f"🎁 数量      {packet_count} 个\n"
             f"━━━━━━━━━━━━━\n"
             f"👉 识别上方验证码图片\n"
-            f"　  发送图中字符即可参与（不区分大小写）"
+            f"　  发送图中完整字符即可参与（含随机防挂码，不区分大小写）"
         )
 
         sent_msg = None
@@ -324,7 +329,7 @@ class ActivityManager:
             except OSError:
                 pass
 
-        code = generate_code(to_int(self._cfg("code_length", 4), 4))
+        code = self._make_code(activity.get("prefix", ""))
         activity["keyword"] = code
         path = render_captcha(code, self._data_dir())
         activity["captcha_path"] = path
@@ -428,8 +433,9 @@ class ActivityManager:
 
             if activity["remaining_count"] <= 0:
                 await self.end_activity(client, chat_id)
-            elif self._cfg("rotate_code", False) and not activity.get("custom"):
-                # 每抢一个换一个验证码：上一个立即失效，防复制粘贴/脚本
+            elif self._cfg("rotate_code", False):
+                # 每抢一个换一个防挂码：上一个立即失效，防复制粘贴/脚本
+                # （有自定义口令时保留口令前缀，只换后面的随机段）
                 await self._rotate_captcha(client, chat_id, activity)
             return True
 
