@@ -146,6 +146,13 @@
     "description": "影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。",
     "path": "plugins/yingchao_redpacket/"
   },
+  "red_packet_grab": {
+    "name": "自动抢红包",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "用你的账号自动参与他人发的「验证码口令红包」（把口令渲染成扭曲验证码图片、要求发送图中字符参与的红包，如本仓库发红包插件发出的幸运红包）。OCR识别验证码（需ddddocr，可选）或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围，只抢别人发的红包。",
+    "path": "plugins/red_packet_grab/"
+  },
   "auto_lottery": {
     "name": "小菜抽奖",
     "version": "1.0.5",
