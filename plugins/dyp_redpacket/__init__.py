@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time as _time
 
 from . import _ocr
@@ -21,7 +22,7 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -36,9 +37,16 @@ __plugin__ = {
             "help": "癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过）。",
         },
         "dyp_delay": {
-            "type": "slider", "default": 0, "label": "点击延迟(秒)",
+            "type": "slider", "default": 0, "label": "点击延迟-最小(秒)",
             "min": 0, "max": 60, "step": 1, "section": "癫影积分红包",
             "show_if": {"dyp_enabled": True},
+            "help": "抢包前等待的最小秒数。与「点击延迟-最大」配合：最大>最小时在两者间取随机值，别太机械；相等或最大更小则固定等这么久。",
+        },
+        "dyp_delay_max": {
+            "type": "slider", "default": 0, "label": "点击延迟-最大(秒)",
+            "min": 0, "max": 60, "step": 1, "section": "癫影积分红包",
+            "show_if": {"dyp_enabled": True},
+            "help": "抢包前等待的最大秒数。填得比「最小」大即启用随机延迟(每次在最小~最大间随机)；填 0 或不大于最小则退化为固定延迟。",
         },
         "dyp_mine_detection": {
             "type": "boolean", "default": True, "label": "雷包OCR兜底",
@@ -160,7 +168,11 @@ async def setup(ctx):
                 return
 
         delay = to_float(cfg.get("dyp_delay", 0))
+        delay_max = to_float(cfg.get("dyp_delay_max", 0))
+        if delay_max > delay:
+            delay = random.uniform(delay, delay_max)
         if delay > 0:
+            ctx.log.info("[癫影积分红包] 点击前随机延迟 %.2f 秒", delay)
             await asyncio.sleep(delay)
 
         positions = find_numbered_buttons(message)
