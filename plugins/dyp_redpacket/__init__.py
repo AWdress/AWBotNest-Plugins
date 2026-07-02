@@ -22,7 +22,7 @@ from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_sn
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.6",
+    "version": "1.1.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -71,8 +71,8 @@ __plugin__ = {
             "help": "开(推荐)：既没命中雷包词也没命中放行词时，跳过不抢，避免踩雷。关：识别不出时照常抢(可能踩雷)。",
         },
         "notify_owner": {
-            "type": "boolean", "default": True, "label": "抢包结果通知我",
-            "section": "通用", "help": "抢到/未抢到时用机器人通知平台主人。",
+            "type": "boolean", "default": True, "label": "抢到时通知我",
+            "section": "通用", "help": "只在抢到红包时用机器人通知平台主人；雷包跳过/类型不明/未抢到等仅记录日志不通知。",
         },
     },
 }
@@ -137,10 +137,6 @@ async def setup(ctx):
         if verdict == "mine":
             ctx.log.info("[癫影积分红包] 文本判定为雷包，跳过 msg=%s", message.id)
             records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
-            if cfg.get("notify_owner", True):
-                await _notify(ctx, client,
-                    f"癫影积分红包-雷包跳过\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{getattr(message,'link','')}",
-                    level="warning")
             return
 
         # ───────── OCR 配图兜底 + 保守跳过（受开关控制，防对方把文本洗得和红包一样）─────────
@@ -152,19 +148,11 @@ async def setup(ctx):
             if verdict == "mine":
                 ctx.log.info("[癫影积分红包] OCR判定为雷包，跳过 msg=%s", message.id)
                 records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
-                if cfg.get("notify_owner", True):
-                    await _notify(ctx, client,
-                        f"癫影积分红包-雷包跳过(OCR)\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{getattr(message,'link','')}",
-                        level="warning")
                 return
             if verdict == "unknown" and cfg.get("dyp_mine_failclosed", True):
                 ctx.log.info("[癫影积分红包] 无法确认红包类型(保守跳过) msg=%s caption=%r ocr=%r",
                              message.id, caption[:50], ocr_text[:50])
                 records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "类型不明跳过", "ok": False})
-                if cfg.get("notify_owner", True):
-                    await _notify(ctx, client,
-                        f"癫影积分红包-类型不明跳过(保守)\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n未能确认是否正常红包，已跳过\n\n{getattr(message,'link','')}",
-                        level="warning")
                 return
 
         delay = to_float(cfg.get("dyp_delay", 0))
@@ -199,10 +187,8 @@ async def setup(ctx):
                 ctx.log.warning("[癫影积分红包] 第%d格点击异常: %r", idx, e)
                 await asyncio.sleep(0.3)
         # 全部试完未抢到
-        if cfg.get("notify_owner", True):
-            await _notify(ctx, client,
-                f"癫影积分红包-未抢到\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n所有格子均已被抢完",
-                level="info")
+        ctx.log.info("[癫影积分红包] 所有格子均已被抢完，未抢到 msg=%s", message.id)
+        records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "未抢到", "ok": False})
 
     ctx.log.info("[癫影积分红包] 已加载")
 
