@@ -239,6 +239,8 @@ class ActivityManager:
             "remaining_amount": total_amount,
             "keyword": code,            # 验证码内容即参与口令（大小写不敏感匹配）
             "captcha_path": captcha_path,
+            "captcha_msg_id": None,      # 当前验证码图片消息ID（轮换时删旧发新）
+            "custom": bool(custom_code),  # 自定义口令：固定不轮换
             "participants": [],
             "distributed_amount": 0,
             "status": "进行中",
@@ -292,12 +294,65 @@ class ActivityManager:
             )
         if sent_msg:
             activity["msg_ids"].append(sent_msg.id)
+            activity["captcha_msg_id"] = sent_msg.id
 
         self.ctx.log.info(
             "[发红包] 群 %s 创建活动 #%s：%s魔力/%s个，验证码=%s",
             chat_id, rp_id, total_amount, packet_count, code,
         )
         return True
+
+    # —— 轮换验证码（每抢一个换一个，防复制粘贴）——
+    async def _rotate_captcha(self, client, chat_id: int, activity: Dict):
+        """删掉旧验证码消息/图片，随机生成新验证码并重新发图。仅随机模式生效。"""
+        # 删旧消息 + 旧图
+        old_mid = activity.get("captcha_msg_id")
+        if old_mid:
+            try:
+                await client.delete_messages(chat_id, old_mid)
+            except Exception:  # noqa: BLE001
+                pass
+            if old_mid in activity.get("msg_ids", []):
+                try:
+                    activity["msg_ids"].remove(old_mid)
+                except ValueError:
+                    pass
+        old_path = activity.get("captcha_path")
+        if old_path:
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+        code = generate_code(to_int(self._cfg("code_length", 4), 4))
+        activity["keyword"] = code
+        path = render_captcha(code, self._data_dir())
+        activity["captcha_path"] = path
+        rp_id = activity.get("rp_id", 0)
+        caption = (
+            f"🧧 幸运红包  #{rp_id} · 新验证码\n"
+            f"━━━━━━━━━━━━━\n"
+            f"⚠️ 上一个验证码已失效\n"
+            f"🎁 剩余      {activity['remaining_count']} / {activity['packet_count']} 个\n"
+            f"━━━━━━━━━━━━━\n"
+            f"👉 识别上图新验证码，发送图中字符参与（不区分大小写）"
+        )
+        sent = None
+        if path:
+            try:
+                sent = await client.send_photo(chat_id, path, caption=caption)
+            except Exception as e:  # noqa: BLE001
+                self.ctx.log.warning("[发红包] 轮换验证码发图失败，回退文本: %r", e)
+        if sent is None:
+            sent = await client.send_message(
+                chat_id,
+                f"🧧 幸运红包  #{rp_id} · 新验证码\n"
+                f"⚠️ 上一个已失效\n🔑 新口令：{code}\n"
+                f"🎁 剩余 {activity['remaining_count']} / {activity['packet_count']} 个",
+            )
+        if sent:
+            activity["captcha_msg_id"] = sent.id
+            activity["msg_ids"].append(sent.id)
 
     # —— 自动超时结算 ——
     async def _schedule_cleanup(self, client, chat_id: int):
@@ -373,6 +428,9 @@ class ActivityManager:
 
             if activity["remaining_count"] <= 0:
                 await self.end_activity(client, chat_id)
+            elif self._cfg("rotate_code", False) and not activity.get("custom"):
+                # 每抢一个换一个验证码：上一个立即失效，防复制粘贴/脚本
+                await self._rotate_captcha(client, chat_id, activity)
             return True
 
     # —— 发放红包（reply +金额 触发转账bot打款）——
