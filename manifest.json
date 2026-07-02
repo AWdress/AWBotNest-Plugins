@@ -78,7 +78,7 @@
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；回复消息发 /ai 让 AI 解释或解答（支持图片）。",
     "path": "plugins/ai/"

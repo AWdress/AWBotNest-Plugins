@@ -20,7 +20,7 @@ from ._engine import generate, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；回复消息发 /ai 让 AI 解释或解答（支持图片）。",
     "scope": "user",
@@ -175,7 +175,7 @@ async def setup(ctx):
             if not reply:
                 return
 
-            await message.reply(reply)
+            await client.send_message(chat_id, reply)
 
             # 更新历史（裁剪到 max_hist 条 user/assistant）
             if max_hist > 0:
