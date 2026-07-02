@@ -90,6 +90,13 @@
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "path": "plugins/hdhive_lottery.py"
   },
+  "hdhive_quiz": {
+    "name": "影巢答题红包",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
+    "path": "plugins/hdhive_quiz/"
+  },
   "trans115search": {
     "name": "115搜索结果转发",
     "version": "1.0.1",
@@ -183,9 +190,9 @@
   },
   "red_packet_send": {
     "name": "发红包",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
-    "description": "用你的账号在群里发拼手气红包：创建时把随机验证码（或你自定义的口令）渲染成图片，群友识别并输入才算参与（防脚本）；命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。",
+    "description": "用你的账号在群里发拼手气红包：创建时把随机验证码（或你自定义的口令）渲染成图片，群友识别并输入才算参与（防脚本）；可选每抢一个换验证码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。",
     "path": "plugins/red_packet_send/"
   },
   "common_lottery": {

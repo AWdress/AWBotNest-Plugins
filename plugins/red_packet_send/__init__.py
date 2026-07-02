@@ -29,7 +29,7 @@ from ._activity import (
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -63,6 +63,13 @@ __plugin__ = {
             "type": "number", "default": 4, "label": "验证码位数",
             "min": 4, "max": 8, "step": 1, "section": "验证码",
             "help": "随机验证码字符数（4-8）。用去混淆字符集（不含 0/O/1/I/L），不区分大小写。",
+        },
+        "rotate_code": {
+            "type": "boolean", "default": False, "label": "每抢一个换验证码",
+            "section": "验证码",
+            "help": "开启后：每有一人抢到红包，就删掉旧验证码、随机生成一个新的并重发图片，"
+                    "上一个立即失效，防止别人复制粘贴已公布的口令抢包。仅随机验证码模式生效，"
+                    "自定义口令固定不变。",
         },
 
         # ───────── 限制 ─────────
