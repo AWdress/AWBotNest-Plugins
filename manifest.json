@@ -201,5 +201,13 @@
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "path": "plugins/common_lottery.py"
+  },
+  "awembypush": {
+    "name": "AWEmbyPush",
+    "version": "1.5.5",
+    "author": "AWdress",
+    "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）",
+    "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
+    "path": "plugins/awembypush/"
   }
 }
