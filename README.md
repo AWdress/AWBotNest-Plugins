@@ -79,7 +79,7 @@ async def teardown(ctx):
 | 文件目录 | `ctx.data_dir`（`Path`，每插件独享可写目录，存图片/素材等实际文件） |
 | 日志 | `ctx.log.info/debug/warning/error` |
 | 定时任务 | `ctx.schedule(fn, "interval", seconds=60)` / `(fn, "cron", hour=3, id="名称")` |
-| Webhook | `@ctx.on_webhook`（需 `__plugin__` 声明 `"webhook": True`；入站 `…/api/v1/plugin/<id>/webhook?apikey=<密钥>`，处理器收 `WebhookRequest`，返回 dict/str/None） |
+| Webhook | `@ctx.on_webhook`（需 `__plugin__` 声明 `"webhook": True`；入站 `…/api/v1/plugin/<id>/webhook?apikey=<密钥>`，apikey 用平台统一的 Webhook 密钥，处理器收 `WebhookRequest`，返回 dict/str/None） |
 | 清理回调 | `ctx.add_cleanup(fn)` |
 
 `target`：`"user"` / `"bot"` / `"both"` / `"auto"`（按插件 scope 自动选择）。
@@ -144,10 +144,12 @@ async def setup(ctx):
         return {"ok": True}          # dict→JSON / str→文本 / None→{"ok": true}
 ```
 
-- 声明后，在插件「配置」弹窗的 Webhook 区点「随机」生成**每插件独立密钥**，即得入站地址：
+- 声明后，在插件「配置」弹窗的 Webhook 区即可看到本插件入站地址（每个插件路径不同）：
   `http(s)://<平台地址>/api/v1/plugin/<插件id>/webhook?apikey=<密钥>`
-- 仅当插件**已启用 + 已注册处理器 + 已生成密钥**时 webhook 才响应；停用/重载自动失效，密钥随插件删除一并清除。
-- 只想把外部内容推给主人而不写插件时，用**平台级 webhook**：系统设置→通知里生成密钥，POST 到 `…/api/v1/webhook?apikey=<密钥>`。
+- `apikey` 用**平台统一的 Webhook 密钥**：在「系统设置 → 通知 → 平台 Webhook」点「随机」生成**一次**，平台 webhook 与所有插件 webhook **共用同一个密钥**，不为每个插件单独生成。
+- 处理器收到的 `req` 是 `WebhookRequest`：`req.method` / `req.query`（已剔除 apikey）/ `req.headers`（键小写）/ `req.json`（非 JSON 为 None）/ `req.text` / `req.body`（原始 bytes）。返回 dict→JSON、str→文本、None→`{"ok": true}`。
+- 仅当插件**已启用 + 已注册处理器 + 平台已生成密钥**时 webhook 才响应；一个插件一个处理器，停用/重载自动失效。
+- 只想把外部内容推给管理员而不写插件时，用**平台级 webhook**：系统设置→通知里生成密钥，POST 到 `…/api/v1/webhook?apikey=<密钥>`（JSON 里带 `text`/`title`/`category` 或整段文本即作为通知）。
 
 ### 6. 必须遵守的规矩
 
