@@ -33,6 +33,7 @@ __plugin__ = {
     "description": "干啥的",    # 可选
     "icon": "",                # 可选：图标 URL，前端卡片用；留空回退平台 logo
     "default_enabled": False,  # 可选：放入本地 plugins/ 时是否默认启用
+    "webhook": False,          # 可选：声明 True 才能用 @ctx.on_webhook 接收外部回调
     "config_schema": { ... },  # 可选：前端自动生成配置表单
     "requirements": [          # 可选：第三方依赖（PEP 508），平台启用时自动代装
         "httpx>=0.27",
@@ -67,9 +68,10 @@ async def teardown(ctx):
 | 注册编辑消息 | `@ctx.on_edited_message(filter, group=0, target="auto")`（仅消息被编辑时触发，用法同 on_message；适合「先发再编辑送达结果」的 bot） |
 | 注册回调 | `@ctx.on_callback(filter, group=0, target="auto")` |
 | 中断传播 | `raise ctx.StopPropagation`（在 handler 内主动阻止后续插件再处理这条消息，谨慎用） |
-| Bot 发送 | `await ctx.bot.send(chat_id, text)` / `ctx.bot.send_photo(...)` |
+| Bot 发送 | `await ctx.bot.send(chat_id, text)` / `ctx.bot.send_photo(...)`（`ctx.bot` = 平台为本插件分配的 Bot，未分配=默认 Bot） |
+| 指定 Bot | `ctx.get_bot(bot_id)`（高级：取某个 Bot 的发送代理，不传/不存在回退默认 Bot） |
 | 用户发送 | `await ctx.user.send(chat_id, text)` |
-| 全部用户账号 | `ctx.user_apps`（多账号场景） |
+| 全部用户账号 | `ctx.user_apps`（多账号场景；未连接时发送代理抛 `RuntimeError`，可先判 `ctx.bot/user.connected`） |
 | 通知平台主人 | `await ctx.notify(text, level=, category=, account=)`（平台自动加插件名/级别图标/账号名并投递；别自己拼格式或用 `ctx.bot.send`） |
 | 主人 ID | `ctx.owner_id`（平台主人 Telegram 数字 ID，无主账号为 0） |
 | 配置 | `ctx.config["字段名"]`（每次读取都是前端最新值） |
@@ -77,6 +79,7 @@ async def teardown(ctx):
 | 文件目录 | `ctx.data_dir`（`Path`，每插件独享可写目录，存图片/素材等实际文件） |
 | 日志 | `ctx.log.info/debug/warning/error` |
 | 定时任务 | `ctx.schedule(fn, "interval", seconds=60)` / `(fn, "cron", hour=3, id="名称")` |
+| Webhook | `@ctx.on_webhook`（需 `__plugin__` 声明 `"webhook": True`；入站 `…/api/v1/plugin/<id>/webhook?apikey=<密钥>`，处理器收 `WebhookRequest`，返回 dict/str/None） |
 | 清理回调 | `ctx.add_cleanup(fn)` |
 
 `target`：`"user"` / `"bot"` / `"both"` / `"auto"`（按插件 scope 自动选择）。
@@ -84,6 +87,8 @@ async def teardown(ctx):
 **group 隔离（不会互相"吃消息"）**：Pyrogram 在同一 group 内只跑第一个匹配的 handler。平台给**每个插件分配独立的 group 区间**，所以不同插件即使都监听同类消息也各自都能收到。你写的 `group=` 是「**本插件内部**的相对优先级」（数值越小越先），平台自动平移到你的区间——不用关心别的插件用了什么 group。想"我处理了就别让后面的插件再处理"，在 handler 里 `raise ctx.StopPropagation`。
 
 **多账号下的账号范围**：`scope=user`/`both` 的插件默认挂到**所有**已连接用户账号；用户可在插件卡片「账号」按钮里选择只应用到部分账号（空=全部），改动后自动重挂。
+
+**多 Bot 下的 Bot 选择（对插件透明）**：平台可配置多个 Bot，并在「系统设置 → 通知」为每个插件指定用哪个 Bot（默认=默认 Bot）。这对插件是**透明**的——`ctx.bot`、`ctx.notify`、`scope=bot`/`both` 的 handler 都会自动走平台为本插件分配的 Bot。插件作者**不选择**也不感知 Bot，照常写 `ctx.bot.send(...)` / `ctx.notify(...)` 即可。
 
 ### 4. config_schema（插件配置）
 
@@ -122,6 +127,27 @@ async def teardown(ctx):
 - 平台是**单进程热插拔**，同一个包只能有一个版本生效。装之前先做冲突检测：已满足→跳过；缺失→装；**已装了不兼容版本→拒绝启用并报原因**，绝不强行覆盖。
 - 注意目标平台的 **Python 版本**：选依赖时确认它支持平台所用版本（平台当前跑 Python 3.13），否则会因无兼容版本装不上而启用失败。
 - 缺失依赖是否致命由插件自己决定：若设计成「缺了就降级」，import 处要容错（参考 `dyp_redpacket/_ocr.py`：OCR 库缺失时降级为纯文本判定，不影响基础功能）。
+- **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置（`localhost`/`127.0.0.1` 已排除）；若手动关了 `trust_env`，请自行读取这些环境变量。
+
+### 5.5 Webhook（接收外部回调）
+
+需要接收外部服务回调（如媒体服务器事件推送）的插件，在 `__plugin__` 声明 `"webhook": True`，用 `@ctx.on_webhook` 注册**一个**处理器：
+
+```python
+__plugin__ = { ..., "webhook": True }
+
+async def setup(ctx):
+    @ctx.on_webhook
+    async def on_hook(req):          # req 是 WebhookRequest
+        data = req.json or {}        # 解析出的 JSON（非 JSON 为 None）；另有 req.method/query/headers/text/body
+        await ctx.notify(f"收到事件：{data}", category="Webhook")
+        return {"ok": True}          # dict→JSON / str→文本 / None→{"ok": true}
+```
+
+- 声明后，在插件「配置」弹窗的 Webhook 区点「随机」生成**每插件独立密钥**，即得入站地址：
+  `http(s)://<平台地址>/api/v1/plugin/<插件id>/webhook?apikey=<密钥>`
+- 仅当插件**已启用 + 已注册处理器 + 已生成密钥**时 webhook 才响应；停用/重载自动失效，密钥随插件删除一并清除。
+- 只想把外部内容推给主人而不写插件时，用**平台级 webhook**：系统设置→通知里生成密钥，POST 到 `…/api/v1/webhook?apikey=<密钥>`。
 
 ### 6. 必须遵守的规矩
 
