@@ -16,19 +16,6 @@ def to_float(val, default: float = 0.0) -> float:
         return default
 
 
-def parse_keywords(raw: str) -> list[str]:
-    """逗号 / 换行分隔的关键词文本 → 去重去空列表。"""
-    if not raw:
-        return []
-    parts = raw.replace("\n", ",").split(",")
-    seen: list[str] = []
-    for p in parts:
-        p = p.strip()
-        if p and p not in seen:
-            seen.append(p)
-    return seen
-
-
 # ─── 抢包记录（ctx.kv 持久化）─────────────────────────────────────────────
 
 _HISTORY_KEY = "snatch_history"      # 最近抢包历史（环形，最多 N 条）

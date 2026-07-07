@@ -1,7 +1,9 @@
 # =============================================================================
 # 癫影积分红包插件 - 抢包核心逻辑
 #
-# 编号按钮红包（癫影积分红包）：逐个点击未抢的数字按钮，抢到一格即停。
+# 编号按钮红包（癫影积分红包）：现在是「混合红包」——一条消息 M 格，暗含 N 个雷包，
+# 其余给分。逐个点击未抢的数字按钮，落地一格即停（抢到分/踩雷都算用掉唯一机会，
+# 只有「手慢了/已被抢」才继续点下一格）。
 # =============================================================================
 from __future__ import annotations
 
@@ -26,30 +28,28 @@ def extract_text(message) -> str:
     return sanitize(raw).strip()
 
 
-def classify_packet(blob: str, mine_keywords: list[str], normal_keywords: list[str]) -> str:
-    """根据文字判定红包类型。blob 可以是 caption、OCR 文字，或两者拼接。
+def parse_packet_meta(caption: str) -> dict:
+    """从红包文案里抽出 分值/份数/暗含雷包数/余位，仅用于日志与记录，不影响是否开抢。
 
-    返回:
-      "mine"   —— 命中雷包关键词（雷包优先，最高优先级）
-      "normal" —— 未命中雷包词，且命中正常红包放行词
-      "unknown"—— 都没命中（上层 fail-closed：当雷包跳过）
-
-    注意雷包文案含「这不是红包」——内含「红包」二字，故必须雷包词优先，
-    不能见到「红包」就放行。
+    例：「分值: 50 · 份数: 9 · 暗含 1 个雷包」「余位: 9/9」
+    抽不到的字段为 None。
     """
-    text = blob or ""
-    # 1) 雷包词优先
-    for kw in mine_keywords:
-        kw = (kw or "").strip()
-        if kw and kw in text:
-            return "mine"
-    # 2) 正常红包放行词
-    for kw in normal_keywords:
-        kw = (kw or "").strip()
-        if kw and kw in text:
-            return "normal"
-    return "unknown"
-
+    text = caption or ""
+    meta: dict = {"value": None, "shares": None, "mines": None, "left": None, "total": None}
+    m = re.search(r"分值[:：]?\s*(\d+)", text)
+    if m:
+        meta["value"] = int(m.group(1))
+    m = re.search(r"份数[:：]?\s*(\d+)", text)
+    if m:
+        meta["shares"] = int(m.group(1))
+    m = re.search(r"暗含\s*(\d+)\s*个雷包", text)
+    if m:
+        meta["mines"] = int(m.group(1))
+    m = re.search(r"余位[:：]?\s*(\d+)\s*/\s*(\d+)", text)
+    if m:
+        meta["left"] = int(m.group(1))
+        meta["total"] = int(m.group(2))
+    return meta
 
 
 def find_numbered_buttons(message) -> list[tuple[int, int]]:
@@ -61,7 +61,7 @@ def find_numbered_buttons(message) -> list[tuple[int, int]]:
     for r, row in enumerate(markup.inline_keyboard):
         for c, btn in enumerate(row):
             text = (getattr(btn, "text", "") or "").strip()
-            if re.search(r"[一-鿿]", text):  # 含中文 → 管理员按钮，跳过
+            if re.search(r"[一-鿿]", text):  # 含中文 → 管理员按钮（如「终止(管理员)」），跳过
                 continue
             if re.match(r"^[✅☑]", text):    # ✅/☑ 已抢，跳过
                 continue
@@ -71,7 +71,14 @@ def find_numbered_buttons(message) -> list[tuple[int, int]]:
 
 
 def is_snatch_success(result_text: str) -> bool:
-    """判断点击结果是否表示抢包成功。"""
+    """点击结果是否表示抢到（拿到积分）。"""
     if not result_text or result_text in ("None", ""):
         return False
     return any(k in result_text for k in ("抢到了", "抢到", "恭喜", "你获得", "领取成功", "积分已到账"))
+
+
+def is_thunder_hit(result_text: str) -> bool:
+    """点击结果是否表示踩到雷包（扣分）。踩雷也算用掉唯一一次机会 → 应停手。"""
+    if not result_text:
+        return False
+    return any(k in result_text for k in ("踩雷", "中雷", "雷包", "炸弹", "扣除", "扣了"))
