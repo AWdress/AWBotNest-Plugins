@@ -2,7 +2,13 @@
 # AWBotNest 插件：癫影积分红包（dyp_redpacket）
 #
 # 监控「癫影小助手」在癫影积分红包固定群发的积分红包，逐个点击未抢的数字按钮，
-# 抢到一格即停（/已抢的、含中文的管理员按钮自动跳过）。
+# 落地一格即停（/已抢的、含中文的管理员按钮自动跳过）。
+#
+# 癫影已改为「混合红包」：一条消息 M 格、暗含 N 个雷包、其余给分（如
+# 「分值: 50 · 份数: 9 · 暗含 1 个雷包 · 余位: 9/9」）。不再有整包都是陷阱的
+# 纯雷包消息，故不再按文案「见雷包就整包跳过」——那样会漏掉所有红包。策略改为
+# 照抢、赌不中雷：点到一格落地（抢到分 or 踩雷）就算用掉唯一机会、停手；只有
+# 「手慢了/已被抢」才继续点下一格。
 #
 # 从原「抢红包(red_packet)」插件拆出独立维护。拼手气红包见 hdsky_redpacket，
 # 口令红包见 yingchao_redpacket，三者互不影响。
@@ -15,26 +21,28 @@ import asyncio
 import random
 import time as _time
 
-from . import _ocr
-from ._records import Records, parse_keywords, to_float
-from ._snatch import classify_packet, extract_text, find_numbered_buttons, is_snatch_success
+from ._records import Records, to_float
+from ._snatch import (
+    extract_text,
+    find_numbered_buttons,
+    is_snatch_success,
+    is_thunder_hit,
+    parse_packet_meta,
+)
 
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.1.7",
+    "version": "1.2.0",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "监控癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过），抢到一格即停。雷包文本防护始终生效；可选OCR识别配图兜底防伪装。发包bot/群组内置写死。",
-    "requirements": [
-        "rapidocr>=2",  # OCR配图兜底（雷包检测第二层），支持 Python 3.13。缺失时降级为纯文本判定，不影响基础抢包。
-    ],
+    "description": "监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。",
     "config_schema": {
         "dyp_enabled": {
             "type": "boolean", "default": False, "label": "启用癫影积分红包",
             "section": "癫影积分红包",
-            "help": "癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过）。",
+            "help": "癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过）。现为混合红包（暗含 N 个雷包），照抢、赌不中雷。",
         },
         "dyp_delay": {
             "type": "slider", "default": 0, "label": "点击延迟-最小(秒)",
@@ -48,31 +56,9 @@ __plugin__ = {
             "show_if": {"dyp_enabled": True},
             "help": "抢包前等待的最大秒数。填得比「最小」大即启用随机延迟(每次在最小~最大间随机)；填 0 或不大于最小则退化为固定延迟。",
         },
-        "dyp_mine_detection": {
-            "type": "boolean", "default": True, "label": "雷包OCR兜底",
-            "section": "癫影积分红包", "show_if": {"dyp_enabled": True},
-            "help": "雷包文本防护始终生效(命中雷包关键词必跳，不受此开关控制)。本开关只控制额外的「OCR识别配图」兜底——防对方把文本洗得和红包一样。开(推荐)：文本认不出时识图再判，仍认不出则保守跳过；关：只靠文本判定。",
-        },
-        "dyp_mine_keywords": {
-            "type": "text", "default": "雷包,不是红包,剩余雷位,踩雷,扣除积分,扣除,雷位,中雷,炸弹",
-            "label": "雷包关键词(命中即跳)", "section": "癫影积分红包",
-            "show_if": {"dyp_enabled": True},
-            "help": "逗号或换行分隔。消息文本或配图文字命中其中任一 → 判定雷包、整包跳过。始终生效(不受OCR兜底开关影响)，优先级最高。",
-        },
-        "dyp_normal_keywords": {
-            "type": "text", "default": "积分红包,分值,份数,余位,正常奖励,领取积分",
-            "label": "正常红包放行词", "section": "癫影积分红包",
-            "show_if": {"dyp_enabled": True, "dyp_mine_detection": True},
-            "help": "逗号或换行分隔。命中其中任一且未命中雷包词 → 判定正常红包、照常抢。其中「积分红包」是原项目验证过的可靠特征，始终内置生效。",
-        },
-        "dyp_mine_failclosed": {
-            "type": "boolean", "default": True, "label": "识别不出时保守跳过",
-            "section": "癫影积分红包", "show_if": {"dyp_enabled": True, "dyp_mine_detection": True},
-            "help": "开(推荐)：既没命中雷包词也没命中放行词时，跳过不抢，避免踩雷。关：识别不出时照常抢(可能踩雷)。",
-        },
         "notify_owner": {
-            "type": "boolean", "default": True, "label": "抢到时通知我",
-            "section": "通用", "help": "只在抢到红包时用机器人通知平台主人；雷包跳过/类型不明/未抢到等仅记录日志不通知。",
+            "type": "boolean", "default": True, "label": "抢到/踩雷时通知我",
+            "section": "通用", "help": "抢到红包或踩雷时用机器人通知平台主人；未抢到（都被别人抢完）仅记录日志不通知。",
         },
     },
 }
@@ -104,6 +90,20 @@ def _click_once(client, message) -> bool:
     return True
 
 
+def _meta_brief(meta: dict) -> str:
+    """把红包元信息压成一行便于日志/通知。"""
+    parts = []
+    if meta.get("value") is not None:
+        parts.append(f"分值{meta['value']}")
+    if meta.get("shares") is not None:
+        parts.append(f"份数{meta['shares']}")
+    if meta.get("mines") is not None:
+        parts.append(f"雷{meta['mines']}")
+    if meta.get("total") is not None:
+        parts.append(f"余位{meta.get('left')}/{meta['total']}")
+    return " · ".join(parts)
+
+
 async def setup(ctx):
     records = Records(ctx.kv, ctx.log)
 
@@ -118,42 +118,16 @@ async def setup(ctx):
             return
         if message.chat.id != _DYP_GROUP_ID:
             return
-        # 该 bot 在该群只发红包，故匹配「红包」即可（含 积分红包 / 红包 / 雷包文案的「这不是红包」）。
-        # 放宽到「红包」是为了让雷包消息也能进入下方检测被显式跳过+通知，而非因不含「积分红包」被静默漏过。
-        if "红包" not in extract_text(message):
+        # 该 bot 在该群只发红包，匹配「红包」即可。混合红包文案含「红包」（也含「雷包」，
+        # 但已不再据此整包跳过）。
+        caption = extract_text(message)
+        if "红包" not in caption:
             return
         if not _click_once(client, message):
             return
 
-        # ───────── 雷包文本防护（始终生效，不受开关控制，等同老版"靠文本排除"）─────────
-        mine_kw = parse_keywords(cfg.get("dyp_mine_keywords", ""))
-        normal_kw = parse_keywords(cfg.get("dyp_normal_keywords", ""))
-        # "积分红包" 是原项目验证过的正常红包可靠特征（正常包文本含它、雷包"这不是红包"不含），
-        # 始终作为放行信号，不依赖用户已存的配置，避免误判正常红包为"类型不明"被保守跳过。
-        if "积分红包" not in normal_kw:
-            normal_kw.append("积分红包")
-        caption = extract_text(message)
-        verdict = classify_packet(caption, mine_kw, normal_kw)
-        if verdict == "mine":
-            ctx.log.info("[癫影积分红包] 文本判定为雷包，跳过 msg=%s", message.id)
-            records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
-            return
-
-        # ───────── OCR 配图兜底 + 保守跳过（受开关控制，防对方把文本洗得和红包一样）─────────
-        # 仅在文本未能确认为正常红包时才动用 OCR（正常红包文本已含放行词，无需识图）。
-        if cfg.get("dyp_mine_detection", True) and verdict != "normal":
-            img = await _download_image(client, message, ctx.log)
-            ocr_text = await _ocr.recognize_text(img, ctx.log) if img else ""
-            verdict = classify_packet(f"{caption}\n{ocr_text}", mine_kw, normal_kw)
-            if verdict == "mine":
-                ctx.log.info("[癫影积分红包] OCR判定为雷包，跳过 msg=%s", message.id)
-                records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "雷包跳过", "ok": False})
-                return
-            if verdict == "unknown" and cfg.get("dyp_mine_failclosed", True):
-                ctx.log.info("[癫影积分红包] 无法确认红包类型(保守跳过) msg=%s caption=%r ocr=%r",
-                             message.id, caption[:50], ocr_text[:50])
-                records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "类型不明跳过", "ok": False})
-                return
+        meta = parse_packet_meta(caption)
+        brief = _meta_brief(meta)
 
         delay = to_float(cfg.get("dyp_delay", 0))
         delay_max = to_float(cfg.get("dyp_delay_max", 0))
@@ -167,7 +141,8 @@ async def setup(ctx):
         if not positions:
             ctx.log.debug("[癫影积分红包] 无可点按钮 msg=%s", message.id)
             return
-        ctx.log.info("[癫影积分红包] 找到 %d 个未抢按钮，逐格尝试", len(positions))
+        ctx.log.info("[癫影积分红包] %s，找到 %d 个未抢按钮，逐格尝试（落地即停）",
+                     brief or "红包", len(positions))
 
         for idx, (row, col) in enumerate(positions, start=1):
             try:
@@ -175,20 +150,36 @@ async def setup(ctx):
                 rtext = getattr(result, "text", None) or getattr(result, "message", None) or ""
                 rstr = rtext or str(result)
                 ctx.log.info("[癫影积分红包] 第%d格(行%d列%d) 结果=%r", idx, row, col, rstr)
+
                 if is_snatch_success(rstr):
-                    records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": rstr, "ok": True})
+                    records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                                         "meta": brief, "result": rstr, "ok": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
-                            f"癫影积分红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{rstr}\n\n{getattr(message,'link','')}",
+                            f"癫影积分红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{brief}\n\n{rstr}\n\n{getattr(message,'link','')}",
                             level="success")
                     return
+
+                if is_thunder_hit(rstr):
+                    # 踩雷 = 用掉唯一一次机会，停手，别再点（赌输了）。
+                    ctx.log.info("[癫影积分红包] 踩雷，停手 msg=%s 结果=%r", message.id, rstr)
+                    records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                                         "meta": brief, "result": rstr, "ok": False, "mine": True})
+                    if cfg.get("notify_owner", True):
+                        await _notify(ctx, client,
+                            f"癫影积分红包-踩雷\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{brief}\n\n{rstr}\n\n{getattr(message,'link','')}",
+                            level="warning")
+                    return
+
+                # 其余（手慢了/已被抢/无内容）→ 该格已被他人抢走，试下一格。
                 await asyncio.sleep(0.3)
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[癫影积分红包] 第%d格点击异常: %r", idx, e)
                 await asyncio.sleep(0.3)
-        # 全部试完未抢到
+        # 全部试完，落地格全被别人抢走，自己没抢到
         ctx.log.info("[癫影积分红包] 所有格子均已被抢完，未抢到 msg=%s", message.id)
-        records.add_history({"type": "癫影积分红包", "group_id": message.chat.id, "result": "未抢到", "ok": False})
+        records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                             "meta": brief, "result": "未抢到", "ok": False})
 
     ctx.log.info("[癫影积分红包] 已加载")
 
@@ -198,32 +189,6 @@ async def _notify(ctx, client, text, level="info"):
         await ctx.notify(text, level=level, category="癫影积分红包", account=client)
     except Exception:  # noqa: BLE001
         pass
-
-
-async def _download_image(client, message, log=None) -> bytes:
-    """下载红包配图字节（photo 或 image/* 文档）。失败返回空 bytes。"""
-    media = getattr(message, "photo", None)
-    if not media:
-        doc = getattr(message, "document", None)
-        mt = getattr(doc, "mime_type", None) if doc else None
-        if doc and mt and mt.startswith("image/"):
-            media = doc
-    if not media:
-        return b""
-    try:
-        data = await client.download_media(message, in_memory=True)
-        if data is None:
-            return b""
-        if hasattr(data, "getvalue"):
-            return data.getvalue()
-        if hasattr(data, "getbuffer"):
-            return bytes(data.getbuffer())
-        if isinstance(data, (bytes, bytearray)):
-            return bytes(data)
-    except Exception as e:  # noqa: BLE001
-        if log:
-            log.debug("[癫影积分红包] 图片下载失败: %r", e)
-    return b""
 
 
 async def teardown(ctx):
