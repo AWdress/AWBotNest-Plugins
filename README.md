@@ -16,6 +16,17 @@
 
 ---
 
+## 开发者 Skill
+
+仓库内附带一个可复用的 AWBotNest 插件开发 skill，方便在 Hermes 里复用这套规范：
+
+- `skills/software-development/awbotnest-plugin-development/SKILL.md`
+- 最小模板：`skills/software-development/awbotnest-plugin-development/references/minimal-plugin-template.py`
+
+如果对方也在用 Hermes，可将该目录同步到自己的 `~/.hermes/skills/software-development/awbotnest-plugin-development/`，或直接作为仓库内 skill 参考使用。
+
+---
+
 ## 插件规范
 
 ### 1. 三段式契约
