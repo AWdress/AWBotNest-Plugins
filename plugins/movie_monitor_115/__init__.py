@@ -9,18 +9,15 @@
 # 也支持 /getmedia 手动查 TMDB。用你的用户账号监听，参数都在配置里填。
 # =============================================================================
 
-import json
+import asyncio
 import re
-import shutil
-import tempfile
-from pathlib import Path
 
 from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.4",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
@@ -87,6 +84,26 @@ _LINK_PATTERN = re.compile(
 _TMDB_ID_PATTERN = re.compile(r"TMDB\s*(?:ID)?\s*[:：]\s*(\d+)", re.IGNORECASE)
 # 完结标记
 _COMPLETE_PATTERN = re.compile(r"完结|全\s*\d+\s*[集話话]|全集")
+# /getmedia 结果消息自动删除秒数
+_GETMEDIA_TTL = 30
+
+
+def _fmt_getmedia(result, title, year, limit=8) -> str:
+    """把 TMDB 查询结果格式化成简短摘要。"""
+    yr = year if year and year != "0" else ""
+    if not result:
+        return f"❌ TMDB 无结果：{title} {yr}".rstrip()
+    lines = [f"🔍 {title} {yr}".rstrip() + f"  ·  {len(result)} 条"]
+    for it in result[:limit]:
+        name = it.get("title") or it.get("name") or "?"
+        date = it.get("release_date") or it.get("first_air_date") or ""
+        y = date[:4] if date else "----"
+        mt = "电影" if it.get("media_type") == "movie" else "剧集"
+        vote = it.get("vote_average") or 0
+        lines.append(f"• [{mt}] {name} ({y})  id={it.get('id')}  ⭐{vote}")
+    if len(result) > limit:
+        lines.append(f"… 其余 {len(result) - limit} 条略")
+    return "\n".join(lines)
 
 
 def _lines(raw) -> list[str]:
@@ -307,26 +324,24 @@ async def setup(ctx):
         if not title:
             return await message.edit("请提供名称，例如：/getmedia 泰坦尼克号 1997")
 
-        tmdb = TmdbApi(cfg.get("tmdbapi", ""))
-        result = await tmdb.search_all(title, year, ctx.log)
-
-        tmp_dir = Path(tempfile.mkdtemp(prefix="getmedia_"))
-        fp = tmp_dir / f"{title}({year}).txt"
+        await message.edit(f"🔍 查询 TMDB：{title} {year if year != '0' else ''}".rstrip() + " …")
         try:
-            fp.write_text(json.dumps(result, ensure_ascii=False, indent=4), encoding="utf-8")
-            await client.send_document("me", str(fp))
-            try:
-                await message.delete()
-            except Exception:
-                pass
+            tmdb = TmdbApi(cfg.get("tmdbapi", ""))
+            result = await tmdb.search_all(title, year, ctx.log)
+            summary = _fmt_getmedia(result, title, year)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[115监控] /getmedia 失败: %r", e)
-            try:
-                await message.edit(f"查询失败: {e.__class__.__name__}")
-            except Exception:
-                pass
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            summary = f"查询失败: {e.__class__.__name__}"
+
+        try:
+            await message.edit(f"```\n{summary}\n```")
+        except Exception:
+            pass
+        await asyncio.sleep(_GETMEDIA_TTL)
+        try:
+            await message.delete()
+        except Exception:
+            pass
 
 
 async def teardown(ctx):
