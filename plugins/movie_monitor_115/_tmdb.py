@@ -11,18 +11,14 @@ import httpx
 class TmdbApi:
     """TMDB 识别匹配（异步）。"""
 
-    def __init__(self, api_key: str, proxy_enable: bool = False, proxy_url: str = ""):
+    def __init__(self, api_key: str):
         self.api_key = api_key
         self.language = "zh"
         self.base_url = "https://api.themoviedb.org/3"
-        self.proxy_enable = proxy_enable
-        self.proxy_url = proxy_url
 
     def _client(self) -> httpx.AsyncClient:
-        kwargs = {"timeout": 10, "verify": False}
-        if self.proxy_enable and self.proxy_url:
-            kwargs["proxy"] = self.proxy_url
-        return httpx.AsyncClient(**kwargs)
+        # 出站自动走平台代理（httpx 默认 trust_env=True 读取平台注入的代理）
+        return httpx.AsyncClient(timeout=10, verify=False)
 
     async def search_all(self, title: str, year: str = None, log=None) -> List[dict]:
         movie = await self._search(f"{self.base_url}/search/movie", title,
@@ -60,6 +56,45 @@ class TmdbApi:
         for n in tmdb_names:
             if file_name == re.sub(r"[\W_]+", " ", n).strip().upper():
                 return True
+        return False
+
+
+def _item_types(media_type: Optional[str]) -> Optional[str]:
+    mt = (media_type or "").lower()
+    if mt == "movie":
+        return "Movie"
+    if mt == "tv":
+        return "Series"
+    return None
+
+
+async def emby_has_tmdb_id(emby_server: str, emby_api: str, tmdb_id, media_type: Optional[str],
+                           log=None) -> bool:
+    """直接用 TMDB ID 查 Emby 是否已入库（最可靠，无需标题匹配）。"""
+    if not emby_server or not emby_api or not tmdb_id:
+        return False
+    url = f"{emby_server}emby/Items"
+    params = {
+        "Recursive": "true",
+        "AnyProviderIdEquals": f"tmdb.{tmdb_id}",
+        "Fields": "ProviderIds",
+        "api_key": emby_api,
+    }
+    item_types = _item_types(media_type)
+    if item_types:
+        params["IncludeItemTypes"] = item_types
+    try:
+        async with httpx.AsyncClient(timeout=10, verify=False) as client:
+            resp = await client.get(url, params=params)
+            res = resp.json()
+            items = (res or {}).get("Items") or []
+            for it in items:
+                if str(it.get("ProviderIds", {}).get("Tmdb")) == str(tmdb_id):
+                    return True
+            return bool(items)
+    except Exception as e:  # noqa: BLE001
+        if log:
+            log.error("[115监控] 按 TMDB ID 查 Emby 失败: %r", e)
         return False
 
 

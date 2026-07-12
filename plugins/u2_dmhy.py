@@ -16,7 +16,7 @@ import httpx
 __plugin__ = {
     "name": "U2送糖",
     "id": "u2_dmhy",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
     "scope": "user",
@@ -30,14 +30,6 @@ __plugin__ = {
             "type": "number", "default": 300, "label": "赠送冷却(秒)",
             "min": 0, "max": 1200, "section": "参数",
             "help": "两次赠送的最小间隔（u2 站限频，建议 ≥300）。批量时每个之间也按此间隔。",
-        },
-        "proxy_enable": {
-            "type": "boolean", "default": False, "label": "走代理", "section": "网络",
-            "help": "u2.dmhy.org 在墙外且套 Cloudflare，平台直连通常超时（ConnectTimeout），需要开代理。",
-        },
-        "proxy_url": {
-            "type": "string", "default": "", "label": "代理地址", "section": "网络",
-            "help": "如 http://127.0.0.1:7890 或 socks5://127.0.0.1:1080", "show_if": {"proxy_enable": True},
         },
         "u2_command": {
             "type": "string", "default": ".u2", "label": "单人命令", "section": "命令",
@@ -65,8 +57,8 @@ def _head(text: str) -> str:
     return text.split(maxsplit=1)[0].lstrip("/.").lower() if text else ""
 
 
-async def _gift(cookie: str, recv_id: str, amount: str, note: str, log, proxy: str = ""):
-    """调 u2 mpshop 送 UCoin。返回 (成功, 详情)。"""
+async def _gift(cookie: str, recv_id: str, amount: str, note: str, log):
+    """调 u2 mpshop 送 UCoin（出站自动走平台代理）。返回 (成功, 详情)。"""
     headers = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh",
@@ -76,11 +68,8 @@ async def _gift(cookie: str, recv_id: str, amount: str, note: str, log, proxy: s
         "X-Requested-With": "XMLHttpRequest",
     }
     data = {"event": "1003", "recv": str(recv_id), "amount": str(amount), "message": str(note)}
-    kwargs = {"timeout": httpx.Timeout(60.0, connect=20.0)}
-    if proxy:
-        kwargs["proxy"] = proxy
     try:
-        async with httpx.AsyncClient(**kwargs) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
             resp = await client.post(_URL, headers=headers, data=data)
         if resp.status_code != 200:
             return False, f"HTTP {resp.status_code}"
@@ -142,7 +131,6 @@ async def setup(ctx):
         if not cfg.get("cookie"):
             return await message.edit("未配置 u2 Cookie")
 
-        proxy = cfg.get("proxy_url", "").strip() if cfg.get("proxy_enable") else ""
         parts = text.split()
         delete_after = int(cfg.get("result_delete", 90) or 0)
         line = "─" * 16
@@ -157,7 +145,7 @@ async def setup(ctx):
             rows, ok_n = [], 0
             for user in users:
                 await _wait_cooldown()
-                ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log, proxy)
+                ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log)
                 _mark_pay()
                 if ok:
                     ok_n += 1
@@ -181,7 +169,7 @@ async def setup(ctx):
             user, bonus, note = parts[1], parts[2], parts[3]
             await message.edit("```\n幼儿糖发射中···```")
             await _wait_cooldown()
-            ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log, proxy)
+            ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log)
             _mark_pay()
             if ok:
                 body = (f"U2 送糖 · 成功\n{line}\n"

@@ -1,10 +1,12 @@
 # =============================================================================
-# AWBotNest 插件：115 媒体监控（movie_monitor_115）
+# AWBotNest 插件：115 频道监控（movie_monitor_115）
 #
-# 监控指定频道里的 115 分享消息，解析标题/年份 → TMDB 识别 → 查 Emby 媒体库，
-# 库里没有的就把 115 链接转发给 CMS 入库机器人。也支持 /getmedia 手动查 TMDB。
-#
-# 用你的用户账号监听。所有参数（TMDB/Emby/代理/监控频道/屏蔽词）在配置里填。
+# 通用监控：监听会话里的 115 分享消息，不依赖固定频道格式——
+#   1) 优先直接读取消息里写好的「TMDB ID」；
+#   2) 读不到再用标题/年份走 TMDB 搜索识别；
+#   3) 查 Emby 媒体库，库里没有的把 115 链接转发给 CMS 入库机器人。
+# 链接支持多域名（115.com / 115cdn.com …）与「超链接」形式（藏在文字里）。
+# 也支持 /getmedia 手动查 TMDB。用你的用户账号监听，参数都在配置里填。
 # =============================================================================
 
 import json
@@ -13,14 +15,14 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from ._tmdb import TmdbApi, get_emby_tmdb_ids
+from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 
 __plugin__ = {
-    "name": "115媒体监控",
+    "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
-    "description": "监控频道里的 115 分享，TMDB 识别后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。",
+    "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -29,20 +31,37 @@ __plugin__ = {
             "section": "功能开关", "help": "关闭后只监听不转发（/getmedia 手动查仍可用）。",
         },
         # —— 监控范围 ——
+        "monitor_ids": {
+            "type": "text", "default": "", "label": "监控频道ID",
+            "section": "监控范围",
+            "help": "一行一个频道/群ID（形如 -100xxxxxxxxxx）。留空=监控你账号收到的所有会话（凡含 115 链接就处理）。",
+        },
+        "media_types": {
+            "type": "multiselect", "default": ["movie", "tv"], "label": "转存类型",
+            "section": "监控范围",
+            "options": [
+                {"value": "movie", "label": "电影"},
+                {"value": "tv", "label": "电视剧"},
+            ],
+            "help": "选择要转存的媒体类型，默认电影和电视剧全部转存。判定不出类型的消息不受此限制。",
+        },
+        "only_complete_series": {
+            "type": "boolean", "default": False, "label": "剧集仅转存完结",
+            "section": "监控范围",
+            "help": "开启后电视剧只转存标注了「完结/全X集」的；关闭则不完结也转存。",
+        },
+        "pan115_chat_id": {
+            "type": "string", "default": "", "label": "Pan115频道ID（可选）",
+            "section": "监控范围",
+            "help": "该频道额外用「Pan115」特殊格式解析（按大小判定完结）。留空则统一走通用解析。",
+        },
         "blockyword_list": {
             "type": "text", "default": "", "label": "屏蔽关键词",
-            "section": "监控范围", "help": "一行一个。标题含这些词则不检索转发。",
+            "section": "监控范围", "help": "一行一个。消息含这些词则不检索转发。",
         },
-        # —— TMDB ——
+        # —— TMDB（无现成 TMDB ID 时用标题识别）——
         "tmdbapi": {
             "type": "password", "default": "", "label": "TMDB API Key", "section": "TMDB",
-        },
-        "proxy_enable": {
-            "type": "boolean", "default": False, "label": "TMDB 走代理", "section": "TMDB",
-        },
-        "proxy_url": {
-            "type": "string", "default": "", "label": "代理地址", "section": "TMDB",
-            "help": "如 http://127.0.0.1:7890 或 socks5://...", "show_if": {"proxy_enable": True},
         },
         # —— Emby + CMS ——
         "embyserver": {
@@ -59,20 +78,18 @@ __plugin__ = {
     },
 }
 
-_LINK_PATTERN = re.compile(r"https://115cdn\.com/s/[^\s]+")
+# 115 分享链接：兼容 115.com / 115cdn.com / 115vod.com / anxia.com 等
+_LINK_PATTERN = re.compile(
+    r"https?://(?:[\w-]*115[\w-]*\.com|anxia\.com)/s/[^\s)\]】]+", re.IGNORECASE
+)
+# 消息里写好的 TMDB ID，如「TMDB ID：260463」「TMDB：286506」
+_TMDB_ID_PATTERN = re.compile(r"TMDB\s*(?:ID)?\s*[:：]\s*(\d+)", re.IGNORECASE)
+# 完结标记
+_COMPLETE_PATTERN = re.compile(r"完结|全\s*\d+\s*[集話话]|全集")
 
 
 def _lines(raw) -> list[str]:
     return [x.strip() for x in str(raw or "").splitlines() if x.strip()]
-
-
-# 监控频道（原项目 TARGET，写死）：分享群/瓜瓜乐/测试 + Pan115(特殊解析)
-_PAN115_CHAT_ID = -1002343015438
-_MONITOR_IDS = [-1002188663986, -1002245898899, -4200814739, _PAN115_CHAT_ID]
-
-
-def _monitor_ids(cfg) -> list[int]:
-    return _MONITOR_IDS
 
 
 def _normalize(raw):
@@ -87,33 +104,105 @@ def _normalize(raw):
         return None
 
 
-async def _send_115_links(client, cfg, message, title, year, ctx):
-    """提取 115 链接并发给 CMS 机器人。"""
+def _monitor_ids(cfg) -> list[int]:
+    """配置的监控频道ID列表；空列表表示不限会话（监控全部）。"""
+    ids = []
+    for x in _lines(cfg.get("monitor_ids", "")):
+        v = _normalize(x)
+        if isinstance(v, int):
+            ids.append(v)
+    return ids
+
+
+def _pan115_id(cfg):
+    return _normalize(cfg.get("pan115_chat_id"))
+
+
+def _msg_text(message) -> str:
+    return message.caption or message.text or ""
+
+
+def _extract_links(message) -> list[str]:
+    """提取消息里的 115 链接：明文 + 超链接（text_link entity 的 url）。"""
+    links = list(_LINK_PATTERN.findall(_msg_text(message)))
+    entities = message.caption_entities or message.entities or []
+    for ent in entities:
+        url = getattr(ent, "url", None)
+        if url and _LINK_PATTERN.search(url):
+            links.append(url)
+    # 去重保序
+    seen, out = set(), []
+    for link in links:
+        if link not in seen:
+            seen.add(link)
+            out.append(link)
+    return out
+
+
+def _extract_tmdb_id(text: str):
+    m = _TMDB_ID_PATTERN.search(text)
+    return m.group(1) if m else None
+
+
+def _guess_type(text: str):
+    """从文案判定媒体类型；判不定返回 None。"""
+    if re.search(r"电视剧|剧集|连续剧|美剧|日剧|韩剧|国剧|港剧|台剧|番剧|综艺", text):
+        return "tv"
+    if re.search(r"电影|影片", text):
+        return "movie"
+    return None
+
+
+def _extract_title_year(text: str):
+    """通用提取「名称 (年份)」，自动去掉「电视剧：」「[剧集]」等前缀。"""
+    for line in text.splitlines()[:6]:
+        m = re.search(r"(.+?)\s*[（(](\d{4})[)）]", line)
+        if not m:
+            continue
+        raw = m.group(1)
+        raw = re.sub(r"^\s*[\[【][^\]】]*[\]】]\s*", "", raw)  # 去 [剧集] 【x】
+        raw = re.sub(r"^\s*(?:电视剧|电影|剧集|连续剧|影片|动漫|番剧|综艺|剧)\s*[:：]?\s*", "", raw)
+        raw = raw.strip(" ：:-·|·")
+        if raw:
+            return raw, m.group(2)
+    return "", ""
+
+
+def _parse_pan115(text: str):
+    """Pan115 特殊格式：按大小判定完结。返回 (title, year, complete)。"""
+    pat = r"[】](.*?)\s*\((\d+)\)" if "】" in text else r"[:] (.*?)\s*\((\d+)\)"
+    ty = re.search(pat, text)
+    title = year = ""
+    complete = False
+    if ty:
+        title, year = ty.group(1).strip(), ty.group(2).strip()
+    size = re.search(r"大\s*小[：:]\s*([\d.]+)\s*([TGM])", text)
+    if size:
+        unit_map = {"M": 1, "G": 1024, "T": 1024 ** 2}
+        size_mb = float(size.group(1)) * unit_map[size.group(2)]
+        complete = size_mb >= 10240 and "第" not in text
+    return title, year, complete
+
+
+async def _send_links(client, cfg, links, label, ctx):
     cmsbot = _normalize(cfg.get("cmsbot"))
     if cmsbot is None:
-        ctx.log.warning("[115监控] 未配置 CMS 机器人，跳过发送")
-        return
-    links = _LINK_PATTERN.findall(message.caption or "")
-    if not links:
-        ctx.log.warning("[115监控] 未找到 115 链接")
+        ctx.log.warning("[115监控] 未配置 CMS 机器人，跳过发送 | %s", label)
         return
     for link in links:
         try:
             await client.send_message(cmsbot, link)
-            ctx.log.info("[115监控] 已发送 [%s %s]: %s", title, year, link)
+            ctx.log.info("[115监控] 已发送 [%s]: %s", label, link)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[115监控] 发送链接失败: %r", e)
 
 
-async def _search_and_send(client, cfg, title, year, complete_series, message, ctx):
-    if not title:
-        return
-    tmdb = TmdbApi(cfg.get("tmdbapi", ""), bool(cfg.get("proxy_enable", False)), cfg.get("proxy_url", ""))
+async def _resolve_by_search(cfg, title, year, ctx):
+    """无现成 TMDB ID 时，用标题/年份走 TMDB 搜索识别。返回 (media_type, tmdb_id) 或 None。"""
+    tmdb = TmdbApi(cfg.get("tmdbapi", ""))
     results = await tmdb.search_all(title, year, ctx.log)
     if not results:
-        ctx.log.info("[115监控] TMDB 无结果 | %s %s", title, year)
-        return
-
+        return None
     idx = next(
         (i for i, it in enumerate(results)
          if (it.get("title") == title or it.get("name") == title)
@@ -122,29 +211,72 @@ async def _search_and_send(client, cfg, title, year, complete_series, message, c
               if it.get("title") == title or it.get("name") == title), 0),
     )
     media = results[idx]
-    tmdb_id = media.get("id", "")
-    media_type = media.get("media_type", "")
-    ctx.log.info("[115监控] TMDB 匹配 | %s (%s) id=%s type=%s",
-                 media.get("title") or media.get("name"), year, tmdb_id, media_type)
+    return media.get("media_type", ""), media.get("id", "")
 
-    async def check_and_send():
-        try:
-            ids = await get_emby_tmdb_ids(cfg.get("embyserver", ""), cfg.get("embyapi", ""),
-                                          title, media_type, ctx.log)
-            if ids and str(tmdb_id) in ids:
-                ctx.log.info("[115监控] 已在媒体库 | %s id=%s", title, tmdb_id)
-            else:
-                await _send_115_links(client, cfg, message, title, year, ctx)
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("[115监控] 检查媒体失败 | %s: %r", title, e)
 
-    if media_type == "movie":
-        await check_and_send()
-    elif media_type == "tv":
-        if complete_series:
-            await check_and_send()
-        else:
-            ctx.log.info("[115监控] 剧集未完结 | %s id=%s", title, tmdb_id)
+async def _process(client, cfg, message, ctx):
+    text = _msg_text(message)
+    links = _extract_links(message)
+    if not links:
+        return
+
+    block_words = _lines(cfg.get("blockyword_list", ""))
+    if block_words and any(w in text for w in block_words):
+        ctx.log.info("[115监控] 命中屏蔽词，跳过")
+        return
+
+    media_types = cfg.get("media_types") or ["movie", "tv"]
+    tmdb_id = _extract_tmdb_id(text)
+    mtype = _guess_type(text)
+    title, year = _extract_title_year(text)
+    complete = bool(_COMPLETE_PATTERN.search(text))
+
+    pan = _pan115_id(cfg)
+    if pan is not None and message.chat.id == pan:
+        t2, y2, c2 = _parse_pan115(text)
+        if t2:
+            title, year = t2, y2
+        complete = complete or c2
+
+    label = title or (f"tmdb:{tmdb_id}" if tmdb_id else "?")
+
+    # 类型过滤：能判定就按选择过滤；判不定不拦
+    if mtype and mtype not in media_types:
+        ctx.log.info("[115监控] 类型 %s 未选中，跳过 | %s", mtype, label)
+        return
+    # 完结过滤：仅当明确是剧集且开启了「仅完结」
+    if mtype == "tv" and cfg.get("only_complete_series", False) and not complete:
+        ctx.log.info("[115监控] 剧集未完结（仅转完结已开启），跳过 | %s", label)
+        return
+
+    embyserver = cfg.get("embyserver", "")
+    embyapi = cfg.get("embyapi", "")
+
+    if tmdb_id:
+        in_library = await emby_has_tmdb_id(embyserver, embyapi, tmdb_id, mtype, ctx.log)
+        ctx.log.info("[115监控] TMDB=%s type=%s 库内=%s | [%s] %s",
+                     tmdb_id, mtype or "?", in_library, getattr(message.chat, "title", ""), label)
+    elif title:
+        found = await _resolve_by_search(cfg, title, year, ctx)
+        if not found:
+            ctx.log.info("[115监控] TMDB 无结果 | %s %s", title, year)
+            return
+        mtype2, tid = found
+        if mtype2 and mtype2 not in media_types:
+            ctx.log.info("[115监控] 类型 %s 未选中(搜索)，跳过 | %s", mtype2, title)
+            return
+        ids = await get_emby_tmdb_ids(embyserver, embyapi, title, mtype2, ctx.log)
+        in_library = bool(ids and str(tid) in ids)
+        ctx.log.info("[115监控] 搜索匹配 TMDB=%s type=%s 库内=%s | %s",
+                     tid, mtype2 or "?", in_library, title)
+    else:
+        ctx.log.info("[115监控] 无法识别标题/TMDB，跳过 | chat=%s", message.chat.id)
+        return
+
+    if in_library:
+        ctx.log.info("[115监控] 已在媒体库，不转存 | %s", label)
+        return
+    await _send_links(client, cfg, links, label, ctx)
 
 
 async def setup(ctx):
@@ -154,42 +286,13 @@ async def setup(ctx):
         if not cfg.get("shareswitch", False):
             return
         monitor_ids = _monitor_ids(cfg)
-        if message.chat.id not in monitor_ids:
+        # 留空=监控全部会话；填了=白名单
+        if monitor_ids and message.chat.id not in monitor_ids:
             return
-        caption = message.caption or message.text or ""
-        if not _LINK_PATTERN.search(caption):
-            return
-
-        pan115_id = _PAN115_CHAT_ID
-        block_words = _lines(cfg.get("blockyword_list", ""))
-        title = year = ""
-        complete_series = False
-
-        if message.chat.id == pan115_id:
-            if "】" in caption:
-                pat = r"[】](.*?)\s*\((\d+)\)"
-            else:
-                pat = r"[:] (.*?)\s*\((\d+)\)"
-            ty = re.search(pat, caption)
-            size = re.search(r"大\s*小[：:]\s*([\d.]+)\s*([TGM])", caption)
-            if ty:
-                title, year = ty.group(1).strip(), ty.group(2).strip()
-            if size:
-                unit_map = {"M": 1, "G": 1024, "T": 1024 ** 2}
-                size_mb = float(size.group(1)) * unit_map[size.group(2)]
-                complete_series = size_mb >= 10240 and "第" not in caption
-        else:
-            m = re.search(r"(.*?)\s*\((\d+)\)", caption)
-            if m:
-                title, year = m.group(1).strip(), m.group(2).strip()
-                complete_series = ("EP" not in caption and "全" in caption) or "完结" in caption
-
-        if title and year:
-            if any(w in title for w in block_words):
-                ctx.log.info("[115监控] %s %s 命中屏蔽词，跳过", title, year)
-            else:
-                ctx.log.info("[115监控] 检索 [%s] %s %s", message.chat.title, title, year)
-                await _search_and_send(client, cfg, title, year, complete_series, message, ctx)
+        try:
+            await _process(client, cfg, message, ctx)
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[115监控] 处理消息异常: %r", e)
 
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
     async def getmedia(client, message):
@@ -203,14 +306,13 @@ async def setup(ctx):
         if not title:
             return await message.edit("请提供名称，例如：/getmedia 泰坦尼克号 1997")
 
-        tmdb = TmdbApi(cfg.get("tmdbapi", ""), bool(cfg.get("proxy_enable", False)), cfg.get("proxy_url", ""))
+        tmdb = TmdbApi(cfg.get("tmdbapi", ""))
         result = await tmdb.search_all(title, year, ctx.log)
 
         tmp_dir = Path(tempfile.mkdtemp(prefix="getmedia_"))
         fp = tmp_dir / f"{title}({year}).txt"
         try:
             fp.write_text(json.dumps(result, ensure_ascii=False, indent=4), encoding="utf-8")
-            # 发到自己收藏夹
             await client.send_document("me", str(fp))
             try:
                 await message.delete()

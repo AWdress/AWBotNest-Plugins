@@ -105,10 +105,10 @@
     "path": "plugins/trans115search.py"
   },
   "movie_monitor_115": {
-    "name": "115媒体监控",
-    "version": "1.0.2",
+    "name": "115频道监控",
+    "version": "1.0.3",
     "author": "AWdress",
-    "description": "监控频道里的 115 分享，TMDB 识别后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。",
+    "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "path": "plugins/movie_monitor_115/"
   },
   "quiz_game": {
@@ -183,7 +183,7 @@
   },
   "u2_dmhy": {
     "name": "U2送糖",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却，可走代理。",
     "path": "plugins/u2_dmhy.py"
