@@ -106,7 +106,7 @@
   },
   "movie_monitor_115": {
     "name": "115频道监控",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "path": "plugins/movie_monitor_115/"

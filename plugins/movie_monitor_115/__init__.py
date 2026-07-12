@@ -17,7 +17,7 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
@@ -320,6 +320,85 @@ async def _process(client, cfg, message, ctx):
     await _send_links(client, cfg, links, label, ctx)
 
 
+async def _cmd_getmedia(client, message, ctx):
+    text = message.text or ""
+    cfg = ctx.config
+    parts = text.split()
+    title = parts[1] if len(parts) >= 2 else ""
+    year = parts[2] if len(parts) >= 3 else "0"
+    if not title:
+        return await message.edit("请提供名称，例如：.getmedia 泰坦尼克号 1997")
+
+    await message.edit(f"🔍 查询 TMDB：{title} {year if year != '0' else ''}".rstrip() + " …")
+    try:
+        tmdb = TmdbApi(cfg.get("tmdbapi", ""))
+        result = await tmdb.search_all(title, year, ctx.log)
+        summary = _fmt_getmedia(result, title, year)
+    except Exception as e:  # noqa: BLE001
+        ctx.log.error("[115监控] .getmedia 失败: %r", e)
+        summary = f"查询失败: {e.__class__.__name__}"
+
+    try:
+        await message.edit(f"```\n{summary}\n```")
+    except Exception:
+        pass
+    await asyncio.sleep(_GETMEDIA_TTL)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+async def _cmd_find(client, message, ctx):
+    text = message.text or ""
+    kw = text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) >= 2 else ""
+    if not kw:
+        return await message.edit("请提供关键词，例如：.find 泰坦尼克号")
+    cfg = ctx.config
+    monitor_ids = _monitor_ids(cfg)
+    if not monitor_ids:
+        return await message.edit(
+            "「监控频道ID」为空（留空=监控全部会话），无法遍历搜索。\n"
+            "请在配置里填入要搜索的频道ID后再用 .find。"
+        )
+
+    await message.edit(f"🔎 搜索「{kw}」…")
+    found = []  # (频道名, 摘要, 链接)
+    for cid in monitor_ids:
+        try:
+            async for msg in client.search_messages(cid, query=kw, limit=10):
+                links = _extract_links(msg)
+                if not links:
+                    continue
+                ct = getattr(msg.chat, "title", None) or str(cid)
+                body = (msg.caption or msg.text or "").strip()
+                snippet = body.splitlines()[0][:40] if body else ""
+                for link in links:
+                    found.append((ct, snippet, link))
+        except Exception as e:  # noqa: BLE001
+            ctx.log.warning("[115监控] 搜索频道 %s 失败: %r", cid, e)
+        if len(found) >= 15:
+            break
+
+    if not found:
+        summary = f"🔎「{kw}」未找到 115 资源"
+    else:
+        lines = [f"🔎「{kw}」· 命中 {len(found)} 条"]
+        for ct, snippet, link in found[:15]:
+            lines.append(f"[{ct}] {snippet}\n{link}")
+        summary = "\n".join(lines)
+
+    try:
+        await message.edit(f"```\n{summary}\n```")
+    except Exception:
+        pass
+    await asyncio.sleep(_GETMEDIA_TTL)
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
 async def setup(ctx):
     @ctx.on_message(ctx.filters.text | ctx.filters.caption, group=7)
     async def monitor_channels(client, message):
@@ -335,89 +414,16 @@ async def setup(ctx):
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[115监控] 处理消息异常: %r", e)
 
+    # 单一命令分发：getmedia 与 find 共用 outgoing&text 过滤器，必须放同一个
+    # handler 内分发——否则同 group 内先匹配的 handler 执行后会停止传播，
+    # 导致另一个命令永远收不到。
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
-    async def getmedia(client, message):
+    async def commands(client, message):
         text = message.text or ""
-        if not re.match(r"^[/\.]getmedia(?:\s|$)", text, re.IGNORECASE):
-            return
-        cfg = ctx.config
-        parts = text.split()
-        title = parts[1] if len(parts) >= 2 else ""
-        year = parts[2] if len(parts) >= 3 else "0"
-        if not title:
-            return await message.edit("请提供名称，例如：/getmedia 泰坦尼克号 1997")
-
-        await message.edit(f"🔍 查询 TMDB：{title} {year if year != '0' else ''}".rstrip() + " …")
-        try:
-            tmdb = TmdbApi(cfg.get("tmdbapi", ""))
-            result = await tmdb.search_all(title, year, ctx.log)
-            summary = _fmt_getmedia(result, title, year)
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("[115监控] /getmedia 失败: %r", e)
-            summary = f"查询失败: {e.__class__.__name__}"
-
-        try:
-            await message.edit(f"```\n{summary}\n```")
-        except Exception:
-            pass
-        await asyncio.sleep(_GETMEDIA_TTL)
-        try:
-            await message.delete()
-        except Exception:
-            pass
-
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
-    async def find_resource(client, message):
-        text = message.text or ""
-        m = re.match(r"^[/\.]find(?:\s+(.+))?$", text, re.IGNORECASE)
-        if not m:
-            return
-        kw = (m.group(1) or "").strip()
-        if not kw:
-            return await message.edit("请提供关键词，例如：.find 泰坦尼克号")
-        cfg = ctx.config
-        monitor_ids = _monitor_ids(cfg)
-        if not monitor_ids:
-            return await message.edit(
-                "「监控频道ID」为空（留空=监控全部会话），无法遍历搜索。\n"
-                "请在配置里填入要搜索的频道ID后再用 .find。"
-            )
-
-        await message.edit(f"🔎 搜索「{kw}」…")
-        found = []  # (频道名, 摘要, 链接)
-        for cid in monitor_ids:
-            try:
-                async for msg in client.search_messages(cid, query=kw, limit=10):
-                    links = _extract_links(msg)
-                    if not links:
-                        continue
-                    ct = getattr(msg.chat, "title", None) or str(cid)
-                    body = (msg.caption or msg.text or "").strip()
-                    snippet = body.splitlines()[0][:40] if body else ""
-                    for link in links:
-                        found.append((ct, snippet, link))
-            except Exception as e:  # noqa: BLE001
-                ctx.log.warning("[115监控] 搜索频道 %s 失败: %r", cid, e)
-            if len(found) >= 15:
-                break
-
-        if not found:
-            summary = f"🔎「{kw}」未找到 115 资源"
-        else:
-            lines = [f"🔎「{kw}」· 命中 {len(found)} 条"]
-            for ct, snippet, link in found[:15]:
-                lines.append(f"[{ct}] {snippet}\n{link}")
-            summary = "\n".join(lines)
-
-        try:
-            await message.edit(f"```\n{summary}\n```")
-        except Exception:
-            pass
-        await asyncio.sleep(_GETMEDIA_TTL)
-        try:
-            await message.delete()
-        except Exception:
-            pass
+        if re.match(r"^[/\.]getmedia(?:\s|$)", text, re.IGNORECASE):
+            await _cmd_getmedia(client, message, ctx)
+        elif re.match(r"^[/\.]find(?:\s|$)", text, re.IGNORECASE):
+            await _cmd_find(client, message, ctx)
 
 
 async def teardown(ctx):
