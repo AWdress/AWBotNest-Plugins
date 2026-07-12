@@ -31,14 +31,22 @@ class TmdbApi:
             r["media_type"] = "tv"
         return movie + tv
 
+    def _auth(self):
+        """兼容 TMDB v3 API Key（URL 参数）与 v4 Read Access Token（Bearer 头）。"""
+        key = (self.api_key or "").strip()
+        if key.startswith("eyJ"):  # v4 令牌是 JWT，必须走 Authorization: Bearer
+            return {}, {"Authorization": f"Bearer {key}"}
+        return {"api_key": key}, {}
+
     async def _search(self, url: str, title: str, extra: dict, log) -> List[dict]:
         if not title:
             return []
-        params = {"api_key": self.api_key, "language": self.language, "query": title}
-        params.update({k: v for k, v in extra.items() if v})
+        key_param, headers = self._auth()
+        params = {"language": self.language, "query": title, **key_param}
+        params.update({k: v for k, v in extra.items() if v and str(v) != "0"})
         try:
             async with self._client() as client:
-                resp = await client.get(url, params=params)
+                resp = await client.get(url, params=params, headers=headers)
                 resp.raise_for_status()
                 return resp.json().get("results", [])
         except Exception as e:  # noqa: BLE001

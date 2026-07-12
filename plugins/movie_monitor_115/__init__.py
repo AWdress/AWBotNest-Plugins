@@ -20,7 +20,7 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
@@ -61,7 +61,8 @@ __plugin__ = {
         },
         # —— TMDB（无现成 TMDB ID 时用标题识别）——
         "tmdbapi": {
-            "type": "password", "default": "", "label": "TMDB API Key", "section": "TMDB",
+            "type": "password", "default": "", "label": "TMDB API Key / 令牌", "section": "TMDB",
+            "help": "填 v3 API Key（32位）或 v4 读取访问令牌（eyJ开头），两种都支持。",
         },
         # —— Emby + CMS ——
         "embyserver": {
