@@ -17,7 +17,7 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.6",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
@@ -71,7 +71,8 @@ __plugin__ = {
         },
         "cmsbot": {
             "type": "string", "default": "", "label": "CMS 入库机器人", "section": "Emby/CMS",
-            "help": "把缺失媒体的 115 链接发给这个机器人（用户名或ID）。",
+            "help": "把缺失媒体的 115 链接发给这个机器人。填 @用户名 或数字ID；"
+                    "@用户名会自动解析，若报 PeerIdInvalid 解析失败请改用数字ID。",
         },
     },
 }
@@ -202,11 +203,23 @@ def _parse_pan115(text: str):
     return title, year, complete
 
 
+async def _resolve_target(client, target, ctx):
+    """@用户名 先 get_chat 解析一次写入会话缓存，规避 PeerIdInvalid；返回可用的 peer。"""
+    if isinstance(target, str) and target.startswith("@"):
+        try:
+            chat = await client.get_chat(target)
+            return chat.id
+        except Exception as e:  # noqa: BLE001
+            ctx.log.warning("[115监控] 解析 %s 失败（建议改用数字ID）: %r", target, e)
+    return target
+
+
 async def _send_links(client, cfg, links, label, ctx):
     cmsbot = _normalize(cfg.get("cmsbot"))
     if cmsbot is None:
         ctx.log.warning("[115监控] 未配置 CMS 机器人，跳过发送 | %s", label)
         return
+    cmsbot = await _resolve_target(client, cmsbot, ctx)
     for link in links:
         try:
             await client.send_message(cmsbot, link)
@@ -269,27 +282,37 @@ async def _process(client, cfg, message, ctx):
 
     embyserver = cfg.get("embyserver", "")
     embyapi = cfg.get("embyapi", "")
+    emby_configured = bool(embyserver and embyapi)
+    chat_title = getattr(message.chat, "title", None) or ""
 
-    if tmdb_id:
-        in_library = await emby_has_tmdb_id(embyserver, embyapi, tmdb_id, mtype, ctx.log)
-        ctx.log.info("[115监控] TMDB=%s type=%s 库内=%s | [%s] %s",
-                     tmdb_id, mtype or "?", in_library, getattr(message.chat, "title", ""), label)
-    elif title:
-        found = await _resolve_by_search(cfg, title, year, ctx)
-        if not found:
-            ctx.log.info("[115监控] TMDB 无结果 | %s %s", title, year)
+    try:
+        if tmdb_id:
+            in_library = await emby_has_tmdb_id(embyserver, embyapi, tmdb_id, mtype, ctx.log)
+            ctx.log.info("[115监控] TMDB=%s type=%s 库内=%s | [%s] %s",
+                         tmdb_id, mtype or "?", in_library, chat_title, label)
+        elif title:
+            found = await _resolve_by_search(cfg, title, year, ctx)
+            if not found:
+                ctx.log.info("[115监控] TMDB 无结果 | %s %s", title, year)
+                return
+            mtype2, tid = found
+            if mtype2 and mtype2 not in media_types:
+                ctx.log.info("[115监控] 类型 %s 未选中(搜索)，跳过 | %s", mtype2, title)
+                return
+            ids = await get_emby_tmdb_ids(embyserver, embyapi, title, mtype2, ctx.log)
+            in_library = bool(ids and str(tid) in ids)
+            ctx.log.info("[115监控] 搜索匹配 TMDB=%s type=%s 库内=%s | %s",
+                         tid, mtype2 or "?", in_library, title)
+        else:
+            ctx.log.info("[115监控] 无法识别标题/TMDB，跳过 | chat=%s", message.chat.id)
             return
-        mtype2, tid = found
-        if mtype2 and mtype2 not in media_types:
-            ctx.log.info("[115监控] 类型 %s 未选中(搜索)，跳过 | %s", mtype2, title)
+    except Exception as e:  # noqa: BLE001
+        # 只有「配置了 Emby 但查询失败」才保守跳过：无法确认是否已入库时，
+        # 宁可漏转也不误转（避免库里已有的被重复推送入库）。
+        if emby_configured:
+            ctx.log.error("[115监控] 查 Emby 失败，跳过转发避免误入库 | %s: %r", label, e)
             return
-        ids = await get_emby_tmdb_ids(embyserver, embyapi, title, mtype2, ctx.log)
-        in_library = bool(ids and str(tid) in ids)
-        ctx.log.info("[115监控] 搜索匹配 TMDB=%s type=%s 库内=%s | %s",
-                     tid, mtype2 or "?", in_library, title)
-    else:
-        ctx.log.info("[115监控] 无法识别标题/TMDB，跳过 | chat=%s", message.chat.id)
-        return
+        raise
 
     if in_library:
         ctx.log.info("[115监控] 已在媒体库，不转存 | %s", label)

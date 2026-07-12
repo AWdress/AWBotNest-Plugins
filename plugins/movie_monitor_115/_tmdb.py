@@ -91,19 +91,16 @@ async def emby_has_tmdb_id(emby_server: str, emby_api: str, tmdb_id, media_type:
     item_types = _item_types(media_type)
     if item_types:
         params["IncludeItemTypes"] = item_types
-    try:
-        async with httpx.AsyncClient(timeout=10, verify=False) as client:
-            resp = await client.get(url, params=params)
-            res = resp.json()
-            items = (res or {}).get("Items") or []
-            for it in items:
-                if str(it.get("ProviderIds", {}).get("Tmdb")) == str(tmdb_id):
-                    return True
-            return bool(items)
-    except Exception as e:  # noqa: BLE001
-        if log:
-            log.error("[115监控] 按 TMDB ID 查 Emby 失败: %r", e)
-        return False
+    # Emby 多为自建/内网服务，必须直连、绕过平台出站代理（trust_env=False）。
+    # 连接失败让异常冒泡，由上层决定「跳过转发」而非误判为不在库。
+    async with httpx.AsyncClient(timeout=10, verify=False, trust_env=False) as client:
+        resp = await client.get(url, params=params)
+        res = resp.json()
+        items = (res or {}).get("Items") or []
+        for it in items:
+            if str(it.get("ProviderIds", {}).get("Tmdb")) == str(tmdb_id):
+                return True
+        return bool(items)
 
 
 async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str,
@@ -125,16 +122,12 @@ async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str,
         "StartIndex": 0, "Recursive": "true", "SearchTerm": title,
         "Limit": 10, "IncludeSearchTypes": "false", "api_key": emby_api,
     }
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, params=params)
-            res = resp.json()
-            items = res.get("Items") if res else None
-            if not items:
-                return []
-            return [it["ProviderIds"].get("Tmdb") for it in items
-                    if "Tmdb" in it.get("ProviderIds", {})]
-    except Exception as e:  # noqa: BLE001
-        if log:
-            log.error("[115监控] 连接 Emby 失败: %r", e)
-        return []
+    # Emby 直连、绕过平台出站代理；失败让异常冒泡给上层处理。
+    async with httpx.AsyncClient(timeout=10, verify=False, trust_env=False) as client:
+        resp = await client.get(url, params=params)
+        res = resp.json()
+        items = res.get("Items") if res else None
+        if not items:
+            return []
+        return [it["ProviderIds"].get("Tmdb") for it in items
+                if "Tmdb" in it.get("ProviderIds", {})]
