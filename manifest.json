@@ -78,9 +78,9 @@
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
-    "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。",
+    "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
     "path": "plugins/ai/"
   },
   "hdhive_lottery": {
@@ -134,9 +134,9 @@
   },
   "transfer": {
     "name": "多站点转账",
-    "version": "1.0.16",
+    "version": "1.0.17",
     "author": "AWdress",
-    "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。",
+    "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "path": "plugins/transfer/"
   },
   "hdsky_redpacket": {
@@ -169,9 +169,9 @@
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
-    "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。",
+    "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。自带 Vue 配置界面 + 待发奖管理。",
     "path": "plugins/auto_lottery/"
   },
   "zhuque_lottery": {
@@ -197,9 +197,9 @@
   },
   "red_packet_send": {
     "name": "发红包",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
-    "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。",
+    "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
     "path": "plugins/red_packet_send/"
   },
   "common_lottery": {
@@ -226,7 +226,7 @@
   },
   "awpulse": {
     "name": "AWPulse 色花堂助手",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "path": "plugins/awpulse/"

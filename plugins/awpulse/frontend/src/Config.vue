@@ -46,7 +46,9 @@ const DEFAULTS = {
   schedule_cron: '', schedule_times: ['03:00', '09:00', '15:00', '21:00'], schedule_time: '03:00',
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
-  skip_keywords: [], skip_prefixes: [], admin_usernames: [],
+  skip_keywords: ['公告', '通知', '规则', '版规', '置顶', '热门', '2024年永久访问本站方法', 'APP下载', '白名单', '邀请码', '访问方法', '屏蔽', '封禁', '违规', '删除', '警告', '发布器', '最新方法', '申诉', '二次验证', '禁止申诉', '高薪', '招聘'],
+  skip_prefixes: ['【公告】', '【通知】', '【规则】', '【版规】', '公告:', '通知:', '规则:', '版规:'],
+  admin_usernames: ['admin', '管理员', '版主'],
   auto_post: {
     enabled: false, target_fid: 139, category_id: null, post_folder: 'novels', posted_folder: 'posted',
     post_interval: 300, max_posts_per_day: 5, content_preview_length: 500, move_after_post: true, skip_posted_files: true,
