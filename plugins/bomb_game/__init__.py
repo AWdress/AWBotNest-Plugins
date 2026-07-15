@@ -22,7 +22,7 @@ from ._game import NumberBombGame
 __plugin__ = {
     "name": "数字炸弹",
     "id": "bomb_game",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "scope": "both",
@@ -30,8 +30,9 @@ __plugin__ = {
     "config_schema": {
         # —— 群组 ——
         "valid_groups": {
-            "type": "text", "default": "", "label": "允许的群组ID",
-            "section": "群组", "help": "一行一个群组ID。只有这些群能玩（需群内有转账bot发奖）。留空=不限制。",
+            "type": "chat", "default": [], "label": "允许的群组", "multi": True,
+            "chat_types": ["group"], "section": "群组",
+            "help": "勾选允许玩的群（需群内有转账bot发奖）。留空=不限制。",
         },
         # —— 奖池 ——
         "entry_fee": {
@@ -80,16 +81,16 @@ __plugin__ = {
             "section": "消息", "help": "范围提示/冷却提示等临时消息自动删除（爆炸结算消息保留）。",
         },
         "auto_delete_disabled_groups": {
-            "type": "text", "default": "", "label": "不自动删除的群",
-            "section": "消息",
-            "help": "一行一个群ID。即使上面总开关开着，这些群也不自动删除消息（对应原版按群关闭自动删除）。",
+            "type": "chat", "default": [], "label": "不自动删除的群", "multi": True,
+            "chat_types": ["group"], "section": "消息",
+            "help": "即使总开关开着，这些群也不自动删除消息（对应原版按群关闭自动删除）。",
             "show_if": {"auto_delete_enabled": True},
         },
         # —— 群组临时停用 ——
         "monitor_disabled_groups": {
-            "type": "text", "default": "", "label": "临时停用的群",
-            "section": "群组",
-            "help": "一行一个群ID。这些群虽在允许列表内，但暂时禁止开启数字炸弹（对应原版按群监控开关）。",
+            "type": "chat", "default": [], "label": "临时停用的群", "multi": True,
+            "chat_types": ["group"], "section": "群组",
+            "help": "这些群虽在允许列表内，但暂时禁止开启数字炸弹（对应原版按群监控开关）。",
         },
         # —— 参与确认 ——
         "require_transfer_confirm": {
@@ -99,9 +100,9 @@ __plugin__ = {
                     "开(严格模式)：还需监听到群内转账bot确认转账后才算参与，更防白嫖但依赖转账bot消息形态。",
         },
         "transfer_bot_ids": {
-            "type": "text", "default": "", "label": "转账确认bot的ID",
-            "section": "参与确认",
-            "help": "一行一个转账bot的数字ID。留空=接受群内任意bot的确认消息。仅严格模式生效。",
+            "type": "chat", "default": [], "label": "转账确认bot", "multi": True,
+            "chat_types": ["bot"], "section": "参与确认",
+            "help": "勾选转账确认bot。留空=接受群内任意bot的确认消息。仅严格模式生效。",
             "show_if": {"require_transfer_confirm": True},
         },
     },

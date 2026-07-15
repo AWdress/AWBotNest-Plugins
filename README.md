@@ -110,20 +110,37 @@ async def teardown(ctx):
     "enable_x": {"type": "boolean", "default": True, "label": "启用X", "section": "功能开关"},
     "keyword":  {"type": "string",  "default": "",   "label": "触发词", "section": "参数",
                  "help": "字段下方说明", "show_if": {"enable_x": True}},
-    "secret":   {"type": "password", "default": "",  "label": "密钥",  "section": "参数"},
+    "secret":   {"type": "password", "default": "",  "label": "密钥",  "section": "参数", "required": True},
     "volume":   {"type": "slider",  "default": 5, "min": 0, "max": 10, "step": 1, "section": "参数"},
     "mode":     {"type": "select",  "default": "a", "options": ["a","b"], "section": "参数"},
+    # 可增删行的规则列表，取值为 list-of-dict
+    "rules":    {"type": "list", "default": [], "label": "规则", "item_label": "规则", "section": "规则",
+                 "fields": {
+                     "name":  {"type": "string",  "label": "名称"},
+                     "types": {"type": "multiselect", "label": "类型", "options": ["a","b"], "default": []},
+                     "on":    {"type": "boolean", "label": "启用", "default": True},
+                 }},
+    # 会话选择器：从账号的群/频道/私聊里挑，直接存会话 id
+    "target":   {"type": "chat", "default": 0, "label": "转发到", "multi": False,
+                 "chat_types": ["group", "channel"], "section": "会话"},
+    "tip":      {"type": "info", "label": "说明", "text": "先填密钥再启用", "section": "会话"},
+    "test":     {"type": "action", "label": "测试连接", "action": "test", "section": "会话"},
 }
 ```
 
 字段属性：
-- `type`：`string` / `password` / `number` / `boolean` / `select` / `multiselect` / `slider` / `text`(多行)
-- `default`：默认值（必填；multiselect 用列表，slider/number 用数字）
+- `type`：`string` / `password` / `number` / `boolean` / `select` / `multiselect` / `slider` / `text`(多行) / `list` / `chat` / `action` / `info`
+- `default`：默认值（必填；`multiselect`/`list` 用列表，`slider`/`number` 用数字）
 - `label` 显示名 · `help` 说明 · `options`（select/multiselect 用）· `min`/`max`/`step`（number/slider 用）
+- `required`：`True` 时保存前校验非空，空则前端拦下不保存（`info`/`action` 不校验）
 - `section`：分区标题（同 section 归一组卡片）
 - `show_if`：条件联动，如 `{"enable_x": True}` 仅当该字段为真才显示本字段
+- `list`：可增删行，`fields` 定义每行子字段（`{子键: 子 spec}`，子字段用基础类型），`item_label` 定每行标题前缀（如「规则 1」）。取值 `[{子键: 值}, ...]`，`ctx.config["rules"]` 直接遍历。行内暂不支持 `show_if`，别再嵌套 `list`
+- `chat`：会话选择器，从账号的群/频道/私聊里挑，存会话 id；`multi=True` 存 id 数组；`chat_types` 过滤类型（`private`/`bot`/`group`/`channel`）；`session` 指定枚举账号。`ctx.config["target"]` 直接当 chat_id 用，没连账号可手填兜底
+- `action`：动作按钮，`action` 名须与插件里 `ctx.action("名字")` 注册的一致；`danger=True` 点击前弹确认
+- `info`：只读展示，`text` 为固定文字；不填 `text` 则显示该键当前值（可用 `ctx.update_config` 写回显示动态状态）
 
-> 需要多条规则/多项内容时，优先用普通字段组合（开关 + `select` + `show_if` 联动）把界面拆清楚；确实需要不定条数时，可用多行 `text` 字段让用户一行一条填写，插件内解析（参考 `keyword_auto_reply` 的「关键词=回复」写法）。
+> 多条规则/不定条数内容，优先用 `list` 字段（可增删行、每行一组表单，用户一看就懂）；来源/目标这类会话选 `chat` 选择器，免手填 id。
 
 ### 5. 第三方依赖（requirements）
 

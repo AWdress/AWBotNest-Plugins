@@ -35,16 +35,14 @@ def parse_targets(raw: str) -> dict[int, str]:
     return targets
 
 
-def parse_group_ids(raw: str) -> set[int]:
-    """解析「群组白名单」（换行/逗号分隔的 chat_id）。空=不限群。"""
+def parse_group_ids(raw) -> set[int]:
+    """解析「群组白名单」。兼容 chat 控件的 id 数组与旧的换行/逗号文本。空=不限群。"""
     ids: set[int] = set()
-    for part in re.split(r"[,\s]+", str(raw or "")):
-        part = part.strip()
-        if not part:
-            continue
+    items = raw if isinstance(raw, list) else re.split(r"[,\s]+", str(raw or ""))
+    for part in items:
         try:
-            ids.add(int(part))
-        except ValueError:
+            ids.add(part if isinstance(part, int) else int(str(part).strip()))
+        except (ValueError, TypeError):
             pass
     return ids
 

@@ -25,7 +25,7 @@ from . import _ocr
 __plugin__ = {
     "name": "自动抢红包",
     "id": "red_packet_grab",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -50,9 +50,9 @@ __plugin__ = {
             "help": "只抢这些人发的红包。一行一个，格式 `用户ID 备注` 或 `用户ID`。留空=不限发包人（任何人发的都抢）。",
         },
         "target_groups": {
-            "type": "text", "default": "", "label": "群组白名单",
-            "section": "识别范围",
-            "help": "只在这些群里抢。换行或逗号分隔的群组ID。留空=不限群组。",
+            "type": "chat", "default": [], "label": "群组白名单", "multi": True,
+            "chat_types": ["group"], "section": "识别范围",
+            "help": "只在勾选的群里抢。留空=不限群组。",
         },
 
         # ───────── 口令识别 ─────────

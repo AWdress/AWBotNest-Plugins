@@ -22,18 +22,21 @@ _AMOUNT_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
 
 
 # ─── 配置解析 ────────────────────────────────────────────────────────────────
-def parse_groups(raw) -> set:
-    """把多行群组ID文本解析成 int 集合。空 = 不限制（返回空集合）。"""
-    groups = set()
-    for line in str(raw or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
+def _to_int_set(raw) -> set:
+    """兼容 chat 控件的 id 数组与旧多行文本，解析成 int 集合。"""
+    items = raw if isinstance(raw, list) else str(raw or "").splitlines()
+    out = set()
+    for x in items:
         try:
-            groups.add(int(line))
-        except ValueError:
+            out.add(x if isinstance(x, int) else int(str(x).strip()))
+        except (ValueError, TypeError):
             pass
-    return groups
+    return out
+
+
+def parse_groups(raw) -> set:
+    """群组ID集合。空 = 不限制（返回空集合）。"""
+    return _to_int_set(raw)
 
 
 def group_allowed(groups: set, chat_id: int) -> bool:
@@ -42,17 +45,8 @@ def group_allowed(groups: set, chat_id: int) -> bool:
 
 
 def parse_bot_ids(raw) -> set:
-    """解析转账确认 bot 的 ID 列表（多行）。空 = 接受任意 bot。"""
-    ids = set()
-    for line in str(raw or "").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            ids.add(int(line))
-        except ValueError:
-            pass
-    return ids
+    """转账确认 bot 的 ID 集合。空 = 接受任意 bot。"""
+    return _to_int_set(raw)
 
 
 def build_shrink_config(cfg: dict) -> dict:

@@ -43,7 +43,7 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -75,16 +75,14 @@ __plugin__ = {
         },
         # 抽奖群组（LOTTERY_TARGET_GROUP 常量 + custom_lottery_groups 配置，合并去重）
         "lottery_target_groups": {
-            "type": "text", "default": "", "label": "预定义抽奖群组",
-            "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "逗号或换行分隔的群组ID（对应原 LOTTERY_TARGET_GROUP）。"
-                    "只在这些群里参与抽奖。",
+            "type": "chat", "default": [], "label": "预定义抽奖群组", "multi": True,
+            "chat_types": ["group"], "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
+            "help": "勾选要参与抽奖的群（对应原 LOTTERY_TARGET_GROUP）。",
         },
         "custom_lottery_groups": {
-            "type": "text", "default": "", "label": "自定义抽奖群组",
-            "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "逗号或换行分隔的群组ID（对应原 custom_lottery_groups）。"
-                    "与预定义抽奖群组合并去重后生效。两者都留空=不参与任何群。",
+            "type": "chat", "default": [], "label": "自定义抽奖群组", "multi": True,
+            "chat_types": ["group"], "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
+            "help": "与预定义抽奖群组合并去重后生效。两者都留空=不参与任何群。",
         },
         # ═══════════ 参与方式 ═══════════
         "lottery_forward_enabled": {
@@ -241,9 +239,9 @@ __plugin__ = {
                     "有转账功能的群组（见下）会自动跳过。",
         },
         "transfer_groups": {
-            "type": "text", "default": "", "label": "转账群组ID（免回用户名）",
-            "section": "中奖回应", "show_if": {"username_reply_switch": True},
-            "help": "逗号或换行分隔。这些群有转账功能、无需回复 PT 用户名"
+            "type": "chat", "default": [], "label": "转账群组（免回用户名）", "multi": True,
+            "chat_types": ["group"], "section": "中奖回应", "show_if": {"username_reply_switch": True},
+            "help": "勾选有转账功能、无需回复 PT 用户名的群"
                     "（替代原 get_transform_groups 的跨插件依赖）。",
         },
         "lottery_heimu_message": {

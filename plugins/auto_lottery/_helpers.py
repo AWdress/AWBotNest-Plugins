@@ -15,17 +15,15 @@ from datetime import datetime, time
 # ─── 配置解析工具 ────────────────────────────────────────────────────────────
 
 def parse_groups(raw) -> list[int]:
-    """解析群组ID列表（逗号或换行分隔）。空 = 空列表。"""
+    """解析群组ID列表。兼容 chat 控件的 id 数组与旧的逗号/换行分隔文本。空 = 空列表。"""
     groups: list[int] = []
     if not raw:
         return groups
-    for chunk in str(raw).replace("\n", ",").split(","):
-        chunk = chunk.strip()
-        if not chunk:
-            continue
+    items = raw if isinstance(raw, list) else str(raw).replace("\n", ",").split(",")
+    for chunk in items:
         try:
-            groups.append(int(chunk))
-        except ValueError:
+            groups.append(chunk if isinstance(chunk, int) else int(str(chunk).strip()))
+        except (ValueError, TypeError):
             pass
     return groups
 

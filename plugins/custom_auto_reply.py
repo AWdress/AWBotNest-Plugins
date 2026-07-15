@@ -2,37 +2,31 @@
 # AWBotNest 插件：定时自动回复（custom_auto_reply）
 #
 # 用户账号按设定的时间，自动向指定会话发送消息。
-# 每行一条规则「会话 | 时间 | 内容」，各自独立定时；不写时间则用「默认时间」。
-# 平台 config_schema 无「可重复字段组」类型，故用多行文本承载多条规则。
+# 用 list 控件逐条配置「会话 / 时间 / 内容」，各自独立定时；不写时间则用「默认时间」。
 # =============================================================================
 
 __plugin__ = {
     "name": "定时自动回复",
     "id": "custom_auto_reply",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
-        # —— 必填：发给谁、发什么 ——
+        # —— 必填：发给谁、发什么（逐条添加）——
         "target_chat_id": {
-            "type": "text", "default": "", "label": "会话 · 时间 · 内容",
+            "type": "list", "default": [], "label": "定时规则", "item_label": "规则",
             "section": "发送内容",
-            "help": (
-                "每行一条规则，各自独立定时。三种写法（用竖线 | 分隔，半角全角都行）：\n"
-                "  会话\n"
-                "  会话 | 内容\n"
-                "  会话 | 时间 | 内容\n"
-                "• 会话：群组/频道ID（形如 -1001234567890）或 @用户名，不知道可用「查ID」插件。\n"
-                "• 时间（第2段）可写：`09:30`=每天9点半；`3h`=每隔3小时；`30m`=每隔30分钟；"
-                "`0 9 * * 1-5`=cron(工作日9点)。不写时间这段就用下方「默认时间」。\n"
-                "• 内容里想换行用 \\n。只填会话不带内容时用下方「默认消息」。\n"
-                "例：\n"
-                "  -1001111111111 | 09:00 | 早安\n"
-                "  @mychannel | 30m | 每半小时刷一条\n"
-                "  -1002222222222 | 晚安（用默认时间发）"
-            ),
+            "fields": {
+                "chat": {"type": "string", "label": "会话",
+                         "help": "群/频道ID(形如 -1001234567890)或 @用户名，不知道可用「查ID」插件"},
+                "time": {"type": "string", "label": "时间（可选）",
+                         "help": "`09:30`每天定点 / `3h`每3小时 / `30m`每30分钟 / `0 9 * * 1-5`cron；留空=用下方默认时间"},
+                "content": {"type": "string", "label": "内容（可选）",
+                            "help": "换行用 \\n；留空=用下方默认消息"},
+            },
+            "help": "逐条添加：发给谁、什么时间、发什么。时间/内容留空则用「默认时间」「默认消息」。",
         },
         "message": {
             "type": "text", "default": "", "label": "默认消息（可选）",
@@ -152,6 +146,25 @@ def _parse_plan(raw, default_msg: str) -> list:
     去重键为 (target, timespec)，允许同一会话不同时间多条规则。
     """
     plan, seen = [], set()
+    # list 控件：[{chat, time, content}, ...]
+    if isinstance(raw, list):
+        for d in raw:
+            if not isinstance(d, dict):
+                continue
+            target = _normalize_chat_id(d.get("chat"))
+            if target is None:
+                continue
+            msg = str(d.get("content", "")).strip().replace("\\n", "\n") or default_msg
+            if not msg:
+                continue
+            timespec = _parse_timespec(d.get("time"))
+            key = (target, _timespec_key(timespec))
+            if key in seen:
+                continue
+            seen.add(key)
+            plan.append((target, msg, timespec))
+        return plan
+    # 兼容旧的多行文本格式
     for line in str(raw or "").split("\n"):
         line = line.strip()
         if not line:

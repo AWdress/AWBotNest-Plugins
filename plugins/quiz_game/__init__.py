@@ -15,15 +15,16 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
         "valid_groups": {
-            "type": "text", "default": "", "label": "允许的群组ID",
-            "section": "范围", "help": "一行一个群组ID。只有这些群能开启答题（需群内有转账bot发奖）。留空=不限制。",
+            "type": "chat", "default": [], "label": "允许的群组", "multi": True,
+            "chat_types": ["group"], "section": "范围",
+            "help": "勾选允许开启答题的群（需群内有转账bot发奖）。留空=不限制。",
         },
         # —— 玩法 ——
         "reward": {
@@ -87,11 +88,13 @@ def _lines(raw) -> list[str]:
 
 
 def _valid_group(cfg, chat_id: int) -> bool:
+    raw = cfg.get("valid_groups") or []
+    items = raw if isinstance(raw, list) else _lines(raw)  # chat 存 id 数组，兼容旧字符串
     groups = []
-    for line in _lines(cfg.get("valid_groups", "")):
+    for x in items:
         try:
-            groups.append(int(line))
-        except ValueError:
+            groups.append(int(x))
+        except (ValueError, TypeError):
             pass
     return True if not groups else chat_id in groups
 

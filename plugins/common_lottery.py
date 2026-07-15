@@ -16,15 +16,16 @@ from random import randint
 __plugin__ = {
     "name": "通用抽奖",
     "id": "common_lottery",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
         "groups": {
-            "type": "text", "default": "", "label": "监听群组ID",
-            "section": "参数", "help": "一行一个或逗号分隔。留空 = 所有群都参与。",
+            "type": "chat", "default": [], "label": "监听群组", "multi": True,
+            "chat_types": ["group", "channel"], "section": "参数",
+            "help": "勾选要参与抽奖的群/频道；留空 = 所有群都参与。",
         },
         "auto_join": {
             "type": "boolean", "default": False, "label": "自动加入要求的群/频道",
@@ -69,6 +70,15 @@ def _prune_stale(log) -> None:
 
 
 def _parse_groups(raw) -> list:
+    # chat 控件存 id 数组；兼容旧的逗号/空格分隔字符串
+    if isinstance(raw, list):
+        out = []
+        for x in raw:
+            try:
+                out.append(int(x))
+            except (ValueError, TypeError):
+                pass
+        return out
     groups = []
     for part in re.split(r"[,\s]+", str(raw or "")):
         part = part.strip()
@@ -82,7 +92,7 @@ def _parse_groups(raw) -> list:
 
 
 def _group_allowed(cfg, chat_id) -> bool:
-    groups = _parse_groups(cfg.get("groups", ""))
+    groups = _parse_groups(cfg.get("groups"))
     return (not groups) or (chat_id in groups)
 
 

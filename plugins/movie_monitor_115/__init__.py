@@ -17,7 +17,7 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "scope": "user",
@@ -29,9 +29,9 @@ __plugin__ = {
         },
         # —— 监控范围 ——
         "monitor_ids": {
-            "type": "text", "default": "", "label": "监控频道ID",
-            "section": "监控范围",
-            "help": "一行一个频道/群ID（形如 -100xxxxxxxxxx）。留空=监控你账号收到的所有会话（凡含 115 链接就处理）。",
+            "type": "chat", "default": [], "label": "监控频道", "multi": True,
+            "chat_types": ["group", "channel"], "section": "监控范围",
+            "help": "从你账号的群/频道里勾选要监控的；留空=监控所有会话（凡含 115 链接就处理）。",
         },
         "media_types": {
             "type": "multiselect", "default": ["movie", "tv"], "label": "转存类型",
@@ -48,9 +48,9 @@ __plugin__ = {
             "help": "开启后电视剧只转存标注了「完结/全X集」的；关闭则不完结也转存。",
         },
         "pan115_chat_id": {
-            "type": "string", "default": "", "label": "Pan115频道ID（可选）",
-            "section": "监控范围",
-            "help": "该频道额外用「Pan115」特殊格式解析（按大小判定完结）。留空则统一走通用解析。",
+            "type": "chat", "default": 0, "label": "Pan115频道（可选）",
+            "chat_types": ["group", "channel"], "section": "监控范围",
+            "help": "选中的频道额外用「Pan115」特殊格式解析（按大小判定完结）。不选则统一走通用解析。",
         },
         "blockyword_list": {
             "type": "text", "default": "", "label": "屏蔽关键词",
@@ -124,17 +124,25 @@ def _normalize(raw):
 
 
 def _monitor_ids(cfg) -> list[int]:
-    """配置的监控频道ID列表；空列表表示不限会话（监控全部）。"""
+    """监控会话 id 列表；空表示不限会话（监控全部）。兼容 chat 控件的 id 数组与旧的多行字符串。"""
+    raw = cfg.get("monitor_ids") or []
+    items = raw if isinstance(raw, list) else _lines(raw)
     ids = []
-    for x in _lines(cfg.get("monitor_ids", "")):
-        v = _normalize(x)
-        if isinstance(v, int):
-            ids.append(v)
+    for x in items:
+        try:
+            ids.append(int(x))
+        except (ValueError, TypeError):
+            pass
     return ids
 
 
 def _pan115_id(cfg):
-    return _normalize(cfg.get("pan115_chat_id"))
+    """chat 控件存单个 id（0=未选）；兼容旧的 @用户名/字符串。"""
+    raw = cfg.get("pan115_chat_id")
+    try:
+        return int(raw) or None
+    except (ValueError, TypeError):
+        return _normalize(raw)
 
 
 def _msg_text(message) -> str:

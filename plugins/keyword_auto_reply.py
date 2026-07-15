@@ -14,9 +14,9 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
-    "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
+    "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -25,17 +25,15 @@ __plugin__ = {
             "section": "总开关",
         },
 
-        # —— 规则：一行一条 ——
+        # —— 规则：逐条添加 ——
         "rules_text": {
-            "type": "text", "default": "", "label": "关键词规则",
+            "type": "list", "default": [], "label": "关键词规则", "item_label": "规则",
             "section": "规则",
-            "help": (
-                "一行一条规则，格式：关键词=回复内容\n"
-                "例如：\n"
-                "你好=你好呀 {uname}~\n"
-                "签到=签到成功，获得 1-100 积分\n"
-                "回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。"
-            ),
+            "fields": {
+                "keyword": {"type": "string", "label": "关键词"},
+                "reply": {"type": "string", "label": "回复内容"},
+            },
+            "help": "命中关键词自动回一句。回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。",
         },
         "match_type": {
             "type": "select", "default": "contains", "label": "匹配方式",
@@ -48,9 +46,9 @@ __plugin__ = {
 
         # —— 范围与冷却 ——
         "chat_ids": {
-            "type": "string", "default": "", "label": "只在这些群生效（可选）",
-            "section": "范围与冷却",
-            "help": "群组ID，多个用英文逗号隔开。留空 = 所有群都生效。",
+            "type": "chat", "default": [], "label": "只在这些群生效（可选）", "multi": True,
+            "chat_types": ["group"], "section": "范围与冷却",
+            "help": "勾选生效的群；留空 = 所有群都生效。",
         },
         "cooldown_hours": {
             "type": "slider", "default": 24, "label": "同一个人冷却(小时)",
@@ -80,10 +78,17 @@ _user_cooldowns: dict[tuple, tuple[float, int]] = {}
 _pending_tasks: set = set()
 
 
-def _parse_rules(text: str) -> list[tuple[str, str]]:
-    """把多行「关键词=回复」解析成 [(关键词, 回复), ...]。"""
+def _parse_rules(raw) -> list[tuple[str, str]]:
+    """解析关键词规则为 [(关键词, 回复), ...]。兼容 list 控件的 list-of-dict 与旧的多行「关键词=回复」文本。"""
     rules: list[tuple[str, str]] = []
-    for line in (text or "").splitlines():
+    if isinstance(raw, list):
+        for d in raw:
+            if isinstance(d, dict):
+                keyword, reply = str(d.get("keyword", "")).strip(), str(d.get("reply", "")).strip()
+                if keyword and reply:
+                    rules.append((keyword, reply))
+        return rules
+    for line in str(raw or "").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -100,11 +105,13 @@ def _match(text: str, keyword: str, match_type: str) -> bool:
     return keyword in text  # contains
 
 
-def _check_chat_id(chat_id: int, chat_ids_str: str) -> bool:
-    if not chat_ids_str:
+def _check_chat_id(chat_id: int, chat_ids) -> bool:
+    """兼容 chat 控件的 id 数组与旧的逗号分隔字符串。空=不限。"""
+    if not chat_ids:
         return True
+    items = chat_ids if isinstance(chat_ids, list) else str(chat_ids).split(",")
     try:
-        allowed = [int(c.strip()) for c in str(chat_ids_str).split(",") if c.strip()]
+        allowed = [int(str(c).strip()) for c in items if str(c).strip()]
         return chat_id in allowed
     except ValueError:
         return True

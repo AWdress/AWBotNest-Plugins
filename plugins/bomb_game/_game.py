@@ -61,14 +61,14 @@ class NumberBombGame:
             return False
         # 按群覆盖：在停用列表里的群即使总开关开着也不删
         if chat_id is not None:
-            raw = self.config.get("auto_delete_disabled_groups", "")
-            for part in str(raw or "").replace(",", "\n").split("\n"):
-                part = part.strip()
-                if part:
+            raw = self.config.get("auto_delete_disabled_groups")
+            items = raw if isinstance(raw, list) else str(raw or "").replace(",", "\n").split("\n")
+            for part in items:
+                if str(part).strip():
                     try:
                         if int(part) == chat_id:
                             return False
-                    except ValueError:
+                    except (ValueError, TypeError):
                         pass
         return True
 

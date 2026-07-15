@@ -29,14 +29,14 @@
   },
   "keyword_auto_reply": {
     "name": "关键词自动回复",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
-    "description": "群里有人说到关键词，自动回复一句。规则一行一条「关键词=回复」，支持冷却、限群、自动删除。",
+    "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "path": "plugins/keyword_auto_reply.py"
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。",
     "path": "plugins/custom_auto_reply.py"
@@ -106,21 +106,28 @@
   },
   "movie_monitor_115": {
     "name": "115频道监控",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "path": "plugins/movie_monitor_115/"
   },
+  "msg_forward": {
+    "name": "消息转发",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型/关键词/发送者过滤、原生转发或复制搬运。",
+    "path": "plugins/msg_forward.py"
+  },
   "quiz_game": {
     "name": "趣味答题",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "path": "plugins/quiz_game/"
   },
   "bomb_game": {
     "name": "数字炸弹",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "path": "plugins/bomb_game/"
@@ -155,14 +162,14 @@
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "用你的账号自动参与他人发的「验证码口令红包」（把口令渲染成扭曲验证码图片、要求发送图中字符参与的红包，如本仓库发红包插件发出的幸运红包）。OCR识别验证码（需ddddocr，可选）或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围，只抢别人发的红包。",
     "path": "plugins/red_packet_grab/"
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。",
     "path": "plugins/auto_lottery/"
@@ -197,7 +204,7 @@
   },
   "common_lottery": {
     "name": "通用抽奖",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "path": "plugins/common_lottery.py"
