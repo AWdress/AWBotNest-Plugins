@@ -176,7 +176,7 @@ const _hoisted_116 = ["onClick"];
 const {ref,reactive,onMounted,computed} = await importShared('vue');
 
 
-const VER = '0.0.8';   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
+const VER = '0.0.9';   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
 
 const _sfc_main = {
   __name: 'Config',
@@ -1304,6 +1304,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-602239c6"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2480c8ff"]]);
 
 export { Config as default };

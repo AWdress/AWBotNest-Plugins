@@ -74,7 +74,7 @@ const DEFAULTS = {
   maoyan_num: 10, maoyan_filter_custom: false, maoyan_min_year: 0, maoyan_min_vote: 0, maoyan_media_type: 'all',
 }
 
-const VER = '0.0.8'   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
+const VER = '0.0.9'   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
 const tab = ref('settings')
 const group = ref('global')
 const loading = ref(true)
@@ -475,7 +475,7 @@ function switchTab(t) {
 /* master-detail 布局 */
 .layout { display: flex; gap: 16px; align-items: flex-start; }
 .sidebar {
-  flex: 0 0 190px; display: flex; flex-direction: column; gap: 4px;
+  flex: 0 0 150px; display: flex; flex-direction: column; gap: 4px;
   padding: 10px; border-radius: 10px;
   background: var(--bg-elevated, #1a1d27); border: 1px solid var(--border-light, #2a2e3a);
 }
@@ -498,15 +498,15 @@ function switchTab(t) {
   background: var(--bg-elevated, #1a1d27); border: 1px solid var(--border-light, #2a2e3a);
 }
 .card-h { font-size: 13px; font-weight: 600; color: var(--accent, #6ea8fe); }
-/* 明细里表单两列铺开，利用宽屏 */
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; }
+/* 表单自适应：窄模态单列（输入框占满、不截断），够宽才两列。 */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px 20px; }
 .subfilter { padding: 12px; border-radius: 8px; background: var(--bg-card, #12141c); border: 1px dashed var(--border-light, #2a2e3a); }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.top { align-items: flex-start; }
-.row > span:first-child, .lbl { min-width: 76px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
+.row > span:first-child, .lbl { min-width: 64px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
 .row.switch { justify-content: flex-start; }
 .row.switch span { min-width: 0; }
-.hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); }
+.hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
 .inp {
   flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px;
   background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0);
@@ -538,7 +538,7 @@ textarea.inp { resize: vertical; font-family: inherit; }
 .output { margin: 0; padding: 10px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 
 /* 历史统计卡：横向铺开 */
-.stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
 .stat { padding: 14px 16px; border-radius: 10px; background: var(--bg-elevated, #1a1d27); border: 1px solid var(--border-light, #2a2e3a); }
 .stat-n { font-size: 26px; font-weight: 700; line-height: 1.1; }
 .stat-l { margin-top: 4px; font-size: 12px; color: var(--text-secondary, #b9c0cc); }
