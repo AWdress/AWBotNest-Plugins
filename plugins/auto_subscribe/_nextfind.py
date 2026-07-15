@@ -25,6 +25,10 @@ class NextFindError(Exception):
     """NextFind 请求/响应异常。"""
 
 
+class NextFindAuthError(NextFindError):
+    """鉴权失败（401/403）：API 密钥无效或已过期。运行时据此立即中止整轮。"""
+
+
 class NextFindClient:
     """NextFind OpenAPI 轻客户端（同步，直连不走代理）。"""
 
@@ -41,16 +45,23 @@ class NextFindClient:
             headers={"X-API-Key": self.api_key},
         )
 
+    @staticmethod
+    def _check(resp) -> None:
+        """把 401/403 转成 NextFindAuthError（密钥问题），其余非 2xx 照常抛。"""
+        if resp.status_code in (401, 403):
+            raise NextFindAuthError(f"NextFind 鉴权失败（HTTP {resp.status_code}）：API 密钥无效或已过期")
+        resp.raise_for_status()
+
     def _get(self, path: str, params: dict) -> dict:
         with self._client() as client:
             resp = client.get(f"{self.base_url}{path}", params=params)
-            resp.raise_for_status()
+            self._check(resp)
             return resp.json()
 
     def _post(self, path: str, body: dict) -> dict:
         with self._client() as client:
             resp = client.post(f"{self.base_url}{path}", json=body)
-            resp.raise_for_status()
+            self._check(resp)
             return resp.json()
 
     # ------------------------------------------------------------------ #

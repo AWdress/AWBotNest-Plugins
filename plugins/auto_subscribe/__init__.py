@@ -18,7 +18,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -71,6 +71,10 @@ def _effective_cfg(ctx) -> dict:
 
 def _summary(result, label: str) -> str:
     """把一轮结果格式化成通知/返回文本。"""
+    # 鉴权失败：一目了然地报因，别淹没在一堆「失败N」里。
+    if getattr(result, "auth_error", ""):
+        return (f"📥 自动订阅 · {label}\n❌ {result.auth_error}\n"
+                f"请到「设置」页更新 NextFind API 密钥（可点「测试连接」验证）后重试。")
     lines = [f"📥 自动订阅 · {label}"]
     for src, st in result.stats.items():
         parts = [f"{STATUS_LABELS.get(k, k)}{v}" for k, v in st.items() if v]
