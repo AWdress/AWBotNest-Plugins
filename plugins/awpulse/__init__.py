@@ -27,12 +27,13 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png",
     # 平台自带 playwright/ddddocr/opencv/numpy/pillow/bs4/lxml/httpx/apscheduler；
     # 这里只补声明浏览器指纹内核与解析/验证码所需的额外库。
     "requirements": [
