@@ -5,8 +5,9 @@
 #   1. 人形回复：私聊直接对话；群里 @你 或回复你的消息时对话（带上下文记忆）。
 #   2. /ai 解释：回复一条消息（或图片）再发 /ai，让 AI 解释/解答（单次，无记忆）。
 #
-# 自洽实现：直接调用 OpenAI 兼容接口（openai 库），配置全在 config_schema，
-# 对话历史存 ctx.kv，不依赖平台 DI 容器。
+# 自洽实现：直接调用 OpenAI 兼容接口（openai 库），对话历史存 ctx.kv，不依赖平台 DI 容器。
+# Vue 模式：配置/对话记忆管理界面由自带 Vue 组件渲染（frontend/src/Config.vue），
+# 配置默认值集中在 DEFAULTS，后端接口见 setup 里的 ctx.on_api。
 # =============================================================================
 
 import asyncio
@@ -23,107 +24,38 @@ from ._engine import generate, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
-    "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。",
+    "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
     "scope": "user",
     "default_enabled": False,
-    "config_schema": {
-        # —— 接口 ——
-        "api_key": {
-            "type": "password", "default": "", "label": "API Key",
-            "section": "接口", "help": "OpenAI 兼容接口的密钥。",
-        },
-        "base_url": {
-            "type": "string", "default": "", "label": "接口地址(Base URL)",
-            "section": "接口", "help": "OpenAI 兼容接口地址，如 https://api.openai.com/v1。留空用官方默认。",
-        },
-        "model": {
-            "type": "string", "default": "gpt-3.5-turbo", "label": "模型",
-            "section": "接口", "help": "如 gpt-4o-mini、gpt-3.5-turbo 等。",
-        },
-        # —— 人形回复 ——
-        "enable_private_chat": {
-            "type": "boolean", "default": True, "label": "私聊回复",
-            "section": "人形回复", "help": "私聊里直接对话。",
-        },
-        "enable_group_chat": {
-            "type": "boolean", "default": True, "label": "群聊回复",
-            "section": "人形回复", "help": "群里 @你 或回复你的消息时对话。",
-        },
-        "group_chat_ids": {
-            "type": "string", "default": "", "label": "群聊生效群组(可选)",
-            "section": "人形回复", "show_if": {"enable_group_chat": True},
-            "help": "只在这些群里 @你/回复你 才对话，群ID用逗号分隔。留空 = 所有群。",
-        },
-        "system_prompt": {
-            "type": "text",
-            "default": (
-                "# Role\n你是一个相处了很久的普通网友。\n\n"
-                "# Rules\n"
-                "1. 语气口语化、随性、接地气，就像在微信或QQ上聊天。\n"
-                "2. 每次回复必须精简，严禁长篇大论。\n"
-                "3. 绝对不能超过 20 个字。\n"
-                "4. 绝对不要在回复中模仿、复述或带入用户的动作动作。\n"
-                "5. 偶尔可以在句末加一个合适的 emoji（如 😂、🤷‍♂️、👀），不要过多。"
-            ),
-            "label": "人设(系统提示词)",
-            "section": "人形回复",
-        },
-        "max_history": {
-            "type": "slider", "default": 10, "label": "记忆轮数",
-            "min": 0, "max": 40, "step": 1, "section": "人形回复",
-            "help": "每个会话保留多少条历史消息（含系统提示）。0 = 不记忆。",
-        },
-        # —— 主动搭话 ——
-        "enable_proactive": {
-            "type": "boolean", "default": False, "label": "随机主动搭话",
-            "section": "主动搭话",
-            "help": "开启后在下方群组里，每隔随机时间挑一条群友近期消息主动回复、开启话题；群友回复你后走人形对话继续陪聊。需填「主动搭话群组」，且「群聊回复」要开着才能续聊。",
-        },
-        "proactive_chat_ids": {
-            "type": "string", "default": "", "label": "主动搭话群组",
-            "section": "主动搭话", "show_if": {"enable_proactive": True},
-            "help": "在这些群里主动搭话，群ID用逗号分隔。必填，留空则不搭话。",
-        },
-        "proactive_min_minutes": {
-            "type": "slider", "default": 60, "label": "间隔-最小(分钟)",
-            "min": 5, "max": 720, "step": 5, "section": "主动搭话",
-            "show_if": {"enable_proactive": True},
-            "help": "两次主动搭话之间的最小间隔。",
-        },
-        "proactive_max_minutes": {
-            "type": "slider", "default": 180, "label": "间隔-最大(分钟)",
-            "min": 5, "max": 1440, "step": 5, "section": "主动搭话",
-            "show_if": {"enable_proactive": True},
-            "help": "两次主动搭话之间的最大间隔。大于最小值时在两者间取随机；否则退化为固定用最小值。",
-        },
-        # —— 解释命令 ——
-        "enable_explain_command": {
-            "type": "boolean", "default": True, "label": "启用 /ai 解释命令",
-            "section": "解释命令",
-        },
-        "enable_explain_prompt": {
-            "type": "boolean", "default": False, "label": "用解释模板",
-            "section": "解释命令", "help": "开启后 /ai 用下方模板组织问题；关闭则直接把内容丢给 AI。",
-            "show_if": {"enable_explain_command": True},
-        },
-        "explain_prompt": {
-            "type": "text",
-            "default": (
-                "你是一个群聊消息解读助手。请根据用户【回复的消息内容】进行解释与答疑，简明清晰。\n"
-                "输出结构：\n1) 这句话/这段话的主要意思\n2) 语气/态度\n3) 可能的隐含信息（没有就写'无'）\n\n"
-                "需要解释的消息内容：{content}"
-            ),
-            "label": "解释模板", "section": "解释命令",
-            "help": "用 {content} 占位被解释的内容。", "show_if": {"enable_explain_prompt": True},
-        },
-        # —— 范围 ——
-        "white_list_chats": {
-            "type": "string", "default": "", "label": "会话白名单(可选)",
-            "section": "范围", "help": "只在这些会话ID生效，逗号分隔。留空 = 所有会话。",
-        },
-    },
+    "render_mode": "vue",
+}
+
+# vue 模式无 config_schema：配置默认值集中在此，供后端读取（前端 Config.vue 用同一套默认
+# 初始化表单）。后端各处 ctx.config.get(key, 默认) 已带默认值，此处仅作文档/单点参考。
+DEFAULTS = {
+    "api_key": "", "base_url": "", "model": "gpt-3.5-turbo",
+    "enable_private_chat": True, "enable_group_chat": True, "group_chat_ids": "",
+    "system_prompt": (
+        "# Role\n你是一个相处了很久的普通网友。\n\n"
+        "# Rules\n"
+        "1. 语气口语化、随性、接地气，就像在微信或QQ上聊天。\n"
+        "2. 每次回复必须精简，严禁长篇大论。\n"
+        "3. 绝对不能超过 20 个字。\n"
+        "4. 绝对不要在回复中模仿、复述或带入用户的动作动作。\n"
+        "5. 偶尔可以在句末加一个合适的 emoji（如 😂、🤷‍♂️、👀），不要过多。"
+    ),
+    "max_history": 10,
+    "enable_proactive": False, "proactive_chat_ids": "",
+    "proactive_min_minutes": 60, "proactive_max_minutes": 180,
+    "enable_explain_command": True, "enable_explain_prompt": False,
+    "explain_prompt": (
+        "你是一个群聊消息解读助手。请根据用户【回复的消息内容】进行解释与答疑，简明清晰。\n"
+        "输出结构：\n1) 这句话/这段话的主要意思\n2) 语气/态度\n3) 可能的隐含信息（没有就写'无'）\n\n"
+        "需要解释的消息内容：{content}"
+    ),
+    "white_list_chats": "",
 }
 
 # .ai 解释用的中性系统提示（不套人设）
@@ -443,6 +375,94 @@ async def setup(ctx):
             return
 
     ctx.schedule(proactive_tick, "interval", minutes=1, id="AI主动搭话")
+
+    # ── 前端(Config.vue)用的后端接口 ──
+    @ctx.on_api("/test", methods=["POST"])
+    async def _api_test(req):
+        cfg = ctx.config
+        if not cfg.get("api_key"):
+            return {"ok": False, "message": "未配置 API Key"}
+        try:
+            reply = await generate(
+                cfg.get("api_key", ""), cfg.get("base_url", ""),
+                cfg.get("model", "gpt-3.5-turbo"),
+                [{"role": "user", "content": "ping"}],
+            )
+            return {"ok": True, "model": cfg.get("model", ""),
+                    "message": "连接正常" + (f"（回复：{reply[:30]}）" if reply else "")}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": classify_error(e)}
+
+    @ctx.on_api("/histories", methods=["GET"])
+    async def _api_histories(req):
+        items = []
+        try:
+            keys = [k for k in ctx.kv.keys() if str(k).startswith("hist:")]
+        except Exception:  # noqa: BLE001
+            keys = []
+        for k in keys:
+            try:
+                chat_id = int(str(k)[len("hist:"):])
+            except (ValueError, TypeError):
+                continue
+            hist = ctx.kv.get(k, []) or []
+            if not isinstance(hist, list) or not hist:
+                continue
+            last = ""
+            for m in reversed(hist):
+                if isinstance(m, dict) and m.get("content"):
+                    last = str(m["content"])
+                    break
+            items.append({
+                "chat_id": chat_id, "is_private": chat_id > 0,
+                "count": len(hist), "last": last[:60],
+            })
+        items.sort(key=lambda x: x["count"], reverse=True)
+        # 下次主动搭话时刻（epoch → 本地时间字符串）
+        proactive_next = ""
+        nxt = ctx.kv.get("proactive_next_ts", None)
+        if nxt:
+            try:
+                from datetime import datetime
+                proactive_next = datetime.fromtimestamp(float(nxt)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:  # noqa: BLE001
+                proactive_next = ""
+        return {"items": items, "proactive_next": proactive_next}
+
+    @ctx.on_api("/history", methods=["GET"])
+    async def _api_history(req):
+        raw = (req.query.get("chat_id") if hasattr(req, "query") else None) or ""
+        try:
+            chat_id = int(raw)
+        except (ValueError, TypeError):
+            return {"chat_id": raw, "messages": []}
+        hist = ctx.kv.get(_hist_key(chat_id), []) or []
+        msgs = [{"role": m.get("role", ""), "content": m.get("content", "")}
+                for m in hist if isinstance(m, dict)]
+        return {"chat_id": chat_id, "messages": msgs}
+
+    @ctx.on_api("/history/clear", methods=["POST"])
+    async def _api_history_clear(req):
+        data = req.json or {}
+        if data.get("all"):
+            try:
+                keys = [k for k in ctx.kv.keys() if str(k).startswith("hist:")]
+            except Exception:  # noqa: BLE001
+                keys = []
+            for k in keys:
+                try:
+                    ctx.kv.delete(k)
+                except Exception:  # noqa: BLE001
+                    pass
+            return {"ok": True, "cleared": len(keys)}
+        chat_id = data.get("chat_id")
+        if chat_id is None:
+            return {"ok": False, "message": "缺少 chat_id"}
+        try:
+            ctx.kv.delete(_hist_key(int(chat_id)))
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True}
 
 
 async def _extract_image(client, reply, ctx):

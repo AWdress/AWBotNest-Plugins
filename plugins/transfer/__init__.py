@@ -32,131 +32,39 @@ import time
 from ._sites import (
     build_active_sites, detect_direction, counterparty_message,
     plus_amount_message, extract_amount_from_text, extract_plus_amount,
-    user_identity,
+    user_identity, builtin_site_keys,
 )
 from ._records import RecordStore
 from . import _leaderboard as lb
 
 # 站点（群组ID/转账bot/货币/解析方式）全部内置写死在 _sites.py 的 _BUILTIN_SITES，
-# 用户只通过下面 config_schema 的每站点开关决定是否监听/致谢/上榜。
+# 用户只通过 Vue 界面（frontend/src/Config.vue）的每站点开关决定是否监听/致谢/上榜。
 
 
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.16",
+    "version": "1.0.17",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点可配置。",
-    "config_schema": {
-        # —— 站点（群组ID/转账bot 内置写死；每站点一行 chips，点选功能）——
-        # 一个 multiselect = 一行标签：启用 / 群内致谢 / 打赏榜(转入) / 赏赐榜(转出)。
-        "site_audiences": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "Audiences · 爆米花", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-            "help": "点亮标签开启对应功能：启用=监听记录；群内致谢=收/发后群里回一句；打赏榜/赏赐榜=致谢里附转入/转出排行榜。",
-        },
+    "render_mode": "vue",
+    "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
+}
 
-        "site_hddolby": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "HDDolby · 鲸币", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-        },
-
-        "site_azusa": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "Azusa · 魔力值", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-        },
-
-        "site_zm": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "ZmPT · 电力", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-            "help": "ZmPT 群有发消息延迟，致谢/榜单会自动延后约 11 秒发出（写死，无需设置）。",
-        },
-
-        "site_springsunday": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "SpringSunday · 茉莉（含两个群）", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-        },
-
-        "site_hdsky": {
-            "type": "multiselect", "default": ["on", "notify", "lb_in", "lb_out"], "label": "HDSky · 银元", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-        },
-
-        "site_mocktest": {
-            "type": "multiselect", "default": [], "label": "MockTest · 测试（默认关）", "section": "站点",
-            "options": [
-                {"value": "on", "label": "启用"}, {"value": "notify", "label": "群内致谢"},
-                {"value": "lb_in", "label": "打赏榜"}, {"value": "lb_out", "label": "赏赐榜"},
-            ],
-        },
-
-        # —— 排行榜 ——
-        "rank_output": {
-            "type": "select", "default": "image", "label": "排行榜输出形式",
-            "options": [
-                {"value": "image", "label": "图片（默认）"},
-                {"value": "text", "label": "文本"},
-            ],
-            "section": "排行榜",
-            "help": "图片优先用 wkhtmltoimage（装了的话），否则 Pillow 纯 Python 绘制，失败回退文本。",
-        },
-        "rank_size": {
-            "type": "slider", "default": 10, "label": "排行榜人数", "min": 3, "max": 30,
-            "step": 1, "section": "排行榜",
-        },
-        "rank_command": {
-            "type": "string", "default": "转账排行", "label": "排行榜命令词",
-            "section": "排行榜",
-            "help": "在任意聊天发「.<命令词> [站点] [in/out]」拉取排行榜，如 .转账排行 hdsky in。",
-        },
-
-        # —— 致谢延迟 ——
-        "notify_delay_min": {
-            "type": "number", "default": 0, "label": "致谢延迟最小(秒)",
-            "min": 0, "max": 300, "section": "致谢延迟",
-            "help": "记录到转账后等待若干秒再发致谢，模拟人工（0=不等）。",
-        },
-        "notify_delay_max": {
-            "type": "number", "default": 0, "label": "致谢延迟最大(秒)",
-            "min": 0, "max": 300, "section": "致谢延迟",
-        },
-
-        # —— 进阶 ——
-        "ssd_click_mode": {
-            "type": "select", "default": "off", "label": "SSD 大额转账自动确认",
-            "options": [
-                {"value": "off", "label": "关闭"},
-                {"value": "once", "label": "单次确认"},
-                {"value": "5min", "label": "5分钟确认"},
-            ],
-            "section": "进阶",
-            "help": "springsunday 大额转账时 bot 会要你点确认按钮，开启后自动点。",
-        },
-        "owner_notify": {
-            "type": "boolean", "default": False, "label": "每笔转账推送给平台主人",
-            "section": "进阶",
-        },
-    },
+# vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
+# 前端 Config.vue 用同一套默认初始化表单）。站点默认标签见 _sites._BUILTIN_SITES 的 default_on。
+DEFAULTS = {
+    "site_audiences": ["on", "notify", "lb_in", "lb_out"],
+    "site_hddolby": ["on", "notify", "lb_in", "lb_out"],
+    "site_azusa": ["on", "notify", "lb_in", "lb_out"],
+    "site_zm": ["on", "notify", "lb_in", "lb_out"],
+    "site_springsunday": ["on", "notify", "lb_in", "lb_out"],
+    "site_hdsky": ["on", "notify", "lb_in", "lb_out"],
+    "site_mocktest": [],
+    "rank_output": "image", "rank_size": 10, "rank_command": "转账排行",
+    "notify_delay_min": 0, "notify_delay_max": 0,
+    "ssd_click_mode": "off", "owner_notify": False,
 }
 
 
@@ -326,6 +234,62 @@ async def setup(ctx):
                 ctx.log.error("SSD转账确认失败: %s", e)
         except Exception as e:
             ctx.log.error("处理SSD大额确认出错: %s", e)
+
+    # ── 前端(Config.vue)用的后端接口 ──
+    @ctx.on_api("/sites", methods=["GET"])
+    async def _api_sites(req):
+        """列出全部内置站点（名称/货币/是否已有数据），供排行榜面板选择。"""
+        try:
+            has_data = set(store.sites_with_data())
+        except Exception:  # noqa: BLE001
+            has_data = set()
+        out = []
+        for key, _disp, bonus, _default_on in builtin_site_keys():
+            out.append({"name": key, "bonus": bonus, "has_data": key in has_data})
+        # 兜底：有数据但不在内置列表里的站点也列出
+        for name in has_data:
+            if not any(s["name"] == name for s in out):
+                out.append({"name": name, "bonus": "", "has_data": True})
+        return {"sites": out}
+
+    @ctx.on_api("/leaderboard", methods=["GET"])
+    async def _api_leaderboard(req):
+        q = getattr(req, "query", {}) or {}
+        site = q.get("site") or ""
+        direction = q.get("dir") or "in"
+        if direction not in ("in", "out"):
+            direction = "in"
+        try:
+            limit = int(q.get("limit") or 10)
+        except (ValueError, TypeError):
+            limit = 10
+        if not site:
+            return {"items": []}
+        return {"items": store.leaderboard(site, direction, limit)}
+
+    @ctx.on_api("/recent", methods=["GET"])
+    async def _api_recent(req):
+        import json as _json
+        raw = ctx.kv.get("recent", None)
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except Exception:  # noqa: BLE001
+                raw = []
+        items = raw if isinstance(raw, list) else []
+        return {"items": list(reversed(items))[:100]}  # 最近在前
+
+    @ctx.on_api("/reset", methods=["POST"])
+    async def _api_reset(req):
+        data = req.json or {}
+        site = data.get("site")
+        if not site:
+            return {"ok": False, "message": "缺少 site"}
+        try:
+            store.reset_site(site)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": str(e)}
+        return {"ok": True}
 
 
 async def teardown(ctx):

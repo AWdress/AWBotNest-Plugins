@@ -43,278 +43,34 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。",
-    "config_schema": {
-        # ═══════════ 自动抽奖（AUTO_LOTTERY section）═══════════
-        "auto_lottery_enabled": {
-            "type": "boolean", "default": False, "label": "自动抽奖总开关",
-            "section": "自动抽奖",
-            "help": "控制是否自动参与符合条件的抽奖。关闭后不参与任何抽奖"
-                    "（仍会按发奖开关记录开奖以便发奖）。",
-        },
-        "lottery_bot_id": {
-            "type": "string", "default": "6461022460", "label": "小菜抽奖机器人ID",
-            "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "发起抽奖的小菜抽奖机器人用户ID（原 choujiang_bot 过滤器固定为 6461022460）。",
-        },
-        "auto_lottery_username": {
-            "type": "string", "default": "", "label": "PT用户名",
-            "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "示例: AWdress。中奖后在无转账功能的群里回复用户名时使用"
-                    "（需开启「中奖回复用户名开关」）。",
-        },
-        "auto_lottery_time": {
-            "type": "string", "default": "", "label": "抽奖时间段",
-            "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "格式 08:00-11:00,13:00-17:00,20:00-23:00（24小时制，多段逗号分隔）。"
-                    "留空=全天。",
-        },
-        # 抽奖群组（LOTTERY_TARGET_GROUP 常量 + custom_lottery_groups 配置，合并去重）
-        "lottery_target_groups": {
-            "type": "chat", "default": [], "label": "预定义抽奖群组", "multi": True,
-            "chat_types": ["group"], "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "勾选要参与抽奖的群（对应原 LOTTERY_TARGET_GROUP）。",
-        },
-        "custom_lottery_groups": {
-            "type": "chat", "default": [], "label": "自定义抽奖群组", "multi": True,
-            "chat_types": ["group"], "section": "自动抽奖", "show_if": {"auto_lottery_enabled": True},
-            "help": "与预定义抽奖群组合并去重后生效。两者都留空=不参与任何群。",
-        },
-        # ═══════════ 参与方式 ═══════════
-        "lottery_forward_enabled": {
-            "type": "boolean", "default": False, "label": "转发原始抽奖消息参与",
-            "section": "参与方式", "show_if": {"auto_lottery_enabled": True},
-            "help": "开启：转发原始抽奖消息参与；关闭：普通文本直接发送关键词。\n"
-                    "含 @、/ 等特殊格式的关键词无论开关都会转发原消息。",
-        },
-        "lottery_forward_first_participant": {
-            "type": "boolean", "default": False, "label": "转发第一个参与者",
-            "section": "参与方式", "show_if": {"auto_lottery_enabled": True},
-            "help": "开启：等待并转发第一个参与者的消息参与（最多等30秒，超时降级）。\n"
-                    "优先级：特殊格式(@、/)→转发原消息 > 本开关 > 转发原消息开关 > 直接发文本。",
-        },
-        # ═══════════ 奖品匹配（LOTTERY_PRIZE section + PRIZE_LIST + PRIZE_MATCH_RULES）═══════════
-        "prize_list": {
-            "type": "text", "default": "", "label": "奖品列表",
-            "section": "奖品匹配", "show_if": {"auto_lottery_enabled": True},
-            "help": "每行 `群组ID|奖品1,奖品2,...`（对应原 PRIZE_LIST，每群组要参与的奖品名）。\n"
-                    "例：\n-1001234567890|魔力,积分\n-1001234567891|金币,币,GB,邀请\n"
-                    "抽奖奖品文本包含某群任一关键词即视为符合。",
-        },
-        "universal_prize_match": {
-            "type": "boolean", "default": False, "label": "通用奖品匹配",
-            "section": "奖品匹配", "show_if": {"auto_lottery_enabled": True},
-            "help": "开启（通用模式）：所有群组共用全部奖品关键词，任一群的关键词都能匹配。\n"
-                    "关闭（精确模式）：只匹配当前群组配置的奖品。建议关闭（精确模式）。",
-        },
-        "prize_case_sensitive": {
-            "type": "boolean", "default": False, "label": "奖品关键词区分大小写",
-            "section": "奖品匹配", "show_if": {"auto_lottery_enabled": True},
-            "help": "对应 PRIZE_MATCH_RULES.case_sensitive。",
-        },
-        # ═══════════ 陷阱检测（TRAP_LOTTERY_DETECTION 常量展开）═══════════
-        "trap_enabled": {
-            "type": "boolean", "default": True, "label": "启用陷阱抽奖检测",
-            "section": "陷阱检测", "show_if": {"auto_lottery_enabled": True},
-            "help": "陷阱检测总开关。命中任一陷阱特征则跳过参与。",
-        },
-        "trap_case_sensitive": {
-            "type": "boolean", "default": False, "label": "陷阱关键词区分大小写",
-            "section": "陷阱检测", "show_if": {"trap_enabled": True},
-            "help": "对应 TRAP_LOTTERY_DETECTION.case_sensitive。",
-        },
-        "trap_enable_prize_pattern_check": {
-            "type": "boolean", "default": True, "label": "启用关键词检测",
-            "section": "陷阱检测", "show_if": {"trap_enabled": True},
-            "help": "检测奖品名/参与关键词/简介是否命中可疑关键词。",
-        },
-        "trap_enable_creator_blacklist": {
-            "type": "boolean", "default": True, "label": "启用创建者黑名单",
-            "section": "陷阱检测", "show_if": {"trap_enabled": True},
-            "help": "命中黑名单创建者的抽奖一律跳过。",
-        },
-        "trap_enable_participant_check": {
-            "type": "boolean", "default": True, "label": "启用参与人数检测",
-            "section": "陷阱检测", "show_if": {"trap_enabled": True},
-            "help": "单人抽奖(中奖概率 x/1) 或参与人数过少视为陷阱。",
-        },
-        "trap_max_participants": {
-            "type": "number", "default": 1, "label": "最大参与人数阈值",
-            "min": 1, "max": 1000, "section": "陷阱检测",
-            "show_if": {"trap_enable_participant_check": True},
-            "help": "对应 TRAP_LOTTERY_DETECTION.max_participants。参与人数 <= 此值视为陷阱"
-                    "（=1 时即只拦截单人抽奖）。",
-        },
-        "trap_blacklist_creator_ids": {
-            "type": "text", "default": "", "label": "创建者黑名单",
-            "section": "陷阱检测", "show_if": {"trap_enable_creator_blacklist": True},
-            "help": "逗号或换行分隔的创建者用户ID（对应 blacklist_creator_ids）。",
-        },
-        "trap_suspicious_keywords": {
-            "type": "text",
-            "default": "脚本,挂机,机器人,外挂,bot,自动,作弊,刷,假人,封禁,封,禁,ban,封号,"
-                       "script,auto,cheat,hack,fake,test,腳本,掛機,機器人,外掛,自動,封號",
-            "label": "可疑关键词", "section": "陷阱检测",
-            "show_if": {"trap_enable_prize_pattern_check": True},
-            "help": "逗号或换行分隔（对应 suspicious_keywords）。"
-                    "仅 奖品名/参与词/简介 命中任一则判为陷阱。",
-        },
-        # ═══════════ 抽奖等待时间（LOTTERY_WAIT_TIME section）═══════════
-        "lottery_wait_enabled": {
-            "type": "boolean", "default": False, "label": "抽奖等待时间总开关",
-            "section": "等待时间", "show_if": {"auto_lottery_enabled": True},
-            "help": "启用/禁用抽奖相关的所有等待时间。关闭后参与抽奖立即执行。",
-        },
-        "lottery_participate_wait_min": {
-            "type": "number", "default": 25, "label": "参与前等待(最小秒)",
-            "min": 0, "max": 300, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-            "help": "参与抽奖前的最小等待时间（秒），范围 0-300。0=立即参与。",
-        },
-        "lottery_participate_wait_max": {
-            "type": "number", "default": 65, "label": "参与前等待(最大秒)",
-            "min": 0, "max": 300, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-            "help": "参与抽奖前的最大等待时间（秒），范围 0-300。",
-        },
-        "lottery_thank_wait_min": {
-            "type": "number", "default": 10, "label": "感谢消息等待(最小秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-            "help": "中奖后发感谢消息的最小等待时间（秒），范围 0-120。",
-        },
-        "lottery_thank_wait_max": {
-            "type": "number", "default": 45, "label": "感谢消息等待(最大秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-        },
-        "lottery_heimu_wait_min": {
-            "type": "number", "default": 20, "label": "黑幕消息等待(最小秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-            "help": "未中奖发黑幕消息的最小等待时间（秒），范围 0-120。",
-        },
-        "lottery_heimu_wait_max": {
-            "type": "number", "default": 40, "label": "黑幕消息等待(最大秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-        },
-        "lottery_negative_wait_min": {
-            "type": "number", "default": 10, "label": "负面回复等待(最小秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-            "help": "发送负面回复的最小等待时间（秒），范围 0-120。",
-        },
-        "lottery_negative_wait_max": {
-            "type": "number", "default": 60, "label": "负面回复等待(最大秒)",
-            "min": 0, "max": 120, "section": "等待时间",
-            "show_if": {"lottery_wait_enabled": True},
-        },
-        "group_wait_overrides": {
-            "type": "text", "default": "", "label": "按群组专属参与等待",
-            "section": "等待时间", "show_if": {"lottery_wait_enabled": True},
-            "help": "每行 `群组ID|最小秒|最大秒`，覆盖该群的全局参与前等待。\n"
-                    "例：-1001234567890|30|90",
-        },
-        # ═══════════ 中奖回应（LOTTERY_WAIT_TIME 开关 + AUTO_LOTTERY.username_reply_switch）═══════════
-        "lottery_thank_message": {
-            "type": "boolean", "default": False, "label": "中奖后发感谢消息",
-            "section": "中奖回应", "show_if": {"auto_lottery_enabled": True},
-            "help": "中奖后随机发一句感谢创建者的话。",
-        },
-        "thank_texts": {
-            "type": "text", "default": "感谢{boss}大佬\n{boss}爷，谢谢\n感谢老板，小弟在这",
-            "label": "感谢文案", "section": "中奖回应",
-            "show_if": {"lottery_thank_message": True},
-            "help": "每行一条，随机选一条（替代原贴纸 thank1-5）。{boss} 替换为创建者名字。",
-        },
-        "username_reply_switch": {
-            "type": "boolean", "default": False, "label": "中奖回复用户名开关",
-            "section": "中奖回应", "show_if": {"auto_lottery_enabled": True},
-            "help": "在无转账功能的群里中奖后回复自己的 PT 用户名（需填上方 PT用户名）。\n"
-                    "有转账功能的群组（见下）会自动跳过。",
-        },
-        "transfer_groups": {
-            "type": "chat", "default": [], "label": "转账群组（免回用户名）", "multi": True,
-            "chat_types": ["group"], "section": "中奖回应", "show_if": {"username_reply_switch": True},
-            "help": "勾选有转账功能、无需回复 PT 用户名的群"
-                    "（替代原 get_transform_groups 的跨插件依赖）。",
-        },
-        "lottery_heimu_message": {
-            "type": "boolean", "default": False, "label": "未中奖发黑幕消息",
-            "section": "中奖回应", "show_if": {"auto_lottery_enabled": True},
-            "help": "自己参与但没中奖时，随机发一句黑幕。",
-        },
-        "heimu_texts": {
-            "type": "text", "default": "黑幕\n这也能不中\n下次一定",
-            "label": "黑幕文案", "section": "中奖回应",
-            "show_if": {"lottery_heimu_message": True},
-            "help": "每行一条，随机选一条（替代原贴纸 heimu1-2 + LOTTERY_LOSE_REPLY_MESSAGE）。",
-        },
-        # ═══════════ 负面回复（被质疑是机器人）═══════════
-        "lose_reply_switch": {
-            "type": "boolean", "default": False, "label": "负面回复开关",
-            "section": "负面回复", "show_if": {"auto_lottery_enabled": True},
-            "help": "有人回复你的消息说「机器人/脚本/不是真人」等时，随机反驳一句"
-                    "（对应原 lose_reply_switch + NO_AOUTOLOTTERY_REPLY_MESSAGE）。",
-        },
-        "negative_texts": {
-            "type": "text", "default": "怎么可能啊\n别开玩笑啊\n啊绝对不是\n我是真的\n不要黑我\n？",
-            "label": "反驳文案", "section": "负面回复",
-            "show_if": {"lose_reply_switch": True},
-            "help": "每行一条，随机选一条。",
-        },
-        # ═══════════ 自动发奖（AUTO_LOTTERY section）═══════════
-        "auto_prize_enabled": {
-            "type": "boolean", "default": False, "label": "自动发奖功能总开关",
-            "section": "自动发奖",
-            "help": "开启后才会记录自己发起的抽奖的中奖者并发奖。关闭后不记录任何中奖信息。",
-        },
-        "manual_prize_mode": {
-            "type": "boolean", "default": False, "label": "手动发奖模式",
-            "section": "自动发奖", "show_if": {"auto_prize_enabled": True},
-            "help": "开启：只记录中奖者，等你用 .sendprize 命令发奖；关闭：开奖后立即自动发奖。\n"
-                    "命令：.sendprize <ID> / .listprize / .clearprize。",
-        },
-        "prize_send_interval_enabled": {
-            "type": "boolean", "default": True, "label": "发奖间隔开关",
-            "section": "自动发奖", "show_if": {"auto_prize_enabled": True},
-            "help": "开启：每次发奖后随机等待；关闭：秒发。建议开启避免被检测。",
-        },
-        "prize_send_interval_min": {
-            "type": "number", "default": 2, "label": "发奖间隔(最小秒)",
-            "min": 0, "max": 60, "section": "自动发奖",
-            "show_if": {"prize_send_interval_enabled": True},
-            "help": "每次发奖之间的最小等待时间（秒），范围 0-60。",
-        },
-        "prize_send_interval_max": {
-            "type": "number", "default": 5, "label": "发奖间隔(最大秒)",
-            "min": 0, "max": 60, "section": "自动发奖",
-            "show_if": {"prize_send_interval_enabled": True},
-            "help": "每次发奖之间的最大等待时间（秒），范围 0-60。",
-        },
-        "prize_send_blacklist": {
-            "type": "text", "default": "", "label": "发奖黑名单",
-            "section": "自动发奖", "show_if": {"auto_prize_enabled": True},
-            "help": "逗号或换行分隔的用户ID（对应原发奖黑名单），这些中奖者不给发奖。",
-        },
-        # ═══════════ 通知 ═══════════
-        "notify_owner": {
-            "type": "boolean", "default": True, "label": "关键事件通知我",
-            "section": "通知",
-            "help": "参与成功/中奖/发奖完成时用机器人通知平台主人"
-                    "（替代原发到 PT_GROUP_ID['BOT_MESSAGE_CHAT']）。",
-        },
-        "notify_skips": {
-            "type": "boolean", "default": False, "label": "通知跳过原因",
-            "section": "通知", "show_if": {"notify_owner": True},
-            "help": "奖品不符/陷阱/不在时间段等跳过时也通知（较吵，默认关）。",
-        },
-    },
+    "render_mode": "vue",
+    "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。",
+}
+
+# vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
+# 前端 Config.vue 用同一套默认初始化表单）。
+DEFAULTS = {
+    "auto_lottery_enabled": False, "lottery_bot_id": "6461022460", "auto_lottery_username": "",
+    "auto_lottery_time": "", "lottery_target_groups": [], "custom_lottery_groups": [],
+    "lottery_forward_enabled": False, "lottery_forward_first_participant": False,
+    "prize_list": "", "universal_prize_match": False, "prize_case_sensitive": False,
+    "trap_enabled": True, "trap_case_sensitive": False, "trap_enable_prize_pattern_check": True,
+    "trap_enable_creator_blacklist": True, "trap_enable_participant_check": True,
+    "trap_max_participants": 1, "trap_blacklist_creator_ids": "", "trap_suspicious_keywords": "",
+    "lottery_wait_enabled": False, "lottery_participate_wait_min": 25, "lottery_participate_wait_max": 65,
+    "lottery_thank_wait_min": 10, "lottery_thank_wait_max": 45,
+    "lottery_heimu_wait_min": 20, "lottery_heimu_wait_max": 40,
+    "lottery_negative_wait_min": 10, "lottery_negative_wait_max": 60, "group_wait_overrides": "",
+    "lottery_thank_message": False, "thank_texts": "", "username_reply_switch": False, "transfer_groups": [],
+    "lottery_heimu_message": False, "heimu_texts": "",
+    "lose_reply_switch": False, "negative_texts": "",
+    "auto_prize_enabled": False, "manual_prize_mode": False, "prize_send_interval_enabled": True,
+    "prize_send_interval_min": 2, "prize_send_interval_max": 5, "prize_send_blacklist": "",
+    "notify_owner": True, "notify_skips": False,
 }
 
 # 待发奖存储（setup 时用 ctx.kv 实例化）
@@ -811,6 +567,132 @@ async def setup(ctx):
             ".clearprize          清空待发奖列表\n"
             ".prizehelp           显示本帮助\n"
             f"当前待发奖: {_store.count()} 个")
+
+    # ============================================================
+    # 6. 前端(Config.vue)用的后端接口
+    # ============================================================
+    def _fmt_ts(ts):
+        try:
+            from datetime import datetime
+            return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @ctx.on_api("/dialogs", methods=["GET"])
+    async def _api_dialogs(req):
+        """列出账号的群/超级群，供前端群组选择器用。"""
+        items = []
+        seen = set()
+        apps = list(getattr(ctx, "user_apps", None) or [])
+        for client in apps:
+            try:
+                async for d in client.get_dialogs():
+                    chat = getattr(d, "chat", None)
+                    if not chat:
+                        continue
+                    t = str(getattr(chat, "type", "")).upper()
+                    if "GROUP" not in t:  # GROUP / SUPERGROUP
+                        continue
+                    if chat.id in seen:
+                        continue
+                    seen.add(chat.id)
+                    items.append({"id": chat.id, "title": getattr(chat, "title", "") or str(chat.id)})
+                    if len(items) >= 500:
+                        break
+            except Exception as e:  # noqa: BLE001
+                ctx.log.debug("[小菜抽奖] 拉取对话列表失败: %r", e)
+        items.sort(key=lambda x: x["title"])
+        return {"items": items}
+
+    @ctx.on_api("/pending", methods=["GET"])
+    async def _api_pending(req):
+        items = []
+        for lid, r in (_store.all() or {}).items():
+            items.append({
+                "lottery_id": lid,
+                "winners": len(r.get("winners", [])),
+                "chat_title": r.get("chat_title", ""),
+                "prize": (r.get("winners") or [{}])[0].get("prize_name", "") if r.get("winners") else "",
+                "time": _fmt_ts(r.get("timestamp")),
+            })
+        items.sort(key=lambda x: x["time"], reverse=True)
+        return {"items": items, "count": len(items)}
+
+    @ctx.on_api("/history", methods=["GET"])
+    async def _api_prize_history(req):
+        import json as _json
+        raw = ctx.kv.get("prize_history", None)
+        if isinstance(raw, str):
+            try:
+                raw = _json.loads(raw)
+            except Exception:  # noqa: BLE001
+                raw = []
+        items = []
+        for h in (raw if isinstance(raw, list) else []):
+            items.append({
+                "lottery_id": h.get("lottery_id", ""),
+                "total": h.get("total", 0), "success": h.get("success", 0),
+                "failed": h.get("failed", 0), "time": _fmt_ts(h.get("ts")),
+            })
+        items.reverse()  # 最近的在前
+        return {"items": items}
+
+    @ctx.on_api("/send", methods=["POST"])
+    async def _api_send(req):
+        # 发奖含随机间隔(每人可等数秒)，人多/全部发奖时整体耗时可能超过前端 HTTP 超时，
+        # 故改后台任务：立即返回，结果走 ctx.notify 回报，前端稍后刷新「待发奖」即可。
+        data = req.json or {}
+        apps = list(getattr(ctx, "user_apps", None) or [])
+        if not apps:
+            return {"ok": False, "message": "没有可用的用户账号"}
+        client = apps[0]
+        cfg = ctx.config
+        pending = _store.all() or {}
+        if data.get("all"):
+            records = list(pending.values())
+        else:
+            lid = data.get("lottery_id")
+            rec = pending.get(lid)
+            records = [rec] if rec else []
+        if not records:
+            return {"ok": False, "message": "未找到待发奖记录"}
+
+        async def _bg_send(records):
+            total_success = total_winners = 0
+            all_failed = []
+            for record in records:
+                try:
+                    s, t, f = await send_prizes(
+                        record, client, store=_store, log=ctx.log,
+                        interval_enabled=cfg.get("prize_send_interval_enabled", True),
+                        interval_min=_int_cfg(cfg, "prize_send_interval_min", 2),
+                        interval_max=_int_cfg(cfg, "prize_send_interval_max", 5),
+                        send_blacklist=set(parse_keywords(cfg.get("prize_send_blacklist", ""))),
+                    )
+                    total_success += s
+                    total_winners += t
+                    all_failed.extend(f)
+                except Exception as e:  # noqa: BLE001
+                    ctx.log.error("[小菜抽奖] 前端发奖失败: %r", e)
+            msg = f"发奖完成：成功 {total_success}/{total_winners}，剩余待发 {_store.count()} 个"
+            if all_failed:
+                msg += "\n失败:\n" + "\n".join(
+                    f"  {f['user_name']}({f['user_id']}): {f['reason']}" for f in all_failed[:10])
+            if ctx.config.get("notify_owner", True):
+                try:
+                    await ctx.notify(msg, level="success" if not all_failed else "warning",
+                                     category="小菜抽奖", account=client)
+                except Exception:  # noqa: BLE001
+                    pass
+
+        _spawn(_bg_send(records))
+        return {"ok": True, "started": True,
+                "message": f"已在后台给 {len(records)} 个抽奖发奖，完成后推送通知，稍后刷新查看剩余待发。"}
+
+    @ctx.on_api("/clear", methods=["POST"])
+    async def _api_clear(req):
+        n = _store.clear()
+        return {"ok": True, "cleared": n}
 
     ctx.log.info("小菜抽奖插件已启用")
 

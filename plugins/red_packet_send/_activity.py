@@ -542,6 +542,7 @@ class ActivityManager:
                 "[发红包] 群 %s 活动结束，参与 %s 人，发放 %s 魔力",
                 chat_id, len(participants), int(round(activity["distributed_amount"])),
             )
+            self._append_history(activity)
         except Exception as e:  # noqa: BLE001
             self.ctx.log.error("[发红包] 发送结算消息失败: %r", e)
         finally:
@@ -619,6 +620,80 @@ class ActivityManager:
             await client.send_message(chat_id, status_msg)
         except Exception as e:  # noqa: BLE001
             self.ctx.log.error("[发红包] 发送状态消息失败: %r", e)
+
+    # —— 战绩历史（结算时追加到 kv，供前端「红包监控」页展示）——
+    _HISTORY_KEY = "rp_history"
+    _HISTORY_MAX = 100
+
+    def _append_history(self, activity: Dict) -> None:
+        try:
+            raw = self.ctx.kv.get(self._HISTORY_KEY, None)
+            hist = raw if isinstance(raw, list) else []
+            hist.append({
+                "rp_id": activity.get("rp_id", 0),
+                "chat_id": activity.get("chat_id"),
+                "total_amount": int(round(activity.get("total_amount", 0))),
+                "packet_count": activity.get("packet_count", 0),
+                "participants": len(activity.get("participants", [])),
+                "distributed": int(round(activity.get("distributed_amount", 0))),
+                "ts": time.time(),
+            })
+            if len(hist) > self._HISTORY_MAX:
+                hist = hist[-self._HISTORY_MAX:]
+            self.ctx.kv.set(self._HISTORY_KEY, hist)
+        except Exception as e:  # noqa: BLE001
+            self.ctx.log.debug("[发红包] 写战绩历史失败: %r", e)
+
+    # —— 进行中活动快照（仅可序列化字段，供前端展示）——
+    def snapshot(self) -> list:
+        out = []
+        for key, a in self.active.items():
+            out.append({
+                "key": key,
+                "rp_id": a.get("rp_id", 0),
+                "chat_id": a.get("chat_id"),
+                "chat_title": a.get("chat_title", "") or "",
+                "total_amount": int(round(a.get("total_amount", 0))),
+                "packet_count": a.get("packet_count", 0),
+                "remaining_count": a.get("remaining_count", 0),
+                "remaining_amount": int(round(a.get("remaining_amount", 0))),
+                "participants": len(a.get("participants", [])),
+                "keyword": a.get("keyword", ""),
+                "status": a.get("status", ""),
+                "created": self._fmt_ts(a.get("created_time")),
+            })
+        out.sort(key=lambda x: x["rp_id"], reverse=True)
+        return out
+
+    @staticmethod
+    def _fmt_ts(ts):
+        try:
+            from datetime import datetime
+            return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    # —— 按 key 手动结束（前端「红包监控」页用）——
+    async def end_by_key(self, key: str) -> bool:
+        activity = self.active.get(key)
+        if not activity:
+            return False
+        client = activity.get("client")
+        chat_id = activity.get("chat_id")
+        if client is None or chat_id is None:
+            return False
+        await self.end_activity(client, chat_id)
+        return True
+
+    def history(self) -> list:
+        raw = self.ctx.kv.get(self._HISTORY_KEY, None)
+        hist = raw if isinstance(raw, list) else []
+        out = []
+        for h in reversed(hist):  # 最近在前
+            h = dict(h)
+            h["time"] = self._fmt_ts(h.pop("ts", None))
+            out.append(h)
+        return out
 
     # —— 全部结束（teardown）——
     def clear(self):

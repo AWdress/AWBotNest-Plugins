@@ -29,89 +29,22 @@ from ._activity import (
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。",
-    "config_schema": {
-        "enabled": {
-            "type": "boolean", "default": True, "label": "启用发红包",
-            "section": "总开关",
-            "help": "关闭后不再响应发红包命令。",
-        },
+    "render_mode": "vue",
+    "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
+}
 
-        # ───────── 命令 ─────────
-        "create_word": {
-            "type": "string", "default": "创建红包", "label": "创建命令词",
-            "section": "命令",
-            "help": "命令格式：`创建命令词 总额 个数`（随机验证码图片），或 `创建命令词 总额 个数 自定义口令`（口令做前缀+自动拼随机防挂码，一起渲染成图片，口令最多30字，支持中文）。命令发出后自动秒删。",
-        },
-        "status_word": {
-            "type": "string", "default": "红包状态", "label": "查看状态命令词",
-            "section": "命令",
-            "help": "发送该命令词查看当前群红包活动进度（会重发验证码图片）。命令自动秒删。",
-        },
-        "end_word": {
-            "type": "string", "default": "结束红包", "label": "结束命令词",
-            "section": "命令",
-            "help": "创建者发送该命令词可提前结束活动。命令自动秒删。",
-        },
-
-        # ───────── 验证码 ─────────
-        "code_length": {
-            "type": "number", "default": 4, "label": "验证码位数",
-            "min": 4, "max": 8, "step": 1, "section": "验证码",
-            "help": "随机验证码字符数（4-8）。用去混淆字符集（不含 0/O/1/I/L），不区分大小写。",
-        },
-        "rotate_code": {
-            "type": "boolean", "default": False, "label": "每抢一个换验证码",
-            "section": "验证码",
-            "help": "开启后：每有一人抢到红包，就删掉旧验证码、重新生成并重发图片，上一个立即失效，"
-                    "防止别人复制粘贴已公布的口令抢包。带自定义口令时保留口令前缀、只换后面的随机防挂码。",
-        },
-
-        # ───────── 限制 ─────────
-        "max_amount": {
-            "type": "number", "default": 0, "label": "单次总额上限(魔力)",
-            "min": 0, "max": 1000000, "step": 100, "section": "限制",
-            "help": "创建红包时总额超过此值则拒绝。0 = 不限制（原版默认无上限）。",
-        },
-        "max_count": {
-            "type": "number", "default": 0, "label": "单次红包个数上限",
-            "min": 0, "max": 1000, "step": 1, "section": "限制",
-            "help": "创建红包时个数超过此值则拒绝。0 = 不限制（原版默认无上限）。",
-        },
-        "activity_timeout_minutes": {
-            "type": "slider", "default": 30, "label": "活动超时(分钟)",
-            "min": 1, "max": 240, "step": 1, "section": "限制",
-            "help": "活动创建后多久无人抢完则自动结算公布。",
-        },
-        "end_delete_delay": {
-            "type": "slider", "default": 10, "label": "结束后删消息(秒)",
-            "min": 0, "max": 600, "step": 5, "section": "限制",
-            "help": "活动结束后延迟多少秒批量撤回红包相关消息。0 = 不删除（原版默认 10 秒）。",
-        },
-
-        # ───────── 发放与文案 ─────────
-        "transfer_prefix": {
-            "type": "string", "default": "+", "label": "转账金额前缀",
-            "section": "发放与文案",
-            "help": "发放时发送的金额格式前缀，群转账bot据此打款。默认 `+`，即发送 `+100`。",
-        },
-        "congrats_text": {
-            "type": "string", "default": "恭喜 {name} 抢到 {amount} 魔力！",
-            "label": "祝贺文案", "section": "发放与文案",
-            "help": "发放后的祝贺消息，可用 {name}（昵称）、{amount}（金额）、{id}（红包编号）占位。消息前会自动带上「🧧 #编号」。",
-        },
-
-        # ───────── 屏蔽 ─────────
-        "blacklist_ids": {
-            "type": "text", "default": "", "label": "屏蔽用户ID",
-            "section": "屏蔽",
-            "help": "这些用户参与时不计入、不发放。一行一个或逗号分隔的用户ID。",
-        },
-    },
+# vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
+# 前端 Config.vue 用同一套默认初始化表单）。
+DEFAULTS = {
+    "enabled": True, "create_word": "创建红包", "status_word": "红包状态", "end_word": "结束红包",
+    "code_length": 4, "rotate_code": False,
+    "max_amount": 0, "max_count": 0, "activity_timeout_minutes": 30, "end_delete_delay": 10,
+    "transfer_prefix": "+", "congrats_text": "恭喜 {name} 抢到 {amount} 魔力！",
+    "blacklist_ids": "",
 }
 
 # 活动管理器（setup 时创建）
@@ -176,6 +109,28 @@ async def setup(ctx):
             await _manager.handle_participation(client, message)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[发红包] 处理参与失败: %r", e)
+
+    # ───────── 前端(Config.vue)用的后端接口 ─────────
+    @ctx.on_api("/activities", methods=["GET"])
+    async def _api_activities(req):
+        return {"items": _manager.snapshot() if _manager else []}
+
+    @ctx.on_api("/history", methods=["GET"])
+    async def _api_history(req):
+        return {"items": _manager.history() if _manager else []}
+
+    @ctx.on_api("/end", methods=["POST"])
+    async def _api_end(req):
+        data = req.json or {}
+        key = data.get("key")
+        if not key or not _manager:
+            return {"ok": False, "message": "缺少活动标识"}
+        try:
+            ok = await _manager.end_by_key(str(key))
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[发红包] 前端结束活动失败: %r", e)
+            return {"ok": False, "message": f"结束异常：{e}"}
+        return {"ok": ok, "message": "已结束" if ok else "未找到进行中的红包"}
 
     ctx.log.info("[发红包] 已加载")
 
