@@ -11,6 +11,18 @@ const props = defineProps({
 
 const AI_TYPES = [{ v: 'openai', l: 'OpenAI 兼容' }, { v: 'claude', l: 'Claude' }, { v: 'custom', l: '自定义' }]
 
+// Discuz 论坛固定的安全提问（值为字符串，与后端一致）。
+const SECURITY_QUESTIONS = [
+  { v: '0', l: '不设置安全提问' },
+  { v: '1', l: '母亲的名字' },
+  { v: '2', l: '爷爷的名字' },
+  { v: '3', l: '父亲出生的城市' },
+  { v: '4', l: '您其中一位老师的名字' },
+  { v: '5', l: '您个人计算机的型号' },
+  { v: '6', l: '您最喜欢的餐馆名称' },
+  { v: '7', l: '驾驶执照最后四位数字' },
+]
+
 // 配置分组（左侧导航）。en=对应启用开关键（有则显示启用小圆点）。
 const GROUPS = [
   { key: 'account', label: '账号' },
@@ -312,7 +324,7 @@ function switchTab(t) {
                 <label class="row"><span>站点地址</span><input v-model="cfg.base_url" class="inp" /></label>
                 <label class="row"><span>用户名</span><input v-model="cfg.username" class="inp" /></label>
                 <label class="row"><span>密码</span><input v-model="cfg.password" class="inp" type="password" /></label>
-                <label class="row"><span>安全提问ID</span><input v-model="cfg.security_question_id" class="inp" /><span class="hint">0=无</span></label>
+                <label class="row"><span>安全提问</span><select v-model="cfg.security_question_id" class="inp"><option v-for="o in SECURITY_QUESTIONS" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
                 <label class="row"><span>安全答案</span><input v-model="cfg.security_answer" class="inp" type="password" /></label>
               </div>
               <p class="tip">💡 建议先在「Cookie」页导入已登录的 storage_state，可减少触发 Cloudflare 验证。容器内浏览器恒为无头(headless)模式。</p>
