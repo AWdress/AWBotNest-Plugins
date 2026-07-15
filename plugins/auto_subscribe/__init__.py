@@ -11,6 +11,7 @@
 # =============================================================================
 
 import asyncio
+import traceback
 from datetime import datetime
 
 from ._models import STATUS_LABELS
@@ -18,7 +19,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -114,7 +115,7 @@ async def _run(ctx, label: str) -> str:
     try:
         result = await asyncio.to_thread(_pipeline.run, cfg, handled, nf_cache, ctx.log)
     except Exception as e:  # noqa: BLE001
-        ctx.log.error("[自动订阅] 运行异常: %r", e)
+        ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
         if cfg.get("notify", True):
             await ctx.notify(f"自动订阅运行异常：{e}", level="error", category="自动订阅")
         return f"运行异常：{e}"
@@ -206,13 +207,18 @@ async def setup(ctx):
 
     @ctx.on_api("/run", methods=["POST"])
     async def _api_run(req):
-        # 兜底捕获，把真实原因回给前端（否则平台 dispatcher 只回 500，UI 显示 "Error"）。
-        try:
-            summary = await _run(ctx, "手动")
-            return {"ok": True, "summary": summary}
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("[自动订阅] 手动运行失败: %r", e)
-            return {"ok": False, "summary": f"运行失败：{e}"}
+        # 整轮可能跑几分钟（抓榜 + 逐条搜索/订阅），同步等会让 HTTP 请求超时，
+        # 前端就只看到无内容的 "Error"（而服务端其实还在跑）。故改为**后台任务**：
+        # 立即返回，运行结果通过通知 + 写入「订阅历史」落地，异常记完整堆栈到日志。
+        async def _bg():
+            try:
+                await _run(ctx, "手动")
+            except Exception as e:  # noqa: BLE001
+                ctx.log.error("[自动订阅] 手动运行后台异常：%s\n%s", e, traceback.format_exc())
+        asyncio.create_task(_bg())
+        return {"ok": True, "started": True,
+                "message": "已在后台开始运行。完成后结果会推送通知并写入「订阅历史」，"
+                           "稍后刷新「订阅历史 / 订阅管理」查看；失败原因见平台「运行日志」（来源：自动订阅）。"}
 
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):
