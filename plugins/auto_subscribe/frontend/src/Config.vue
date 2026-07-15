@@ -74,7 +74,6 @@ const DEFAULTS = {
   maoyan_num: 10, maoyan_filter_custom: false, maoyan_min_year: 0, maoyan_min_vote: 0, maoyan_media_type: 'all',
 }
 
-const VER = '0.0.10'   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
 const tab = ref('settings')
 const group = ref('global')
 const loading = ref(true)
@@ -233,8 +232,6 @@ function switchTab(t) {
         <button :class="['tab', { on: tab === 'settings' }]" @click="switchTab('settings')">⚙ 订阅配置</button>
         <button :class="['tab', { on: tab === 'history' }]" @click="switchTab('history')">↻ 订阅历史</button>
         <button :class="['tab', { on: tab === 'subs' }]" @click="switchTab('subs')">🔔 订阅管理</button>
-        <span class="grow"></span>
-        <span class="ver">v{{ VER }}</span>
       </div>
 
       <!-- ============ 配置：左分组 + 右明细 ============ -->
@@ -466,8 +463,7 @@ function switchTab(t) {
 /* container-type：让下面的 @container 按「本组件(=配置弹窗)实际宽度」自适应，
    而非浏览器视口宽度——平台弹窗被 max-width:90vw 夹窄时也能正确收起侧栏。 */
 .asub { display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
-.tabs { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--border-light, #2a2e3a); }
-.ver { font-size: 11px; color: var(--text-muted, #7a8291); padding-right: 4px; }
+.tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border-light, #2a2e3a); }
 .tab {
   padding: 8px 16px; background: none; border: none; cursor: pointer; font-size: 13px;
   color: var(--text-secondary, #b9c0cc); border-bottom: 2px solid transparent;

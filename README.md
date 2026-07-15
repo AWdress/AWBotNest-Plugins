@@ -105,6 +105,8 @@ async def teardown(ctx):
 
 插件的**所有业务参数都写在这里**，前端「配置」按钮据此自动生成设置界面，值用 `ctx.config[...]` 读：
 
+> **布局由平台自动排布，插件不用关心宽度**：配置弹窗是一块大画布（桌面约 1000px，窄屏自动全屏）。同一 `section` 内的**短字段**（string/password/number/boolean/select/slider）自动并排成多列，**大字段**（text/list/multiselect/chat）占整行，窗口变窄时回落单列。你只管声明字段和 `section` 分区，宽度/多列/换行都交给平台，别自己操心。
+
 ```python
 "config_schema": {
     "enable_x": {"type": "boolean", "default": True, "label": "启用X", "section": "功能开关"},
@@ -141,6 +143,15 @@ async def teardown(ctx):
 - `info`：只读展示，`text` 为固定文字；不填 `text` 则显示该键当前值（可用 `ctx.update_config` 写回显示动态状态）
 
 > 多条规则/不定条数内容，优先用 `list` 字段（可增删行、每行一组表单，用户一看就懂）；来源/目标这类会话选 `chat` 选择器，免手填 id。
+
+### 4.5 Vue 模式（自带界面，进阶）
+
+`config_schema` 自动表单覆盖绝大多数插件。要图表、列表管理、非表单式复杂交互时，才用 **Vue 模式**（仅**文件夹插件**）：`__plugin__` 声明 `"render_mode": "vue"`（不再需要 `config_schema`），目录带一个 `frontend/` 模块联邦工程（暴露 `./Config`），发布前 `npm run build` 并**一起提交 `frontend/dist/`**（平台加载构建产物）。
+
+- 平台注入 `props { pluginId, host }`；`host.getConfig()/saveConfig(v)` 读写配置（仍存平台、插件里 `ctx.config` 可读）、`host.callApi(path,{method,body})` 调后端、`host.toast`。
+- 后端接口用 `@ctx.on_api("/path", methods=[...])` 注册，前端 `host.callApi` 调（管理员登录态鉴权）。
+- **画布约 1000px、窄屏（≤768px）自动全屏——请用响应式布局（百分比 / 栅格 / 容器查询），不要写死过窄或过宽的固定尺寸，否则窄屏溢出**。参考本仓库 `auto_subscribe`（容器查询 + master-detail）。
+- 完整说明见平台 `PLUGIN_GUIDE.md` 的「Vue 模式」与模板 `plugins/_TEMPLATE_VUE/`。
 
 ### 5. 第三方依赖（requirements）
 
@@ -250,6 +261,7 @@ async def setup(ctx):
 | 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
 | AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | bot | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
+| 自动订阅助手 | `auto_subscribe` | 定时 / Vue 配置界面 | user | 聚合豆瓣/Mikan新番/奈飞/猫眼榜单，按全局或每源过滤后自动订阅到 NextFind；自带 Vue 管理界面（自 MoviePilot 移植） |
 
 ### 群游戏（自建）
 
