@@ -176,9 +176,9 @@
   },
   "zhuque_lottery": {
     "name": "朱雀",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
-    "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、倍投计算。",
+    "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。",
     "path": "plugins/zhuque_lottery/"
   },
   "auto_avatar": {
@@ -211,9 +211,9 @@
   },
   "awembypush": {
     "name": "AWEmbyPush",
-    "version": "1.5.5",
+    "version": "1.5.6",
     "author": "AWdress",
-    "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）",
+    "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
     "path": "plugins/awembypush/"
   },

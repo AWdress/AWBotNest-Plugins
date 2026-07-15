@@ -34,77 +34,30 @@ import requests
 __plugin__ = {
     "name": "AWEmbyPush",
     "id": "awembypush",
-    "version": "1.5.5",
+    "version": "1.5.6",
     "scope": "bot",
     "author": "AWdress",
-    "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）",
+    "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
     "default_enabled": False,
     "webhook": True,
+    "render_mode": "vue",
     "requirements": ["requests>=2.28"],
-    "config_schema": {
-        # ── 基础 ──
-        "enable_tmdb": {"type": "boolean", "default": True, "label": "TMDB 元数据增强", "section": "基础"},
-        "tmdb_api_key": {"type": "password", "default": "", "label": "TMDB API Key", "section": "基础",
-                         "help": "MoviePilot 里复用平台 TMDB key，这里需自行填写；留空则不做 TMDB 增强。",
-                         "show_if": {"enable_tmdb": True}},
-        "tmdb_api_domain": {"type": "string", "default": "api.themoviedb.org", "label": "TMDB API 域名",
-                            "section": "基础", "show_if": {"enable_tmdb": True}},
-        "tmdb_image_domain": {"type": "string", "default": "image.tmdb.org", "label": "TMDB 图片域名",
-                              "section": "基础", "show_if": {"enable_tmdb": True}},
-        "emby_server_url": {"type": "string", "default": "", "label": "Emby/Jellyfin 服务器地址", "section": "基础",
-                            "help": "用于生成播放链接与图片降级，如 https://your-emby.com"},
-        "dedup_window": {"type": "number", "default": 60, "label": "消息去重窗口(秒)", "section": "基础",
-                         "help": "同一媒体在此时间内不重复处理。"},
-        "episode_cache_timeout": {"type": "number", "default": 30, "label": "剧集合并等待(秒)", "section": "基础",
-                                  "help": "等待此时长把同剧同季的多集入库合并成一条通知。"},
-        # ── 观看链接 ──
-        "enable_watch_link": {"type": "boolean", "default": False, "label": "生成观看按钮/链接", "section": "观看链接"},
-        "watch_link_type": {"type": "select", "default": "server", "options": ["server", "forward", "infuse"],
-                            "label": "播放链接类型", "section": "观看链接",
-                            "help": "server=Emby/Jellyfin 直链，forward=Forward App，infuse=Infuse",
-                            "show_if": {"enable_watch_link": True}},
-        "link_redirect_prefix": {"type": "string", "default": "", "label": "非HTTP链接中转前缀", "section": "观看链接",
-                                 "help": "把 infuse:// 等协议包装成 http 按钮链接，支持 {url} 占位符（TG/微信通用）。",
-                                 "show_if": {"enable_watch_link": True}},
-        # ── Telegram ──
-        "tg_bot_token": {"type": "password", "default": "", "label": "Bot Token", "section": "Telegram",
-                         "help": "@BotFather 获取；可直接填平台机器人的 token。"},
-        "tg_chat_id": {"type": "string", "default": "", "label": "Chat ID", "section": "Telegram",
-                       "help": "目标用户或群组 ID。"},
-        "tg_api_host": {"type": "string", "default": "", "label": "API Host", "section": "Telegram",
-                        "help": "留空=官方 https://api.telegram.org；自建反代可改。"},
-        # ── 企业微信 ──
-        "wx_corp_id": {"type": "string", "default": "", "label": "企业 Corp ID", "section": "企业微信"},
-        "wx_corp_secret": {"type": "password", "default": "", "label": "应用 Corp Secret", "section": "企业微信"},
-        "wx_agent_id": {"type": "string", "default": "", "label": "应用 Agent ID", "section": "企业微信"},
-        "wx_user_id": {"type": "string", "default": "@all", "label": "接收用户", "section": "企业微信",
-                       "help": "默认推送全员。"},
-        "wx_msg_type": {"type": "select", "default": "news_notice", "options": ["news_notice", "news"],
-                        "label": "消息类型", "section": "企业微信",
-                        "help": "news_notice=卡片；news=图文（支持微信插件）。"},
-        "wx_proxy_url": {"type": "string", "default": "", "label": "企微 API 地址", "section": "企业微信",
-                         "help": "留空=https://qyapi.weixin.qq.com；自建反代可改。"},
-        "wx_no_proxy": {"type": "boolean", "default": True, "label": "企微请求不走代理", "section": "企业微信"},
-        # ── Bark ──
-        "bark_server": {"type": "string", "default": "https://api.day.app", "label": "Bark 服务器", "section": "Bark"},
-        "bark_keys": {"type": "string", "default": "", "label": "设备 Key", "section": "Bark",
-                      "help": "多个 Key 用英文逗号分隔；留空则不启用 Bark。"},
-        # ── 自定义模板（测试）──
-        "enable_custom_template": {"type": "boolean", "default": False, "label": "启用自定义推送模板(测试)",
-                                   "section": "自定义模板", "help": "测试中，不建议轻易用于生产。"},
-        "tg_template": {"type": "text", "default": "", "label": "Telegram 模板(HTML)", "section": "自定义模板",
-                        "help": "变量：{{server_name}} {{status_text}} {{item_name}} {{episode_text}} {{genres}} {{cast}} {{rating}} {{release_date}} {{overview}} {{play_url}} {{tmdb_url}}；留空用默认。",
-                        "show_if": {"enable_custom_template": True}},
-        "wx_title_template": {"type": "text", "default": "", "label": "企业微信标题模板", "section": "自定义模板",
-                              "show_if": {"enable_custom_template": True}},
-        "wx_body_template": {"type": "text", "default": "", "label": "企业微信正文模板", "section": "自定义模板",
-                             "show_if": {"enable_custom_template": True}},
-        "bark_title_template": {"type": "text", "default": "", "label": "Bark 标题模板", "section": "自定义模板",
-                                "show_if": {"enable_custom_template": True}},
-        "bark_body_template": {"type": "text", "default": "", "label": "Bark 正文模板", "section": "自定义模板",
-                               "show_if": {"enable_custom_template": True}},
-    },
+}
+
+# vue 模式无 config_schema：配置默认值集中此处备查（后端 _load_config 里 c.get(k, 默认) 已带默认，
+# 前端 Config.vue 用同一套默认初始化表单）。
+DEFAULTS = {
+    "enable_tmdb": True, "tmdb_api_key": "", "tmdb_api_domain": "api.themoviedb.org",
+    "tmdb_image_domain": "image.tmdb.org", "emby_server_url": "",
+    "dedup_window": 60, "episode_cache_timeout": 30,
+    "enable_watch_link": False, "watch_link_type": "server", "link_redirect_prefix": "",
+    "tg_bot_token": "", "tg_chat_id": "", "tg_api_host": "",
+    "wx_corp_id": "", "wx_corp_secret": "", "wx_agent_id": "", "wx_user_id": "@all",
+    "wx_msg_type": "news_notice", "wx_proxy_url": "", "wx_no_proxy": True,
+    "bark_server": "https://api.day.app", "bark_keys": "",
+    "enable_custom_template": False, "tg_template": "", "wx_title_template": "",
+    "wx_body_template": "", "bark_title_template": "", "bark_body_template": "",
 }
 
 
@@ -1073,8 +1026,46 @@ async def setup(ctx):
     async def on_hook(req):
         return await pusher.handle_webhook(req)
 
+    # ── 前端(Config.vue)用的后端接口 ──
+    @ctx.on_api("/recent", methods=["GET"])
+    async def _api_recent(req):
+        cards = pusher._load_cards()
+        return {"items": list(reversed(cards))}
+
+    @ctx.on_api("/clear", methods=["POST"])
+    async def _api_clear(req):
+        try:
+            ctx.kv.delete("recent_cards")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True}
+
+    @ctx.on_api("/test", methods=["POST"])
+    async def _api_test(req):
+        """发一条测试通知到已配置的渠道（验证 TG/企微/Bark 连通性，不依赖 Emby）。"""
+        c = ctx.config
+        channels = []
+        if c.get("tg_bot_token") and c.get("tg_chat_id"):
+            channels.append("Telegram")
+        if c.get("wx_corp_id") and c.get("wx_corp_secret") and c.get("wx_agent_id"):
+            channels.append("企业微信")
+        if c.get("bark_server") and c.get("bark_keys"):
+            channels.append("Bark")
+        if not channels:
+            return {"ok": False, "message": "没有已配置的推送渠道（TG/企微/Bark 至少填一个）"}
+
+        def _do():
+            pusher._load_config()
+            info = _EventInfo(event="system.webhooktest", channel="emby")
+            pusher._send_test_notification(info, server_name="AWEmbyPush 测试")
+        try:
+            await asyncio.to_thread(_do)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": str(e)}
+        return {"ok": True, "message": "已向 " + " / ".join(channels) + " 发送测试通知，请到对应客户端查看"}
+
     ctx.add_cleanup(pusher.shutdown)
-    ctx.log.info("AWEmbyPush 已启用，等待 Emby/Jellyfin Webhook。到插件「配置」生成密钥后得到入站地址。")
+    ctx.log.info("AWEmbyPush 已启用，等待 Emby/Jellyfin Webhook。到插件「配置」查看入站地址。")
 
 
 async def teardown(ctx):

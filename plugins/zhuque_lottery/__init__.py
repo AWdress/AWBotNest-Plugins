@@ -42,213 +42,33 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。",
-    "config_schema": {
-        # ── 凭据 ──────────────────────────────────────────────────────────
-        "cookie": {
-            "type": "password", "default": "", "label": "朱雀 Cookie",
-            "section": "凭据",
-            "help": "浏览器 F12 → 任一 zhuque.in 请求 → 复制整条 Cookie 请求头。",
-        },
-        "xcsrf": {
-            "type": "password", "default": "", "label": "X-Csrf-Token",
-            "section": "凭据",
-            "help": "F12 请求头里的 x-csrf-token。所有朱雀 API 调用都会带上。",
-        },
-        "my_name": {
-            "type": "string", "default": "我", "label": "主人昵称",
-            "section": "凭据",
-            "help": "用于生成打劫反击文案（如「抢你X哥的钱」）。",
-        },
-        # ── 个人查询 ──────────────────────────────────────────────────────
-        "enable_getinfo": {
-            "type": "boolean", "default": True, "label": "启用个人信息查询",
-            "section": "个人查询",
-        },
-        "getinfo_command": {
-            "type": "string", "default": "getinfo", "label": "查询命令词",
-            "section": "个人查询", "help": "自己发 /<命令词> 查询，无需带斜杠前缀也支持 .",
-            "show_if": {"enable_getinfo": True},
-        },
-        # ── 大转盘 ────────────────────────────────────────────────────────
-        "enable_prizewheel": {
-            "type": "boolean", "default": True, "label": "启用大转盘",
-            "section": "大转盘",
-        },
-        "prizewheel_command": {
-            "type": "string", "default": "prizewheel", "label": "大转盘命令词",
-            "section": "大转盘", "help": "用法 /<命令词> 次数，如 /prizewheel 100。",
-            "show_if": {"enable_prizewheel": True},
-        },
-        "prize_tasks": {
-            "type": "number", "default": 4, "label": "并发任务数", "min": 1, "max": 8,
-            "section": "大转盘", "show_if": {"enable_prizewheel": True},
-            "help": "抽奖并发协程数，越大越快但更耗资源。",
-        },
-        # ── 倍投计算 ──────────────────────────────────────────────────────
-        "enable_betbonus": {
-            "type": "boolean", "default": True, "label": "启用倍投起手表",
-            "section": "倍投计算",
-        },
-        "betbonus_command": {
-            "type": "string", "default": "betbonus", "label": "倍投命令词",
-            "section": "倍投计算", "help": "用法 /<命令词> 本金 连输次数，如 /betbonus 50000000 20。",
-            "show_if": {"enable_betbonus": True},
-        },
-        # ── 魔法卡定时 ────────────────────────────────────────────────────
-        "enable_firegenshin": {
-            "type": "boolean", "default": False, "label": "启用魔法卡定时释放",
-            "section": "魔法卡定时",
-            "help": "定时调用朱雀魔法卡释放接口获取灵石（每天一次，失败按间隔重试）。",
-        },
-        "firegenshin_interval": {
-            "type": "number", "default": 20, "label": "检查间隔(分钟)", "min": 5, "max": 240,
-            "section": "魔法卡定时", "show_if": {"enable_firegenshin": True},
-            "help": "每隔多少分钟检查一次：今天没成功释放则尝试，成功则等到次日。",
-        },
-        # ── 大劫反击 ──────────────────────────────────────────────────────
-        "enable_raiding": {
-            "type": "boolean", "default": False, "label": "启用大劫监听/反击",
-            "section": "大劫反击",
-        },
-        "fanda_mode": {
-            "type": "select", "default": "off", "label": "自动反击模式",
-            "options": [
-                {"value": "off", "label": "关闭"},
-                {"value": "lose", "label": "仅被打输时反打"},
-                {"value": "win", "label": "仅被打赢时反打"},
-                {"value": "all", "label": "都反打"},
-            ],
-            "section": "大劫反击", "show_if": {"enable_raiding": True},
-        },
-        "fanxian": {
-            "type": "boolean", "default": False, "label": "被打赢时概率返现",
-            "section": "大劫反击", "show_if": {"enable_raiding": True},
-        },
-        "fanxian_probability": {
-            "type": "slider", "default": 1, "label": "返现触发概率(%)",
-            "min": 0, "max": 100, "step": 1,
-            "section": "大劫反击", "show_if": {"enable_raiding": True},
-        },
-        "fanxian_blacklist": {
-            "type": "text", "default": "", "label": "返现黑名单(TGID)",
-            "section": "大劫反击", "show_if": {"enable_raiding": True},
-            "help": "逗号分隔的 Telegram 用户ID，这些人不予返现。",
-        },
-        "raid_cd_minutes": {
-            "type": "number", "default": 5, "label": "反打劫冷却(分钟)", "min": 0, "max": 1440,
-            "section": "大劫反击", "show_if": {"enable_raiding": True},
-        },
-        # ── 红包雨 ────────────────────────────────────────────────────────
-        "enable_redpocket": {
-            "type": "boolean", "default": False, "label": "启用自动抢红包",
-            "section": "红包雨",
-            "help": "监听群内朱雀红包，自动点回调抢灵石。",
-        },
-        "redpocket_max_retry": {
-            "type": "number", "default": 20, "label": "抢红包最大重试", "min": 1, "max": 50,
-            "section": "红包雨", "show_if": {"enable_redpocket": True},
-        },
-        # ── 转账记录 ──────────────────────────────────────────────────────
-        "enable_transform": {
-            "type": "boolean", "default": False, "label": "启用灵石转账记录",
-            "section": "转账记录",
-            "help": "监听群内灵石转入/转出并记录到本插件存储。",
-        },
-        "transform_notification": {
-            "type": "boolean", "default": False, "label": "转账通知",
-            "section": "转账记录", "show_if": {"enable_transform": True},
-            "help": "对应原项目 notification 开关：记录转账后在群里回一条通知（含累计/排名）。关闭则只记录不发消息。",
-        },
-        "transform_leaderboard": {
-            "type": "boolean", "default": False, "label": "转入榜(打赏总榜)",
-            "section": "转账记录", "show_if": {"enable_transform": True},
-            "help": "对应原项目 leaderboard 开关：收到他人转入(打赏)时，通知里附打赏总榜。需同时开启转账通知。",
-        },
-        "transform_payleaderboard": {
-            "type": "boolean", "default": False, "label": "转出榜(赏赐总榜)",
-            "section": "转账记录", "show_if": {"enable_transform": True},
-            "help": "对应原项目 payleaderboard 开关：转出灵石给他人(赏赐)时，通知里附赏赐总榜。需同时开启转账通知。",
-        },
-        # ── 鳄鱼丼 YDX（复杂，默认关闭，需实盘校验）─────────────────────────
-        "enable_ydx": {
-            "type": "boolean", "default": False, "label": "启用鳄鱼丼YDX",
-            "section": "鳄鱼丼YDX",
-            "help": "骰子大小投注。依赖朱雀bot具体文案/回调格式，需实盘校验，谨慎开启。",
-        },
-        "ydx_dice_reveal": {
-            "type": "boolean", "default": True, "label": "记录开奖结果",
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        "ydx_dice_bet": {
-            "type": "boolean", "default": False, "label": "自动下注",
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        "ydx_wwd_switch": {
-            "type": "boolean", "default": False, "label": "下注二级开关(wwd)",
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-            "help": "对应原项目 ZHUQUE_<id> 的 ydx_wwd_switch（默认 off）。作为自动下注分支的二级保险：关闭时即使满足下注条件也只计算不实际点击下注按钮。需实盘校验。",
-        },
-        "ydx_start_count": {
-            "type": "number", "default": 5, "label": "几连开始下注", "min": 0, "max": 9,
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        "ydx_stop_count": {
-            "type": "number", "default": 5, "label": "最大追投次数", "min": 1, "max": 10,
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        "ydx_start_bouns": {
-            "type": "number", "default": 500, "label": "起手金额", "min": 500, "max": 50000000,
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        "ydx_bet_model": {
-            "type": "select", "default": "a", "label": "下注模型",
-            "options": [
-                {"value": "a", "label": "A 打反"},
-                {"value": "b", "label": "B 打顺"},
-                {"value": "e", "label": "E 随机"},
-                {"value": "s", "label": "S KDJ指标"},
-            ],
-            "section": "鳄鱼丼YDX", "show_if": {"enable_ydx": True},
-        },
-        # ── 道具卡回收 ────────────────────────────────────────────────────
-        "enable_card": {
-            "type": "boolean", "default": False, "label": "启用道具卡回收",
-            "section": "道具卡回收",
-            "help": "用 .card 命令回收朱雀背包道具卡换灵石。API 端点/字段按原项目迁移，需实盘校验，故默认关闭。",
-        },
-        "card_command": {
-            "type": "string", "default": "card", "label": "回收命令词",
-            "section": "道具卡回收", "show_if": {"enable_card": True},
-            "help": "自己发 /<命令词> [卡号] [数量]。卡号 1~4，省略数量则回收背包全部该卡；省略卡号则回收全部 4 种卡的背包库存。",
-        },
-        "card_id_1": {
-            "type": "string", "default": "1", "label": "改名卡 card_id",
-            "section": "道具卡回收", "show_if": {"enable_card": True},
-        },
-        "card_id_2": {
-            "type": "string", "default": "2", "label": "神佑7天卡 card_id",
-            "section": "道具卡回收", "show_if": {"enable_card": True},
-        },
-        "card_id_3": {
-            "type": "string", "default": "3", "label": "邀请卡 card_id",
-            "section": "道具卡回收", "show_if": {"enable_card": True},
-        },
-        "card_id_4": {
-            "type": "string", "default": "4", "label": "释放7天卡 card_id",
-            "section": "道具卡回收", "show_if": {"enable_card": True},
-        },
-        # ── 通知 ──────────────────────────────────────────────────────────
-        "owner_notify": {
-            "type": "boolean", "default": True, "label": "推送给平台主人",
-            "section": "通知",
-            "help": "抢红包/魔法卡释放/转账等事件用 ctx.notify 推一条给主人。",
-        },
-    },
+    "render_mode": "vue",
+    "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。",
+}
+
+# vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
+# 前端 Config.vue 用同一套默认初始化表单）。
+DEFAULTS = {
+    "cookie": "", "xcsrf": "", "my_name": "我",
+    "enable_getinfo": True, "getinfo_command": "getinfo",
+    "enable_prizewheel": True, "prizewheel_command": "prizewheel", "prize_tasks": 4,
+    "enable_betbonus": True, "betbonus_command": "betbonus",
+    "enable_firegenshin": False, "firegenshin_interval": 20,
+    "enable_raiding": False, "fanda_mode": "off", "fanxian": False,
+    "fanxian_probability": 1, "fanxian_blacklist": "", "raid_cd_minutes": 5,
+    "enable_redpocket": False, "redpocket_max_retry": 20,
+    "enable_transform": False, "transform_notification": False,
+    "transform_leaderboard": False, "transform_payleaderboard": False,
+    "enable_ydx": False, "ydx_dice_reveal": True, "ydx_dice_bet": False,
+    "ydx_wwd_switch": False, "ydx_start_count": 5, "ydx_stop_count": 5,
+    "ydx_start_bouns": 500, "ydx_bet_model": "a",
+    "enable_card": False, "card_command": "card",
+    "card_id_1": "1", "card_id_2": "2", "card_id_3": "3", "card_id_4": "4",
+    "owner_notify": True,
 }
 
 
@@ -382,6 +202,98 @@ async def setup(ctx):
 
         interval = max(5, safe_int(cfg.get("firegenshin_interval", 20), 20))
         ctx.schedule(fire_tick, "interval", minutes=interval, id="魔法卡释放")
+
+    # ── 前端(Config.vue)用的后端接口 ──────────────────────────────────────────
+    def _load_list(key):
+        raw = ctx.kv.get(key) or []
+        if isinstance(raw, str):
+            import json as _json
+            try:
+                raw = _json.loads(raw)
+            except (TypeError, ValueError):
+                raw = []
+        return raw if isinstance(raw, list) else []
+
+    @ctx.on_api("/info", methods=["POST"])
+    async def _api_info(req):
+        """实时拉取朱雀个人信息（兼作凭据测试）。"""
+        if not ctx.config.get("cookie") or not ctx.config.get("xcsrf"):
+            return {"ok": False, "message": "未配置 Cookie / X-Csrf-Token"}
+        try:
+            info = await _api().get_info()
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "message": f"查询失败：{e}"}
+        if not info:
+            return {"ok": False, "message": "查询失败，请检查凭据"}
+        out = {}
+        for key, label in INFO_FIELDS.items():
+            if key in ("upload", "download"):
+                try:
+                    out[label] = f"{float(info.get(key, 0) or 0) / 1024 ** 4:.2f} TiB"
+                except (ValueError, TypeError):
+                    out[label] = str(info.get(key, ""))
+            else:
+                out[label] = info.get(key, "")
+        return {"ok": True, "info": out,
+                "firegenshin_total": float(ctx.kv.get("firegenshin_total", 0) or 0),
+                "firegenshin_last_date": ctx.kv.get("firegenshin_last_date", "") or ""}
+
+    @ctx.on_api("/transform", methods=["GET"])
+    async def _api_transform(req):
+        recs = _load_list("transform_records")
+        get_total = sum(abs(float(r.get("amount", 0) or 0)) for r in recs if r.get("direction") == "get")
+        pay_total = sum(abs(float(r.get("amount", 0) or 0)) for r in recs if r.get("direction") == "pay")
+        def _lb(direction):
+            return [{"name": e["name"], "total": e["total"], "count": e["count"]}
+                    for e in _build_leaderboard(recs, direction, 10)]
+        recent = [{"direction": r.get("direction"), "amount": r.get("amount"),
+                   "user_name": r.get("user_name", ""), "ts": r.get("ts", "")}
+                  for r in reversed(recs[-100:])]
+        return {"get_leaderboard": _lb("get"), "pay_leaderboard": _lb("pay"),
+                "get_total": get_total, "pay_total": pay_total, "recent": recent}
+
+    @ctx.on_api("/raids", methods=["GET"])
+    async def _api_raids(req):
+        recs = _load_list("raid_records")
+        def _sum(action):
+            gain = sum(float(r.get("amount", 0)) for r in recs if r.get("action") == action and float(r.get("amount", 0)) > 0)
+            loss = sum(-float(r.get("amount", 0)) for r in recs if r.get("action") == action and float(r.get("amount", 0)) < 0)
+            cnt = sum(1 for r in recs if r.get("action") == action)
+            return {"gain": gain, "loss": loss, "count": cnt}
+        recent = [{"action": r.get("action"), "amount": r.get("amount"),
+                   "count": r.get("count"), "ts": r.get("ts", "")}
+                  for r in reversed(recs[-100:])]
+        return {"raiding": _sum("raiding"), "beraided": _sum("beraided"), "recent": recent}
+
+    @ctx.on_api("/ydx", methods=["GET"])
+    async def _api_ydx(req):
+        recs = _load_list("ydx_records")
+        big = sum(1 for r in recs if r.get("lottery_result") == "Big")
+        small = sum(1 for r in recs if r.get("lottery_result") == "Small")
+        bet_total = sum(float(r.get("bet_amount", 0) or 0) for r in recs)
+        win_total = sum(float(r.get("win_amount", 0) or 0) for r in recs)
+        recent = [{"die_point": r.get("die_point"), "lottery_result": r.get("lottery_result"),
+                   "bet_side": r.get("bet_side", ""), "bet_amount": r.get("bet_amount", 0),
+                   "win_amount": r.get("win_amount", 0), "ts": r.get("ts", "")}
+                  for r in reversed(recs[-100:])]
+        return {"total": len(recs), "big": big, "small": small,
+                "bet_total": bet_total, "win_total": win_total, "recent": recent}
+
+    @ctx.on_api("/clear", methods=["POST"])
+    async def _api_clear(req):
+        data = req.json or {}
+        which = data.get("type")
+        keymap = {"transform": ["transform_records"], "raids": ["raid_records"],
+                  "ydx": ["ydx_records", "ydx_history"]}
+        keys = keymap.get(which)
+        if not keys:
+            return {"ok": False, "message": "未知类型"}
+        for k in keys:
+            try:
+                ctx.kv.delete(k)
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True}
 
 
 async def teardown(ctx):
