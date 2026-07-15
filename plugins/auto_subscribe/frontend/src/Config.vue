@@ -74,7 +74,7 @@ const DEFAULTS = {
   maoyan_num: 10, maoyan_filter_custom: false, maoyan_min_year: 0, maoyan_min_vote: 0, maoyan_media_type: 'all',
 }
 
-const VER = '0.0.9'   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
+const VER = '0.0.10'   // 显示在页签栏右侧，用来一眼确认加载的是哪个前端构建
 const tab = ref('settings')
 const group = ref('global')
 const loading = ref(true)
@@ -463,7 +463,9 @@ function switchTab(t) {
 </template>
 
 <style scoped>
-.asub { display: flex; flex-direction: column; gap: 14px; }
+/* container-type：让下面的 @container 按「本组件(=配置弹窗)实际宽度」自适应，
+   而非浏览器视口宽度——平台弹窗被 max-width:90vw 夹窄时也能正确收起侧栏。 */
+.asub { display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
 .tabs { display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--border-light, #2a2e3a); }
 .ver { font-size: 11px; color: var(--text-muted, #7a8291); padding-right: 4px; }
 .tab {
@@ -553,11 +555,17 @@ textarea.inp { resize: vertical; font-family: inherit; }
 .muted { font-size: 12px; color: var(--text-muted, #7a8291); }
 .muted.err { color: #ff6b6b; }
 
-/* 窄屏（手机）回退为单列 */
-@media (max-width: 720px) {
+/* 弹窗较窄时：分组栏从左侧竖排改为顶部横排 chips，把整宽让给明细。 */
+@container (max-width: 620px) {
   .layout { flex-direction: column; }
-  .sidebar { flex-basis: auto; width: 100%; flex-direction: row; flex-wrap: wrap; }
-  .grid, .stats { grid-template-columns: 1fr; }
+  .sidebar { flex-basis: auto; width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .side-title { display: none; }
+  .side-item { flex: 0 1 auto; }
+  .side-foot { width: 100%; margin-top: 4px; border-top: none; }
   .stats { grid-template-columns: repeat(3, 1fr); }
+}
+/* 更窄（手机）：统计卡两列 */
+@container (max-width: 380px) {
+  .stats { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
