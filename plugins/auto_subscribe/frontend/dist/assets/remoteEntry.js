@@ -3,7 +3,7 @@ const currentImports = {};
       let moduleMap = {
 "./Config":()=>{
       dynamicLoadingCss(["__federation_expose_Config-BvRd8sFj.css"], false, './Config');
-      return __federation_import('./assets/__federation_expose_Config-D4sUrDpW.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      return __federation_import('/api/plugins/auto_subscribe/fe/assets/__federation_expose_Config-D4sUrDpW.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
@@ -13,7 +13,7 @@ const currentImports = {};
         }
 
         const curUrl = metaUrl.substring(0, metaUrl.lastIndexOf('remoteEntry.js'));
-        const base = './';
+        const base = '/api/plugins/auto_subscribe/fe/';
         'assets';
 
         cssFilePaths.forEach(cssPath => {
