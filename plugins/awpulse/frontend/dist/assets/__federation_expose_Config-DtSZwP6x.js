@@ -629,7 +629,7 @@ return (_ctx, _cache) => {
                           _withDirectives(_createElementVNode("input", {
                             "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((cfg.security_answer) = $event)),
                             class: "inp",
-                            type: "password"
+                            type: "text"
                           }, null, 512), [
                             [_vModelText, cfg.security_answer]
                           ])
@@ -1457,6 +1457,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-45af7132"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f34ae0df"]]);
 
 export { Config as default };
