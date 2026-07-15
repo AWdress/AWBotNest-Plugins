@@ -21,7 +21,7 @@ from ._models import (
     STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
     TERMINAL_STATUSES, make_history_key,
 )
-from ._nextfind import NextFindClient
+from ._nextfind import NextFindAuthError, NextFindClient
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -45,6 +45,7 @@ class RunResult:
     added: List[str] = field(default_factory=list)                  # 新增订阅的标题列表
     handled: Dict[str, dict] = field(default_factory=dict)          # 历史（写回 kv）
     nf_cache: dict = field(default_factory=dict)                    # netflix 周更缓存（写回 kv）
+    auth_error: str = ""                                            # NextFind 鉴权失败则中止整轮并记此
 
 
 # 各来源的 options 构建器：从扁平 cfg 取出该来源需要的字段。
@@ -247,6 +248,12 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                     continue
                 try:
                     status, title = _process_item(client, item, filters, result.handled)
+                except NextFindAuthError as exc:
+                    # 密钥无效/过期：继续跑只会每条都 401，立即中止整轮并明确报因。
+                    result.auth_error = str(exc)
+                    if log:
+                        log.error("[自动订阅] %s，已中止本轮", exc)
+                    break
                 except Exception as exc:  # noqa: BLE001 - 单条兜底
                     status = STATUS_ERROR
                     if log:
@@ -254,9 +261,13 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                 src_stats[status] = src_stats.get(status, 0) + 1
                 if status == STATUS_SUBSCRIBED:
                     result.added.append(f"{provider.provider_name}·{item.title}")
+        except NextFindAuthError as exc:
+            result.auth_error = str(exc)
         except Exception as exc:  # noqa: BLE001 - 整源抓取失败兜底
             result.errors[source_id] = str(exc)
             if log:
                 log.error("[自动订阅] %s 抓取失败: %r", source_id, exc)
         result.stats[source_id] = src_stats
+        if result.auth_error:
+            break  # 中止后续来源
     return result
