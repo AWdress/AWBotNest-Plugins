@@ -219,7 +219,7 @@
   },
   "auto_subscribe": {
     "name": "自动订阅助手",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "path": "plugins/auto_subscribe/"

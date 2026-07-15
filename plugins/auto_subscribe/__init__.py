@@ -18,7 +18,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -47,7 +47,7 @@ DEFAULTS = {
     "netflix_dataset": "all-weeks-global",
     "netflix_media_types": ["Films (English)", "Films (Non-English)", "TV (English)", "TV (Non-English)"],
     "netflix_countries": [], "netflix_country_types": ["Films", "TV"],
-    "netflix_limit": 10, "netflix_rich": False,
+    "netflix_limit": 10, "netflix_rich": True,
     "netflix_filter_custom": False, "netflix_min_year": 0, "netflix_min_vote": 0,
     "netflix_media_type": "all",
     # 猫眼
@@ -100,6 +100,10 @@ async def _run(ctx, label: str) -> str:
 
     from . import _pipeline
 
+    # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
+    if cfg.get("maoyan_enabled"):
+        cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
+
     handled = ctx.kv.get("handled", {})
     nf_cache = ctx.kv.get("netflix_cache", {})
     ctx.log.info("[自动订阅] 开始运行(%s)", label)
@@ -127,6 +131,26 @@ def _nf_client(cfg):
     """构造 NextFind 客户端（局部 import 避免顶层依赖）。"""
     from ._nextfind import NextFindClient
     return NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""))
+
+
+async def _fetch_maoyan_cookies(ctx) -> dict:
+    """用平台 ctx.browser 预取猫眼 Cookie（{name: value}）；失败降级空 dict（无 Cookie）。
+
+    provider 跑在 to_thread 里不能直接 await 浏览器，故在事件循环里先取好再注入 cfg。
+    首次调用会触发平台下载浏览器内核（之后有缓存）。
+    """
+    from ._maoyan import MAOYAN_URL
+
+    def _grab(page):
+        try:
+            return {c["name"]: c["value"] for c in page.context.cookies()}
+        except Exception:  # noqa: BLE001 - 引擎不支持 context.cookies 时降级
+            return {}
+    try:
+        return await ctx.browser.run(MAOYAN_URL, _grab, headless=True, timeout=30) or {}
+    except Exception as e:  # noqa: BLE001 - 浏览器不可用/超时降级无 Cookie
+        ctx.log.warning("[自动订阅] 猫眼 Cookie 获取失败，降级无 Cookie：%r", e)
+        return {}
 
 
 # 奈飞国家常用地区中文名（其余用英文名），供前端下拉展示。

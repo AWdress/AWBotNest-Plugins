@@ -56,7 +56,7 @@ const DEFAULTS = {
   netflix_enabled: false, netflix_global: true, netflix_dataset: 'all-weeks-global',
   netflix_media_types: ['Films (English)', 'Films (Non-English)', 'TV (English)', 'TV (Non-English)'],
   netflix_countries: [], netflix_country_types: ['Films', 'TV'],
-  netflix_limit: 10, netflix_rich: false,
+  netflix_limit: 10, netflix_rich: true,
   netflix_filter_custom: false, netflix_min_year: 0, netflix_min_vote: 0, netflix_media_type: 'all',
   maoyan_enabled: false, maoyan_movie_box: true, maoyan_web_platforms: [], maoyan_web_types: [],
   maoyan_num: 10, maoyan_filter_custom: false, maoyan_min_year: 0, maoyan_min_vote: 0, maoyan_media_type: 'all',
@@ -312,7 +312,7 @@ function switchTab(t) {
               </div>
             </div>
             <label class="row"><span>每榜前N</span><input v-model.number="cfg.netflix_limit" class="inp sm" type="number" /></label>
-            <label class="row switch"><input v-model="cfg.netflix_rich" type="checkbox" /><span>富元数据(带年份，识别更准)</span></label>
+            <label class="row switch"><input v-model="cfg.netflix_rich" type="checkbox" /><span>富元数据(带年份，识别更准 · 推荐)</span></label>
             <label class="row switch"><input v-model="cfg.netflix_filter_custom" type="checkbox" /><span>独立过滤(否则用全局)</span></label>
             <div v-if="cfg.netflix_filter_custom" class="subfilter">
               <label class="row"><span>年份≥</span><input v-model.number="cfg.netflix_min_year" class="inp sm" type="number" /></label>
@@ -324,7 +324,7 @@ function switchTab(t) {
 
         <!-- 猫眼 -->
         <section class="card">
-          <label class="row switch head"><input v-model="cfg.maoyan_enabled" type="checkbox" /><span>猫眼榜单(无Cookie降级)</span></label>
+          <label class="row switch head"><input v-model="cfg.maoyan_enabled" type="checkbox" /><span>猫眼榜单</span></label>
           <template v-if="cfg.maoyan_enabled">
             <label class="row switch"><input v-model="cfg.maoyan_movie_box" type="checkbox" /><span>电影票房榜</span></label>
             <div class="fld"><span class="lbl">网播平台</span>

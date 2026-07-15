@@ -221,7 +221,7 @@ const DEFAULTS = {
   netflix_enabled: false, netflix_global: true, netflix_dataset: 'all-weeks-global',
   netflix_media_types: ['Films (English)', 'Films (Non-English)', 'TV (English)', 'TV (Non-English)'],
   netflix_countries: [], netflix_country_types: ['Films', 'TV'],
-  netflix_limit: 10, netflix_rich: false,
+  netflix_limit: 10, netflix_rich: true,
   netflix_filter_custom: false, netflix_min_year: 0, netflix_min_vote: 0, netflix_media_type: 'all',
   maoyan_enabled: false, maoyan_movie_box: true, maoyan_web_platforms: [], maoyan_web_types: [],
   maoyan_num: 10, maoyan_filter_custom: false, maoyan_min_year: 0, maoyan_min_vote: 0, maoyan_media_type: 'all',
@@ -854,7 +854,7 @@ return (_ctx, _cache) => {
                       }, null, 512), [
                         [_vModelCheckbox, cfg.netflix_rich]
                       ]),
-                      _cache[78] || (_cache[78] = _createElementVNode("span", null, "富元数据(带年份，识别更准)", -1))
+                      _cache[78] || (_cache[78] = _createElementVNode("span", null, "富元数据(带年份，识别更准 · 推荐)", -1))
                     ]),
                     _createElementVNode("label", _hoisted_60, [
                       _withDirectives(_createElementVNode("input", {
@@ -929,7 +929,7 @@ return (_ctx, _cache) => {
                 }, null, 512), [
                   [_vModelCheckbox, cfg.maoyan_enabled]
                 ]),
-                _cache[83] || (_cache[83] = _createElementVNode("span", null, "猫眼榜单(无Cookie降级)", -1))
+                _cache[83] || (_cache[83] = _createElementVNode("span", null, "猫眼榜单", -1))
               ]),
               (cfg.maoyan_enabled)
                 ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
@@ -1194,6 +1194,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e2787249"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8d2e6707"]]);
 
 export { Config as default };

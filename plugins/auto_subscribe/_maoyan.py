@@ -1,9 +1,10 @@
 # =============================================================================
 # auto_subscribe 私有辅助：猫眼榜单来源（票房 + 网播热度）
 #
-# 移植自原 MoviePilot 版，但**降级为无 Cookie**：平台无 Playwright，去掉
-# PlaywrightHelper 取 Cookie 的步骤，直接用随机 UA 请求猫眼专业版 JSON 接口
-# （实测多数榜单无 Cookie 仍可返回；个别受风控可能为空，当作无结果跳过）。
+# 移植自原 MoviePilot 版。Cookie 由 __init__ 用平台 ctx.browser（CloakBrowser/
+# Playwright）在事件循环里预取后经 options["cookies"] 注入（本 provider 跑在
+# asyncio.to_thread 里、不能直接 await 浏览器）。取不到 Cookie 时自动降级无 Cookie
+# 请求（多数榜仍可返回，个别受风控为空则当无结果跳过）。
 # 网络电影因数据源停更已移除。年份由 releaseInfo（距今天数）反推。
 # =============================================================================
 
@@ -60,6 +61,8 @@ class MaoyanRankProvider(RankProvider):
         options = options or {}
         num = self.to_int(options.get("num"), _DEFAULT_NUM)
         headers = {"User-Agent": random.choice(_USER_AGENTS)}
+        # Cookie 由 __init__ 经 ctx.browser 预取后注入（dict {name: value}）；无则降级。
+        self._cookies = options.get("cookies") or None
         seen: set = set()
 
         if bool(options.get("movie_box", True)):
@@ -129,12 +132,15 @@ class MaoyanRankProvider(RankProvider):
         except (OverflowError, ValueError):
             return None
 
-    @staticmethod
-    def _request_json(url: str, headers: dict) -> Optional[dict]:
-        """GET 并解析 JSON；无响应/解析失败返回 None（无 Cookie 降级，空当无结果）。"""
+    def _request_json(self, url: str, headers: dict) -> Optional[dict]:
+        """GET 并解析 JSON；无响应/解析失败返回 None（受风控为空当无结果）。
+
+        带上 __init__ 经 ctx.browser 预取注入的 Cookie（self._cookies，可能为 None）。
+        """
+        cookies = getattr(self, "_cookies", None)
         try:
             with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True,
-                              headers=headers) as client:
+                              headers=headers, cookies=cookies) as client:
                 resp = client.get(url)
                 if resp.status_code != 200 or not resp.text:
                     return None

@@ -81,6 +81,8 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "web_platforms": cfg.get("maoyan_web_platforms"),
             "web_types": cfg.get("maoyan_web_types"),
             "num": cfg.get("maoyan_num", 10),
+            # Cookie 由 __init__ 经 ctx.browser 预取后放进 cfg["maoyan_cookies"]。
+            "cookies": cfg.get("maoyan_cookies"),
         }))
     return out
 
