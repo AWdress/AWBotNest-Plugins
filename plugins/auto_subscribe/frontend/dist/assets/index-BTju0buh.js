@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-DFWmEJ8n.js';
+import Config from './__federation_expose_Config-9L_CwZ0m.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -62,6 +62,7 @@ const mockHost = {
     if (path === '/run') return { ok: true, summary: '📥 自动订阅 · 手动\n[豆瓣榜单] 新增订阅2，已订阅3\n✅ 新增订阅：豆瓣榜单·沙丘、豆瓣榜单·某剧' }
     if (path === '/history') return {
       last_run: '2026-07-15 08:00:00',
+      stats: { subscribed: 5, in_library: 3, exists: 2, filtered: 4, unrecognized: 1, error: 0 },
       items: [
         { key: 'movie:438631', title: '沙丘', status: 'subscribed', tmdb_id: '438631', source: 'douban', time: '2026-07-15 08:00:01' },
         { key: 'tv:255358:s1', title: '新攻壳机动队', status: 'in_library', tmdb_id: '255358', source: 'mikan', time: '2026-07-15 08:00:02' },

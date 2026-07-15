@@ -18,7 +18,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -121,7 +121,15 @@ async def _run(ctx, label: str) -> str:
 
     ctx.kv.set("handled", result.handled)
     ctx.kv.set("netflix_cache", result.nf_cache)
-    ctx.update_config({"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+    # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
+    agg: dict = {}
+    for st in result.stats.values():
+        for k, v in st.items():
+            agg[k] = agg.get(k, 0) + v
+    ctx.update_config({
+        "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "last_stats": agg,
+    })
 
     summary = _summary(result, label)
     # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
@@ -211,7 +219,11 @@ async def setup(ctx):
         handled = ctx.kv.get("handled", {})
         items = [{"key": k, **v} for k, v in handled.items()]
         items.sort(key=lambda x: x.get("time", ""), reverse=True)
-        return {"items": items, "last_run": ctx.config.get("last_run", "")}
+        return {
+            "items": items,
+            "last_run": ctx.config.get("last_run", ""),
+            "stats": ctx.config.get("last_stats", {}),
+        }
 
     @ctx.on_api("/history/delete", methods=["POST"])
     async def _api_history_delete(req):
