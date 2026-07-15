@@ -7,7 +7,7 @@
 #
 # 迁移自 MoviePilot 插件 automaticsubscriptionassistant（Aqr-K）。落地后端改为 NextFind：
 # 一次 /search 即得 tmdb/类型/年份/评分/是否已订阅/是否入库，识别+去重+库查重+评分合并为一步。
-# popular 源依赖 MoviePilot 自建统计服务器，未迁；猫眼因平台无 Playwright 降级为无 Cookie。
+# popular 源依赖 MoviePilot 自建统计服务器，未迁；猫眼用平台 ctx.browser 预取 Cookie（取不到降级）。
 # =============================================================================
 
 import asyncio
