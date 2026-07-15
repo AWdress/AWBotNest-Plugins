@@ -18,7 +18,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -120,9 +120,14 @@ async def _run(ctx, label: str) -> str:
     ctx.update_config({"last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
 
     summary = _summary(result, label)
+    # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
+    # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
     if cfg.get("notify", True):
         level = "error" if result.errors else ("success" if result.added else "info")
-        await ctx.notify(summary, level=level, category="自动订阅")
+        try:
+            await ctx.notify(summary, level=level, category="自动订阅")
+        except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
+            ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
     ctx.log.info("[自动订阅] 完成(%s)：新增 %d 部", label, len(result.added))
     return summary
 
@@ -189,8 +194,13 @@ async def setup(ctx):
 
     @ctx.on_api("/run", methods=["POST"])
     async def _api_run(req):
-        summary = await _run(ctx, "手动")
-        return {"ok": True, "summary": summary}
+        # 兜底捕获，把真实原因回给前端（否则平台 dispatcher 只回 500，UI 显示 "Error"）。
+        try:
+            summary = await _run(ctx, "手动")
+            return {"ok": True, "summary": summary}
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[自动订阅] 手动运行失败: %r", e)
+            return {"ok": False, "summary": f"运行失败：{e}"}
 
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):

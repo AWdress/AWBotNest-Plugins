@@ -297,8 +297,9 @@ async function runNow() {
   runOutput.value = '运行中…';
   try {
     const r = await props.host.callApi('/run', { method: 'POST', body: {} });
-    runOutput.value = r.summary || '完成';
-    props.host.toast.success('已运行一轮');
+    runOutput.value = r.summary || r.message || '完成';
+    if (r.ok === false) props.host.toast.error('运行失败，详见下方');
+    else props.host.toast.success('已运行一轮');
   } catch (e) {
     runOutput.value = '运行失败：' + (e.message || e);
     props.host.toast.error('运行失败：' + (e.message || e));
@@ -1194,6 +1195,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8d2e6707"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-df43bb4c"]]);
 
 export { Config as default };
