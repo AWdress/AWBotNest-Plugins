@@ -148,7 +148,7 @@ async function runNow() {
     const r = await props.host.callApi('/run', { method: 'POST', body: {} })
     runOutput.value = r.summary || r.message || '完成'
     if (r.ok === false) props.host.toast.error('运行失败，详见下方')
-    else props.host.toast.success('已运行一轮')
+    else props.host.toast.success(r.started ? '已在后台开始运行' : '已运行一轮')
   } catch (e) {
     runOutput.value = '运行失败：' + (e.message || e)
     props.host.toast.error('运行失败：' + (e.message || e))
