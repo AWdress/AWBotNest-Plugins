@@ -109,7 +109,6 @@ function lineModel(key) {
     set: (v) => { cfg[key] = v.split('\n').map(s => s.trim()).filter(Boolean) },
   })
 }
-const forumsText = lineModel('target_forums')
 const templatesText = lineModel('reply_templates')
 const keywordsText = lineModel('skip_keywords')
 const prefixesText = lineModel('skip_prefixes')
@@ -117,6 +116,23 @@ const adminsText = lineModel('admin_usernames')
 const timesText = lineModel('schedule_times')
 const replyMin = computed({ get: () => cfg.reply_interval[0], set: v => { cfg.reply_interval[0] = Number(v) } })
 const replyMax = computed({ get: () => cfg.reply_interval[1], set: v => { cfg.reply_interval[1] = Number(v) } })
+
+// 目标版块：已知版块用勾选(fid -> 名称)，另留「自定义」文本框补充列表外的 fid。
+const knownForums = computed(() => Object.entries(cfg.forum_names || {}).map(([v, l]) => ({ v, l })))
+function toggleForum(fid) {
+  const arr = cfg.target_forums || (cfg.target_forums = [])
+  const i = arr.indexOf(fid)
+  if (i >= 0) arr.splice(i, 1); else arr.push(fid)
+}
+// 只暴露「不在已知列表里」的额外 fid，避免与勾选互相覆盖。
+const customForumsText = computed({
+  get: () => (cfg.target_forums || []).filter(f => !(f in (cfg.forum_names || {}))).join('\n'),
+  set: (v) => {
+    const known = (cfg.target_forums || []).filter(f => f in (cfg.forum_names || {}))
+    const custom = v.split('\n').map(s => s.trim()).filter(Boolean)
+    cfg.target_forums = [...known, ...custom]
+  },
+})
 
 onMounted(async () => {
   try {
@@ -361,7 +377,12 @@ function switchTab(t) {
                 <label class="row"><span>每日上限</span><input v-model.number="cfg.max_replies_per_day" class="inp" type="number" /></label>
                 <label class="row"><span>间隔(秒)</span><input v-model="replyMin" class="inp" type="number" /><span class="hint">~</span><input v-model="replyMax" class="inp" type="number" /></label>
               </div>
-              <label class="row top"><span>目标版块</span><textarea v-model="forumsText" class="inp" rows="2" placeholder="每行一个，如 fid=141"></textarea></label>
+              <div class="fld"><span class="lbl">目标版块</span>
+                <div class="chips">
+                  <label v-for="o in knownForums" :key="o.v" class="chip"><input type="checkbox" :checked="(cfg.target_forums || []).includes(o.v)" @change="toggleForum(o.v)" />{{ o.l }}<span class="fid">{{ o.v }}</span></label>
+                </div>
+              </div>
+              <label class="row top"><span>自定义版块</span><textarea v-model="customForumsText" class="inp" rows="2" placeholder="列表外的版块，每行一个，如 fid=999"></textarea></label>
             </section>
             <section class="card">
               <div class="card-h">回复模板（智能/AI 关闭时随机取用）</div>
@@ -555,6 +576,11 @@ function switchTab(t) {
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
 .inp { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 textarea.inp { resize: vertical; font-family: inherit; }
+.fld { display: flex; flex-direction: column; gap: 6px; }
+.lbl { font-size: 13px; color: var(--text-secondary, #b9c0cc); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary, #b9c0cc); cursor: pointer; padding: 4px 8px; border-radius: 6px; background: var(--bg-card, #12141c); border: 1px solid var(--border-light, #2a2e3a); }
+.fid { color: var(--text-muted, #7a8291); font-size: 11px; }
 .tip { margin: 4px 0 0; font-size: 12px; color: var(--text-muted, #7a8291); line-height: 1.6; }
 .tip code { background: var(--bg-card, #12141c); padding: 1px 5px; border-radius: 4px; }
 
