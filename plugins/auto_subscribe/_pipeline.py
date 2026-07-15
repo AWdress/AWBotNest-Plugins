@@ -18,7 +18,7 @@ from ._base import get_provider
 from . import _douban, _maoyan, _mikan, _netflix  # noqa: F401
 from ._models import (
     STATUS_ALREADY, STATUS_ERROR, STATUS_FILTERED, STATUS_IN_LIBRARY,
-    STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
+    STATUS_LABELS, STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
     TERMINAL_STATUSES, make_history_key,
 )
 from ._nextfind import NextFindAuthError, NextFindClient
@@ -158,7 +158,8 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
 
 
 def _process_item(client: NextFindClient, item, filters: Filters, handled: dict):
-    """处理单条，返回 (status, title)。终态写入 handled（跨轮去重）。"""
+    """处理单条，返回 (status, title, detail)。detail 为可读原因（供运行日志逐条展示）。
+    终态写入 handled（跨轮去重）。"""
     title = item.title
     # pre 过滤：热度（豆瓣 source_meta.count，无则跳过该过滤）。
     if filters.min_popularity:
@@ -166,7 +167,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
         if count is not None:
             try:
                 if int(float(count)) < filters.min_popularity:
-                    return STATUS_FILTERED, title
+                    return STATUS_FILTERED, title, f"热度 {int(float(count))} < {filters.min_popularity}"
             except (ValueError, TypeError):
                 pass
 
@@ -174,49 +175,50 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
     results = client.search(item.title, item.type_hint)
     best = _pick_best(results, item)
     if not best:
-        return STATUS_UNRECOGNIZED, title
+        return STATUS_UNRECOGNIZED, title, f"搜索无结果（{item.type_hint or '全部'}）"
 
     tmdb_id = best.get("id")
     raw_type = str(best.get("raw_type") or "").lower()
     if not tmdb_id or raw_type not in ("movie", "tv"):
-        return STATUS_UNRECOGNIZED, title
+        return STATUS_UNRECOGNIZED, title, "结果无有效 tmdb/类型"
 
     # post 过滤：年份、类型、评分。
     year = _year_int(item.year) or _year_int(best.get("year"))
     if filters.min_year and year and year < filters.min_year:
-        return STATUS_FILTERED, title
+        return STATUS_FILTERED, title, f"年份 {year} < {filters.min_year}"
     if filters.media_type in ("movie", "tv") and raw_type != filters.media_type:
-        return STATUS_FILTERED, title
+        return STATUS_FILTERED, title, f"类型 {raw_type} ≠ {filters.media_type}"
     if filters.min_vote:
         try:
             vote = float(best.get("_vote_average") or 0)
         except (ValueError, TypeError):
             vote = 0.0
         if vote < filters.min_vote:
-            return STATUS_FILTERED, title
+            return STATUS_FILTERED, title, f"评分 {vote} < {filters.min_vote}"
 
     season = item.season if raw_type == "tv" else None
     key = make_history_key(tmdb_id, raw_type, season)
+    tag = f"tmdb {tmdb_id}" + (f" S{season}" if season is not None else "")
 
     # 跨轮去重：历史里已是终态则跳过。
     prev = handled.get(key)
     if prev and prev.get("status") in TERMINAL_STATUSES:
-        return STATUS_ALREADY, title
+        return STATUS_ALREADY, title, f"已处理过（{STATUS_LABELS.get(prev.get('status'), prev.get('status'))}）"
 
     # 库/订阅判定（来自 /search，无需额外请求）。
     if best.get("is_in_library"):
         _record(handled, key, title, STATUS_IN_LIBRARY, item, tmdb_id)
-        return STATUS_IN_LIBRARY, title
+        return STATUS_IN_LIBRARY, title, tag
     if best.get("is_subscribed"):
         _record(handled, key, title, STATUS_SUBSCRIBED_EXISTS, item, tmdb_id)
-        return STATUS_SUBSCRIBED_EXISTS, title
+        return STATUS_SUBSCRIBED_EXISTS, title, tag
 
     # 加订阅。
     ok, msg = client.add(tmdb_id, raw_type, season)
     if ok:
         _record(handled, key, title, STATUS_SUBSCRIBED, item, tmdb_id)
-        return STATUS_SUBSCRIBED, title
-    return STATUS_ERROR, title
+        return STATUS_SUBSCRIBED, title, tag
+    return STATUS_ERROR, title, f"订阅失败：{msg or '未知'}"
 
 
 def _record(handled: dict, key: str, title: str, status: str, item, tmdb_id) -> None:
@@ -246,8 +248,9 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
             for item in provider.fetch(options):
                 if not item.title:
                     continue
+                title, detail = item.title, ""
                 try:
-                    status, title = _process_item(client, item, filters, result.handled)
+                    status, title, detail = _process_item(client, item, filters, result.handled)
                 except NextFindAuthError as exc:
                     # 密钥无效/过期：继续跑只会每条都 401，立即中止整轮并明确报因。
                     result.auth_error = str(exc)
@@ -255,10 +258,14 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                         log.error("[自动订阅] %s，已中止本轮", exc)
                     break
                 except Exception as exc:  # noqa: BLE001 - 单条兜底
-                    status = STATUS_ERROR
+                    status, detail = STATUS_ERROR, repr(exc)
                     if log:
                         log.error("[自动订阅] %s 处理条目失败: %r", source_id, exc)
                 src_stats[status] = src_stats.get(status, 0) + 1
+                # 逐条写运行日志，便于查「哪条被过滤/未识别/订阅了、原因是什么」。
+                if log:
+                    log.info("[自动订阅] %s · %s → %s%s", provider.provider_name, title,
+                             STATUS_LABELS.get(status, status), f"（{detail}）" if detail else "")
                 if status == STATUS_SUBSCRIBED:
                     result.added.append(f"{provider.provider_name}·{item.title}")
         except NextFindAuthError as exc:
