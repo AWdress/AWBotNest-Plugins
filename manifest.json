@@ -120,7 +120,7 @@
   },
   "quiz_game": {
     "name": "趣味答题",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "path": "plugins/quiz_game/"
@@ -141,7 +141,7 @@
   },
   "hdsky_redpacket": {
     "name": "拼手气红包(HDSKY)",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "监控天空(HDSKY)群拼手气红包，自动点击「抢红包」按钮。可选 /red 占位发言应对「限最近发言人」。",
     "path": "plugins/hdsky_redpacket/"
@@ -219,14 +219,14 @@
   },
   "auto_subscribe": {
     "name": "自动订阅助手",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "path": "plugins/auto_subscribe/"
   },
   "awpulse": {
     "name": "AWPulse 色花堂助手",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png",
