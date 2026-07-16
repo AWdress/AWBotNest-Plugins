@@ -27,7 +27,7 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -329,21 +329,21 @@ def _cookie_status(ctx) -> dict:
 
 
 # ────────────────────────── 定时任务注册 ──────────────────────────
-def _cron_from_cfg(cfg: dict):
-    """按配置得到 CronTrigger：优先 schedule_cron；否则由 schedule_times/schedule_time 合成。"""
+def _cron_specs(cfg: dict):
+    """返回 [(CronTrigger, 中文任务名), ...]：优先 schedule_cron；否则由 schedule_times/schedule_time 合成。"""
     from apscheduler.triggers.cron import CronTrigger
     expr = str(cfg.get("schedule_cron") or "").strip()
     if expr:
-        return [CronTrigger.from_crontab(expr)]
+        return [(CronTrigger.from_crontab(expr), "定时运行(%s)" % expr)]
     times = cfg.get("schedule_times") or ([cfg.get("schedule_time")] if cfg.get("schedule_time") else [])
-    triggers = []
+    specs = []
     for t in times:
         try:
             hh, mm = str(t).split(":")[:2]
-            triggers.append(CronTrigger(hour=int(hh), minute=int(mm)))
+            specs.append((CronTrigger(hour=int(hh), minute=int(mm)), "每日 %02d:%02d 运行" % (int(hh), int(mm))))
         except Exception:
             continue
-    return triggers
+    return specs
 
 
 async def setup(ctx):
@@ -516,16 +516,22 @@ async def setup(ctx):
             return {"ok": False, "message": str(e)}
 
     # ── 定时任务 ──
+    # 注意：必须把「协程函数」交给 ctx.schedule（AsyncIOScheduler 会在事件循环里 await 它）。
+    # 不能用 lambda: asyncio.create_task(...)——同步回调会在线程池里跑，那里没有运行中的事件
+    # 循环，create_task 会抛 "no running event loop"，任务看似注册了却永远不触发。
+    async def _scheduled_run():
+        await _run(ctx, "定时")
+
     cfg = _effective_cfg(ctx)
-    triggers = []
+    specs = []
     try:
-        triggers = _cron_from_cfg(cfg)
+        specs = _cron_specs(cfg)
     except Exception as e:  # noqa: BLE001
         ctx.log.error("[AWPulse] 定时表达式无效：%r", e)
-    for i, trig in enumerate(triggers):
-        ctx.schedule(lambda: asyncio.create_task(_run(ctx, "定时")), trig, id="awpulse_%d" % i)
-    if triggers:
-        ctx.log.info("[AWPulse] 已注册 %d 个定时触发", len(triggers))
+    for trig, name in specs:
+        ctx.schedule(_scheduled_run, trig, id=name)
+    if specs:
+        ctx.log.info("[AWPulse] 已注册 %d 个定时任务：%s", len(specs), "、".join(n for _, n in specs))
 
 
 async def teardown(ctx):

@@ -19,7 +19,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -269,13 +269,18 @@ async def setup(ctx):
             return {"ok": False, "message": str(e)}
 
     # ── 定时任务（cron 无效时仅告警，手动运行仍可用）──
+    # 必须把「协程函数」交给 ctx.schedule（AsyncIOScheduler 在事件循环里 await 它）；用
+    # lambda: asyncio.create_task(...) 会在线程池里跑、无运行中的事件循环，create_task 抛
+    # "no running event loop"，任务看似注册却永不触发。
+    async def _scheduled_run():
+        await _run(ctx, "定时")
+
     expr = str(_effective_cfg(ctx).get("schedule") or "").strip()
     if expr:
         try:
             from apscheduler.triggers.cron import CronTrigger
             trigger = CronTrigger.from_crontab(expr)
-            ctx.schedule(lambda: asyncio.create_task(_run(ctx, "定时")),
-                         trigger, id="auto_subscribe")
+            ctx.schedule(_scheduled_run, trigger, id="定时订阅(%s)" % expr)
             ctx.log.info("[自动订阅] 已注册定时任务：%s", expr)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动订阅] 定时表达式无效(%s): %r", expr, e)
