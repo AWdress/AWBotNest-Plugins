@@ -27,7 +27,7 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "scope": "user",
@@ -143,20 +143,29 @@ class _RingHandler(logging.Handler):
     这里按 record.pathname 是否落在本插件目录判定，避免吞掉平台其他日志。
     """
 
-    def __init__(self, marker: str):
+    def __init__(self, marker: str, forward=None):
         super().__init__()
         self._marker = marker
+        # forward = ctx.log 适配器：把 _core 日志再转发一份，平台内置日志视图才看得到
+        # （_core 用的是 root logger，不经 ctx.log，否则平台只显示插件用 ctx.log 打的几行）。
+        self._forward = forward
 
     def emit(self, record):
         try:
             path = (record.pathname or "").replace("\\", "/")
             if self._marker not in path:
                 return
+            msg = record.getMessage()
             _LOG_RING.append("%s - %s - %s" % (
                 datetime.fromtimestamp(record.created).strftime("%H:%M:%S"),
                 record.levelname,
-                record.getMessage(),
+                msg,
             ))
+            fwd = self._forward
+            if fwd is not None:
+                # 转发调用发生在 __init__.py，pathname 不含 marker，不会被本 handler 再次捕获（无递归）。
+                fn = getattr(fwd, record.levelname.lower(), None) or fwd.info
+                fn("%s", msg)
         except Exception:
             pass
 
@@ -343,7 +352,7 @@ async def setup(ctx):
 
     # 采集 _core 日志到环形缓冲（供 UI）。marker 用插件目录名，避免误采平台日志。
     if _log_handler is None:
-        _log_handler = _RingHandler(marker="/awpulse/_core/")
+        _log_handler = _RingHandler(marker="/awpulse/_core/", forward=ctx.log)
         _log_handler.setLevel(logging.INFO)
         logging.getLogger().addHandler(_log_handler)
 
