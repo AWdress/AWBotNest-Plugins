@@ -92,7 +92,7 @@
   },
   "hdhive_quiz": {
     "name": "影巢答题红包",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "path": "plugins/hdhive_quiz/"
