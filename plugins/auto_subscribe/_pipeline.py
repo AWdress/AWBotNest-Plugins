@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from typing import Dict, List, Optional
 
 from ._base import get_provider
@@ -132,9 +133,61 @@ def _year_int(value) -> Optional[int]:
     """把年份串解析成 int（取前 4 位数字）；解析不到返回 None。"""
     if value is None:
         return None
-    import re
     m = re.search(r"(\d{4})", str(value))
     return int(m.group(1)) if m else None
+
+
+_CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_SEASON_RE = re.compile(
+    r"\s*第\s*(?P<number>\d+|[零〇一二两三四五六七八九十百]+)\s*季(?:\s*.*)?$",
+    re.IGNORECASE,
+)
+
+
+def _number_int(value: str) -> Optional[int]:
+    """解析阿拉伯数字或常见中文数字（季号通常不超过百）。"""
+    value = str(value or "").strip()
+    if value.isdigit():
+        return int(value)
+    if not value or any(ch not in _CN_DIGITS and ch not in "十百" for ch in value):
+        return None
+    total, current = 0, 0
+    for ch in value:
+        if ch in _CN_DIGITS:
+            current = _CN_DIGITS[ch]
+        elif ch == "十":
+            total += (current or 1) * 10
+            current = 0
+        elif ch == "百":
+            total += (current or 1) * 100
+            current = 0
+    return total + current
+
+
+def _title_queries(item) -> tuple[List[str], Optional[int]]:
+    """生成保守的搜索回退：原题优先，带“第N季”时再搜基础剧名。"""
+    title = re.sub(r"\s+", " ", str(item.title or "")).strip()
+    queries = [title] if title else []
+    season = item.season
+    if item.type_hint == "tv":
+        match = _SEASON_RE.search(title)
+        if match:
+            season = season if season is not None else _number_int(match.group("number"))
+            base = title[:match.start()].strip(" -–—:：·～~")
+            if base and base not in queries:
+                queries.append(base)
+    return queries, season
+
+
+def _search_best(client: NextFindClient, item):
+    """依次搜索原题和安全回退标题，返回候选、实际查询词和识别出的季号。"""
+    queries, season = _title_queries(item)
+    for query in queries:
+        best = _pick_best(client.search(query, item.type_hint), item)
+        if best:
+            return best, query, season
+    return None, "", season
 
 
 def _pick_best(results: List[dict], item) -> Optional[dict]:
@@ -154,6 +207,10 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
         near = [r for r in candidates if (yr := _year_int(r.get("year"))) and abs(yr - want_year) <= 1]
         if near:
             return near[0]
+        # 电影的发行年就是作品年份；明确年份却只搜到相隔多年的同名电影时，
+        # 宁可判为未识别，也不能误订旧作。剧集年份通常是首播年，续季不适用此限制。
+        if item.type_hint == "movie" and any(_year_int(r.get("year")) for r in candidates):
+            return None
     return candidates[0]
 
 
@@ -172,8 +229,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
                 pass
 
     # 解析：NextFind /search。
-    results = client.search(item.title, item.type_hint)
-    best = _pick_best(results, item)
+    best, matched_query, detected_season = _search_best(client, item)
     if not best:
         return STATUS_UNRECOGNIZED, title, f"搜索无结果（{item.type_hint or '全部'}）"
 
@@ -196,9 +252,11 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
         if vote < filters.min_vote:
             return STATUS_FILTERED, title, f"评分 {vote} < {filters.min_vote}"
 
-    season = item.season if raw_type == "tv" else None
+    season = detected_season if raw_type == "tv" else None
     key = make_history_key(tmdb_id, raw_type, season)
     tag = f"tmdb {tmdb_id}" + (f" S{season}" if season is not None else "")
+    if matched_query and matched_query != item.title:
+        tag += f"，回退标题：{matched_query}"
 
     # 跨轮去重：历史里已是终态则跳过。
     prev = handled.get(key)
