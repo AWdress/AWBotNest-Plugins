@@ -12,7 +12,7 @@ import urllib.parse
 __plugin__ = {
     "name": "举牌",
     "id": "jupai",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。",
     "scope": "user",
@@ -20,11 +20,11 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".jupai", "label": "触发命令",
-            "section": "参数", "help": "自己发出、以此开头的消息会触发。/jupai 与 .jupai 等价。",
+            "section": "命令", "help": "自己发出、以此开头的消息会触发。/jupai 与 .jupai 等价。",
         },
         "api_url": {
             "type": "string", "default": "https://api.txqq.pro/api/zt.php",
-            "label": "举牌接口地址", "section": "参数",
+            "label": "举牌接口地址", "section": "接口",
             "help": "接口以 ?msg=文字 拼接，返回举牌图片。",
         },
     },

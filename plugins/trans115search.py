@@ -8,7 +8,7 @@
 __plugin__ = {
     "name": "115搜索结果转发",
     "id": "trans115search",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
     "scope": "user",
@@ -16,15 +16,15 @@ __plugin__ = {
     "config_schema": {
         "source_chat_id": {
             "type": "string", "default": "-1002466900287", "label": "来源会话ID",
-            "section": "参数", "help": "监听哪个会话里机器人发的列表消息。",
+            "section": "来源", "help": "监听哪个会话里机器人发的列表消息。",
         },
         "target_chat_id": {
             "type": "string", "default": "", "label": "转发到会话ID",
-            "section": "参数", "help": "把列表消息转发到这个会话（群/频道ID或@用户名）。留空则不转发。",
+            "section": "目标", "help": "把列表消息转发到这个会话（群/频道ID或@用户名）。留空则不转发。",
         },
         "keyword": {
             "type": "string", "default": "列表", "label": "触发关键词",
-            "section": "参数", "help": "消息含此关键词才转发。",
+            "section": "匹配条件", "help": "消息含此关键词才转发。",
         },
     },
 }

@@ -30,7 +30,7 @@ from pathlib import Path
 __plugin__ = {
     "name": "插件开发探针",
     "id": "probe",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。",
     "scope": "both",
@@ -38,19 +38,19 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".probe", "label": "探测命令",
-            "section": "参数", "help": "自己发出、以此开头的消息会触发。/probe 与 .probe 等价。",
+            "section": "命令", "help": "自己发出、以此开头的消息会触发。/probe 与 .probe 等价。",
         },
         "cb_command": {
             "type": "string", "default": ".cbprobe", "label": "回调抓取开关命令",
-            "section": "参数", "help": "「命令 on」开启、「命令 off」关闭抓取 Bot 收到的内联按钮回调。仅 Bot 账号生效。",
+            "section": "命令", "help": "「命令 on」开启、「命令 off」关闭抓取 Bot 收到的内联按钮回调。仅 Bot 账号生效。",
         },
         "delete_command": {
             "type": "boolean", "default": True, "label": "删除命令消息",
-            "section": "参数", "help": "导出后是否删除你发出的命令本身。",
+            "section": "输出与清理", "help": "导出后是否删除你发出的命令本身。",
         },
         "max_value_len": {
             "type": "number", "default": 300, "label": "单字段截断长度",
-            "section": "参数", "help": "速查区里文本类字段超过该长度会截断（原始结构区不截断）。",
+            "section": "输出与清理", "help": "速查区里文本类字段超过该长度会截断（原始结构区不截断）。",
         },
     },
 }

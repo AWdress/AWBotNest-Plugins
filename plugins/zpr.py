@@ -21,7 +21,7 @@ import httpx
 __plugin__ = {
     "name": "P站图片",
     "id": "zpr",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
     "scope": "user",
@@ -29,19 +29,19 @@ __plugin__ = {
     "config_schema": {
         "default_num": {
             "type": "slider", "default": 3, "label": "默认数量", "min": 1, "max": 10, "step": 1,
-            "section": "参数", "help": "命令未带数量时取几张。",
+            "section": "数量限制", "help": "命令未带数量时取几张。",
         },
         "max_num": {
             "type": "slider", "default": 6, "label": "最大数量", "min": 1, "max": 20, "step": 1,
-            "section": "参数", "help": "单次最多取几张（防止刷屏/超时）。",
+            "section": "数量限制", "help": "单次最多取几张（防止刷屏/超时）。",
         },
         "allow_r18": {
             "type": "boolean", "default": False, "label": "允许 R18",
-            "section": "参数", "help": "关闭时，命令里的 r18 参数会被强制按 0(非R18) 处理。",
+            "section": "内容显示", "help": "关闭时，命令里的 r18 参数会被强制按 0(非R18) 处理。",
         },
         "spoiler": {
             "type": "boolean", "default": True, "label": "图片加遮罩",
-            "section": "参数", "help": "以剧透遮罩形式发送图片，点开才显示。",
+            "section": "内容显示", "help": "以剧透遮罩形式发送图片，点开才显示。",
         },
     },
 }

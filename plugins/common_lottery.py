@@ -16,7 +16,7 @@ from random import randint
 __plugin__ = {
     "name": "通用抽奖",
     "id": "common_lottery",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "scope": "user",
@@ -24,24 +24,24 @@ __plugin__ = {
     "config_schema": {
         "groups": {
             "type": "chat", "default": [], "label": "监听群组", "multi": True,
-            "chat_types": ["group", "channel"], "section": "参数",
+            "chat_types": ["group", "channel"], "section": "参与范围",
             "help": "勾选要参与抽奖的群/频道；留空 = 所有群都参与。",
         },
         "auto_join": {
             "type": "boolean", "default": False, "label": "自动加入要求的群/频道",
-            "section": "参数", "help": "抽奖要求先加群时，是否自动加入。关闭则遇到加群要求就跳过。",
+            "section": "参与范围", "help": "抽奖要求先加群时，是否自动加入。关闭则遇到加群要求就跳过。",
         },
         "wait_min": {
             "type": "slider", "default": 25, "label": "参与前最短等待(秒)",
-            "min": 0, "max": 300, "step": 5, "section": "参数",
+            "min": 0, "max": 300, "step": 5, "section": "等待策略",
         },
         "wait_max": {
             "type": "slider", "default": 65, "label": "参与前最长等待(秒)",
-            "min": 5, "max": 600, "step": 5, "section": "参数",
+            "min": 5, "max": 600, "step": 5, "section": "等待策略",
         },
         "notify_owner": {
             "type": "boolean", "default": True, "label": "参与结果通知我",
-            "section": "参数",
+            "section": "通知",
         },
     },
 }

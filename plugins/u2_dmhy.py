@@ -16,7 +16,7 @@ import httpx
 __plugin__ = {
     "name": "U2送糖",
     "id": "u2_dmhy",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
     "scope": "user",
@@ -28,7 +28,7 @@ __plugin__ = {
         },
         "cooldown_seconds": {
             "type": "number", "default": 300, "label": "赠送冷却(秒)",
-            "min": 0, "max": 1200, "section": "参数",
+            "min": 0, "max": 1200, "section": "限频与清理",
             "help": "两次赠送的最小间隔（u2 站限频，建议 ≥300）。批量时每个之间也按此间隔。",
         },
         "u2_command": {
@@ -40,7 +40,7 @@ __plugin__ = {
         },
         "result_delete": {
             "type": "slider", "default": 90, "label": "结果自动删除(秒)",
-            "min": 0, "max": 300, "step": 10, "section": "参数",
+            "min": 0, "max": 300, "step": 10, "section": "限频与清理",
         },
     },
 }

@@ -129,3 +129,18 @@ class Records:
         if len(data) > _HISTORY_MAX:
             data = data[-_HISTORY_MAX:]
         self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))
+
+    def history(self) -> list[dict]:
+        """返回最近记录（新到旧），兼容旧版 JSON 字符串存储。"""
+        data = self._kv.get(_HISTORY_KEY, None)
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = []
+        if not isinstance(data, list):
+            return []
+        return list(reversed(data))
+
+    def clear_history(self) -> None:
+        self._kv.set(_HISTORY_KEY, json.dumps([], ensure_ascii=False))

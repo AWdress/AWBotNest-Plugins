@@ -14,7 +14,7 @@ from pathlib import Path
 __plugin__ = {
     "name": "取消息结构",
     "id": "getmsg",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。",
     "scope": "user",
@@ -22,11 +22,11 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".getmsg", "label": "触发命令",
-            "section": "参数", "help": "自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。",
+            "section": "命令", "help": "自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。",
         },
         "delete_command": {
             "type": "boolean", "default": True, "label": "删除命令消息",
-            "section": "参数", "help": "导出后是否删除你发出的 /getmsg 命令本身。",
+            "section": "消息处理", "help": "导出后是否删除你发出的 /getmsg 命令本身。",
         },
     },
 }

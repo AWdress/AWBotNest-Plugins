@@ -103,7 +103,7 @@ async def teardown(ctx):
 
 ### 4. config_schema（插件配置）
 
-插件的**所有业务参数都写在这里**，前端「配置」按钮据此自动生成设置界面，值用 `ctx.config[...]` 读：
+普通插件的业务参数优先写在这里，前端「配置」按钮据此自动生成设置界面，值用 `ctx.config[...]` 读。平台原生表单已经支持分区、条件显示、动态列表、会话选择器、动作按钮和响应式布局；**能用 `config_schema` 清楚表达的配置，不要为了样式改成 Vue**。
 
 > **布局由平台自动排布，插件不用关心宽度**：配置弹窗是一块大画布（桌面约 1000px，窄屏自动全屏）。同一 `section` 内的**短字段**（string/password/number/boolean/select/slider）自动并排成多列，**大字段**（text/list/multiselect/chat）占整行，窗口变窄时回落单列。你只管声明字段和 `section` 分区，宽度/多列/换行都交给平台，别自己操心。
 
@@ -146,7 +146,19 @@ async def teardown(ctx):
 
 ### 4.5 Vue 模式（自带界面，进阶）
 
-`config_schema` 自动表单覆盖绝大多数插件。要图表、列表管理、非表单式复杂交互时，才用 **Vue 模式**（仅**文件夹插件**）：`__plugin__` 声明 `"render_mode": "vue"`（不再需要 `config_schema`），目录带一个 `frontend/` 模块联邦工程（暴露 `./Config`），发布前 `npm run build` 并**一起提交 `frontend/dist/`**（平台加载构建产物）。
+`config_schema` 自动表单覆盖绝大多数插件。只有界面本身属于功能的一部分时，才使用 **Vue 模式**（仅**文件夹插件**）：`__plugin__` 声明 `"render_mode": "vue"`（不再需要 `config_schema`），目录带一个 `frontend/` 模块联邦工程（暴露 `./Config`），发布前 `npm run build` 并**一起提交 `frontend/dist/`**（平台加载构建产物）。
+
+选择标准：
+
+| 场景 | 应选模式 |
+|------|----------|
+| 开关、文本、数字、下拉、多选、滑块、会话选择、条件字段 | `config_schema` |
+| 可增删的规则或账号列表 | 优先 `config_schema` 的 `list` |
+| 测试连接、清理缓存、立即执行等单个动作 | 优先 `config_schema` 的 `action` |
+| 图表、排行榜、运行历史、活动监控、批量管理、需要多次 API 交互的操作台 | Vue |
+| 只是希望配置页“更好看” | 仍用 `config_schema` |
+
+> 不要求、也不建议把已有插件批量迁成 Vue。简单插件保留原生表单，代码更少、升级成本更低，也能自动获得平台后续的表单能力和移动端适配。已有 Vue 插件只有在确实提供管理面板、记录列表或复杂交互时才保留 Vue。
 
 - 平台注入 `props { pluginId, host }`；`host.getConfig()/saveConfig(v)` 读写配置（仍存平台、插件里 `ctx.config` 可读）、`host.callApi(path,{method,body})` 调后端、`host.toast`。
 - 后端接口用 `@ctx.on_api("/path", methods=[...])` 注册，前端 `host.callApi` 调（管理员登录态鉴权）。
@@ -197,7 +209,7 @@ async def setup(ctx):
 3. **不要用 `@Client.on_message`**，用 `@ctx.on_message`（否则关不掉，破坏热插拔）。
 4. **不要 `print`**，用 `ctx.log`。
 5. **插件之间不要互相 import**。共用逻辑写成 `_` 开头的辅助文件，或下沉到平台。
-6. **业务配置只进 `config_schema`**，禁止读写平台配置；持久化用 `ctx.kv`（关系型存储表名须带 `<plugin_id>_` 前缀）。
+6. **业务配置由平台托管**：普通模式声明 `config_schema`，Vue 模式通过 `host.getConfig()/saveConfig()` 读写；后端统一从 `ctx.config` 读取。禁止直接读写平台配置文件；运行数据用 `ctx.kv`（关系型存储表名须带 `<plugin_id>_` 前缀）。
 7. 自管理资源（后台 task、连接等）必须在 `teardown` 或 `ctx.add_cleanup` 里释放；`ctx.on_message` / `ctx.on_edited_message` / `ctx.on_callback` / `ctx.schedule` 注册的由平台自动清理。
 
 ---
@@ -281,6 +293,7 @@ async def setup(ctx):
 | 拼手气红包(HDSKY) | `hdsky_redpacket` | 监听天空群红包 | user | 自动点「抢红包」按钮，可选 `/red` 占位发言应对「限最近发言人」 |
 | 癫影积分红包 | `dyp_redpacket` | 监听癫影助手红包 | user | 混合红包（暗含 N 个雷包）：逐个点未抢数字按钮，落地一格即停——抢到分/踩雷都算用掉唯一机会停手，「手慢了/已被抢」才试下一格。发包bot/群内置 |
 | 影巢口令红包（测试） | `yingchao_redpacket` | 监听指定发包人 | user | OCR 识别图片口令或复制他人口令参与，含陷阱防护 |
+| 自动抢红包 | `red_packet_grab` | 监听验证码口令红包 / Vue 配置界面 | user | OCR 识别或复制已确认的正确口令兜底；可限制发包人/群组，含抢包记录 |
 
 ---
 

@@ -1,28 +1,28 @@
 {
   "id": {
     "name": "查ID",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "path": "plugins/id.py"
   },
   "xjj": {
     "name": "小姐姐视频",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
     "path": "plugins/xjj.py"
   },
   "self_delete": {
     "name": "删除自己消息",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
     "path": "plugins/self_delete.py"
   },
   "zpr": {
     "name": "P站图片",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
     "path": "plugins/zpr.py"
@@ -43,35 +43,35 @@
   },
   "jupai": {
     "name": "举牌",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。",
     "path": "plugins/jupai.py"
   },
   "zf": {
     "name": "转发复读",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。",
     "path": "plugins/zf.py"
   },
   "getmsg": {
     "name": "取消息结构",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。",
     "path": "plugins/getmsg.py"
   },
   "probe": {
     "name": "插件开发探针",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。",
     "path": "plugins/probe.py"
   },
   "auto_changename": {
     "name": "自动报时昵称",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
     "path": "plugins/auto_changename.py"
@@ -85,7 +85,7 @@
   },
   "hdhive_lottery": {
     "name": "HDHive抽奖",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "path": "plugins/hdhive_lottery.py"
@@ -99,7 +99,7 @@
   },
   "trans115search": {
     "name": "115搜索结果转发",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
     "path": "plugins/trans115search.py"
@@ -162,9 +162,9 @@
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "用你的账号自动参与他人发的「验证码口令红包」（把口令渲染成扭曲验证码图片、要求发送图中字符参与的红包，如本仓库发红包插件发出的幸运红包）。OCR识别验证码（需ddddocr，可选）或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围，只抢别人发的红包。",
+    "description": "自动参与验证码口令红包：OCR识别或监听中奖确认后复制正确口令兜底。可限制发包人/群组，自带 Vue 配置界面与抢包记录。",
     "path": "plugins/red_packet_grab/"
   },
   "auto_lottery": {
@@ -183,14 +183,14 @@
   },
   "auto_avatar": {
     "name": "自动换头像",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "定时把账号头像换成图片池里随机一张。回复图片发 .avataradd 加入池子，.avatarlist/.avatarclear 管理。",
     "path": "plugins/auto_avatar.py"
   },
   "u2_dmhy": {
     "name": "U2送糖",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却，可走代理。",
     "path": "plugins/u2_dmhy.py"
@@ -204,7 +204,7 @@
   },
   "common_lottery": {
     "name": "通用抽奖",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "path": "plugins/common_lottery.py"

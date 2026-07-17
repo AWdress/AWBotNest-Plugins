@@ -278,3 +278,7 @@ class Grabber:
     def clear(self) -> None:
         self._active.clear()
         self._candidates.clear()
+
+    def active_count(self) -> int:
+        self._sweep_expired()
+        return len(self._active)

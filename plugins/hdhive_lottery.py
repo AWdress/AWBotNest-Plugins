@@ -15,7 +15,7 @@ from random import randint
 __plugin__ = {
     "name": "HDHive抽奖",
     "id": "hdhive_lottery",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "scope": "user",
@@ -23,16 +23,16 @@ __plugin__ = {
     "config_schema": {
         "wait_min": {
             "type": "slider", "default": 25, "label": "参与前最短等待(秒)",
-            "min": 0, "max": 300, "step": 5, "section": "参数",
+            "min": 0, "max": 300, "step": 5, "section": "等待策略",
             "help": "收到抽奖后随机等待区间下限，避免秒回显得像机器人。",
         },
         "wait_max": {
             "type": "slider", "default": 65, "label": "参与前最长等待(秒)",
-            "min": 5, "max": 600, "step": 5, "section": "参数",
+            "min": 5, "max": 600, "step": 5, "section": "等待策略",
         },
         "notify_owner": {
             "type": "boolean", "default": True, "label": "参与/中奖通知我",
-            "section": "参数", "help": "参与成功、失败、中奖时用机器人通知平台主人。",
+            "section": "通知", "help": "参与成功、失败、中奖时用机器人通知平台主人。",
         },
     },
 }

@@ -10,7 +10,7 @@ import asyncio
 __plugin__ = {
     "name": "查ID",
     "id": "id",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "scope": "user",
@@ -18,16 +18,16 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".id", "label": "触发命令",
-            "section": "参数", "help": "自己发出、以此开头的消息会触发。/id 与 .id 等价均可识别。",
+            "section": "命令", "help": "自己发出、以此开头的消息会触发。/id 与 .id 等价均可识别。",
         },
         "auto_delete": {
             "type": "slider", "default": 20, "label": "结果自动删除(秒)",
-            "min": 0, "max": 120, "step": 5, "section": "参数",
+            "min": 0, "max": 120, "step": 5, "section": "自动清理",
             "help": "查询结果多少秒后自动删除；0 表示不删除。",
         },
         "delete_command": {
             "type": "boolean", "default": True, "label": "删除命令消息",
-            "section": "参数", "help": "查询后是否删除你发出的 /id 命令本身。",
+            "section": "自动清理", "help": "查询后是否删除你发出的 /id 命令本身。",
         },
     },
 }

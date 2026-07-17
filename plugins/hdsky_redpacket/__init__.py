@@ -20,7 +20,7 @@ from ._snatch import find_snatch_button, is_lucky_packet
 __plugin__ = {
     "name": "拼手气红包(HDSKY)",
     "id": "hdsky_redpacket",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,

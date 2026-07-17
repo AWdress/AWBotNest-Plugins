@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 __plugin__ = {
     "name": "自动报时昵称",
     "id": "auto_changename",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
     "scope": "user",
@@ -22,17 +22,17 @@ __plugin__ = {
     "config_schema": {
         "interval_min": {
             "type": "slider", "default": 5, "label": "改名间隔(分钟)",
-            "min": 1, "max": 60, "step": 1, "section": "参数",
+            "min": 1, "max": 60, "step": 1, "section": "更新计划",
             "help": "每隔多少分钟改一次。改这个值后需「重载」插件生效。",
         },
         "name_format": {
             "type": "string", "default": "{emoji}{H}:{M}", "label": "昵称模板",
-            "section": "参数",
+            "section": "昵称规则",
             "help": "占位符：{emoji}随机表情 {H}时 {M}分 {S}秒 {date}年-月-日 {md}月-日 {week}星期几",
         },
         "name_field": {
             "type": "select", "default": "last_name", "label": "改哪个名",
-            "section": "参数",
+            "section": "昵称规则",
             "options": [
                 {"value": "last_name", "label": "姓 (last name)"},
                 {"value": "first_name", "label": "名 (first name)"},

@@ -11,7 +11,7 @@ import re
 __plugin__ = {
     "name": "删除自己消息",
     "id": "self_delete",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
     "scope": "user",
@@ -19,11 +19,11 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".dme", "label": "触发命令",
-            "section": "参数", "help": "自己发出、以此开头的消息会触发。/dme 与 .dme 等价。",
+            "section": "命令", "help": "自己发出、以此开头的消息会触发。/dme 与 .dme 等价。",
         },
         "tip_seconds": {
             "type": "slider", "default": 2, "label": "提示停留(秒)",
-            "min": 0, "max": 10, "step": 1, "section": "参数",
+            "min": 0, "max": 10, "step": 1, "section": "完成提示",
             "help": "删除完成后的「已删除 N 条」提示停留多少秒再消失。",
         },
     },
