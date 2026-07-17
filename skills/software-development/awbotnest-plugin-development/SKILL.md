@@ -1,70 +1,44 @@
 ---
 name: awbotnest-plugin-development
-description: Use when creating, modifying, reviewing, or publishing plugins for AWBotNest and its AWBotNest-Plugins marketplace repo.
-version: 1.0.0
-author: Hermes Agent
-license: MIT
-metadata:
-  hermes:
-    tags: [awbotnest, plugins, telegram, python, manifest, hot-reload]
-    related_skills: [requesting-code-review, github-repo-management]
+description: Create, modify, review, validate, or publish AWBotNest plugins and AWBotNest-Plugins marketplace entries. Use for plugin metadata, ctx lifecycle APIs, config_schema layout, Vue management panels, webhooks, dependencies, version bumps, manifest updates, and hot-reload-safe implementation.
 ---
 
 # AWBotNest Plugin Development
 
-## Overview
+Build plugins against the platform contract and publish them through `AWBotNest-Plugins` without bypassing lifecycle, configuration, or marketplace rules.
 
-AWBotNest plugins follow a strict hot-pluggable contract. A plugin is either a single Python file under `plugins/` or a package directory with `__init__.py`. Platform integration must go through `ctx`; direct use of platform internals or raw Pyrogram decorators breaks unload/reload behavior.
+## Read the source of truth
 
-The marketplace repo `AWdress/AWBotNest-Plugins` adds one more publishing contract: root `manifest.json` must describe each plugin, and any code change that should ship to installed users must also bump the plugin version in both the plugin metadata and the manifest entry.
+For platform-sensitive work, read the latest available sources in this order:
 
-## When to Use
+1. `AWdress/AWBotNest/docs/SPEC.md`
+2. `AWdress/AWBotNest/docs/PLUGIN_GUIDE.md`
+3. `AWdress/AWBotNest/plugins/_TEMPLATE.py` or `_TEMPLATE_VUE/`
+4. The current repo `README.md`
+5. `manifest.json` and 1–3 similar local plugins
 
-Use this skill when:
-- Creating a new AWBotNest plugin
-- Modifying an existing plugin in `AWBotNest-Plugins`
-- Reviewing whether a plugin follows platform conventions
-- Preparing a plugin change for marketplace publication
+Treat the platform repo as the runtime contract and this repo as the marketplace convention. Prefer current local documentation over remembered rules.
 
-Do not use this skill for:
-- Core AWBotNest platform changes outside the plugin contract
-- Generic Telegram bot code that does not run as an AWBotNest plugin
+## Choose the plugin shape
 
-## Source of Truth
+- Use `plugins/<id>.py` for a simple plugin.
+- Use `plugins/<id>/__init__.py` for helpers, resources, records, OCR, or a Vue frontend.
+- Make `__plugin__["id"]` equal the filename or directory name.
+- Keep private helpers prefixed with `_`; never import sibling plugins.
 
-Read sources in this order:
-- `AWdress/AWBotNest/docs/SPEC.md`
-- `AWdress/AWBotNest/docs/PLUGIN_GUIDE.md`
-- `AWdress/AWBotNest/plugins/_TEMPLATE.py`
-- `AWdress/AWBotNest-Plugins/README.md`
-- `AWdress/AWBotNest-Plugins/manifest.json`
-- Existing plugins under `AWdress/AWBotNest-Plugins/plugins/`
+## Implement the contract
 
-Use the platform repo as the hard contract and the plugin repo as the publishing/distribution convention.
-
-## Plugin Shapes
-
-Two supported shapes:
-
-1. Single-file plugin: `plugins/<id>.py`
-2. Package plugin: `plugins/<id>/__init__.py`
-
-Rules:
-- Plugin `id` must equal the filename or directory name, without `.py`
-- If a single file and directory share the same name, single-file wins
-- Files or directories starting with `_` are helper/private and are not discovered as plugins
-- Use package form when the plugin needs helper modules, OCR utilities, records, or other internal structure
-
-## Required Contract
-
-Every plugin must expose these pieces:
+Declare `__plugin__` as a pure literal dictionary because discovery uses AST parsing:
 
 ```python
 __plugin__ = {
-    "name": "My Feature",
+    "name": "示例功能",
     "id": "my_feature",
     "version": "1.0.0",
-    "scope": "user",
+    "scope": "user",  # user | bot | both
+    "author": "",
+    "description": "功能说明",
+    "default_enabled": False,
 }
 
 async def setup(ctx):
@@ -76,279 +50,147 @@ async def teardown(ctx):
     pass
 ```
 
-Notes:
-- `__plugin__` must be a pure literal dict because the platform parses it statically via AST
-- `setup(ctx)` is mandatory
-- `teardown(ctx)` is optional, but required in practice when the plugin owns long-lived resources
-- Supported `scope` values: `user`, `bot`, `both`
+Register handlers only inside `setup(ctx)`. Use `ctx` as the platform boundary:
 
-Useful optional metadata keys:
-- `author`
-- `description`
-- `icon`
-- `default_enabled`
-- `webhook`
-- `config_schema`
-- `requirements`
+- Handlers: `ctx.on_message`, `ctx.on_edited_message`, `ctx.on_callback`, `ctx.on_webhook`
+- Filters: `ctx.filters.*`; combine with `&`, `|`, and `~`
+- Sending: `ctx.bot`, `ctx.user`, `ctx.user_apps`, `ctx.notify`
+- Runtime: `ctx.config`, `ctx.kv`, `ctx.data_dir`, `ctx.log`
+- Lifecycle: `ctx.schedule`, `ctx.add_cleanup`, `ctx.StopPropagation`
 
-## ctx-Only Integration Rule
+Do not import Pyrogram for decorator registration, use `@Client.on_message`, read platform config files, or use `print()` for operational logging. Treat `group=` as ordering only within the plugin; the platform isolates plugin group ranges.
 
-Treat `ctx` as the only platform API surface.
+## Choose configuration mode deliberately
 
-Use:
-- `@ctx.on_message(...)`
-- `@ctx.on_edited_message(...)`
-- `@ctx.on_callback(...)`
-- `@ctx.on_webhook`
-- `ctx.filters.*`
-- `ctx.bot`, `ctx.user`, `ctx.user_apps`
-- `ctx.notify(...)`
-- `ctx.config[...]`
-- `ctx.kv`
-- `ctx.data_dir`
-- `ctx.log`
-- `ctx.schedule(...)`
-- `ctx.add_cleanup(...)`
-- `ctx.StopPropagation`
+Default to native `config_schema`. Do not migrate a plugin to Vue merely to make it prettier.
 
-Do not use:
-- `import pyrogram` for handler registration
-- `@Client.on_message` or other raw client decorators
-- direct imports of platform config or core modules just to reach runtime state
-- `print()` for operational logging
+Use `config_schema` for:
 
-Why: hot enable/disable and per-plugin lifecycle management depend on the platform owning handler registration and cleanup.
+- Switches, text, passwords, numbers, selects, multiselects, sliders
+- Conditional fields with `show_if`
+- Variable-length records with `list`
+- Conversation selection with `chat`
+- One-shot operations with `action`
+- Read-only guidance or status with `info`
 
-## Handler Conventions
+Use Vue only when the interface is part of the feature: charts, history tables, leaderboards, activity monitoring, bulk management, or a multi-step API-driven console.
 
-Register handlers inside `setup(ctx)` only.
+### Native schema layout
 
-Typical examples:
-
-```python
-@ctx.on_message(ctx.filters.command("id"), target="user")
-async def on_id(client, message):
-    ...
-
-@ctx.on_callback(ctx.filters.regex("^pick:"), target="bot")
-async def on_pick(client, callback_query):
-    ...
-```
-
-Guidance:
-- Use `target="auto"` unless the plugin clearly needs `user`, `bot`, or `both`
-- `group` is only for ordering inside the current plugin; the platform isolates plugins into separate group ranges
-- Raise `ctx.StopPropagation` only when the plugin intentionally wants to prevent later handlers in the same processing chain
-
-## Configuration via config_schema
-
-Business configuration belongs in `__plugin__["config_schema"]`. The platform uses it to build the configuration UI, and runtime reads should come from `ctx.config[...]`.
-
-Supported field types:
-- `string`
-- `password`
-- `number`
-- `boolean`
-- `select`
-- `multiselect`
-- `slider`
-- `text`
-
-Typical schema:
+Supported types are `string`, `password`, `number`, `boolean`, `select`, `multiselect`, `slider`, `text`, `list`, `chat`, `action`, and `info`.
 
 ```python
 "config_schema": {
     "enabled": {
-        "type": "boolean",
-        "default": True,
-        "label": "启用",
-        "section": "基础"
+        "type": "boolean", "default": True,
+        "label": "启用", "section": "总开关",
     },
-    "keyword": {
-        "type": "string",
-        "default": "",
-        "label": "关键词",
-        "section": "基础",
-        "show_if": {"enabled": True}
-    }
+    "rules": {
+        "type": "list", "default": [], "label": "规则",
+        "section": "规则管理", "item_label": "规则",
+        "fields": {
+            "keyword": {"type": "string", "label": "关键词"},
+            "active": {"type": "boolean", "label": "启用", "default": True},
+        },
+    },
+    "groups": {
+        "type": "chat", "default": [], "label": "群组",
+        "multi": True, "chat_types": ["group"], "section": "范围",
+    },
+    "test": {
+        "type": "action", "label": "测试连接", "action": "test",
+        "section": "连接",
+    },
 }
 ```
 
-Rules:
-- Every field needs a sensible `default`
-- Group related fields using `section`
-- Use `show_if` to keep option-heavy plugins readable instead of overloading one flat form
-- Prefer simple field combinations over inventing custom config formats
-- For variable-length rules, use multiline `text` and parse line-by-line inside the plugin
-- Do not read or mutate platform config files directly
-- Business settings belong in plugin config, not platform settings
+Schema rules:
 
-## State, Files, and Logging
+- Give every stored field a sensible `default`.
+- Group fields into meaningful `section` cards; avoid one flat “参数” section.
+- Let the platform lay out short fields in columns and large fields across a row.
+- Use `show_if` for dependent settings.
+- Prefer `list` over ad hoc multiline formats for structured repeating rules.
+- Prefer `chat` over manual numeric IDs when the user selects a conversation.
+- Register an `action` using `ctx.action("name")`; use `danger=True` when confirmation is required.
+- Keep field keys unchanged during layout-only refactors so saved configuration remains compatible.
 
-Use the platform-owned storage surfaces:
-- Persistent key-value state: `ctx.kv`
-- Writable plugin-private files: `ctx.data_dir`
-- Logging: `ctx.log.info/debug/warning/error`
+Backend code reads native and Vue-saved settings through `ctx.config`.
 
-Rules:
-- Do not use ad hoc cross-plugin shared state
-- If relational tables are needed, prefix table names with `<plugin_id>_`
-- Keep plugin-owned artifacts inside `ctx.data_dir`
+### Vue management panels
 
-## Dependencies
-
-Third-party libraries must be declared, never installed manually by the plugin.
-
-Prefer platform-built-in dependencies first. Before adding a new requirement, inspect the platform's existing dependency set and reuse it when practical. The platform docs explicitly call out common built-ins such as `ddddocr`, `httpx`, `aiohttp`, and `Pillow`.
-
-Before declaring a new dependency, verify it supports the platform Python version. The platform documentation targets Python 3.13 and specifically warns that some packages publish versions that still exclude 3.13 via `Requires-Python`. A requirement that resolves on older Python may still be uninstallable here.
-
-Example:
+Vue mode requires a package plugin and:
 
 ```python
-"requirements": [
-    "httpx>=0.27",
-    "rapidocr>=2",
-]
-```
-
-Rules:
-- Use PEP 508 requirement strings
-- Prefer compatible lower bounds like `>=` over hard pins like `==`
-- Never call `pip` from plugin code
-- Verify the requirement can actually resolve on Python 3.13 before shipping it
-- Remember AWBotNest is a single-process hot-plug system: one incompatible dependency version can block enablement
-- If a dependency is optional, code the import path to degrade gracefully rather than crashing the whole plugin
-- Network clients usually inherit proxy behavior from environment variables exported by the platform
-- Conflicts with already-installed package versions should be treated as enable-time blockers, not something the plugin tries to overwrite
-
-## Webhook Plugins
-
-If a plugin receives external callbacks:
-
-1. Set `"webhook": True` in `__plugin__`
-2. Register exactly one `@ctx.on_webhook` handler in `setup(ctx)`
-3. Accept a `WebhookRequest` and return either `dict`, `str`, or `None`
-
-Example:
-
-```python
-__plugin__ = {"name": "Hook", "id": "hook", "version": "1.0.0", "scope": "bot", "webhook": True}
-
-async def setup(ctx):
-    @ctx.on_webhook
-    async def on_webhook(req):
-        data = req.json or {}
-        await ctx.notify(f"收到事件: {data}", category="Webhook")
-        return {"ok": True}
-```
-
-## Marketplace Publishing Contract
-
-When working in `AWBotNest-Plugins`, check both the plugin file and root `manifest.json`.
-
-Manifest shape:
-
-```json
-{
-  "my_feature": {
-    "name": "My Feature",
-    "version": "1.0.0",
-    "author": "You",
-    "description": "...",
-    "icon": "https://...",
-    "path": "plugins/my_feature.py"
-  }
+__plugin__ = {
+    # ...
+    "render_mode": "vue",
 }
 ```
 
-Publishing rules:
-- `manifest.json` key must equal plugin `id`
-- `path` must point to the plugin file or directory
-- For package plugins, the manifest path should end with `/`
-- Keep `icon` consistent with `__plugin__["icon"]` if both are present
-- Any shipped code change must bump plugin `version`
-- The same version bump must be mirrored in `manifest.json`
-- Without a version bump, the store will not detect an update and installed platforms will not receive it
+Place a Vite module-federation project in `frontend/` and expose `./Config`. The platform injects `props { pluginId, host }`:
 
-## Recommended Workflow
+- `host.getConfig()` and `host.saveConfig(values)` manage settings.
+- `host.callApi(path, {method, body})` calls plugin APIs.
+- `host.toast.success/error` reports UI results.
 
-1. Identify whether the change belongs in a single-file plugin or package plugin.
-Completion criterion: the target plugin path and `id` are fixed before editing.
+Register backend endpoints with `@ctx.on_api("/path", methods=[...])`. Use `req.json` according to the current platform guide; do not invent a separate configuration endpoint when `host.saveConfig` already exists.
 
-2. Inspect 1-3 similar plugins in the repo.
-Completion criterion: local naming, handler style, and config patterns are clear.
+Before publishing, run `npm run build` and commit `frontend/dist/`. Ensure `.gitignore` does not exclude `dist`. Use responsive layouts for the roughly 1000px desktop canvas and narrow full-screen mode.
 
-3. Implement or modify `__plugin__`, `setup(ctx)`, and any helpers.
-Completion criterion: all handlers are registered through `ctx`, with no raw client decorators.
+## Store state and files correctly
 
-4. Add or refine `config_schema`, `requirements`, `ctx.kv`, and cleanup logic as needed.
-Completion criterion: runtime state, configuration, and external dependencies all flow through platform-approved surfaces.
+- Put persistent state in the plugin-scoped `ctx.kv`.
+- Put writable artifacts in `ctx.data_dir`.
+- Prefix any relational table with `<plugin_id>_`.
+- Release plugin-owned tasks, clients, and resources in `teardown` or `ctx.add_cleanup`.
+- Let the platform clean up handlers and schedules it registered.
 
-5. Update `manifest.json`.
-Completion criterion: manifest key, path, metadata, and version match the plugin.
+## Declare dependencies
 
-6. Bump versions whenever behavior changes should ship.
-Completion criterion: plugin metadata version and manifest version are both updated together.
+Declare third-party packages in `__plugin__["requirements"]` as PEP 508 strings. Prefer compatible lower bounds (`>=`) and verify Python 3.13 support. Never invoke `pip` in plugin code.
 
-7. Verify syntax and obvious contract mistakes before commit/push.
-Completion criterion: modified files parse cleanly and no rule in this skill is violated.
+If a dependency is optional, guard the import and degrade gracefully. Network libraries normally inherit platform proxy environment variables; do not disable `trust_env` unless direct access is intentional.
 
-## Review Checklist
+## Implement webhooks
 
-Use this checklist when reviewing a plugin PR or local change:
+Set `"webhook": True` and register exactly one `@ctx.on_webhook` handler. Accept the platform `WebhookRequest`; use `req.method`, `query`, `headers`, `json`, `text`, or `body`, and return `dict`, `str`, or `None`. Do not implement independent API-key handling—the platform owns webhook authentication.
 
-- [ ] Plugin `id` matches its filename or directory name
-- [ ] `__plugin__` is present and literal
-- [ ] `setup(ctx)` exists and registers handlers only through `ctx`
-- [ ] No `@Client.on_message` or direct platform-core imports for runtime wiring
-- [ ] No `print()` calls for operational logs
-- [ ] Business settings live in `config_schema`
-- [ ] Persistent state uses `ctx.kv` and files use `ctx.data_dir`
-- [ ] Long-lived resources are released in `teardown(ctx)` or via `ctx.add_cleanup(...)`
-- [ ] Requirements are declared in metadata, not installed in code
-- [ ] `manifest.json` entry exists and matches the plugin
-- [ ] Version was bumped if marketplace users should receive the change
+## Publish to the marketplace
 
-## Common Pitfalls
+For any shipped plugin code change:
 
-1. Forgetting to update `manifest.json` after editing plugin code.
-This silently breaks marketplace distribution even when the code itself is correct.
+1. Bump `__plugin__["version"]`.
+2. Mirror the version in root `manifest.json`.
+3. Keep manifest key equal to plugin ID.
+4. Use a `.py` path for single-file plugins and a trailing `/` for packages.
+5. Keep name, description, author, and icon consistent when duplicated.
+6. Include Vue `frontend/dist/` when applicable.
 
-2. Changing plugin code without bumping version.
-The store polls by version; no version change means no update rollout.
+Without a version bump, installed platforms will not receive the update.
 
-3. Registering handlers outside `setup(ctx)`.
-This undermines lifecycle control and tends to break disable/unload behavior.
+## Workflow
 
-4. Importing Pyrogram decorators directly.
-Even if it seems to work locally, it bypasses platform ownership of handlers.
+1. Read current platform and repo guidance.
+2. Inspect the target and 1–3 comparable plugins.
+3. Choose single-file/package and native-schema/Vue modes.
+4. Preserve saved configuration keys unless migration is explicitly required.
+5. Implement through `ctx`; add cleanup and graceful degradation.
+6. Update plugin and manifest versions.
+7. Validate Python syntax, literal metadata, schema sections, version parity, and frontend build output.
+8. Review the staged diff so unrelated user changes are not included.
 
-5. Writing business settings as hard-coded constants or external ad hoc files.
-Those settings belong in `config_schema` so the UI and runtime stay aligned.
+## Verification checklist
 
-6. Forgetting cleanup for background tasks or network resources.
-Hot reload makes leaks visible quickly; clean up anything the platform does not auto-manage.
+- [ ] ID, path, directory/filename, and manifest key agree.
+- [ ] `__plugin__` is a literal dict with name, ID, version, and scope.
+- [ ] All runtime registration flows through `ctx` inside `setup`.
+- [ ] Native configuration uses meaningful sections and supported field types.
+- [ ] Vue is justified by management/visual interaction and includes built `dist`.
+- [ ] Backend settings come from `ctx.config`; runtime data uses `ctx.kv`/`ctx.data_dir`.
+- [ ] Dependencies are declared and compatible; no self-installation occurs.
+- [ ] Plugin-owned resources are cleaned up.
+- [ ] Plugin and manifest versions match.
+- [ ] Modified Python compiles and `git diff --check` passes (generated bundles may be exempt only when unavoidable).
 
-7. Cross-importing another plugin.
-Shared code should live in helper modules within the same plugin package or be promoted into platform/shared support, not imported from a sibling plugin.
-
-## Reference Files
-
-For a copyable starter, load:
-- `references/minimal-plugin-template.py`
-
-Use the platform's richer example `AWdress/AWBotNest/plugins/_TEMPLATE.py` when the plugin needs webhook, scheduling, or more complex config examples.
-
-## Verification Checklist
-
-- [ ] Plugin shape is valid: single file or package directory
-- [ ] `id`, filename/directory name, and manifest key all match
-- [ ] `__plugin__` includes `name`, `id`, `version`, `scope`
-- [ ] All handlers and webhook hooks are registered through `ctx`
-- [ ] Config is exposed through `config_schema` and read from `ctx.config`
-- [ ] State/files/logging use `ctx.kv`, `ctx.data_dir`, `ctx.log`
-- [ ] Requirements are declared, not self-installed
-- [ ] Cleanup exists for plugin-owned resources
-- [ ] `manifest.json` path/version/metadata match the plugin
-- [ ] Version bump is present when preparing marketplace publication
+For a copyable native starter, read `references/minimal-plugin-template.py`.

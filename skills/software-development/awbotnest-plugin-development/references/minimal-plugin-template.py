@@ -14,13 +14,13 @@ __plugin__ = {
             "type": "string",
             "default": ".ping",
             "label": "触发词",
-            "section": "参数",
+            "section": "命令",
         },
         "reply_text": {
             "type": "string",
             "default": "pong",
             "label": "回复内容",
-            "section": "参数",
+            "section": "回复",
         },
     },
 }
