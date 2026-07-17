@@ -5,76 +5,52 @@
 # 答对自动用 reply("+魔力") 发奖（由群转账 bot 实际打款），支持连胜加成。
 #
 # 出题源：AI（OpenAI 兼容接口，本插件自带配置）或天行数据 API。
-# 无参与费，奖励即转账指令，不依赖平台转账确认。
 # =============================================================================
 
 import asyncio
+from collections import deque
+from datetime import datetime
 
 from ._engine import fetch_from_ai, fetch_from_tianapi
 
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "scope": "user",
     "default_enabled": False,
-    "config_schema": {
-        "valid_groups": {
-            "type": "chat", "default": [], "label": "允许的群组", "multi": True,
-            "chat_types": ["group"], "section": "范围",
-            "help": "勾选允许开启答题的群（需群内有转账bot发奖）。留空=不限制。",
-        },
-        # —— 玩法 ——
-        "reward": {
-            "type": "number", "default": 200, "label": "答对奖励(魔力)",
-            "min": 1, "section": "玩法",
-        },
-        "timeout": {
-            "type": "slider", "default": 60, "label": "每题限时(秒)",
-            "min": 10, "max": 300, "step": 5, "section": "玩法",
-        },
-        "rounds": {
-            "type": "slider", "default": 5, "label": "题目轮数",
-            "min": 1, "max": 30, "step": 1, "section": "玩法",
-        },
-        # —— 出题源 ——
-        "source": {
-            "type": "select", "default": "ai", "label": "出题源", "section": "出题源",
-            "options": [
-                {"value": "ai", "label": "AI 出题"},
-                {"value": "tianapi", "label": "天行数据"},
-            ],
-        },
-        "difficulty": {
-            "type": "string", "default": "中等稍低", "label": "AI 难度",
-            "section": "出题源", "show_if": {"source": "ai"},
-        },
-        "ai_api_key": {
-            "type": "password", "default": "", "label": "AI API Key",
-            "section": "出题源", "show_if": {"source": "ai"},
-        },
-        "ai_base_url": {
-            "type": "string", "default": "", "label": "AI 接口地址",
-            "section": "出题源", "help": "OpenAI 兼容接口，留空用官方默认。", "show_if": {"source": "ai"},
-        },
-        "ai_model": {
-            "type": "string", "default": "gpt-3.5-turbo", "label": "AI 模型",
-            "section": "出题源", "show_if": {"source": "ai"},
-        },
-        "tianapi_key": {
-            "type": "password", "default": "", "label": "天行数据 Key",
-            "section": "出题源", "show_if": {"source": "tianapi"},
-        },
-    },
+    "render_mode": "vue",
+    "requirements": ["openai>=1.0"],
 }
 
-# 进行中的答题：{chat_id: state}（进程内）
+# ── 配置默认值 ──
+DEFAULTS = {
+    "valid_groups": "",
+    "source": "ai",
+    "ai_api_key": "",
+    "ai_base_url": "",
+    "ai_model": "gpt-4o-mini",
+    "tianapi_key": "",
+    "base_reward": 500,
+    "streak_enabled": True,
+    "streak_multiplier": 1.5,
+    "max_streak": 5,
+    "timeout": 60,
+    "auto_delete_delay": 30,
+}
+
+# ── 运行态 ──
 _active: dict = {}
 _busy_hints: set = set()
 _name_cache: dict = {}
 _tasks: set = set()
+_history = deque(maxlen=100)
+
+
+def _effective_cfg(ctx) -> dict:
+    return {**DEFAULTS, **dict(ctx.config or {})}
 
 
 def _track(task):
@@ -89,7 +65,7 @@ def _lines(raw) -> list[str]:
 
 def _valid_group(cfg, chat_id: int) -> bool:
     raw = cfg.get("valid_groups") or []
-    items = raw if isinstance(raw, list) else _lines(raw)  # chat 存 id 数组，兼容旧字符串
+    items = raw if isinstance(raw, list) else _lines(raw)
     groups = []
     for x in items:
         try:
@@ -123,9 +99,9 @@ async def setup(ctx):
                     pool.append(q)
             return pool
         return await fetch_from_ai(
-            rounds, cfg.get("difficulty", "中等稍低"),
+            rounds, "中等",
             cfg.get("ai_api_key", ""), cfg.get("ai_base_url", ""),
-            cfg.get("ai_model", "gpt-3.5-turbo"), ctx.log,
+            cfg.get("ai_model", "gpt-4o-mini"), ctx.log,
         )
 
     def _schedule_timeout(client, chat_id, timeout):
@@ -133,8 +109,7 @@ async def setup(ctx):
             await asyncio.sleep(timeout)
             if chat_id in _active:
                 ans = _active[chat_id]["a"]
-                await _send_temp(client, chat_id,
-                                 f"时间到！没人答对，正确答案是：{ans}\n活动已结束")
+                await _send_temp(client, chat_id, f"时间到！正确答案是：{ans}\n活动已结束")
                 await _stop(client, chat_id)
         return _track(asyncio.create_task(_runner()))
 
@@ -151,20 +126,20 @@ async def setup(ctx):
         state["task"] = _schedule_timeout(client, chat_id, timeout)
 
     async def _start(client, chat_id, message):
-        cfg = ctx.config
+        cfg = _effective_cfg(ctx)
         if chat_id in _active:
             if chat_id not in _busy_hints:
                 _busy_hints.add(chat_id)
                 await _send_temp(client, chat_id, "答题已在进行中，结束请发：结束答题")
             return
         timeout = int(cfg.get("timeout", 60) or 60)
-        reward = int(cfg.get("reward", 200) or 200)
-        rounds = max(1, min(int(cfg.get("rounds", 5) or 5), 30))
+        reward = int(cfg.get("base_reward", 500) or 500)
+        rounds = 5
 
         pool = await _fetch_pool(cfg, rounds)
         _busy_hints.discard(chat_id)
         if len(pool) < rounds:
-            await _send_temp(client, chat_id, "出题失败，题目数量不足，请检查出题源配置或稍后重试。")
+            await _send_temp(client, chat_id, "出题失败，请检查出题源配置。")
             return
 
         first = pool[0]
@@ -178,126 +153,124 @@ async def setup(ctx):
         text = (f"趣味答题 · 第 1/{rounds} 轮\n答对奖励：{reward} 魔力\n"
                 f"{first['q']}\n\n请在 {timeout} 秒内直接发送答案\n（发「结束答题」可手动结束）")
         try:
-            msg = await message.edit_text(text)
-        except Exception:
             msg = await client.send_message(chat_id, text)
-        if msg:
             _active[chat_id]["q_msgs"].append(msg)
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[答题] 发题失败: %r", e)
+            return
         _active[chat_id]["task"] = _schedule_timeout(client, chat_id, timeout)
 
     async def _stop(client, chat_id):
-        if chat_id in _active:
-            state = _active[chat_id]
-            if state["task"]:
-                state["task"].cancel()
-            for msg in state.get("q_msgs", []):
-                try:
-                    await msg.delete()
-                except Exception:
-                    pass
-            scores = state["scores"]
-            if scores:
-                names = _name_cache.get(chat_id, {})
-                board = "\n".join(f"{names.get(uid, str(uid))}: {sc} 分"
-                                  for uid, sc in sorted(scores.items(), key=lambda x: x[1], reverse=True))
-                text = f"答题结束\n排行榜\n{board}"
-            else:
-                text = "答题结束，本轮无人得分。"
-            await _send_temp(client, chat_id, text)
-            _active.pop(chat_id, None)
-            _name_cache.pop(chat_id, None)
-        _busy_hints.discard(chat_id)
-
-    # ── 控制命令（自己发出）──
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.group & ctx.filters.text, group=-8)
-    async def quiz_control(client, message):
-        text = (message.text or "").strip()
-        if text == "开启答题":
-            if not _valid_group(ctx.config, message.chat.id):
-                try:
-                    await message.edit_text("该群未在允许列表，无法开启答题。")
-                except Exception:
-                    pass
-                return
-            try:
-                await message.edit_text("趣味答题启动中，正在生成题目...")
-            except Exception:
-                pass
-            await _start(client, message.chat.id, message)
-        elif text == "结束答题":
-            await _stop(client, message.chat.id)
-
-    # ── 抢答（群内收到的消息）──
-    @ctx.on_message(ctx.filters.group & ctx.filters.text & ctx.filters.incoming, group=15)
-    async def quiz_answer(client, message):
-        chat_id = message.chat.id
         if chat_id not in _active:
             return
-        text = (message.text or "").strip()
-        if not text or text.startswith((".", "/")):
+        state = _active[chat_id]
+        if state.get("task"):
+            state["task"].cancel()
+        _active.pop(chat_id, None)
+        _busy_hints.discard(chat_id)
+
+    async def _handle_answer(client, message):
+        cfg = _effective_cfg(ctx)
+        chat_id = message.chat.id
+        if chat_id not in _active:
             return
         state = _active[chat_id]
         if state.get("answering"):
             return
 
-        ans = str(state["a"]).lower()
-        aliases = [str(x).lower() for x in state.get("aliases", [])]
-        user_ans = text.lower()
-        if not (ans in user_ans or user_ans in aliases):
+        text = (message.text or "").strip().lower()
+        correct = state["a"].strip().lower()
+        aliases = [x.strip().lower() for x in state.get("aliases", [])]
+
+        if text not in [correct, *aliases]:
             return
 
         state["answering"] = True
-        if state["task"]:
+        if state.get("task"):
             state["task"].cancel()
 
-        uid = message.from_user.id if message.from_user else 0
-        uname = message.from_user.first_name if message.from_user else str(uid)
-        if uid:
-            _name_cache.setdefault(chat_id, {})[uid] = uname
-        state["scores"][uid] = state["scores"].get(uid, 0) + 1
-        score = state["scores"][uid]
+        user_id = message.from_user.id
+        user_name = message.from_user.first_name or str(user_id)
+        _name_cache.setdefault(chat_id, {})[user_id] = user_name
 
-        reward = int(ctx.config.get("reward", 200) or 200)
-        if uid and state.get("last_winner_id") == uid:
-            streak = int(state.get("streak_count", 1)) + 1
+        reward = int(cfg.get("base_reward", 500) or 500)
+        if cfg.get("streak_enabled") and user_id == state["last_winner_id"]:
+            state["streak_count"] += 1
+            multiplier = float(cfg.get("streak_multiplier", 1.5))
+            max_streak = int(cfg.get("max_streak", 5))
+            streak = min(state["streak_count"], max_streak)
+            reward = int(reward * (multiplier ** streak))
         else:
-            streak = 1
-        state["last_winner_id"] = uid
-        state["streak_count"] = streak
-        bonus = int(reward * min(max(streak - 1, 0), 5) * 0.2)
-        total = reward + bonus
+            state["streak_count"] = 1
+            state["last_winner_id"] = user_id
+
+        state["scores"][user_id] = state["scores"].get(user_id, 0) + reward
 
         try:
-            await message.reply(f"+{total}")  # 群转账 bot 识别发奖
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("[答题] 发奖失败: %r", e)
+            await message.reply(f"+{reward}", quote=True)
+        except Exception:  # noqa: BLE001
+            pass
 
-        streak_text = f"连胜 {streak}（+{bonus}）\n" if streak > 1 else ""
-        result = await message.reply(
-            f"答对了！\n{uname}\n答案：{ans}\n+{total} 魔力\n{streak_text}累计 {score} 次\n准备下一题..."
-        )
-        _track(asyncio.create_task(_auto_del(result, 30)))
+        _history.append({
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "group": message.chat.title or str(chat_id),
+            "question": state["q"][:50],
+            "answer": state["a"],
+            "player": user_name,
+            "reward": reward,
+        })
 
         if state["round"] >= state["total_rounds"]:
+            await _send_temp(client, chat_id, f"✅ {user_name} 答对！\n游戏结束")
             await _stop(client, chat_id)
             return
+
         state["round"] += 1
-        await asyncio.sleep(3)
-        pool = state.get("question_pool", [])
-        nxt = int(state.get("next_idx", 0))
-        if nxt < len(pool):
-            qd = pool[nxt]
-            state.update({"q": qd["q"], "a": qd["a"], "aliases": qd.get("aliases", []),
-                          "next_idx": nxt + 1, "answering": False})
-            await _send_next_question(client, chat_id, int(ctx.config.get("timeout", 60) or 60))
-        else:
+        next_q = state["question_pool"][state["next_idx"]]
+        state["next_idx"] += 1
+        state["q"] = next_q["q"]
+        state["a"] = next_q["a"]
+        state["aliases"] = next_q.get("aliases", [])
+        state["answering"] = False
+
+        timeout = int(cfg.get("timeout", 60) or 60)
+        await _send_next_question(client, chat_id, timeout)
+
+    # ───────── Vue 模式后端 API ─────────
+    @ctx.on_api("/history", methods=["GET"])
+    async def _api_history(req):
+        return {"history": list(_history)}
+
+    @ctx.on_api("/update_config", methods=["POST"])
+    async def _api_update_config(req):
+        body = await req.json()
+        ctx.update_config(body)
+        return {"ok": True}
+
+    # ───────── 消息监听 ─────────
+    @ctx.on_message(ctx.filters.group, group=7)
+    async def on_group_message(client, message):
+        cfg = _effective_cfg(ctx)
+        chat_id = message.chat.id
+
+        if not _valid_group(cfg, chat_id):
+            return
+
+        text = (message.text or "").strip()
+
+        if text in ["开启答题", "开始答题"]:
+            await _start(client, chat_id, message)
+            return
+
+        if text in ["结束答题", "停止答题"]:
             await _stop(client, chat_id)
+            await _send_temp(client, chat_id, "答题活动已结束")
+            return
+
+        await _handle_answer(client, message)
 
 
 async def teardown(ctx):
-    for t in list(_tasks):
-        t.cancel()
+    for task in list(_tasks):
+        task.cancel()
     _tasks.clear()
-    _active.clear()
-    _busy_hints.clear()
-    _name_cache.clear()
