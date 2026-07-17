@@ -127,7 +127,7 @@
   },
   "bomb_game": {
     "name": "数字炸弹",
-    "version": "1.0.4",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "path": "plugins/bomb_game/"
