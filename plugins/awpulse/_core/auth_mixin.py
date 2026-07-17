@@ -13,6 +13,36 @@ from .human_simulation import human_like_delay
 class AuthMixin:
     """登录、年龄验证、登录状态检查、用户信息获取"""
 
+    def _goto_with_retry(self, url, purpose="页面", timeout_ms=60000, retries=3):
+        """更稳健的页面导航：放宽等待条件、增加超时，并在超时后重试。"""
+        wait_strategies = ["commit", "domcontentloaded", "load"]
+        last_error = None
+
+        for attempt in range(1, retries + 1):
+            for wait_until in wait_strategies:
+                try:
+                    logging.info(
+                        f"访问{purpose} (第{attempt}/{retries}次, wait_until={wait_until}, timeout={timeout_ms}ms): {url}"
+                    )
+                    self.page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+                    time.sleep(2)
+                    return True
+                except PlaywrightTimeout as e:
+                    last_error = e
+                    logging.warning(
+                        f"访问{purpose}超时 (第{attempt}/{retries}次, wait_until={wait_until}): {e}"
+                    )
+                except Exception as e:
+                    last_error = e
+                    logging.warning(
+                        f"访问{purpose}失败 (第{attempt}/{retries}次, wait_until={wait_until}): {e}"
+                    )
+
+            if attempt < retries:
+                time.sleep(3)
+
+        raise last_error
+
     def handle_age_verification(self):
         """处理年龄验证"""
         try:
@@ -50,7 +80,7 @@ class AuthMixin:
             
             # 尝试直接访问绕过
             logging.info("尝试直接访问绕过...")
-            self.page.goto(self.base_url + "forum.php", wait_until='domcontentloaded')
+            self._goto_with_retry(self.base_url + "forum.php", purpose="论坛首页", timeout_ms=60000, retries=2)
             time.sleep(3)
             
             if "满18岁" not in self.page.content():
@@ -73,7 +103,7 @@ class AuthMixin:
             login_url = f"{self.base_url}member.php?mod=logging&action=login"
             logging.debug(f"访问登录页面: {login_url}")
             
-            self.page.goto(login_url, wait_until='domcontentloaded')
+            self._goto_with_retry(login_url, purpose="登录页面", timeout_ms=60000, retries=3)
             time.sleep(3)
             
             # 处理年龄验证
@@ -225,7 +255,7 @@ class AuthMixin:
                 return True
             else:
                 logging.warning("登录状态不明确，尝试访问个人中心确认...")
-                self.page.goto(self.base_url + "home.php?mod=space", wait_until='domcontentloaded')
+                self._goto_with_retry(self.base_url + "home.php?mod=space", purpose="个人中心", timeout_ms=60000, retries=2)
                 time.sleep(3)
                 
                 content = self.page.content()
@@ -254,7 +284,7 @@ class AuthMixin:
             
             # 访问个人中心确认
             logging.debug("访问个人中心确认登录状态...")
-            self.page.goto(self.base_url + "home.php?mod=space&do=profile", wait_until='domcontentloaded')
+            self._goto_with_retry(self.base_url + "home.php?mod=space&do=profile", purpose="登录状态检查", timeout_ms=60000, retries=2)
             time.sleep(2)
             
             content = self.page.content()
@@ -283,7 +313,7 @@ class AuthMixin:
             
             # 访问个人中心页面
             profile_url = f"{self.base_url}home.php?mod=space&uid=&do=profile"
-            self.page.goto(profile_url, wait_until='domcontentloaded')
+            self._goto_with_retry(profile_url, purpose="用户资料页", timeout_ms=60000, retries=2)
             time.sleep(3)
             
             user_info = {
