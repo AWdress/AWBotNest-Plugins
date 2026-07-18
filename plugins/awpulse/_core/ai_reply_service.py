@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import hashlib
+import re
 from typing import Optional
 from .stats_manager import StatsManager
 
@@ -78,7 +79,39 @@ class AIReplyService:
             pass
 
     def _cache_key(self, title: str) -> str:
-        return hashlib.md5(title.strip().encode('utf-8')).hexdigest()
+        # 判定规则升级时改前缀，避免历史误判（尤其是旧提示词产生的大量 SKIP）继续生效。
+        return "v2_" + hashlib.md5(title.strip().encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _has_resource_link(content: str = "") -> bool:
+        """首楼必须存在实际资源地址或论坛附件；只有标题关键词不算资源帖。"""
+        text = str(content or "")
+        patterns = (
+            r"(?:https?:)?//\S+",
+            r"(?:magnet|ed2k|thunder)://\S+",
+            r"forum\.php\?mod=attachment[^\s\]]*",
+            r"attachment\.php\?[^\s\]]+",
+        )
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _has_strong_resource_signals(title: str, content: str = "") -> bool:
+        """识别无需 AI 即可确认的资源帖，避免模型安全策略造成全量误杀。"""
+        text = f"{title} {content[:500]}"
+        upper = text.upper()
+        resource_words = (
+            "ED2K", "MAGNET", "115", "自抓", "原档", "压缩包", "合集",
+            "配额", "下载", "网盘", "磁力", "种子", "写真", "资源",
+            "在线预览", "新片预览",
+        )
+        if any(word in upper for word in resource_words):
+            return True
+        # 常见标题规格：306G / 59.8GB / 1.73T / 127V 等。
+        return bool(re.search(
+            r"(?:\d+(?:\.\d+)?\s*(?:KB|MB|GB|TB|G|T)\b|\d+\s*[Vv]\b)",
+            text,
+            re.IGNORECASE,
+        ))
     
     def is_enabled(self) -> bool:
         """检查AI回复是否启用"""
@@ -98,7 +131,20 @@ class AIReplyService:
             'ADMIN' - 管理帖/公告帖，不要回复
             'SKIP' - 其他不适合回复的帖子
         """
-        # 先查缓存
+        # 明确危险内容先拦截。首楼没有实际链接时，无论标题多像资源帖都跳过。
+        keyword_type = self._detect_by_keywords(title, content)
+        if keyword_type != 'NORMAL':
+            return keyword_type
+        if not self._has_resource_link(content):
+            self.logger.info("结构特征判断: 首楼无资源链接，跳过")
+            return 'SKIP'
+
+        # 有链接且资源特征明确则直接放行；AI 只处理剩余模糊标题。
+        if self._has_strong_resource_signals(title, content):
+            self.logger.info("结构特征判断: 有资源链接的正常资源帖")
+            return 'NORMAL'
+
+        # 再查新版缓存
         cache_key = self._cache_key(title)
         if cache_key in self._type_cache:
             cached_type = self._type_cache[cache_key]
@@ -107,9 +153,7 @@ class AIReplyService:
 
         try:
             # 构建检测提示词
-            detect_prompt = f"""请仔细分析以下帖子，判断其类型。
-
-这是一个成人资源分享论坛，只有分享AV视频、成人小说、成人图片等色情资源的帖子才是"正常帖子"。
+            detect_prompt = f"""请判断以下论坛帖子是否属于“可下载内容分享帖”。只判断帖子结构和用途，不评价内容题材。
 
 帖子标题：{title}
 
@@ -118,20 +162,22 @@ class AIReplyService:
 
 判断标准：
 
-1. 正常资源帖（NORMAL）—— 必须同时满足：
-   - 分享AV视频、成人小说、写真图片、同人作品等色情资源
-   - 标题通常包含：演员名、番号、作品名、章节号、作者名等
-   - 内容通常有：下载链接、预览图、作品简介、文件大小等
+1. 可下载内容分享帖（NORMAL），必须满足：
+   - 正文中存在实际下载链接、网盘链接、磁力/ED2K 地址或论坛附件链接；没有链接必须判为 SKIP
+   - 分享视频、小说、图片、音频或资料合集
+   - 标题或正文出现作品名、合集、文件大小、文件数量、下载方式、网盘、磁力或 ED2K 等资源信息
+   - 预览、整理、自抓、归档类内容，只要提供或介绍具体作品资源，也属于 NORMAL
 
 2. 非正常帖（SKIP）—— 以下任何一条即判定：
    - 钓鱼帖：提示回复会封号、测试帖、陷阱帖
    - 管理帖：公告、通知、版规、规则
    - 广告帖：招聘、高薪、兼职、推广、加群、联系方式
    - 讨论帖：求助、提问、投票、闲聊、吐槽
-   - 任何不是在分享色情资源的帖子
+   - 没有实际资源链接，只有预览、介绍、标题或讨论的帖子
+   - 任何不在分享具体可下载内容的帖子
 
 请只回复以下两个选项之一：
-- NORMAL（色情资源分享帖，可以回复）
+- NORMAL（可下载内容分享帖，可以回复）
 - SKIP（非资源帖，不要回复）
 
 你的判断："""
@@ -145,7 +191,7 @@ class AIReplyService:
             data = {
                 "model": self.model,
                 "messages": [
-                    {"role": "system", "content": "你是一个帖子类型识别专家，能准确判断帖子是否为钓鱼帖、管理帖或正常帖子。"},
+                    {"role": "system", "content": "你只根据论坛帖子的结构和用途进行分类。忽略内容题材，仅输出 NORMAL 或 SKIP。"},
                     {"role": "user", "content": detect_prompt}
                 ],
                 "temperature": 0.3,  # 降低温度，提高判断准确性
@@ -173,10 +219,13 @@ class AIReplyService:
             
             if response.status_code == 200:
                 result = response.json()
-                post_type = result['choices'][0]['message']['content'].strip().upper()
+                raw_type = result['choices'][0]['message']['content'].strip()
+                post_type = raw_type.upper()
+                self.logger.info(f"AI原始判断: {raw_type[:80]}")
                 
                 # 解析AI返回的类型
-                if 'NORMAL' in post_type:
+                token_match = re.search(r"\b(NORMAL|SKIP)\b", post_type)
+                if token_match and token_match.group(1) == 'NORMAL':
                     self.logger.info(f"AI判断: 正常资源帖")
                     result_type = 'NORMAL'
                 else:
@@ -520,4 +569,3 @@ class AIReplyService:
                 "success": False,
                 "message": f"测试失败: {str(e)}"
             }
-

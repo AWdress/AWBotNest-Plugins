@@ -586,7 +586,20 @@ class ReplyMixin:
                             if element.is_visible(timeout=2000):
                                 text = element.text_content().strip()
                                 if text and len(text) > 10:
+                                    # text_content 不包含 <a href> 的真实地址；资源判定要求首楼
+                                    # 必须有链接，因此把首楼链接一并交给分类器。
+                                    hrefs = []
+                                    try:
+                                        for anchor in element.locator("a[href]").all():
+                                            href = (anchor.get_attribute("href") or "").strip()
+                                            if href and href not in hrefs:
+                                                hrefs.append(href)
+                                    except Exception:
+                                        pass
+                                    link_text = "\n".join(f"[链接] {href}" for href in hrefs[:30])
                                     post_content = text[:1000]
+                                    if link_text:
+                                        post_content += "\n" + link_text
                                     logging.debug(f"成功读取帖子内容 (选择器: {selector}, 长度: {len(text)})")
                                     break
                         except:
