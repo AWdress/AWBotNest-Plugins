@@ -24,9 +24,10 @@ from ._engine import generate, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
+    "changelog": "v1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -374,7 +375,10 @@ async def setup(ctx):
                 pass
             return
 
-    ctx.schedule(proactive_tick, "interval", minutes=1, id="AI主动搭话")
+    # 关闭主动搭话时不要注册空跑任务，也避免系统状态页显示未启用的功能。
+    # Vue 配置保存不会动态增删 scheduler；开启后重载/重新启用插件即可注册。
+    if ctx.config.get("enable_proactive", False):
+        ctx.schedule(proactive_tick, "interval", minutes=1, id="AI主动搭话")
 
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/test", methods=["POST"])
