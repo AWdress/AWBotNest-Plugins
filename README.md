@@ -42,6 +42,7 @@ __plugin__ = {
     "scope": "user",           # 必填：user(用户账号) | bot(机器人) | both
     "author": "你",            # 可选
     "description": "干啥的",    # 可选
+    "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 可选：详情页展示的版本更新说明
     "icon": "",                # 可选：图标 URL，前端卡片用；留空回退平台 logo
     "default_enabled": False,  # 可选：放入本地 plugins/ 时是否默认启用
     "webhook": False,          # 可选：声明 True 才能用 @ctx.on_webhook 接收外部回调
@@ -105,11 +106,12 @@ async def teardown(ctx):
 
 普通插件的业务参数优先写在这里，前端「配置」按钮据此自动生成设置界面，值用 `ctx.config[...]` 读。平台原生表单已经支持分区、条件显示、动态列表、会话选择器、动作按钮和响应式布局；**能用 `config_schema` 清楚表达的配置，不要为了样式改成 Vue**。
 
-> **布局由平台自动排布，插件不用关心宽度**：配置弹窗是一块大画布（桌面约 1000px，窄屏自动全屏）。同一 `section` 内的**短字段**（string/password/number/boolean/select/slider）自动并排成多列，**大字段**（text/list/multiselect/chat）占整行，窗口变窄时回落单列。你只管声明字段和 `section` 分区，宽度/多列/换行都交给平台，别自己操心。
+> **布局默认由平台自动排布，也支持按需精调**：配置弹窗使用 12 列栅格（桌面约 1000px，窄屏自动全屏）。未写 `cols` 时，短字段默认占 6 列、大字段默认占 12 列；需要更整齐的组合时可用 `cols` 指定 1–12 列，用 `order` 调整同一分区内的顺序。窄屏（≤768px）统一回落单列。
 
 ```python
 "config_schema": {
-    "enable_x": {"type": "boolean", "default": True, "label": "启用X", "section": "功能开关"},
+    "enable_x": {"type": "boolean", "default": True, "label": "启用X", "section": "功能开关",
+                 "cols": 4, "order": 1},
     "keyword":  {"type": "string",  "default": "",   "label": "触发词", "section": "参数",
                  "help": "字段下方说明", "show_if": {"enable_x": True}},
     "secret":   {"type": "password", "default": "",  "label": "密钥",  "section": "参数", "required": True},
@@ -136,6 +138,8 @@ async def teardown(ctx):
 - `label` 显示名 · `help` 说明 · `options`（select/multiselect 用）· `min`/`max`/`step`（number/slider 用）
 - `required`：`True` 时保存前校验非空，空则前端拦下不保存（`info`/`action` 不校验）
 - `section`：分区标题（同 section 归一组卡片）
+- `cols`：字段占用的栅格列数（1–12）；12=整行、6=半行、4=三等分。窄屏时自动失效并占满整行
+- `order`：同一 `section` 内的排序权重，数字越小越靠前；未指定的排在后面
 - `show_if`：条件联动，如 `{"enable_x": True}` 仅当该字段为真才显示本字段
 - `list`：可增删行，`fields` 定义每行子字段（`{子键: 子 spec}`，子字段用基础类型），`item_label` 定每行标题前缀（如「规则 1」）。取值 `[{子键: 值}, ...]`，`ctx.config["rules"]` 直接遍历。行内暂不支持 `show_if`，别再嵌套 `list`
 - `chat`：会话选择器，从账号的群/频道/私聊里挑，存会话 id；`multi=True` 存 id 数组；`chat_types` 过滤类型（`private`/`bot`/`group`/`channel`）；`session` 指定枚举账号。`ctx.config["target"]` 直接当 chat_id 用，没连账号可手填兜底
@@ -143,6 +147,8 @@ async def teardown(ctx):
 - `info`：只读展示，`text` 为固定文字；不填 `text` 则显示该键当前值（可用 `ctx.update_config` 写回显示动态状态）
 
 > 多条规则/不定条数内容，优先用 `list` 字段（可增删行、每行一组表单，用户一看就懂）；来源/目标这类会话选 `chat` 选择器，免手填 id。
+
+排版建议：先用 `section` 分成少量语义明确的卡片，再用 `order` 固定阅读顺序；同一行优先使用 `6+6`、`4+4+4` 或 `8+4`，避免为了填满一行把长文本、列表和会话选择器压窄。
 
 ### 4.5 Vue 模式（自带界面，进阶）
 

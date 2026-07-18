@@ -38,6 +38,7 @@ __plugin__ = {
     "scope": "user",  # user | bot | both
     "author": "",
     "description": "功能说明",
+    "changelog": "v1.0.0 初始版本\n- 实现基础功能",
     "default_enabled": False,
 }
 
@@ -83,7 +84,7 @@ Supported types are `string`, `password`, `number`, `boolean`, `select`, `multis
 "config_schema": {
     "enabled": {
         "type": "boolean", "default": True,
-        "label": "启用", "section": "总开关",
+        "label": "启用", "section": "总开关", "cols": 4, "order": 1,
     },
     "rules": {
         "type": "list", "default": [], "label": "规则",
@@ -108,7 +109,8 @@ Schema rules:
 
 - Give every stored field a sensible `default`.
 - Group fields into meaningful `section` cards; avoid one flat “参数” section.
-- Let the platform lay out short fields in columns and large fields across a row.
+- Let the platform use its defaults unless a deliberate composition improves scanning: short fields default to 6 columns and large fields to 12.
+- Use `cols` (1–12) for intentional `6+6`, `4+4+4`, or `8+4` rows, and `order` for stable ordering within a section. Narrow screens collapse all fields to one column.
 - Use `show_if` for dependent settings.
 - Prefer `list` over ad hoc multiline formats for structured repeating rules.
 - Prefer `chat` over manual numeric IDs when the user selects a conversation.
@@ -161,11 +163,12 @@ Set `"webhook": True` and register exactly one `@ctx.on_webhook` handler. Accept
 For any shipped plugin code change:
 
 1. Bump `__plugin__["version"]`.
-2. Mirror the version in root `manifest.json`.
-3. Keep manifest key equal to plugin ID.
-4. Use a `.py` path for single-file plugins and a trailing `/` for packages.
-5. Keep name, description, author, and icon consistent when duplicated.
-6. Include Vue `frontend/dist/` when applicable.
+2. Update `__plugin__["changelog"]` with the user-visible changes, fixes, and any breaking behavior; use `\n` for multiple lines.
+3. Mirror the version in root `manifest.json`.
+4. Keep manifest key equal to plugin ID.
+5. Use a `.py` path for single-file plugins and a trailing `/` for packages.
+6. Keep name, description, author, and icon consistent when duplicated.
+7. Include Vue `frontend/dist/` when applicable.
 
 Without a version bump, installed platforms will not receive the update.
 
@@ -184,8 +187,9 @@ Without a version bump, installed platforms will not receive the update.
 
 - [ ] ID, path, directory/filename, and manifest key agree.
 - [ ] `__plugin__` is a literal dict with name, ID, version, and scope.
+- [ ] `changelog` describes the current release when plugin code changed.
 - [ ] All runtime registration flows through `ctx` inside `setup`.
-- [ ] Native configuration uses meaningful sections and supported field types.
+- [ ] Native configuration uses meaningful sections, supported field types, and deliberate `cols`/`order` only where they improve layout.
 - [ ] Vue is justified by management/visual interaction and includes built `dist`.
 - [ ] Backend settings come from `ctx.config`; runtime data uses `ctx.kv`/`ctx.data_dir`.
 - [ ] Dependencies are declared and compatible; no self-installation occurs.

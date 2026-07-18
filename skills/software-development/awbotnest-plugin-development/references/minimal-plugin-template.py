@@ -8,6 +8,7 @@ __plugin__ = {
     "scope": "user",
     "author": "",
     "description": "最小可用插件模板",
+    "changelog": "v1.0.0 初始版本\n- 提供基础命令回复",
     "default_enabled": False,
     "config_schema": {
         "keyword": {
@@ -15,12 +16,16 @@ __plugin__ = {
             "default": ".ping",
             "label": "触发词",
             "section": "命令",
+            "cols": 6,
+            "order": 1,
         },
         "reply_text": {
             "type": "string",
             "default": "pong",
             "label": "回复内容",
-            "section": "回复",
+            "section": "命令",
+            "cols": 6,
+            "order": 2,
         },
     },
 }
