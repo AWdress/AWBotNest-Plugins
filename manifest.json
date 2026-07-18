@@ -78,7 +78,7 @@
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
     "path": "plugins/ai/"
@@ -127,7 +127,7 @@
   },
   "bomb_game": {
     "name": "数字炸弹",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "path": "plugins/bomb_game/"
