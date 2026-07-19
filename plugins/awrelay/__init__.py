@@ -19,10 +19,10 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
-    "changelog": "v1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
