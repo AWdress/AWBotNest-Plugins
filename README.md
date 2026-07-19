@@ -42,7 +42,7 @@ __plugin__ = {
     "scope": "user",           # 必填：user(用户账号) | bot(机器人) | both
     "author": "你",            # 可选
     "description": "干啥的",    # 可选
-    "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 可选：详情页展示的版本更新说明
+    "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 必填：详情页展示的版本更新说明
     "icon": "",                # 可选：图标 URL，前端卡片用；留空回退平台 logo
     "default_enabled": False,  # 可选：放入本地 plugins/ 时是否默认启用
     "webhook": False,          # 可选：声明 True 才能用 @ctx.on_webhook 接收外部回调
@@ -62,6 +62,8 @@ async def setup(ctx):
 async def teardown(ctx):
     pass
 ```
+
+`changelog` 是发布必填项。新插件写初始版本内容；以后每次更新都要在保留有价值历史的同时，把当前版本的新增、修复和破坏性变化写在最前面，并与 `version`、`manifest.json` 同步更新。
 
 ### 2. 两种形态
 

@@ -234,7 +234,7 @@
   },
   "awrelay": {
     "name": "AWRelay",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "path": "plugins/awrelay/"

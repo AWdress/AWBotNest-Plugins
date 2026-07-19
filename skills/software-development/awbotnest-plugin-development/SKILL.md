@@ -51,6 +51,8 @@ async def teardown(ctx):
     pass
 ```
 
+Require `changelog` on every published plugin. Put the current version first, retain useful prior entries, and describe user-visible additions, fixes, and breaking behavior.
+
 Register handlers only inside `setup(ctx)`. Use `ctx` as the platform boundary:
 
 - Handlers: `ctx.on_message`, `ctx.on_edited_message`, `ctx.on_callback`, `ctx.on_webhook`
@@ -163,7 +165,7 @@ Set `"webhook": True` and register exactly one `@ctx.on_webhook` handler. Accept
 For any shipped plugin code change:
 
 1. Bump `__plugin__["version"]`.
-2. Update `__plugin__["changelog"]` with the user-visible changes, fixes, and any breaking behavior; use `\n` for multiple lines.
+2. Require and update `__plugin__["changelog"]` with the user-visible changes, fixes, and any breaking behavior; use `\n` for multiple lines and retain useful earlier entries below the current release.
 3. Mirror the version in root `manifest.json`.
 4. Keep manifest key equal to plugin ID.
 5. Use a `.py` path for single-file plugins and a trailing `/` for packages.
@@ -187,7 +189,7 @@ Without a version bump, installed platforms will not receive the update.
 
 - [ ] ID, path, directory/filename, and manifest key agree.
 - [ ] `__plugin__` is a literal dict with name, ID, version, and scope.
-- [ ] `changelog` describes the current release when plugin code changed.
+- [ ] `changelog` exists on every published plugin, starts with the current release, and retains useful history.
 - [ ] All runtime registration flows through `ctx` inside `setup`.
 - [ ] Native configuration uses meaningful sections, supported field types, and deliberate `cols`/`order` only where they improve layout.
 - [ ] Vue is justified by management/visual interaction and includes built `dist`.
