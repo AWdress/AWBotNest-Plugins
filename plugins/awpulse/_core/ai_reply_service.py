@@ -16,6 +16,22 @@ from .stats_manager import StatsManager
 
 class AIReplyService:
     """AI回复服务类"""
+
+    _REPLY_REJECT_MARKERS = (
+        '抱歉', '对不起',
+        '我无法协助', '我不能协助', '无法协助', '不能协助',
+        '我无法帮助', '我不能帮助', '无法帮助', '不能帮助',
+        '我无法提供', '我不能提供', '无法提供', '不能提供',
+        '我无法参与', '我不能参与', '无法参与', '不能参与',
+        '我无法生成', '我不能生成', '无法生成', '不能生成',
+        '违反政策', '违反规定', '不符合政策', '不符合规定',
+        'sorry', "can't help", 'cannot help', 'unable to', 'i refuse',
+    )
+    _REPLY_META_MARKERS = (
+        '论坛通用回复', '通用回复可用', '建议回复', '替代回复',
+        '可以改为回复', '可以使用以下', '可使用以下', '作为替代',
+        '我可以帮你', '若你需要', '如果你需要',
+    )
     
     def __init__(self, config: dict):
         """
@@ -116,6 +132,29 @@ class AIReplyService:
     def is_enabled(self) -> bool:
         """检查AI回复是否启用"""
         return self.enabled and bool(self.api_key)
+
+    def _validate_generated_reply(self, reply) -> Optional[str]:
+        """发送前审核 AI 文本；拒答、元话术或超长内容一律视为生成失败。"""
+        if not isinstance(reply, str):
+            return None
+        cleaned = reply.strip().strip('"“”')
+        if not cleaned:
+            return None
+
+        lowered = cleaned.lower()
+        reason = None
+        if len(cleaned) > 50:
+            reason = f'超过50字（{len(cleaned)}字）'
+        elif any(marker in lowered for marker in self._REPLY_REJECT_MARKERS):
+            reason = '包含拒答/免责声明'
+        elif any(marker in lowered for marker in self._REPLY_META_MARKERS):
+            reason = '包含提示词或替代模板话术'
+
+        if reason:
+            preview = cleaned.replace('\n', ' ')[:100]
+            self.logger.warning(f"AI回复审核未通过，按生成失败处理: {reason}; 内容={preview}")
+            return None
+        return cleaned
     
     def _detect_post_type(self, title: str, content: str = "") -> str:
         """
@@ -326,14 +365,15 @@ class AIReplyService:
             
             # 根据API类型调用不同接口
             if self.api_type == 'openai':
-                return self._call_openai_api(user_prompt)
+                reply = self._call_openai_api(user_prompt)
             elif self.api_type == 'claude':
-                return self._call_claude_api(user_prompt)
+                reply = self._call_claude_api(user_prompt)
             elif self.api_type == 'custom':
-                return self._call_custom_api(user_prompt)
+                reply = self._call_custom_api(user_prompt)
             else:
                 self.logger.error(f"不支持的API类型: {self.api_type}")
                 return None
+            return self._validate_generated_reply(reply)
                 
         except Exception as e:
             self.logger.error(f"AI生成回复失败: {str(e)}")
@@ -388,11 +428,6 @@ class AIReplyService:
                 result = response.json()
                 reply = result['choices'][0]['message']['content'].strip()
                 self.logger.info(f"AI生成回复: {reply}")
-                # 记录AI回复生成统计
-                try:
-                    StatsManager().record_ai_reply()
-                except:
-                    pass
                 return reply
             else:
                 self.logger.error(f"AI接口返回错误: {response.status_code} - {response.text}")
