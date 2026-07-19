@@ -162,9 +162,9 @@
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.1.0",
+    "version": "1.0.1",
     "author": "AWdress",
-    "description": "自动参与验证码口令红包：OCR识别或监听中奖确认后复制正确口令兜底。可限制发包人/群组，自带 Vue 配置界面与抢包记录。",
+    "description": "用你的账号自动参与他人发的「验证码口令红包」。OCR 识别或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围。",
     "path": "plugins/red_packet_grab/"
   },
   "auto_lottery": {
