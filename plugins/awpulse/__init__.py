@@ -27,9 +27,10 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
+    "changelog": "v1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
