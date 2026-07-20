@@ -7,17 +7,18 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime
 
+from pyrogram import raw
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters
 
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.7",
+    "version": "1.1.8",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -208,24 +209,48 @@ async def _send_content_to_topic(client, group_id, topic_id, message):
     }
     caption = getattr(message, "caption", None)
     if message.text:
-        return await client.send_message(
-            group_id, message.text, entities=getattr(message, "entities", None),
-            parse_mode=ParseMode.DISABLED, **route,
+        # 当前 Pyrogram 对部分 Bot Updates 的 users=None 解析失败，发送成功却返回 None。
+        # 文本直接走底层 RPC，并从原始 Updates 提取消息 ID，避免依赖 parse_messages。
+        result = await client.invoke(
+            raw.functions.messages.SendMessage(
+                peer=await client.resolve_peer(group_id),
+                message=message.text,
+                random_id=client.rnd_id(),
+                no_webpage=True,
+                reply_to=raw.types.InputReplyToMessage(
+                    reply_to_msg_id=topic_id, top_msg_id=topic_id,
+                ),
+            )
         )
+        direct_id = getattr(result, "id", None)
+        if direct_id:
+            return int(direct_id)
+        for update in getattr(result, "updates", None) or []:
+            raw_message = getattr(update, "message", None)
+            if raw_message is not None and getattr(raw_message, "id", None):
+                return int(raw_message.id)
+        raise RuntimeError("Telegram 已响应发送请求，但原始响应中没有消息 ID")
     if message.photo:
-        return await client.send_photo(group_id, message.photo.file_id, caption=caption, **route)
+        sent = await client.send_photo(group_id, message.photo.file_id, caption=caption, **route)
+        return getattr(sent, "id", None)
     if message.video:
-        return await client.send_video(group_id, message.video.file_id, caption=caption, **route)
+        sent = await client.send_video(group_id, message.video.file_id, caption=caption, **route)
+        return getattr(sent, "id", None)
     if message.document:
-        return await client.send_document(group_id, message.document.file_id, caption=caption, **route)
+        sent = await client.send_document(group_id, message.document.file_id, caption=caption, **route)
+        return getattr(sent, "id", None)
     if message.audio:
-        return await client.send_audio(group_id, message.audio.file_id, caption=caption, **route)
+        sent = await client.send_audio(group_id, message.audio.file_id, caption=caption, **route)
+        return getattr(sent, "id", None)
     if message.voice:
-        return await client.send_voice(group_id, message.voice.file_id, **route)
+        sent = await client.send_voice(group_id, message.voice.file_id, **route)
+        return getattr(sent, "id", None)
     if message.sticker:
-        return await client.send_sticker(group_id, message.sticker.file_id, **route)
+        sent = await client.send_sticker(group_id, message.sticker.file_id, **route)
+        return getattr(sent, "id", None)
     if message.video_note:
-        return await client.send_video_note(group_id, message.video_note.file_id, **route)
+        sent = await client.send_video_note(group_id, message.video_note.file_id, **route)
+        return getattr(sent, "id", None)
     raise ValueError("不支持转发该消息类型")
 
 
@@ -234,7 +259,7 @@ async def _forward_one(ctx, client, message, cfg):
     topic_id = await _topic_for(ctx, client, user, cfg)
     group_id = int(cfg.get("group_id") or 0)
     try:
-        sent = await _send_content_to_topic(client, group_id, topic_id, message)
+        sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
     except Exception as exc:
         lowered = str(exc).lower()
         if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
@@ -243,12 +268,11 @@ async def _forward_one(ctx, client, message, cfg):
         topics.pop(str(user.id), None)
         _set_dict(ctx, "topics", topics)
         topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-        sent = await _send_content_to_topic(client, group_id, topic_id, message)
-    sent_id = getattr(sent, "id", None) if sent is not None else None
+        sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
     if sent_id:
         _save_mapping(ctx, sent_id, user.id, message.id)
     else:
-        ctx.log.warning("Telegram 未返回消息对象，已按发送成功处理（用户 %s，话题 %s）", user.id, topic_id)
+        ctx.log.debug("媒体已发送，但 Pyrogram 未解析出消息 ID（用户 %s，话题 %s）", user.id, topic_id)
     topics = _topics(ctx)
     if str(user.id) in topics:
         topics[str(user.id)]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
