@@ -11,8 +11,8 @@
         <div class="section">
           <h3>基本设置</h3>
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
-          <label class="row"><span>Bot Token</span><input v-model="cfg.bot_token" type="password" class="inp" placeholder="从 @BotFather 获取" /></label>
           <label class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="负数，如 -1001234567890" /></label>
+          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" placeholder="留空允许群内成员，多个 ID 用逗号分隔" /></label>
         </div>
 
         <div class="section">
@@ -35,7 +35,6 @@
 
         <div class="section">
           <h3>其他</h3>
-          <label class="row"><span>菜单自动删除(秒)</span><input v-model.number="cfg.menu_auto_delete" type="number" class="inp" min="10" /></label>
           <label class="row"><span>媒体组聚合延迟(秒)</span><input v-model.number="cfg.media_group_delay" type="number" class="inp" min="0" step="0.1" /></label>
         </div>
 
@@ -59,7 +58,7 @@
           <span class="muted">共 {{ topics.length }} 个话题</span>
         </div>
         <table class="tbl">
-          <thead><tr><th>用户名</th><th>用户 ID</th><th>话题 ID</th><th>最后活跃</th><th>状态</th></tr></thead>
+          <thead><tr><th>用户名</th><th>用户 ID</th><th>话题 ID</th><th>最后活跃</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="(t, i) in topics" :key="i">
               <td><b>{{ t.name }}</b></td>
@@ -67,8 +66,9 @@
               <td class="muted">{{ t.topic_id }}</td>
               <td class="muted">{{ t.last_active }}</td>
               <td><span :class="'status-' + t.status">{{ t.status }}</span></td>
+              <td><button class="btn-sm" @click="toggleBan(t)">{{ t.status === '已封禁' ? '解除' : '拉黑' }}</button></td>
             </tr>
-            <tr v-if="!topics.length"><td colspan="5" class="empty">暂无话题</td></tr>
+            <tr v-if="!topics.length"><td colspan="6" class="empty">暂无话题</td></tr>
           </tbody>
         </table>
       </div>
@@ -77,51 +77,69 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
-const props = defineProps({ api: Object, config: Object })
+const props = defineProps({
+  pluginId: { type: String, required: true },
+  host: { type: Object, required: true },
+})
 const cfg = ref({
-  enabled: false, bot_token: '', group_id: '',
+  enabled: false, group_id: '', admin_ids: '',
   captcha_enabled: true,
-  spam_enabled: true, spam_keywords: '',
+  spam_enabled: true, spam_keywords: 'USDT,博彩,兼职,t.me/,http://,https://',
   rate_limit_window: 10, rate_limit_count: 5,
-  menu_auto_delete: 60, media_group_delay: 2.0,
+  media_group_delay: 2.0,
 })
 const tab = ref('settings')
 const saving = ref(false)
 const status = ref({})
 const topics = ref([])
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {})
-  loadStatus()
-  loadTopics()
-  setInterval(loadStatus, 10000)
+let timer
+onMounted(async () => {
+  try {
+    Object.assign(cfg.value, await props.host.getConfig() || {})
+  } catch (e) {
+    props.host.toast.error('读取配置失败：' + (e.message || e))
+  }
+  await Promise.all([loadStatus(), loadTopics()])
+  timer = setInterval(loadStatus, 10000)
 })
+onUnmounted(() => clearInterval(timer))
 
 async function save() {
   saving.value = true
   try {
-    await props.api.post('/update_config', cfg.value)
-    saving.value = false
+    await props.host.saveConfig({ ...cfg.value })
+    props.host.toast.success('配置已保存')
   } catch (e) {
-    alert('保存失败：' + e.message)
+    props.host.toast.error('保存失败：' + (e.message || e))
+  } finally {
     saving.value = false
   }
 }
 
 async function loadStatus() {
   try {
-    const r = await props.api.get('/status')
+    const r = await props.host.callApi('/status')
     status.value = r
-  } catch {}
+  } catch (e) { props.host.toast.error('读取状态失败：' + (e.message || e)) }
 }
 
 async function loadTopics() {
   try {
-    const r = await props.api.get('/topics')
+    const r = await props.host.callApi('/topics')
     topics.value = r.topics || []
-  } catch {}
+  } catch (e) { props.host.toast.error('读取话题失败：' + (e.message || e)) }
+}
+
+async function toggleBan(topic) {
+  const banned = topic.status !== '已封禁'
+  try {
+    await props.host.callApi('/ban', { method: 'POST', body: { user_id: topic.user_id, banned } })
+    topic.status = banned ? '已封禁' : '正常'
+    props.host.toast.success(banned ? '已拉黑用户' : '已解除黑名单')
+  } catch (e) { props.host.toast.error('操作失败：' + (e.message || e)) }
 }
 </script>
 
