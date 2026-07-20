@@ -7,14 +7,16 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime
 
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -75,6 +77,19 @@ def _generate_captcha():
         return f"{left} - {right} = ?", str(left - right)
     left, right = secrets.randbelow(8) + 2, secrets.randbelow(8) + 2
     return f"{left} × {right} = ?", str(left * right)
+
+
+def _captcha_markup(user_id, answer):
+    correct = int(answer)
+    options = {correct}
+    while len(options) < 4:
+        options.add(max(0, correct + secrets.randbelow(11) - 5))
+    choices = list(options)
+    secrets.SystemRandom().shuffle(choices)
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(str(choice), callback_data=f"awrelay_captcha:{user_id}:{choice}")
+        for choice in choices
+    ]])
 
 
 def _is_spam(text, cfg):
@@ -250,19 +265,14 @@ async def setup(ctx):
         if cfg["captcha_enabled"] and user.id not in verified:
             pending = _captcha_pending.get(user.id)
             if pending:
-                if (message.text or "").strip() == pending["answer"]:
-                    verified.add(user.id)
-                    ctx.kv.set("verified_users", sorted(verified))
-                    _captcha_pending.pop(user.id, None)
-                    await message.reply("✅ 验证成功！请重新发送需要转达的消息。")
-                else:
-                    question, answer = _generate_captcha()
-                    _captcha_pending[user.id] = {"answer": answer}
-                    await message.reply(f"❌ 答案不对，请再试一次：\n\n{question}")
+                await message.reply("🔐 请点击上方按钮完成验证，再发送消息。")
                 return
             question, answer = _generate_captcha()
             _captcha_pending[user.id] = {"answer": answer}
-            await message.reply(f"🤖 人机验证\n\n{question}")
+            await message.reply(
+                f"🔐 <b>人机验证</b>\n━━━━━━━━━━━━━━\n为防止机器人骚扰，发送消息前请先完成验证：\n\n👉 <b>{question}</b>\n\n请点击下方正确答案。",
+                reply_markup=_captcha_markup(user.id, answer), parse_mode="html",
+            )
             return
         if _rate_limited(user.id, cfg):
             await message.reply("⏳ 您发送得太频繁了，请稍后再试。")
@@ -283,6 +293,37 @@ async def setup(ctx):
         except Exception as exc:
             ctx.log.error("消息转发失败（用户 %s）：%s", user.id, exc)
             await message.reply("❌ 消息转发失败，请确认话题群配置和 Bot 权限后重试。")
+
+    @ctx.on_callback(filters.regex(r"^awrelay_captcha:"), group=15)
+    async def captcha_click(client, query):
+        try:
+            _, raw_user_id, raw_choice = query.data.split(":", 2)
+            user_id, choice = int(raw_user_id), int(raw_choice)
+        except (AttributeError, TypeError, ValueError):
+            await query.answer("验证数据无效", show_alert=True)
+            return
+        if not query.from_user or query.from_user.id != user_id:
+            await query.answer("这不是你的验证题", show_alert=True)
+            return
+        pending = _captcha_pending.get(user_id)
+        if not pending:
+            await query.answer("验证题已失效，请重新发送消息", show_alert=True)
+            return
+        if choice == int(pending["answer"]):
+            verified = _ids(ctx, "verified_users")
+            verified.add(user_id)
+            ctx.kv.set("verified_users", sorted(verified))
+            _captcha_pending.pop(user_id, None)
+            await query.answer("验证成功")
+            await query.message.edit_text("✅ 验证成功！请重新发送需要转达的消息。")
+            return
+        question, answer = _generate_captcha()
+        _captcha_pending[user_id] = {"answer": answer}
+        await query.answer("答案不对，已更换题目", show_alert=True)
+        await query.message.edit_text(
+            f"🔐 <b>人机验证</b>\n━━━━━━━━━━━━━━\n答案不对，请重新选择：\n\n👉 <b>{question}</b>",
+            reply_markup=_captcha_markup(user_id, answer), parse_mode="html",
+        )
 
     @ctx.on_message(filters.incoming, group=20)
     async def admin_message(client, message):
