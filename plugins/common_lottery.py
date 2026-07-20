@@ -16,9 +16,11 @@ from random import randint
 __plugin__ = {
     "name": "通用抽奖",
     "id": "common_lottery",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
+    "changelog": "v1.0.6 更新插件 Logo\n- 使用通用抽奖专属图片作为插件卡片与市场图标",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

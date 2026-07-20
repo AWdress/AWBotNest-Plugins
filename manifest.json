@@ -86,9 +86,11 @@
   },
   "hdhive_lottery": {
     "name": "HDHive抽奖",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
+    "changelog": "v1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
     "path": "plugins/hdhive_lottery.py"
   },
   "hdhive_quiz": {
@@ -150,9 +152,11 @@
   },
   "dyp_redpacket": {
     "name": "癫影积分红包",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "AWdress",
     "description": "监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg",
+    "changelog": "v1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
     "path": "plugins/dyp_redpacket/"
   },
   "yingchao_redpacket": {
@@ -171,9 +175,11 @@
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。自带 Vue 配置界面 + 待发奖管理。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
+    "changelog": "v1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
     "path": "plugins/auto_lottery/"
   },
   "zhuque_lottery": {
@@ -206,9 +212,11 @@
   },
   "common_lottery": {
     "name": "通用抽奖",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
+    "changelog": "v1.0.6 更新插件 Logo\n- 使用通用抽奖专属图片作为插件卡片与市场图标",
     "path": "plugins/common_lottery.py"
   },
   "awembypush": {
