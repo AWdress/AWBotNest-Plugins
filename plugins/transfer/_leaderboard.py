@@ -27,7 +27,7 @@ def _html_escape(s) -> str:
 
 def _short_name(value, limit: int = 12) -> str:
     """限制用户名展示长度；完整名称仍保留在记录中用于聚合。"""
-    name = str(value or "未知用户")
+    name = str(value or "").strip() or "未知用户"
     return name if len(name) <= limit else name[:limit] + "..."
 
 
