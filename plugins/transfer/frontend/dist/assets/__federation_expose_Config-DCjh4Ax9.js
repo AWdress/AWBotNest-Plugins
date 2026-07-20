@@ -110,7 +110,6 @@ const TOGGLES = [
 ];
 const RANK_OUTPUTS = [
   { v: 'image', l: '图片（默认）' },
-  { v: 'native_table', l: 'Telegram 原生表格' },
   { v: 'text', l: '文本' },
 ];
 const SSD_MODES = [{ v: 'off', l: '关闭' }, { v: 'once', l: '单次确认' }, { v: '5min', l: '5分钟确认' }];
@@ -153,6 +152,7 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig();
     Object.assign(cfg, DEFAULTS, saved || {});
+    if (!RANK_OUTPUTS.some(o => o.v === cfg.rank_output)) cfg.rank_output = 'text';
     for (const s of SITES) if (!Array.isArray(cfg[s.key])) cfg[s.key] = [];
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e));
@@ -319,7 +319,7 @@ return (_ctx, _cache) => {
                             [_vModelSelect, cfg.rank_output]
                           ])
                         ]),
-                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "原生表格只能由平台为本插件分配的 Bot 发送。请先把该 Bot 加入目标群并允许发消息，否则插件会自动回退文本；图片失败同样回退文本。", -1)),
+                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "图片生成或发送失败时会自动回退为文本排行榜。", -1)),
                         _createElementVNode("label", _hoisted_17, [
                           _cache[16] || (_cache[16] = _createElementVNode("span", null, "排行榜人数", -1)),
                           _withDirectives(_createElementVNode("input", {
@@ -544,6 +544,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ded92081"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-97343612"]]);
 
 export { Config as default };

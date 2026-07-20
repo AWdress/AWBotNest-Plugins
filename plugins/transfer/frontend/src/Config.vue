@@ -25,7 +25,6 @@ const TOGGLES = [
 ]
 const RANK_OUTPUTS = [
   { v: 'image', l: '图片（默认）' },
-  { v: 'native_table', l: 'Telegram 原生表格' },
   { v: 'text', l: '文本' },
 ]
 const SSD_MODES = [{ v: 'off', l: '关闭' }, { v: 'once', l: '单次确认' }, { v: '5min', l: '5分钟确认' }]
@@ -68,6 +67,7 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, DEFAULTS, saved || {})
+    if (!RANK_OUTPUTS.some(o => o.v === cfg.rank_output)) cfg.rank_output = 'text'
     for (const s of SITES) if (!Array.isArray(cfg[s.key])) cfg[s.key] = []
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
@@ -196,7 +196,7 @@ function switchTab(t) {
             <section class="card">
               <label class="row"><span>输出形式</span>
                 <select v-model="cfg.rank_output" class="inp"><option v-for="o in RANK_OUTPUTS" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-              <p class="tip">原生表格只能由平台为本插件分配的 Bot 发送。请先把该 Bot 加入目标群并允许发消息，否则插件会自动回退文本；图片失败同样回退文本。</p>
+              <p class="tip">图片生成或发送失败时会自动回退为文本排行榜。</p>
               <label class="row"><span>排行榜人数</span><input v-model.number="cfg.rank_size" class="inp sm" type="number" min="3" max="30" /></label>
               <label class="row"><span>命令词</span><input v-model="cfg.rank_command" class="inp" /></label>
               <p class="tip">在任意聊天发「.命令词 [站点] [in/out]」拉排行榜，如 .转账排行 hdsky in。</p>
