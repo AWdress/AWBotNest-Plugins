@@ -7,16 +7,16 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime
 
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters
 
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.4",
+    "version": "1.1.5",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -174,7 +174,11 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     _set_dict(ctx, "topics", topics)
     link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
     username = f"  @{html.escape(user.username)}" if user.username else ""
-    await client.send_message(group_id, f"{link}{username}\n🆔 <code>{user.id}</code>", message_thread_id=topic_id, parse_mode="html")
+    await client.send_message(
+        group_id, f"{link}{username}\n🆔 <code>{user.id}</code>",
+        message_thread_id=topic_id,
+        reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id), parse_mode="html",
+    )
     return topic_id
 
 
@@ -189,7 +193,10 @@ async def _forward_one(ctx, client, message, cfg):
     topic_id = await _topic_for(ctx, client, user, cfg)
     group_id = int(cfg.get("group_id") or 0)
     try:
-        sent = await message.copy(group_id, message_thread_id=topic_id)
+        sent = await message.copy(
+            group_id, message_thread_id=topic_id,
+            reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id),
+        )
     except Exception as exc:
         lowered = str(exc).lower()
         if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
@@ -198,7 +205,10 @@ async def _forward_one(ctx, client, message, cfg):
         topics.pop(str(user.id), None)
         _set_dict(ctx, "topics", topics)
         topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-        sent = await message.copy(group_id, message_thread_id=topic_id)
+        sent = await message.copy(
+            group_id, message_thread_id=topic_id,
+            reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id),
+        )
     _save_mapping(ctx, sent.id, user.id, message.id)
     topics = _topics(ctx)
     if str(user.id) in topics:
@@ -248,6 +258,24 @@ async def _send_to_user(client, user_id, message):
 
 async def setup(ctx):
     filters = ctx.filters
+
+    cfg_at_start = _cfg(ctx)
+    if cfg_at_start.get("enabled") and cfg_at_start.get("group_id") and ctx.bot.connected:
+        try:
+            raw_bot = ctx.bot.raw
+            me = await raw_bot.get_me()
+            started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            username = f"@{html.escape(me.username)}" if me.username else html.escape(me.first_name or "AWRelay")
+            await ctx.bot.send(
+                int(cfg_at_start["group_id"]),
+                "<b>AWRelay 已启动</b>\n\n"
+                f"机器人：{username}\n"
+                f"时间：{started_at}\n\n"
+                "用户私聊消息将转发至对应话题，在话题内直接发送即可回复用户。",
+                parse_mode="html",
+            )
+        except Exception as exc:
+            ctx.log.warning("发送启动通知失败：%s", exc)
 
     @ctx.on_api("/status", methods=["GET"])
     async def api_status(req):
