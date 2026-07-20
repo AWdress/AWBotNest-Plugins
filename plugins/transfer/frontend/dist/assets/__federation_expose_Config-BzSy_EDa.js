@@ -319,7 +319,7 @@ return (_ctx, _cache) => {
                             [_vModelSelect, cfg.rank_output]
                           ])
                         ]),
-                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "原生表格由平台 Bot 发送，Bot 需在目标群且可发消息；不支持时自动回退文本。图片失败同样回退文本。", -1)),
+                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "原生表格只能由平台为本插件分配的 Bot 发送。请先把该 Bot 加入目标群并允许发消息，否则插件会自动回退文本；图片失败同样回退文本。", -1)),
                         _createElementVNode("label", _hoisted_17, [
                           _cache[16] || (_cache[16] = _createElementVNode("span", null, "排行榜人数", -1)),
                           _withDirectives(_createElementVNode("input", {
@@ -544,6 +544,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0d8b6291"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ded92081"]]);
 
 export { Config as default };

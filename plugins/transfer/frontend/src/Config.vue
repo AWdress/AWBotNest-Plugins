@@ -196,7 +196,7 @@ function switchTab(t) {
             <section class="card">
               <label class="row"><span>输出形式</span>
                 <select v-model="cfg.rank_output" class="inp"><option v-for="o in RANK_OUTPUTS" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-              <p class="tip">原生表格由平台 Bot 发送，Bot 需在目标群且可发消息；不支持时自动回退文本。图片失败同样回退文本。</p>
+              <p class="tip">原生表格只能由平台为本插件分配的 Bot 发送。请先把该 Bot 加入目标群并允许发消息，否则插件会自动回退文本；图片失败同样回退文本。</p>
               <label class="row"><span>排行榜人数</span><input v-model.number="cfg.rank_size" class="inp sm" type="number" min="3" max="30" /></label>
               <label class="row"><span>命令词</span><input v-model="cfg.rank_command" class="inp" /></label>
               <p class="tip">在任意聊天发「.命令词 [站点] [in/out]」拉排行榜，如 .转账排行 hdsky in。</p>
