@@ -14,9 +14,10 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
+    "changelog": "v1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -32,6 +33,9 @@ __plugin__ = {
             "fields": {
                 "keyword": {"type": "string", "label": "关键词"},
                 "reply": {"type": "string", "label": "回复内容"},
+                "cooldown_notify": {
+                    "type": "boolean", "label": "冷却时提示", "default": True,
+                },
             },
             "help": "命中关键词自动回一句。回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。",
         },
@@ -78,15 +82,15 @@ _user_cooldowns: dict[tuple, tuple[float, int]] = {}
 _pending_tasks: set = set()
 
 
-def _parse_rules(raw) -> list[tuple[str, str]]:
-    """解析关键词规则为 [(关键词, 回复), ...]。兼容 list 控件的 list-of-dict 与旧的多行「关键词=回复」文本。"""
-    rules: list[tuple[str, str]] = []
+def _parse_rules(raw) -> list[tuple[str, str, bool]]:
+    """解析为 (关键词, 回复, 冷却提示)；旧规则没有开关时默认开启。"""
+    rules: list[tuple[str, str, bool]] = []
     if isinstance(raw, list):
         for d in raw:
             if isinstance(d, dict):
                 keyword, reply = str(d.get("keyword", "")).strip(), str(d.get("reply", "")).strip()
                 if keyword and reply:
-                    rules.append((keyword, reply))
+                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True))))
         return rules
     for line in str(raw or "").splitlines():
         line = line.strip()
@@ -95,7 +99,7 @@ def _parse_rules(raw) -> list[tuple[str, str]]:
         keyword, reply = line.split("=", 1)
         keyword, reply = keyword.strip(), reply.strip()
         if keyword and reply:
-            rules.append((keyword, reply))
+            rules.append((keyword, reply, True))
     return rules
 
 
@@ -168,6 +172,19 @@ def _schedule_delete(message, delay: int):
     task.add_done_callback(_pending_tasks.discard)
 
 
+def _fmt_remaining(seconds: float) -> str:
+    """把剩余冷却时间格式化为易读文本，向上取整避免显示 0 秒。"""
+    seconds = max(1, int(seconds + 0.999))
+    if seconds >= 3600:
+        hours, remainder = divmod(seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours} 小时 {minutes} 分钟" if minutes else f"{hours} 小时"
+    if seconds >= 60:
+        minutes, remain_seconds = divmod(seconds, 60)
+        return f"{minutes} 分钟 {remain_seconds} 秒" if remain_seconds else f"{minutes} 分钟"
+    return f"{seconds} 秒"
+
+
 async def setup(ctx):
     @ctx.on_message(
         ctx.filters.group & (ctx.filters.text | ctx.filters.caption),
@@ -208,7 +225,7 @@ async def setup(ctx):
             delete_after = 0
 
         try:
-            for keyword, reply in rules:
+            for keyword, reply, cooldown_notify in rules:
                 if not _match(text, keyword, match_type):
                     continue
 
@@ -225,6 +242,21 @@ async def setup(ctx):
                     if midnight_reset and last_time > 0 and last_day != today:
                         last_time = 0.0
                     if time.time() - last_time < cooldown_secs:
+                        if cooldown_notify:
+                            if midnight_reset:
+                                now_dt = datetime.now()
+                                next_midnight = datetime.combine(
+                                    now_dt.date() + timedelta(days=1), datetime.min.time()
+                                )
+                                remaining = max(0.0, (next_midnight - now_dt).total_seconds())
+                                cd_text = f"⏳ 冷却中，距零点重置还剩 {_fmt_remaining(remaining)}"
+                            else:
+                                remaining = cooldown_secs - (time.time() - last_time)
+                                cd_text = f"⏳ 冷却中，距下次还剩 {_fmt_remaining(remaining)}"
+                            cd_msg = await client.send_message(
+                                chat_id, cd_text, reply_to_message_id=message.id
+                            )
+                            _schedule_delete(cd_msg, delete_after)
                         continue
                     _user_cooldowns[key] = (time.time(), today)
 
