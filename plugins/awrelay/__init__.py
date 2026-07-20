@@ -14,7 +14,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.13",
+    "version": "1.1.14",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -38,6 +38,14 @@ __plugin__["changelog"] = (
     "- 所有消息统一逐条执行 Telegram 服务端 copy，不再区分文本和媒体发送\n"
     "- 相册恢复原项目的逐条复制方式，避免批量 RPC 对转发媒体的兼容问题\n"
     "- 保留原消息实体、网页预览、说明文字和媒体属性\n\n"
+    + __plugin__["changelog"]
+)
+
+__plugin__["changelog"] = (
+    "v1.1.14 修复已删除话题仍投递到全部\n"
+    "- 每次转发前向 Telegram 核验本地话题 ID，不再永久信任已校验标记\n"
+    "- 发现话题已删除、关闭或标题不匹配时立即清除映射并新建话题\n"
+    "- 消息只在取得有效话题后发送，避免失效 ID 降级进入全部\n\n"
     + __plugin__["changelog"]
 )
 
@@ -178,6 +186,25 @@ async def _topics_by_id(client, group_id, topic_ids):
     return getattr(result, "topics", None) or []
 
 
+def _valid_topic(topic, expected_id, suffix):
+    return bool(
+        topic
+        and topic.__class__.__name__ != "ForumTopicDeleted"
+        and int(getattr(topic, "id", 0) or 0) == int(expected_id)
+        and (getattr(topic, "title", "") or "").endswith(suffix)
+        and not getattr(topic, "deleted", False)
+        and not getattr(topic, "closed", False)
+    )
+
+
+def _missing_topic_error(exc):
+    text = str(exc).lower().replace(" ", "_")
+    return any(marker in text for marker in (
+        "message_thread_not_found", "topic_deleted", "forum_topic_deleted",
+        "topic_closed", "topic_id_invalid", "message_id_invalid",
+    ))
+
+
 async def _topic_for(ctx, client, user, cfg, force=False):
     topics = _topics(ctx)
     key = str(user.id)
@@ -187,21 +214,30 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     base = (f"{user.first_name or ''} {user.last_name or ''}".strip() or f"用户{user.id}")
     suffix = f" · {user.id}"
     existing = topics.get(key)
-    if not force and existing and existing.get("reconciled_v4"):
-        return int(existing["topic_id"])
-
-    # 优先按 ID 直接核验本地映射。Telegram 的 q 搜索不保证匹配标题末尾的数字 ID，
-    # 不能因为搜索结果为空就判定现有话题失效。
+    # 每次发送前都按 ID 核验。Telegram 对已删除的话题 ID 可能不报错而把消息投到
+    # General（“全部”），因此 reconciled 标记不能作为永久有效的依据。
     if not force and existing and existing.get("topic_id"):
         try:
             direct = await _topics_by_id(client, group_id, [existing["topic_id"]])
-            if any((getattr(item, "title", "") or "").endswith(suffix) for item in direct):
+            if any(_valid_topic(item, existing["topic_id"], suffix) for item in direct):
                 existing["reconciled_v4"] = True
                 topics[key] = existing
                 _set_dict(ctx, "topics", topics)
                 return int(existing["topic_id"])
+            ctx.log.warning(
+                "用户 %s 的话题 %s 已删除、关闭或不再匹配，将重新创建",
+                user.id, existing.get("topic_id"),
+            )
+            topics.pop(key, None)
+            _set_dict(ctx, "topics", topics)
+            existing = None
         except Exception as exc:
-            raise RuntimeError(f"无法核验已有话题 {existing.get('topic_id')}：{exc}") from exc
+            if not _missing_topic_error(exc):
+                raise RuntimeError(f"无法核验已有话题 {existing.get('topic_id')}：{exc}") from exc
+            ctx.log.warning("用户 %s 的话题 %s 已失效，将重新创建：%s", user.id, existing.get("topic_id"), exc)
+            topics.pop(key, None)
+            _set_dict(ctx, "topics", topics)
+            existing = None
 
     # 独立版数据库不会随插件迁移。首次遇到用户时扫描群组话题，通过标题末尾的
     # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
@@ -304,8 +340,7 @@ async def _forward_one(ctx, client, message, cfg):
     try:
         sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
     except Exception as exc:
-        lowered = str(exc).lower()
-        if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
+        if not _missing_topic_error(exc):
             raise
         topics = _topics(ctx)
         topics.pop(str(user.id), None)
@@ -335,8 +370,7 @@ async def _flush_media(ctx, client, media_id, cfg):
             try:
                 sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
             except Exception as exc:
-                lowered = str(exc).lower()
-                if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
+                if not _missing_topic_error(exc):
                     raise
                 topics = _topics(ctx)
                 topics.pop(str(user.id), None)
