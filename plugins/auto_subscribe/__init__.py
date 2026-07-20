@@ -19,9 +19,11 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
+    "changelog": "v1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
     "scope": "user",
     "default_enabled": False,
     # 配置/管理界面由插件自带 Vue 组件渲染（frontend/src/Config.vue）。
