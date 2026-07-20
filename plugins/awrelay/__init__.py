@@ -7,16 +7,17 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime
 
+from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters
 
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -136,40 +137,51 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     base = (f"{user.first_name or ''} {user.last_name or ''}".strip() or f"用户{user.id}")
     suffix = f" · {user.id}"
     existing = topics.get(key)
-    if not force and existing and existing.get("reconciled"):
+    if not force and existing and existing.get("reconciled_v2"):
         return int(existing["topic_id"])
 
     # 独立版数据库不会随插件迁移。首次遇到用户时扫描群组话题，通过标题末尾的
     # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
     try:
         matches = []
-        async for candidate in client.get_forum_topics(group_id):
-            if (candidate.title or "").endswith(suffix) and not candidate.is_deleted and not candidate.is_closed:
-                matches.append(candidate)
+        async for history_message in client.get_chat_history(group_id, limit=10000):
+            created = getattr(history_message, "forum_topic_created", None)
+            if created and (getattr(created, "title", "") or "").endswith(suffix):
+                matches.append(history_message)
         if matches:
             chosen = min(matches, key=lambda item: item.date.timestamp() if item.date else float("inf"))
+            chosen_id = int(_thread_id(chosen) or chosen.id)
             topics[key] = {
-                "topic_id": int(chosen.id), "name": base, "username": user.username or "",
-                "last_active": (existing or {}).get("last_active", "-"), "reconciled": True,
+                "topic_id": chosen_id, "name": base, "username": user.username or "",
+                "last_active": (existing or {}).get("last_active", "-"), "reconciled_v2": True,
             }
             _set_dict(ctx, "topics", topics)
-            ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen.id)
-            return int(chosen.id)
+            ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen_id)
+            return chosen_id
     except Exception as exc:
         ctx.log.warning("扫描用户 %s 的已有话题失败，将使用本地映射：%s", user.id, exc)
 
     if not force and existing:
-        existing["reconciled"] = True
+        existing["reconciled_v2"] = True
         topics[key] = existing
         _set_dict(ctx, "topics", topics)
         return int(existing["topic_id"])
 
     topic = await client.create_forum_topic(group_id, base[:128 - len(suffix)] + suffix)
-    topic_id = int(topic.id)
+    topic_id = int(topic.id) if topic is not None and getattr(topic, "id", None) else 0
+    if not topic_id:
+        await asyncio.sleep(0.5)
+        async for history_message in client.get_chat_history(group_id, limit=100):
+            created = getattr(history_message, "forum_topic_created", None)
+            if created and (getattr(created, "title", "") or "").endswith(suffix):
+                topic_id = int(_thread_id(history_message) or history_message.id)
+                break
+    if not topic_id:
+        raise RuntimeError("Telegram 已执行创建话题，但未返回话题 ID")
     topics[key] = {
         "topic_id": topic_id, "name": base, "username": user.username or "",
         "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "reconciled": True,
+        "reconciled_v2": True,
     }
     _set_dict(ctx, "topics", topics)
     link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
@@ -177,7 +189,7 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     await client.send_message(
         group_id, f"{link}{username}\n🆔 <code>{user.id}</code>",
         message_thread_id=topic_id,
-        reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id), parse_mode="html",
+        reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id), parse_mode=ParseMode.HTML,
     )
     return topic_id
 
@@ -186,6 +198,35 @@ def _save_mapping(ctx, sent_id, user_id, user_msg_id):
     mappings = _mappings(ctx)
     mappings[str(sent_id)] = {"user_id": user_id, "user_msg_id": user_msg_id, "created_at": time.time()}
     _set_dict(ctx, "message_mappings", mappings)
+
+
+async def _send_content_to_topic(client, group_id, topic_id, message):
+    """Message.copy 对部分消息会静默返回 None；按内容类型显式重发作为回退。"""
+    route = {
+        "message_thread_id": topic_id,
+        "reply_parameters": ReplyParameters(message_id=topic_id, chat_id=group_id),
+    }
+    caption = getattr(message, "caption", None)
+    if message.text:
+        return await client.send_message(
+            group_id, message.text, entities=getattr(message, "entities", None),
+            parse_mode=ParseMode.DISABLED, **route,
+        )
+    if message.photo:
+        return await client.send_photo(group_id, message.photo.file_id, caption=caption, **route)
+    if message.video:
+        return await client.send_video(group_id, message.video.file_id, caption=caption, **route)
+    if message.document:
+        return await client.send_document(group_id, message.document.file_id, caption=caption, **route)
+    if message.audio:
+        return await client.send_audio(group_id, message.audio.file_id, caption=caption, **route)
+    if message.voice:
+        return await client.send_voice(group_id, message.voice.file_id, **route)
+    if message.sticker:
+        return await client.send_sticker(group_id, message.sticker.file_id, **route)
+    if message.video_note:
+        return await client.send_video_note(group_id, message.video_note.file_id, **route)
+    raise ValueError("不支持转发该消息类型")
 
 
 async def _forward_one(ctx, client, message, cfg):
@@ -197,6 +238,8 @@ async def _forward_one(ctx, client, message, cfg):
             group_id, message_thread_id=topic_id,
             reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id),
         )
+        if sent is None:
+            sent = await _send_content_to_topic(client, group_id, topic_id, message)
     except Exception as exc:
         lowered = str(exc).lower()
         if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
@@ -209,6 +252,10 @@ async def _forward_one(ctx, client, message, cfg):
             group_id, message_thread_id=topic_id,
             reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id),
         )
+        if sent is None:
+            sent = await _send_content_to_topic(client, group_id, topic_id, message)
+    if sent is None or not getattr(sent, "id", None):
+        raise RuntimeError("Telegram 未返回已发送消息")
     _save_mapping(ctx, sent.id, user.id, message.id)
     topics = _topics(ctx)
     if str(user.id) in topics:
@@ -230,8 +277,9 @@ async def _flush_media(ctx, client, media_id, cfg):
 
 async def _send_to_user(client, user_id, message):
     try:
-        await message.copy(user_id)
-        return
+        sent = await message.copy(user_id)
+        if sent is not None:
+            return
     except Exception as exc:
         if "copy" not in str(exc).lower() and "protected" not in str(exc).lower():
             raise
@@ -272,7 +320,7 @@ async def setup(ctx):
                 f"机器人：{username}\n"
                 f"时间：{started_at}\n\n"
                 "用户私聊消息将转发至对应话题，在话题内直接发送即可回复用户。",
-                parse_mode="html",
+                parse_mode=ParseMode.HTML,
             )
         except Exception as exc:
             ctx.log.warning("发送启动通知失败：%s", exc)
@@ -327,7 +375,7 @@ async def setup(ctx):
             _captcha_pending[user.id] = {"answer": answer}
             await message.reply(
                 f"🔐 <b>人机验证</b>\n━━━━━━━━━━━━━━\n为防止机器人骚扰，发送消息前请先完成验证：\n\n👉 <b>{question}</b>\n\n请点击下方正确答案。",
-                reply_markup=_captcha_markup(user.id, answer), parse_mode="html",
+                reply_markup=_captcha_markup(user.id, answer), parse_mode=ParseMode.HTML,
             )
             return
         if _rate_limited(user.id, cfg):
@@ -378,7 +426,7 @@ async def setup(ctx):
         await query.answer("答案不对，已更换题目", show_alert=True)
         await query.message.edit_text(
             f"🔐 <b>人机验证</b>\n━━━━━━━━━━━━━━\n答案不对，请重新选择：\n\n👉 <b>{question}</b>",
-            reply_markup=_captcha_markup(user_id, answer), parse_mode="html",
+            reply_markup=_captcha_markup(user_id, answer), parse_mode=ParseMode.HTML,
         )
 
     @ctx.on_message(filters.incoming, group=20)
@@ -417,7 +465,7 @@ async def setup(ctx):
             await _send_to_user(client, user_id, message)
         except Exception as exc:
             ctx.log.error("回复用户 %s 失败：%s", user_id, exc)
-            await message.reply(f"❌ 发送失败：<code>{html.escape(str(exc))}</code>", parse_mode="html")
+            await message.reply(f"❌ 发送失败：<code>{html.escape(str(exc))}</code>", parse_mode=ParseMode.HTML)
 
     async def cleanup_mappings():
         cutoff = time.time() - 7 * 86400
