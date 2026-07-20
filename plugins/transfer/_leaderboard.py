@@ -25,6 +25,12 @@ def _html_escape(s) -> str:
     return html.escape(str(s if s is not None else ""))
 
 
+def _short_name(value, limit: int = 12) -> str:
+    """限制用户名展示长度；完整名称仍保留在记录中用于聚合。"""
+    name = str(value or "未知用户")
+    return name if len(name) <= limit else name[:limit] + "..."
+
+
 def _fmt_amount(v) -> str:
     """本次金额：带千分位（对齐原项目 f"{abs(amount):,}"）。整数不带小数。"""
     v = float(v)
@@ -53,7 +59,7 @@ def _mask_uid(uid) -> str:
 
 def _user_link(user_id, user_name) -> str:
     """对齐原项目 others.build_user_html_link。user_id 无效时退纯文本名字。"""
-    name = _html_escape(user_name or "未知用户")
+    name = _html_escape(_short_name(user_name))
     if user_id and str(user_id) != "0":
         return f'<a href="tg://user?id={user_id}">{name}</a>'
     return name
@@ -104,8 +110,7 @@ def render_text_fallback(entries: list[dict], owner_name: str,
     for i, e in enumerate(entries):
         medal = medals[i] if i < 3 else f"{i + 1:2d}."
         amt_str = f"{float(e['total']):,.1f}".rjust(10)
-        name = str(e.get("user_name") or "")
-        display_name = (name[:10] + "..") if len(name) > 10 else name.ljust(10)
+        display_name = _short_name(e.get("user_name"), 10).ljust(10)
         lines.append(f"{medal} {_html_escape(display_name)} {amt_str} {bonus_name}")
 
     lines.append(border)
@@ -127,8 +132,7 @@ def render_text(entries: list[dict], site_name: str, bonus_name: str,
     for e in entries:
         rank = e["rank"]
         medal = medals[rank - 1] if rank <= 3 else f"{rank:>2}."
-        name = str(e["user_name"])
-        name = (name[:10] + "…") if len(name) > 11 else name
+        name = _short_name(e["user_name"], 10)
         amt = _fmt_amount(e["total"])
         lines.append(f"{medal} {name}  {amt} {bonus_name}（{e['count']}次）")
     return "\n".join(lines)
@@ -189,8 +193,7 @@ def _render_image_imgkit(entries: list[dict], site_name: str, bonus_name: str,
             display_name = str(e.get("user_name") or "")
             if not display_name or display_name.lower() in ("untitled", "none", "null"):
                 display_name = f"用户{display_uid}" if display_uid else "未知用户"
-            if len(display_name) > 12:
-                display_name = display_name[:12] + "..."
+            display_name = _short_name(display_name)
             rows += f"""
             <tr class="{rank_row_class}">
                 <td class="rank-cell"><span class="rank-num">{rank}</span></td>
@@ -465,8 +468,7 @@ def _render_image_pil(entries: list[dict], site_name: str, bonus_name: str,
             name = str(e.get("user_name") or "")
             if not name or name.lower() in ("untitled", "none", "null"):
                 name = f"用户{_mask_uid(e['user_id'])}" or "未知用户"
-            if len(name) > 12:
-                name = name[:12] + "..."
+            name = _short_name(name)
             uid = _mask_uid(e["user_id"])
             if uid:
                 d.text((ux, ry + 9), name, font=f_name, fill=_C_NAME)

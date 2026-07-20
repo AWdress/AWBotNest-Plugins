@@ -45,13 +45,13 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.19",
+    "version": "1.0.20",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
-    "changelog": "v1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 
@@ -508,15 +508,16 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         return
 
     stat = store.record(site.site_name, direction, user_id, user_name, amount)
+    display_name = lb._short_name(user_name)
     ctx.log.info("[%s] 记录转账 dir=%s user=%s amount=%s", site.site_name,
-                 direction, user_name, amount)
+                 direction, display_name, amount)
 
     # 推送给平台主人（可选）
     if ctx.config.get("owner_notify", False):
         word = "收到" if direction == "in" else "发出"
         try:
             await ctx.notify(
-                f"{site.site_name} {word}转账：{user_name} {amount} {site.bonus_name}"
+                f"{site.site_name} {word}转账：{display_name} {amount} {site.bonus_name}"
                 f"（累计{stat['count']}次/{stat['total']}）",
                 level="info", category="转账", account=client,
             )
@@ -636,7 +637,7 @@ def _render_rich_table(entries, site_name, bonus_name, direction, intro=""):
         rows.append(
             "<tr>"
             f"<td align=\"center\">{int(entry['rank'])}</td>"
-            f"<td>{html.escape(str(entry.get('user_name') or '未知用户'))}</td>"
+            f"<td>{html.escape(lb._short_name(entry.get('user_name')))}</td>"
             f"<td align=\"center\">{int(entry.get('count') or 0)}</td>"
             f"<td align=\"right\">{html.escape(lb._fmt_amount(entry.get('total') or 0))}</td>"
             "</tr>"
