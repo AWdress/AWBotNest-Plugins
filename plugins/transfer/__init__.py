@@ -45,14 +45,36 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.18",
+    "version": "1.0.19",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
-    "changelog": "v1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
+
+
+class _RichTableUnavailable(RuntimeError):
+    """Bot 无法在目标会话发送 Rich Message。"""
+
+    def __init__(self, message, *, quiet=False):
+        super().__init__(message)
+        self.quiet = quiet
+
+
+# 暂存 Bot API 的 chat not found，避免每笔转账重复失败；10 分钟后自动重试，
+# 这样管理员把 Bot 加群后无需重载插件也能恢复原生表格。
+_RICH_TABLE_UNAVAILABLE_CHATS: dict[int, float] = {}
+_RICH_TABLE_RETRY_SECONDS = 600
+
+
+def _log_rich_fallback(ctx, label, exc):
+    message = f"{label} Telegram 原生表格不可用，已回退文本：{exc}"
+    if isinstance(exc, _RichTableUnavailable) and exc.quiet:
+        ctx.log.debug("%s", message)
+    else:
+        ctx.log.warning("%s", message)
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
 # 前端 Config.vue 用同一套默认初始化表单）。站点默认标签见 _sites._BUILTIN_SITES 的 default_on。
@@ -548,7 +570,7 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
                     reply_to_message_id=getattr(target, "id", None),
                 )
             except Exception as rich_err:
-                ctx.log.warning("[排行榜] Telegram 原生表格发送失败，回退文本：%s", rich_err)
+                _log_rich_fallback(ctx, "[排行榜]", rich_err)
         if entries and want_image:
             img = lb.render_image(entries, site.site_name, site.bonus_name,
                                   direction, owner_name, ctx.data_dir)
@@ -631,6 +653,13 @@ def _render_rich_table(entries, site_name, bonus_name, direction, intro=""):
 
 async def _send_rich_table(ctx, chat_id, rich_html, reply_to_message_id=None):
     """使用平台选定 Bot 调用 Bot API 10.1+；失败由调用方降级。"""
+    chat_id = int(chat_id)
+    unavailable_at = _RICH_TABLE_UNAVAILABLE_CHATS.get(chat_id)
+    if unavailable_at is not None and time.monotonic() - unavailable_at < _RICH_TABLE_RETRY_SECONDS:
+        raise _RichTableUnavailable(
+            "平台分配的 Bot 不在该群或无法访问该群", quiet=True,
+        )
+    _RICH_TABLE_UNAVAILABLE_CHATS.pop(chat_id, None)
     bot = ctx.bot.raw
     token = getattr(bot, "bot_token", None) if bot else None
     if not bot or not getattr(bot, "is_connected", False) or not token:
@@ -651,6 +680,11 @@ async def _send_rich_table(ctx, chat_id, rich_html, reply_to_message_id=None):
         raise RuntimeError(f"Bot API 请求失败（{exc.__class__.__name__}）") from None
     if not isinstance(data, dict) or not data.get("ok"):
         description = str(data.get("description") or "未知错误") if isinstance(data, dict) else "响应格式错误"
+        if "chat not found" in description.lower():
+            _RICH_TABLE_UNAVAILABLE_CHATS[chat_id] = time.monotonic()
+            raise _RichTableUnavailable(
+                "平台分配的 Bot 不在目标群或无法访问该群；请先将该 Bot 加入群并允许发消息"
+            )
         raise RuntimeError(description)
     message_id = (data.get("result") or {}).get("message_id")
     if not message_id:
@@ -713,7 +747,7 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
                 reply_to_message_id=message.id,
             )
         except Exception as exc:
-            ctx.log.warning("[排行榜命令] Telegram 原生表格发送失败，回退文本：%s", exc)
+            _log_rich_fallback(ctx, "[排行榜命令]", exc)
         else:
             try:
                 await message.delete()
