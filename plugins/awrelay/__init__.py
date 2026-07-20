@@ -14,7 +14,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.12",
+    "version": "1.1.13",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -30,6 +30,14 @@ __plugin__["changelog"] = (
     "- 非文本消息改由 Telegram 服务器端无署名复制，不再依赖 file_id 二次发送\n"
     "- 支持别人转发来的图片、文件、视频、贴纸及其他媒体\n"
     "- 媒体组按原顺序批量复制到对应话题并保存回复映射\n\n"
+    + __plugin__["changelog"]
+)
+
+__plugin__["changelog"] = (
+    "v1.1.13 对齐 AWRelay 原项目消息复制逻辑\n"
+    "- 所有消息统一逐条执行 Telegram 服务端 copy，不再区分文本和媒体发送\n"
+    "- 相册恢复原项目的逐条复制方式，避免批量 RPC 对转发媒体的兼容问题\n"
+    "- 保留原消息实体、网页预览、说明文字和媒体属性\n\n"
     + __plugin__["changelog"]
 )
 
@@ -282,25 +290,7 @@ async def _copy_messages_to_topic(client, group_id, topic_id, messages):
 
 
 async def _send_content_to_topic(client, group_id, topic_id, message):
-    """文本走底层发送；媒体由 Telegram 服务端直接复制。"""
-    if message.text:
-        # 当前 Pyrogram 对部分 Bot Updates 的 users=None 解析失败，发送成功却返回 None。
-        # 文本直接走底层 RPC，并从原始 Updates 提取消息 ID，避免依赖 parse_messages。
-        result = await client.invoke(
-            raw.functions.messages.SendMessage(
-                peer=await client.resolve_peer(group_id),
-                message=message.text,
-                random_id=client.rnd_id(),
-                no_webpage=False,
-                reply_to=raw.types.InputReplyToMessage(
-                    reply_to_msg_id=topic_id, top_msg_id=topic_id,
-                ),
-            )
-        )
-        sent_ids = _raw_message_ids(result)
-        if sent_ids:
-            return sent_ids[0]
-        raise RuntimeError("Telegram 已响应发送请求，但原始响应中没有消息 ID")
+    """等价于原项目 copy_message：所有内容均由 Telegram 服务端无署名复制。"""
     sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, [message])
     if sent_ids:
         return sent_ids[0]
@@ -341,22 +331,18 @@ async def _flush_media(ctx, client, media_id, cfg):
         user = messages[0].from_user
         topic_id = await _topic_for(ctx, client, user, cfg)
         group_id = int(cfg.get("group_id") or 0)
-        try:
-            sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, messages)
-        except Exception as exc:
-            lowered = str(exc).lower()
-            if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
-                raise
-            topics = _topics(ctx)
-            topics.pop(str(user.id), None)
-            _set_dict(ctx, "topics", topics)
-            topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-            sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, messages)
-        if len(sent_ids) != len(messages):
-            raise RuntimeError(
-                f"Telegram 媒体组返回 {len(sent_ids)} 个消息 ID，预期 {len(messages)} 个"
-            )
-        for sent_id, message in zip(sent_ids, messages):
+        for message in messages:
+            try:
+                sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
+            except Exception as exc:
+                lowered = str(exc).lower()
+                if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
+                    raise
+                topics = _topics(ctx)
+                topics.pop(str(user.id), None)
+                _set_dict(ctx, "topics", topics)
+                topic_id = await _topic_for(ctx, client, user, cfg, force=True)
+                sent_id = await _send_content_to_topic(client, group_id, topic_id, message)
             _save_mapping(ctx, sent_id, user.id, message.id)
         topics = _topics(ctx)
         if str(user.id) in topics:
