@@ -79,9 +79,11 @@
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
+    "changelog": "v1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "path": "plugins/ai/"
   },
   "hdhive_lottery": {
