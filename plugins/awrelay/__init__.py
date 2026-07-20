@@ -14,11 +14,11 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.8",
+    "version": "1.1.9",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.9 修复私聊投递到错误话题\n- 使用 Telegram 原始 GetForumTopics 按用户 ID 核验真实话题\n- 废弃旧 reconciled_v2 映射并重新校验标题与话题 ID\n- 查询失败时停止转发，避免盲用错误映射或创建重复话题\n\nv1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -129,6 +129,23 @@ def _thread_id(message):
     )
 
 
+async def _matching_topics(client, group_id, suffix):
+    """直接读取 Telegram 原始话题响应，避开高层解析器的 users=None 缺陷。"""
+    result = await client.invoke(
+        raw.functions.messages.GetForumTopics(
+            peer=await client.resolve_peer(group_id),
+            offset_date=0, offset_id=0, offset_topic=0, limit=100,
+            q=suffix.rsplit(" ", 1)[-1],
+        )
+    )
+    return [
+        topic for topic in (getattr(result, "topics", None) or [])
+        if (getattr(topic, "title", "") or "").endswith(suffix)
+        and not getattr(topic, "deleted", False)
+        and not getattr(topic, "closed", False)
+    ]
+
+
 async def _topic_for(ctx, client, user, cfg, force=False):
     topics = _topics(ctx)
     key = str(user.id)
@@ -138,51 +155,45 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     base = (f"{user.first_name or ''} {user.last_name or ''}".strip() or f"用户{user.id}")
     suffix = f" · {user.id}"
     existing = topics.get(key)
-    if not force and existing and existing.get("reconciled_v2"):
+    if not force and existing and existing.get("reconciled_v3"):
         return int(existing["topic_id"])
 
     # 独立版数据库不会随插件迁移。首次遇到用户时扫描群组话题，通过标题末尾的
     # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
     try:
-        matches = []
-        async for history_message in client.get_chat_history(group_id, limit=10000):
-            created = getattr(history_message, "forum_topic_created", None)
-            if created and (getattr(created, "title", "") or "").endswith(suffix):
-                matches.append(history_message)
+        matches = await _matching_topics(client, group_id, suffix)
         if matches:
-            chosen = min(matches, key=lambda item: item.date.timestamp() if item.date else float("inf"))
-            chosen_id = int(_thread_id(chosen) or chosen.id)
+            chosen = min(matches, key=lambda item: getattr(item, "date", 0) or 0)
+            chosen_id = int(chosen.id)
             topics[key] = {
                 "topic_id": chosen_id, "name": base, "username": user.username or "",
-                "last_active": (existing or {}).get("last_active", "-"), "reconciled_v2": True,
+                "last_active": (existing or {}).get("last_active", "-"), "reconciled_v3": True,
             }
             _set_dict(ctx, "topics", topics)
             ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen_id)
             return chosen_id
     except Exception as exc:
-        ctx.log.warning("扫描用户 %s 的已有话题失败，将使用本地映射：%s", user.id, exc)
+        if existing:
+            raise RuntimeError(f"无法核验已有话题 {existing.get('topic_id')}：{exc}") from exc
+        ctx.log.warning("扫描用户 %s 的已有话题失败：%s", user.id, exc)
+        raise
 
     if not force and existing:
-        existing["reconciled_v2"] = True
-        topics[key] = existing
-        _set_dict(ctx, "topics", topics)
-        return int(existing["topic_id"])
+        ctx.log.warning("未能核验用户 %s 的本地话题映射 %s，不再盲目复用", user.id, existing.get("topic_id"))
 
     topic = await client.create_forum_topic(group_id, base[:128 - len(suffix)] + suffix)
     topic_id = int(topic.id) if topic is not None and getattr(topic, "id", None) else 0
     if not topic_id:
         await asyncio.sleep(0.5)
-        async for history_message in client.get_chat_history(group_id, limit=100):
-            created = getattr(history_message, "forum_topic_created", None)
-            if created and (getattr(created, "title", "") or "").endswith(suffix):
-                topic_id = int(_thread_id(history_message) or history_message.id)
-                break
+        created_matches = await _matching_topics(client, group_id, suffix)
+        if created_matches:
+            topic_id = int(max(created_matches, key=lambda item: getattr(item, "date", 0) or 0).id)
     if not topic_id:
         raise RuntimeError("Telegram 已执行创建话题，但未返回话题 ID")
     topics[key] = {
         "topic_id": topic_id, "name": base, "username": user.username or "",
         "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "reconciled_v2": True,
+        "reconciled_v3": True,
     }
     _set_dict(ctx, "topics", topics)
     link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
