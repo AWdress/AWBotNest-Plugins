@@ -25,6 +25,7 @@
 # =============================================================================
 
 import asyncio
+import html
 import random
 import re
 import time
@@ -44,12 +45,13 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.17",
+    "version": "1.0.18",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
+    "changelog": "v1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -535,8 +537,18 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     owner_name = client.me.first_name if client.me else ""
     chat_id = message.chat.id
     sent = None
-    want_image = ctx.config.get("rank_output", "text") == "image"
+    output_mode = ctx.config.get("rank_output", "text")
+    want_image = output_mode == "image"
     try:
+        if entries and output_mode == "native_table":
+            try:
+                sent = await _send_rich_table(
+                    ctx, chat_id,
+                    _render_rich_table(entries, site.site_name, site.bonus_name, direction, intro=text),
+                    reply_to_message_id=getattr(target, "id", None),
+                )
+            except Exception as rich_err:
+                ctx.log.warning("[排行榜] Telegram 原生表格发送失败，回退文本：%s", rich_err)
         if entries and want_image:
             img = lb.render_image(entries, site.site_name, site.bonus_name,
                                   direction, owner_name, ctx.data_dir)
@@ -582,6 +594,70 @@ async def _send_reply(client, chat_id, target, text=None, photo=None, caption=No
     return await client.send_message(chat_id, text)
 
 
+class _BotApiSentMessage:
+    """让 Bot API 返回值兼容现有自动删除流程。"""
+
+    def __init__(self, client, chat_id, message_id):
+        self._client = client
+        self._chat_id = chat_id
+        self.id = int(message_id)
+
+    async def delete(self):
+        await self._client.delete_messages(self._chat_id, self.id)
+
+
+def _render_rich_table(entries, site_name, bonus_name, direction, intro=""):
+    """生成 Telegram Rich Message 原生表格 HTML。"""
+    title = "打赏" if direction == "in" else "赏赐"
+    rows = []
+    for entry in entries:
+        rows.append(
+            "<tr>"
+            f"<td align=\"center\">{int(entry['rank'])}</td>"
+            f"<td>{html.escape(str(entry.get('user_name') or '未知用户'))}</td>"
+            f"<td align=\"center\">{int(entry.get('count') or 0)}</td>"
+            f"<td align=\"right\">{html.escape(lb._fmt_amount(entry.get('total') or 0))}</td>"
+            "</tr>"
+        )
+    prefix = f"{intro}<hr/>" if intro else ""
+    return (
+        f"{prefix}<h3>{html.escape(str(site_name))} {title}总榜 TOP{len(entries)}</h3>"
+        "<table bordered striped>"
+        f"<caption>{html.escape(str(bonus_name or '累计'))}</caption>"
+        "<tr><th>排名</th><th>用户</th><th>次数</th><th>累计</th></tr>"
+        + "".join(rows) + "</table>"
+    )
+
+
+async def _send_rich_table(ctx, chat_id, rich_html, reply_to_message_id=None):
+    """使用平台选定 Bot 调用 Bot API 10.1+；失败由调用方降级。"""
+    bot = ctx.bot.raw
+    token = getattr(bot, "bot_token", None) if bot else None
+    if not bot or not getattr(bot, "is_connected", False) or not token:
+        raise RuntimeError("平台 Bot 未连接")
+    payload = {"chat_id": chat_id, "rich_message": {"html": rich_html}}
+    if reply_to_message_id:
+        payload["reply_parameters"] = {
+            "message_id": int(reply_to_message_id), "allow_sending_without_reply": True,
+        }
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15) as session:
+            response = await session.post(
+                f"https://api.telegram.org/bot{token}/sendRichMessage", json=payload,
+            )
+            data = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"Bot API 请求失败（{exc.__class__.__name__}）") from None
+    if not isinstance(data, dict) or not data.get("ok"):
+        description = str(data.get("description") or "未知错误") if isinstance(data, dict) else "响应格式错误"
+        raise RuntimeError(description)
+    message_id = (data.get("result") or {}).get("message_id")
+    if not message_id:
+        raise RuntimeError("Bot API 未返回消息 ID")
+    return _BotApiSentMessage(bot, chat_id, message_id)
+
+
 # ─── 排行榜命令 ──────────────────────────────────────────────────────────────
 async def _do_rank_command(ctx, store, message, args, rank_size_fn):
     """.<命令词> [站点名] [in/out]"""
@@ -617,6 +693,7 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
             bonus_by_site.setdefault(s.site_name, s.bonus_name)
 
     blocks = []
+    rich_tables = []
     for site_name in sites:
         bonus = bonus_by_site.get(site_name, "")
         for d in directions:
@@ -624,9 +701,25 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
             if not entries:
                 continue
             blocks.append(lb.render_text(entries, site_name, bonus, d))
+            rich_tables.append(_render_rich_table(entries, site_name, bonus, d))
     if not blocks:
         await message.edit_text("暂无符合条件的排行榜数据。")
         return
+
+    if ctx.config.get("rank_output") == "native_table":
+        try:
+            await _send_rich_table(
+                ctx, message.chat.id, "".join(rich_tables),
+                reply_to_message_id=message.id,
+            )
+        except Exception as exc:
+            ctx.log.warning("[排行榜命令] Telegram 原生表格发送失败，回退文本：%s", exc)
+        else:
+            try:
+                await message.delete()
+            except Exception:
+                pass
+            return
 
     out = "\n\n".join(blocks)
     try:
