@@ -135,9 +135,10 @@
   },
   "transfer": {
     "name": "多站点转账",
-    "version": "1.0.17",
+    "version": "1.0.18",
     "author": "AWdress",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
+    "changelog": "v1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
     "path": "plugins/transfer/"
   },
   "hdsky_redpacket": {
