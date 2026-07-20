@@ -14,7 +14,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.11",
+    "version": "1.1.12",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -24,6 +24,14 @@ __plugin__ = {
     "render_mode": "vue",
     "requirements": [],
 }
+
+__plugin__["changelog"] = (
+    "v1.1.12 修复图片和文件无法转发\n"
+    "- 非文本消息改由 Telegram 服务器端无署名复制，不再依赖 file_id 二次发送\n"
+    "- 支持别人转发来的图片、文件、视频、贴纸及其他媒体\n"
+    "- 媒体组按原顺序批量复制到对应话题并保存回复映射\n\n"
+    + __plugin__["changelog"]
+)
 
 DEFAULTS = {
     "enabled": False,
@@ -241,13 +249,40 @@ def _save_mapping(ctx, sent_id, user_id, user_msg_id):
     _set_dict(ctx, "message_mappings", mappings)
 
 
+def _raw_message_ids(result):
+    """从底层 Telegram RPC 响应中提取实际生成的消息 ID。"""
+    direct_id = getattr(result, "id", None)
+    if direct_id:
+        return [int(direct_id)]
+    message_ids = []
+    fallback_ids = []
+    for update in getattr(result, "updates", None) or []:
+        raw_message = getattr(update, "message", None)
+        if raw_message is not None and getattr(raw_message, "id", None):
+            message_ids.append(int(raw_message.id))
+        elif update.__class__.__name__ == "UpdateMessageID" and getattr(update, "id", None):
+            fallback_ids.append(int(update.id))
+    return message_ids or fallback_ids
+
+
+async def _copy_messages_to_topic(client, group_id, topic_id, messages):
+    """由 Telegram 服务端无署名复制媒体，避免转发来源的 file_id 不可复用。"""
+    source_chat_id = messages[0].chat.id
+    result = await client.invoke(
+        raw.functions.messages.ForwardMessages(
+            from_peer=await client.resolve_peer(source_chat_id),
+            id=[int(message.id) for message in messages],
+            random_id=[client.rnd_id() for _ in messages],
+            to_peer=await client.resolve_peer(group_id),
+            drop_author=True,
+            top_msg_id=topic_id,
+        )
+    )
+    return _raw_message_ids(result)
+
+
 async def _send_content_to_topic(client, group_id, topic_id, message):
-    """按内容类型显式发送，避开当前 Pyrogram 的 Message.copy 空返回问题。"""
-    route = {
-        "message_thread_id": topic_id,
-        "reply_parameters": ReplyParameters(message_id=topic_id, chat_id=group_id),
-    }
-    caption = getattr(message, "caption", None)
+    """文本走底层发送；媒体由 Telegram 服务端直接复制。"""
     if message.text:
         # 当前 Pyrogram 对部分 Bot Updates 的 users=None 解析失败，发送成功却返回 None。
         # 文本直接走底层 RPC，并从原始 Updates 提取消息 ID，避免依赖 parse_messages。
@@ -262,45 +297,14 @@ async def _send_content_to_topic(client, group_id, topic_id, message):
                 ),
             )
         )
-        direct_id = getattr(result, "id", None)
-        if direct_id:
-            return int(direct_id)
-        for update in getattr(result, "updates", None) or []:
-            raw_message = getattr(update, "message", None)
-            if raw_message is not None and getattr(raw_message, "id", None):
-                return int(raw_message.id)
+        sent_ids = _raw_message_ids(result)
+        if sent_ids:
+            return sent_ids[0]
         raise RuntimeError("Telegram 已响应发送请求，但原始响应中没有消息 ID")
-    if message.photo:
-        sent = await client.send_photo(group_id, message.photo.file_id, caption=caption, **route)
-        return getattr(sent, "id", None)
-    if message.video:
-        sent = await client.send_video(group_id, message.video.file_id, caption=caption, **route)
-        return getattr(sent, "id", None)
-    if getattr(message, "animation", None):
-        sent = await client.send_animation(group_id, message.animation.file_id, caption=caption, **route)
-        return getattr(sent, "id", None)
-    if message.document:
-        sent = await client.send_document(group_id, message.document.file_id, caption=caption, **route)
-        return getattr(sent, "id", None)
-    if message.audio:
-        sent = await client.send_audio(group_id, message.audio.file_id, caption=caption, **route)
-        return getattr(sent, "id", None)
-    if message.voice:
-        sent = await client.send_voice(group_id, message.voice.file_id, **route)
-        return getattr(sent, "id", None)
-    if message.sticker:
-        sent = await client.send_sticker(group_id, message.sticker.file_id, **route)
-        return getattr(sent, "id", None)
-    if message.video_note:
-        sent = await client.send_video_note(group_id, message.video_note.file_id, **route)
-        return getattr(sent, "id", None)
-    sent = await message.copy(
-        group_id, message_thread_id=topic_id,
-        reply_parameters=ReplyParameters(message_id=topic_id, chat_id=group_id),
-    )
-    if sent is not None:
-        return getattr(sent, "id", None)
-    return None
+    sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, [message])
+    if sent_ids:
+        return sent_ids[0]
+    raise RuntimeError("Telegram 已响应媒体复制请求，但原始响应中没有消息 ID")
 
 
 async def _forward_one(ctx, client, message, cfg):
@@ -331,9 +335,33 @@ async def _forward_one(ctx, client, message, cfg):
 async def _flush_media(ctx, client, media_id, cfg):
     try:
         await asyncio.sleep(max(0.1, float(cfg.get("media_group_delay", 2))))
-        messages = _media_groups.pop(media_id, [])
-        for message in sorted(messages, key=lambda item: item.id):
-            await _forward_one(ctx, client, message, cfg)
+        messages = sorted(_media_groups.pop(media_id, []), key=lambda item: item.id)
+        if not messages:
+            return
+        user = messages[0].from_user
+        topic_id = await _topic_for(ctx, client, user, cfg)
+        group_id = int(cfg.get("group_id") or 0)
+        try:
+            sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, messages)
+        except Exception as exc:
+            lowered = str(exc).lower()
+            if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
+                raise
+            topics = _topics(ctx)
+            topics.pop(str(user.id), None)
+            _set_dict(ctx, "topics", topics)
+            topic_id = await _topic_for(ctx, client, user, cfg, force=True)
+            sent_ids = await _copy_messages_to_topic(client, group_id, topic_id, messages)
+        if len(sent_ids) != len(messages):
+            raise RuntimeError(
+                f"Telegram 媒体组返回 {len(sent_ids)} 个消息 ID，预期 {len(messages)} 个"
+            )
+        for sent_id, message in zip(sent_ids, messages):
+            _save_mapping(ctx, sent_id, user.id, message.id)
+        topics = _topics(ctx)
+        if str(user.id) in topics:
+            topics[str(user.id)]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _set_dict(ctx, "topics", topics)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
