@@ -11,6 +11,7 @@
 import asyncio
 import time
 import html
+import secrets
 from collections import defaultdict, deque
 from datetime import datetime
 from pyrogram import filters
@@ -19,10 +20,10 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
-    "changelog": "v1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -35,8 +36,6 @@ DEFAULTS = {
     "bot_token": "",
     "group_id": "",
     "captcha_enabled": True,
-    "captcha_question": "1+1等于几？",
-    "captcha_answer": "2",
     "spam_enabled": True,
     "spam_keywords": "",
     "rate_limit_window": 10,
@@ -50,13 +49,29 @@ _user_topics = {}  # user_id -> topic_id
 _topic_users = {}  # topic_id -> user_id
 _msg_mapping = {}  # group_msg_id -> (user_id, user_msg_id)
 _banned_users = set()
-_captcha_pending = {}  # user_id -> pending_messages
+_captcha_pending = {}  # user_id -> {answer: str, messages: list}
 _user_msg_times = defaultdict(deque)
 _media_groups = {}  # media_group_id -> (timestamp, [messages])
 
 
 def _effective_cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+def _generate_captcha() -> tuple[str, str]:
+    """随机生成简单算术题及其答案，避免所有用户共用固定验证内容。"""
+    operation = secrets.randbelow(3)
+    if operation == 0:
+        left = secrets.randbelow(20) + 1
+        right = secrets.randbelow(20) + 1
+        return f"{left} + {right} = ?", str(left + right)
+    if operation == 1:
+        left = secrets.randbelow(20) + 1
+        right = secrets.randbelow(left) + 1
+        return f"{left} - {right} = ?", str(left - right)
+    left = secrets.randbelow(8) + 2
+    right = secrets.randbelow(8) + 2
+    return f"{left} × {right} = ?", str(left * right)
 
 
 def _is_spam(text: str, cfg: dict) -> bool:
@@ -152,19 +167,20 @@ async def setup(ctx):
 
         # 人机验证
         if cfg.get("captcha_enabled", True) and user.id in _captcha_pending:
+            pending = _captcha_pending[user.id]
             answer = (message.text or "").strip()
-            if answer == cfg.get("captcha_answer", "2"):
+            if answer == pending["answer"]:
                 await message.reply("✅ 验证成功！")
-                for pending_msg in _captcha_pending.pop(user.id, []):
+                for pending_msg in _captcha_pending.pop(user.id)["messages"]:
                     await _forward_to_topic(client, pending_msg, cfg)
             else:
                 await message.reply("❌ 验证失败，请重试。")
             return
 
         if cfg.get("captcha_enabled", True) and user.id not in _user_topics:
-            question = cfg.get("captcha_question", "1+1等于几？")
+            question, answer = _generate_captcha()
             await message.reply(f"🤖 人机验证\n\n{question}")
-            _captcha_pending[user.id] = [message]
+            _captcha_pending[user.id] = {"answer": answer, "messages": [message]}
             return
 
         # 垃圾过滤

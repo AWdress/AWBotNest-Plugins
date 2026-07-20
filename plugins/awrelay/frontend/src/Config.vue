@@ -18,8 +18,7 @@
         <div class="section">
           <h3>人机验证</h3>
           <label class="row switch"><input v-model="cfg.captcha_enabled" type="checkbox" /><span>启用人机验证</span></label>
-          <label class="row" v-if="cfg.captcha_enabled"><span>验证问题</span><input v-model="cfg.captcha_question" class="inp" placeholder="如：1+1等于几？" /></label>
-          <label class="row" v-if="cfg.captcha_enabled"><span>正确答案</span><input v-model="cfg.captcha_answer" class="inp" placeholder="如：2" /></label>
+          <p v-if="cfg.captcha_enabled" class="muted">插件会为每位待验证用户随机生成一道简单算术题。</p>
         </div>
 
         <div class="section">
@@ -83,7 +82,7 @@ import { ref, onMounted } from 'vue'
 const props = defineProps({ api: Object, config: Object })
 const cfg = ref({
   enabled: false, bot_token: '', group_id: '',
-  captcha_enabled: true, captcha_question: '1+1等于几？', captcha_answer: '2',
+  captcha_enabled: true,
   spam_enabled: true, spam_keywords: '',
   rate_limit_window: 10, rate_limit_count: 5,
   menu_auto_delete: 60, media_group_delay: 2.0,
