@@ -129,8 +129,10 @@ async function loadTopics() {
 async function toggleBan(topic) {
   const banned = topic.status !== '已封禁';
   try {
-    await props.host.callApi('/ban', { method: 'POST', body: { user_id: topic.user_id, banned } });
+    const result = await props.host.callApi('/ban', { method: 'POST', body: { user_id: topic.user_id, banned } });
+    if (!result?.ok) throw new Error(result?.message || '后端未确认操作成功')
     topic.status = banned ? '已封禁' : '正常';
+    await loadStatus();
     props.host.toast.success(banned ? '已拉黑用户' : '已解除黑名单');
   } catch (e) { props.host.toast.error('操作失败：' + (e.message || e)); }
 }
@@ -373,6 +375,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2faf34b0"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b689e06b"]]);
 
 export { Config as default };
