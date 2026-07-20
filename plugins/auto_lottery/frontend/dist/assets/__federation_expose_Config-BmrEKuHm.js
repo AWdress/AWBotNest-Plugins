@@ -143,7 +143,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ChatPicker = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-5615b698"]]);
+const ChatPicker = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-842d5258"]]);
 
 const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,toDisplayString:_toDisplayString,vModelCheckbox:_vModelCheckbox,withDirectives:_withDirectives,vModelText:_vModelText,createVNode:_createVNode,vShow:_vShow,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
@@ -1163,6 +1163,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-86262419"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6147ce64"]]);
 
 export { Config as default };
