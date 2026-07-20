@@ -14,7 +14,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.14",
+    "version": "1.1.15",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -46,6 +46,14 @@ __plugin__["changelog"] = (
     "- 每次转发前向 Telegram 核验本地话题 ID，不再永久信任已校验标记\n"
     "- 发现话题已删除、关闭或标题不匹配时立即清除映射并新建话题\n"
     "- 消息只在取得有效话题后发送，避免失效 ID 降级进入全部\n\n"
+    + __plugin__["changelog"]
+)
+
+__plugin__["changelog"] = (
+    "v1.1.15 校验实际投递话题并自动纠正\n"
+    "- 检查 Telegram 发送响应中的真实话题 ID，不再只相信发送参数\n"
+    "- 发现消息降级到全部时立即撤回误投消息、清除映射并新建话题\n"
+    "- 强制重建时跳过旧话题扫描缓存，确保不会再次复用已删除话题\n\n"
     + __plugin__["changelog"]
 )
 
@@ -202,6 +210,7 @@ def _missing_topic_error(exc):
     return any(marker in text for marker in (
         "message_thread_not_found", "topic_deleted", "forum_topic_deleted",
         "topic_closed", "topic_id_invalid", "message_id_invalid",
+        "awrelay_topic_route_mismatch",
     ))
 
 
@@ -241,23 +250,24 @@ async def _topic_for(ctx, client, user, cfg, force=False):
 
     # 独立版数据库不会随插件迁移。首次遇到用户时扫描群组话题，通过标题末尾的
     # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
-    try:
-        matches = await _matching_topics(client, group_id, suffix)
-        if matches:
-            chosen = min(matches, key=lambda item: getattr(item, "date", 0) or 0)
-            chosen_id = int(chosen.id)
-            topics[key] = {
-                "topic_id": chosen_id, "name": base, "username": user.username or "",
-                "last_active": (existing or {}).get("last_active", "-"), "reconciled_v4": True,
-            }
-            _set_dict(ctx, "topics", topics)
-            ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen_id)
-            return chosen_id
-    except Exception as exc:
-        if existing:
-            raise RuntimeError(f"无法核验已有话题 {existing.get('topic_id')}：{exc}") from exc
-        ctx.log.warning("扫描用户 %s 的已有话题失败：%s", user.id, exc)
-        raise
+    if not force:
+        try:
+            matches = await _matching_topics(client, group_id, suffix)
+            if matches:
+                chosen = min(matches, key=lambda item: getattr(item, "date", 0) or 0)
+                chosen_id = int(chosen.id)
+                topics[key] = {
+                    "topic_id": chosen_id, "name": base, "username": user.username or "",
+                    "last_active": (existing or {}).get("last_active", "-"), "reconciled_v4": True,
+                }
+                _set_dict(ctx, "topics", topics)
+                ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen_id)
+                return chosen_id
+        except Exception as exc:
+            if existing:
+                raise RuntimeError(f"无法核验已有话题 {existing.get('topic_id')}：{exc}") from exc
+            ctx.log.warning("扫描用户 %s 的已有话题失败：%s", user.id, exc)
+            raise
 
     if not force and existing:
         ctx.log.warning("未能核验用户 %s 的本地话题映射 %s，不再盲目复用", user.id, existing.get("topic_id"))
@@ -322,7 +332,30 @@ async def _copy_messages_to_topic(client, group_id, topic_id, messages):
             top_msg_id=topic_id,
         )
     )
-    return _raw_message_ids(result)
+    sent_ids = _raw_message_ids(result)
+    raw_messages = [
+        getattr(update, "message", None)
+        for update in (getattr(result, "updates", None) or [])
+        if getattr(update, "message", None) is not None
+    ]
+    routed_ids = []
+    for raw_message in raw_messages:
+        reply = getattr(raw_message, "reply_to", None)
+        routed_ids.append(int(
+            getattr(reply, "reply_to_top_id", None)
+            or getattr(reply, "reply_to_msg_id", None)
+            or 0
+        ))
+    if raw_messages and any(routed_id != int(topic_id) for routed_id in routed_ids):
+        if sent_ids:
+            try:
+                await client.delete_messages(group_id, sent_ids)
+            except Exception:
+                pass
+        raise RuntimeError(
+            f"AWRELAY_TOPIC_ROUTE_MISMATCH: 目标话题 {topic_id}，实际话题 {routed_ids}"
+        )
+    return sent_ids
 
 
 async def _send_content_to_topic(client, group_id, topic_id, message):
