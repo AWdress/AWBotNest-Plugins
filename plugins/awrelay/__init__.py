@@ -12,11 +12,11 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。私聊转发到话题群组，管理员在话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "scope": "bot",
     "default_enabled": False,
     "render_mode": "vue",
@@ -130,23 +130,51 @@ def _thread_id(message):
 async def _topic_for(ctx, client, user, cfg, force=False):
     topics = _topics(ctx)
     key = str(user.id)
-    if not force and key in topics:
-        return int(topics[key]["topic_id"])
     group_id = int(cfg.get("group_id") or 0)
     if not group_id:
         raise ValueError("请先配置话题群组")
     base = (f"{user.first_name or ''} {user.last_name or ''}".strip() or f"用户{user.id}")
     suffix = f" · {user.id}"
+    existing = topics.get(key)
+    if not force and existing and existing.get("reconciled"):
+        return int(existing["topic_id"])
+
+    # 独立版数据库不会随插件迁移。首次遇到用户时扫描群组话题，通过标题末尾的
+    # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
+    try:
+        matches = []
+        async for candidate in client.get_forum_topics(group_id):
+            if (candidate.title or "").endswith(suffix) and not candidate.is_deleted and not candidate.is_closed:
+                matches.append(candidate)
+        if matches:
+            chosen = min(matches, key=lambda item: item.date.timestamp() if item.date else float("inf"))
+            topics[key] = {
+                "topic_id": int(chosen.id), "name": base, "username": user.username or "",
+                "last_active": (existing or {}).get("last_active", "-"), "reconciled": True,
+            }
+            _set_dict(ctx, "topics", topics)
+            ctx.log.info("复用用户 %s 的已有话题 %s", user.id, chosen.id)
+            return int(chosen.id)
+    except Exception as exc:
+        ctx.log.warning("扫描用户 %s 的已有话题失败，将使用本地映射：%s", user.id, exc)
+
+    if not force and existing:
+        existing["reconciled"] = True
+        topics[key] = existing
+        _set_dict(ctx, "topics", topics)
+        return int(existing["topic_id"])
+
     topic = await client.create_forum_topic(group_id, base[:128 - len(suffix)] + suffix)
     topic_id = int(topic.id)
     topics[key] = {
         "topic_id": topic_id, "name": base, "username": user.username or "",
         "last_active": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "reconciled": True,
     }
     _set_dict(ctx, "topics", topics)
     link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
     username = f"  @{html.escape(user.username)}" if user.username else ""
-    await client.send_message(group_id, f"{link}{username}\n🆔 <code>{user.id}</code>", reply_to_message_id=topic_id, parse_mode="html")
+    await client.send_message(group_id, f"{link}{username}\n🆔 <code>{user.id}</code>", message_thread_id=topic_id, parse_mode="html")
     return topic_id
 
 
@@ -161,16 +189,16 @@ async def _forward_one(ctx, client, message, cfg):
     topic_id = await _topic_for(ctx, client, user, cfg)
     group_id = int(cfg.get("group_id") or 0)
     try:
-        sent = await message.copy(group_id, reply_to_message_id=topic_id)
+        sent = await message.copy(group_id, message_thread_id=topic_id)
     except Exception as exc:
         lowered = str(exc).lower()
-        if not any(x in lowered for x in ("thread", "topic_deleted", "topic_closed")):
+        if not any(x in lowered for x in ("message thread not found", "topic_deleted", "topic_closed")):
             raise
         topics = _topics(ctx)
         topics.pop(str(user.id), None)
         _set_dict(ctx, "topics", topics)
         topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-        sent = await message.copy(group_id, reply_to_message_id=topic_id)
+        sent = await message.copy(group_id, message_thread_id=topic_id)
     _save_mapping(ctx, sent.id, user.id, message.id)
     topics = _topics(ctx)
     if str(user.id) in topics:
