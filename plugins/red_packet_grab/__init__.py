@@ -11,9 +11,11 @@ from ._records import Records, parse_targets, parse_group_ids, parse_keywords, t
 from . import _ocr
 
 __plugin__ = {
-    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.1.0",
+    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.1.1",
     "author": "AWdress", "scope": "user", "default_enabled": False,
     "description": "自动参与验证码口令红包：OCR 识别或监听中奖确认后复制正确口令兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
+    "changelog": "v1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "render_mode": "vue",
 }
 

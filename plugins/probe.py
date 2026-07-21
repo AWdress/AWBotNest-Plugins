@@ -30,9 +30,11 @@ from pathlib import Path
 __plugin__ = {
     "name": "插件开发探针",
     "id": "probe",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
+    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "both",
     "default_enabled": False,
     "config_schema": {

@@ -22,10 +22,11 @@ from ._game import NumberBombGame
 __plugin__ = {
     "name": "数字炸弹",
     "id": "bomb_game",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
-    "changelog": "v1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
+    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
     "scope": "both",
     "default_enabled": False,
     "render_mode": "vue",
