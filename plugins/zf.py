@@ -12,9 +12,11 @@ import asyncio
 __plugin__ = {
     "name": "转发复读",
     "id": "zf",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
+    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

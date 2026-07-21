@@ -21,9 +21,11 @@ import httpx
 __plugin__ = {
     "name": "P站图片",
     "id": "zpr",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
+    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

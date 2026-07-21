@@ -8,9 +8,11 @@
 __plugin__ = {
     "name": "115搜索结果转发",
     "id": "trans115search",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
+    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

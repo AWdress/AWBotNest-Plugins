@@ -14,9 +14,11 @@ from datetime import datetime, timedelta, timezone
 __plugin__ = {
     "name": "自动报时昵称",
     "id": "auto_changename",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
+    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

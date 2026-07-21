@@ -30,12 +30,14 @@ from ._quiz import (
 __plugin__ = {
     "name": "影巢答题红包",
     "id": "hdhive_quiz",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
+    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "requirements": ["openai>=1.0"],
 }
 

@@ -12,9 +12,11 @@ import time
 __plugin__ = {
     "name": "消息转发",
     "id": "msg_forward",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型/关键词/发送者过滤、原生转发或复制搬运。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
+    "changelog": "v1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

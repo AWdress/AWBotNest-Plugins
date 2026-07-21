@@ -16,9 +16,11 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
+    "changelog": "v1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",

@@ -11,9 +11,11 @@ import re
 __plugin__ = {
     "name": "删除自己消息",
     "id": "self_delete",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
+    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
