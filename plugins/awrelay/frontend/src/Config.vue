@@ -11,8 +11,10 @@
         <div class="section">
           <h3>基本设置</h3>
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
-          <label class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="负数，如 -1001234567890" /></label>
-          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" placeholder="留空允许群内成员，多个 ID 用逗号分隔" /></label>
+          <label class="row"><span>话题模式</span><select v-model="cfg.topic_mode" class="inp"><option value="group">群组论坛话题</option><option value="bot">Bot 私聊话题</option></select></label>
+          <label class="row"><span>{{ cfg.topic_mode === 'bot' ? '管理员私聊 ID' : '话题群组 ID' }}</span><input v-model="cfg.group_id" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '管理员用户 ID，如 123456789' : '超级群组 ID，如 -1001234567890'" /></label>
+          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '建议填写目标管理员 ID，多个用逗号分隔' : '留空允许群内成员，多个 ID 用逗号分隔'" /></label>
+          <p class="muted">Bot 私聊模式需要先在 Telegram 中为该 Bot 开启话题，并让目标管理员与 Bot 建立私聊。</p>
         </div>
 
         <div class="section">
@@ -45,7 +47,8 @@
         <div class="card">
           <h3>服务状态</h3>
           <div class="kv"><span>Bot 状态</span><b :class="status.bot_running ? 'ok' : 'err'">{{ status.bot_status || '未运行' }}</b></div>
-          <div class="kv"><span>话题群组</span><b>{{ status.group_title || '-' }}</b></div>
+          <div class="kv"><span>话题模式</span><b>{{ status.topic_mode === 'bot' ? 'Bot 私聊话题' : '群组论坛话题' }}</b></div>
+          <div class="kv"><span>目标会话</span><b>{{ status.group_title || '-' }}</b></div>
           <div class="kv"><span>活跃用户数</span><b>{{ status.active_users || 0 }}</b></div>
           <div class="kv"><span>总话题数</span><b>{{ status.total_topics || 0 }}</b></div>
           <div class="kv"><span>黑名单用户</span><b>{{ status.banned_users || 0 }}</b></div>
@@ -84,7 +87,7 @@ const props = defineProps({
   host: { type: Object, required: true },
 })
 const cfg = ref({
-  enabled: false, group_id: '', admin_ids: '',
+  enabled: false, topic_mode: 'group', group_id: '', admin_ids: '',
   captcha_enabled: true,
   spam_enabled: true, spam_keywords: 'USDT,博彩,兼职,t.me/,http://,https://',
   rate_limit_window: 10, rate_limit_count: 5,
@@ -157,7 +160,7 @@ async function toggleBan(topic) {
 .row > span:first-child { min-width: 140px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
 .row.switch { gap: 8px; }
 .row.switch span { min-width: auto; }
-.inp, textarea.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
+.inp, textarea.inp, select.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
 textarea.inp { resize: vertical; font-family: inherit; }
 .btn, .btn-primary, .btn-sm { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .btn-primary { background: var(--primary, #4a9eff); color: #fff; }
