@@ -12,9 +12,10 @@
           <h3>基本设置</h3>
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
           <label class="row"><span>话题模式</span><select v-model="cfg.topic_mode" class="inp"><option value="group">群组论坛话题</option><option value="bot">Bot 私聊话题</option></select></label>
-          <label class="row"><span>{{ cfg.topic_mode === 'bot' ? '管理员私聊 ID' : '话题群组 ID' }}</span><input v-model="cfg.group_id" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '管理员用户 ID，如 123456789' : '超级群组 ID，如 -1001234567890'" /></label>
-          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '建议填写目标管理员 ID，多个用逗号分隔' : '留空允许群内成员，多个 ID 用逗号分隔'" /></label>
-          <p class="muted">Bot 私聊模式需要先在 Telegram 中为该 Bot 开启话题，并让目标管理员与 Bot 建立私聊。</p>
+          <label v-if="cfg.topic_mode === 'group'" class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="超级群组 ID，如 -1001234567890" /></label>
+          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '第一个 ID 作为私聊话题目标，多个用逗号分隔' : '留空允许群内成员，多个 ID 用逗号分隔'" /></label>
+          <p v-if="cfg.topic_mode === 'bot'" class="muted">私聊话题目标：{{ firstAdminId || '请填写管理员用户 ID' }}。插件直接使用管理员用户 ID 中的第一个 ID，无需重复配置。</p>
+          <p v-if="cfg.topic_mode === 'bot'" class="muted">需要先在 Telegram 中为该 Bot 开启话题，并让目标管理员与 Bot 建立私聊。</p>
         </div>
 
         <div class="section">
@@ -80,7 +81,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   pluginId: { type: String, required: true },
@@ -97,6 +98,7 @@ const tab = ref('settings')
 const saving = ref(false)
 const status = ref({})
 const topics = ref([])
+const firstAdminId = computed(() => String(cfg.value.admin_ids || '').replaceAll('，', ',').split(',').map(v => v.trim()).find(Boolean) || '')
 
 let timer
 onMounted(async () => {
