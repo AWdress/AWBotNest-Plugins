@@ -11,11 +11,8 @@
         <div class="section">
           <h3>基本设置</h3>
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
-          <label class="row"><span>话题模式</span><select v-model="cfg.topic_mode" class="inp"><option value="group">群组论坛话题</option><option value="bot">Bot 私聊话题</option></select></label>
-          <label v-if="cfg.topic_mode === 'group'" class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="超级群组 ID，如 -1001234567890" /></label>
-          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" :placeholder="cfg.topic_mode === 'bot' ? '第一个 ID 作为私聊话题目标，多个用逗号分隔' : '留空允许群内成员，多个 ID 用逗号分隔'" /></label>
-          <p v-if="cfg.topic_mode === 'bot'" class="muted">私聊话题目标：{{ firstAdminId || '请填写管理员用户 ID' }}。插件直接使用管理员用户 ID 中的第一个 ID，无需重复配置。</p>
-          <p v-if="cfg.topic_mode === 'bot'" class="muted">需要先在 Telegram 中为该 Bot 开启话题，并让目标管理员与 Bot 建立私聊。</p>
+          <label class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="超级群组 ID，如 -1001234567890" /></label>
+          <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" placeholder="留空允许群内成员，多个 ID 用逗号分隔" /></label>
         </div>
 
         <div class="section">
@@ -48,8 +45,7 @@
         <div class="card">
           <h3>服务状态</h3>
           <div class="kv"><span>Bot 状态</span><b :class="status.bot_running ? 'ok' : 'err'">{{ status.bot_status || '未运行' }}</b></div>
-          <div class="kv"><span>话题模式</span><b>{{ status.topic_mode === 'bot' ? 'Bot 私聊话题' : '群组论坛话题' }}</b></div>
-          <div class="kv"><span>目标会话</span><b>{{ status.group_title || '-' }}</b></div>
+          <div class="kv"><span>话题群组</span><b>{{ status.group_title || '-' }}</b></div>
           <div class="kv"><span>活跃用户数</span><b>{{ status.active_users || 0 }}</b></div>
           <div class="kv"><span>总话题数</span><b>{{ status.total_topics || 0 }}</b></div>
           <div class="kv"><span>黑名单用户</span><b>{{ status.banned_users || 0 }}</b></div>
@@ -81,14 +77,14 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
   pluginId: { type: String, required: true },
   host: { type: Object, required: true },
 })
 const cfg = ref({
-  enabled: false, topic_mode: 'group', group_id: '', admin_ids: '',
+  enabled: false, group_id: '', admin_ids: '',
   captcha_enabled: true,
   spam_enabled: true, spam_keywords: 'USDT,博彩,兼职,t.me/,http://,https://',
   rate_limit_window: 10, rate_limit_count: 5,
@@ -98,7 +94,6 @@ const tab = ref('settings')
 const saving = ref(false)
 const status = ref({})
 const topics = ref([])
-const firstAdminId = computed(() => String(cfg.value.admin_ids || '').replaceAll('，', ',').split(',').map(v => v.trim()).find(Boolean) || '')
 
 let timer
 onMounted(async () => {
@@ -162,7 +157,7 @@ async function toggleBan(topic) {
 .row > span:first-child { min-width: 140px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
 .row.switch { gap: 8px; }
 .row.switch span { min-width: auto; }
-.inp, textarea.inp, select.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
+.inp, textarea.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
 textarea.inp { resize: vertical; font-family: inherit; }
 .btn, .btn-primary, .btn-sm { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .btn-primary { background: var(--primary, #4a9eff); color: #fff; }
