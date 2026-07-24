@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.4.3",
+    "version": "1.5.0",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.4.3 对齐仓库稳定命令插件写法\n- 修复命令监听：从 filters.text + target=\"user\" 改回 outgoing & text\n- 完全对齐 getmsg / self_delete / probe 等稳定插件的过滤器组合\n- 这是导致命令无效的根本原因：缺少 outgoing 导致消息不命中\n\nv1.4.2 放宽 adopt 命令监听条件\n- 将命令监听从 outgoing & text 放宽为 text + target=\"user\"\n- 增加最小调试日志，便于确认消息是否进入插件\n\nv1.4.1 补齐插件本体元数据并修正作者信息\n- 插件本体 __plugin__ 补充 icon 与 changelog",
+    "changelog": "v1.5.0 增加友好提示和诊断模式\n- /adopt 不带名字时现在会提示用法，而不是默默创建\"小可爱\"\n- 新增 /pet 诊断命令：发送 /pet 或 .pet 会立即回显，用于确认插件是否收到消息\n- 提升用户体验和问题排查能力\n\nv1.4.3 对齐仓库稳定命令插件写法\n- 修复命令监听：从 filters.text + target=\"user\" 改回 outgoing & text\n- 完全对齐 getmsg / self_delete / probe 等稳定插件的过滤器组合\n- 这是导致命令无效的根本原因：缺少 outgoing 导致消息不命中",
     "path": "plugins/digital_pet/"
   }
 }
