@@ -13,12 +13,12 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.5.4",
+    "version": "1.6.0",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.5.4 增加回复消息自动删除功能\n- 所有插件回复都改为发出后按配置延时自动删除\n- 新增“自动删除插件回复”开关和“回复消息保留时间”配置项",
+    "changelog": "v1.6.0 彻底中文清理版\n- 所有对外命令统一使用中文：领养、状态、喂食、玩耍、清洁\n- 所有提示文案、配置说明、玩法说明统一改为中文表达\n- 调整交互提示语气，使说明更清晰自然\n\nv1.5.4 增加回复消息自动删除功能\n- 所有插件回复都改为发出后按配置延时自动删除\n- 新增自动删除插件回复开关和回复消息保留时间配置项",
     "requirements": [],
     "default_enabled": False,
     "config_schema": {
@@ -27,8 +27,7 @@ __plugin__ = {
         "decay_multiplier": {"type": "slider","default": 100,"label": "状态衰减倍率（%）","min": 50,"max": 300,"step": 10,"section": "运行设置",},
         "auto_delete_replies": {"type": "boolean","default": True,"label": "自动删除插件回复","section": "消息清理",},
         "delete_delay_seconds": {"type": "slider","default": 30,"label": "回复消息保留时间（秒）","min": 5,"max": 300,"step": 5,"section": "消息清理",},
-        "adopt_command": {"type": "string","default": "/adopt","label": "领养命令","section": "命令说明",},
-        "info": {"type": "info","label": "玩法说明","section": "命令说明","text": "先发送 /adopt 名字 领养宠物，再用 /status、/feed、/play、/clean 与它互动。改动检查间隔后建议重载插件生效。"}
+        "info": {"type": "info","label": "玩法说明","section": "命令说明","text": "先发送 /领养 名字 或 .领养 名字 来领养宠物；领养后可用 /状态 或 .状态 查看状态，用 /喂食/.喂食、/玩耍/.玩耍、/清洁/.清洁 与它互动。修改状态检查间隔后建议重载插件生效。"}
     },
 }
 
@@ -61,7 +60,9 @@ async def setup(ctx):
         except(json.JSONDecodeError,TypeError,ValueError)as e: ctx.log.warning(f"用户 {uid} 的宠物数据损坏: {e}"); return None
     def save_pet(uid,p:Pet): ctx.kv.set(f"pet_{uid}",json.dumps(p.to_dict()))
     def _b(c,f): return(c or "").lstrip("/.").strip().lower() or f
-    def _m(t,b): h=t.split(maxsplit=1)[0].lower() if t else ""; return h in(f"/{b}",f".{b}")
+    def _is_cmd(t, *names):
+        h = t.split(maxsplit=1)[0].strip() if t else ""
+        return h in names
 
     async def _edit(m,t):
         try:
@@ -73,15 +74,15 @@ async def setup(ctx):
 
     @ctx.on_message(ctx.filters.outgoing&ctx.filters.text,group=-12)
     async def pet_commands(c,m):
-        t=m.text or ""; ab=_b(ctx.config.get("adopt_command","/adopt"),"adopt")
+        t=(m.text or "").strip()
         async def do_adopt():
             uid=m.from_user.id
-            if get_and_update_pet(uid):return await _edit(m,"你已经有一只宠物了！使用 /status 查看它吧。")
+            if get_and_update_pet(uid):return await _edit(m,"你已经有一只宠物了！使用 /状态 查看它吧。")
             parts=t.split(maxsplit=1); name=parts[1].strip() if len(parts)>1 and parts[1].strip() else"小可爱"; sp=random.choice(["电子狗 🐕","像素猫 🐈","机械龙 🐉"]); p=Pet(user_id=uid,name=name,species=sp); save_pet(uid,p); add_pet_owner(uid)
-            await _edit(m,f"🎉 恭喜！你领养了一只叫做 **{p.name}** 的{p.species}！\n快来和它互动吧：\n/status - 查看状态\n/feed - 喂食\n/play - 玩耍\n/clean - 清洁")
+            await _edit(m,f"🎉 恭喜！你领养了一只叫做 **{p.name}** 的{p.species}！\n快来和它互动吧：\n/状态 - 查看宠物状态\n/喂食 - 给宠物喂食\n/玩耍 - 和宠物玩耍\n/清洁 - 给宠物清洁")
         async def do_status():
             uid=m.from_user.id; p=get_and_update_pet(uid)
-            if not p:return await _edit(m,"你还没有领养宠物呢！快使用 /adopt [名字] 来领养一只吧。")
+            if not p:return await _edit(m,"你还没有领养宠物呢！快使用 /领养 [名字] 来领养一只吧。")
             save_pet(uid,p); me="😊";
             if p.happiness<30 or p.hunger>70:me="😟"
             if p.happiness<10 or p.hunger>90:me="😭"
@@ -89,7 +90,7 @@ async def setup(ctx):
             await _edit(m,st)
         async def do_interact(a):
             uid=m.from_user.id;p=get_and_update_pet(uid)
-            if not p:return await _edit(m,"你要和谁互动呀？先用 /adopt 领养一只宠物吧。")
+            if not p:return await _edit(m,"你要和谁互动呀？先用 /领养 [名字] 领养一只宠物吧。")
             rt,xg="",0
             if a=="feed":c=random.randint(25,40); p.hunger=max(0,p.hunger-c); p.happiness=min(100,p.happiness+5); xg,rt=10,f"你喂了 {p.name} 一些好吃的，它满足地打了个嗝。"
             elif a=="play":
@@ -99,11 +100,11 @@ async def setup(ctx):
             p.xp+=xg; await m.edit(f"{rt} (XP +{xg})")
             if p.xp>=p.level*100:p.level+=1;p.xp=0;p.happiness=min(100,p.happiness+20);await asyncio.sleep(1);await _edit(m,f"🎉 **升级了！** 你的 {p.name} 升到了 **{p.level}** 级！")
             save_pet(uid, p)
-        if _m(t,ab):return await do_adopt()
-        if _m(t,"status"):return await do_status()
-        if _m(t,"feed"):return await do_interact("feed")
-        if _m(t,"play"):return await do_interact("play")
-        if _m(t,"clean"):return await do_interact("clean")
+        if _is_cmd(t, "/领养", ".领养"): return await do_adopt()
+        if _is_cmd(t, "/状态", ".状态"): return await do_status()
+        if _is_cmd(t, "/喂食", ".喂食"): return await do_interact("feed")
+        if _is_cmd(t, "/玩耍", ".玩耍"): return await do_interact("play")
+        if _is_cmd(t, "/清洁", ".清洁"): return await do_interact("clean")
 
     async def pet_heartbeat():
         if not ctx.config.get("auto_reminder_enabled",True):return
@@ -117,7 +118,7 @@ async def setup(ctx):
                 except Exception as e:ctx.log.warning(f"无法向用户 {uid} 发送离家出走通知: {e}")
                 continue
             if 80<p.hunger<95 and random.random()<0.5:
-                try:await ctx.bot.send_message(uid,f"🥺 你的宠物 **{p.name}** 非常饿了，快给它喂点东西吧！ (/feed)")
+                try:await ctx.bot.send_message(uid,f"🥺 你的宠物 **{p.name}** 非常饿了，快给它喂点东西吧！（/喂食）")
                 except Exception as e:ctx.log.warning(f"无法向用户 {uid} 发送饥饿提醒: {e}")
             save_pet(uid,p)
         if dead:o=get_pet_owners();u=[i for i in o if i not in dead];ctx.kv.set("pet_owners_list",json.dumps(u))
