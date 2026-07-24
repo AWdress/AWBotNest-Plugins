@@ -1,3 +1,2 @@
-node_modules
-dist
-*.log
+node_modules/
+# dist/ 需随插件一起发布（平台加载的是构建产物），故不忽略。
