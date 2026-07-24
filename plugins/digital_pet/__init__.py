@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict, field
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "author": "AWdress & Hermes",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
@@ -59,7 +59,14 @@ async def setup(ctx):
     async def get_pet_owners() -> list[int]:
         """获取所有养了宠物的用户ID列表"""
         owners_json = await ctx.kv.get("pet_owners_list")
-        return json.loads(owners_json) if owners_json else []
+        if not owners_json:
+            return []
+        try:
+            return json.loads(owners_json)
+        except (json.JSONDecodeError, TypeError):
+            ctx.log.warning("宠物主人列表数据损坏，已重置。")
+            await ctx.kv.delete("pet_owners_list")
+            return []
 
     async def add_pet_owner(user_id: int):
         """添加一个新的宠物主人"""
@@ -101,8 +108,12 @@ async def setup(ctx):
         if not pet_data:
             return None
         
-        pet = Pet.from_dict(json.loads(pet_data))
-        return update_pet_state(pet)
+        try:
+            pet = Pet.from_dict(json.loads(pet_data))
+            return update_pet_state(pet)
+        except (json.JSONDecodeError, TypeError):
+            ctx.log.warning(f"用户 {user_id} 的宠物数据损坏，已忽略。")
+            return None
     
     async def save_pet(user_id: int, pet: Pet):
         """保存宠物状态到数据库"""
@@ -225,7 +236,6 @@ async def setup(ctx):
 
     # --- 2.3 后台心跳任务 (Heartbeat Task) ---
 
-    @ctx.schedule(hour="*/1") # 每小时执行一次
     async def pet_heartbeat():
         ctx.log.info("执行电子宠物心跳任务...")
         owners = await get_pet_owners()
@@ -268,3 +278,6 @@ async def setup(ctx):
             await ctx.kv.set("pet_owners_list", json.dumps(updated_owners))
         
         ctx.log.info("电子宠物心跳任务完成。")
+    
+    # 在 setup 的末尾正确注册定时任务
+    ctx.schedule(pet_heartbeat, hour="*/1")
