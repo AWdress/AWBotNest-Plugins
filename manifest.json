@@ -309,7 +309,7 @@
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.5.3 清理多余调试日志\n- 移除 /pet 诊断命令\n- 移除所有成功操作的 info 日志\n- 仅保留错误日志用于故障排查\n\nv1.5.2 修复命令无响应的根本原因\n- 将所有 message.reply() 改为 message.edit()\n- 对齐 AWBotNest 用户插件的正确消息响应方式",
+    "changelog": "v1.5.3 参照示例文件修复命令无响应的根本原因\n- 移除对 ctx.kv 的所有 await 调用，对齐平台KV接口\n- 确保命令监听器使用正确的 filters.outgoing & filters.text\n\nv1.5.2 修复命令无响应 - reply改为edit\n- 将所有 message.reply() 改为 message.edit()\n- 对齐 AWBotNest 用户插件的正确消息响应方式\n\nv1.5.1 增加完整异常捕获和错误日志\n- 所有调用都加了 try-except 和详细日志\n- 成功定位到根本问题",
     "path": "plugins/digital_pet/"
   }
 }
