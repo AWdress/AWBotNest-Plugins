@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
@@ -168,109 +168,134 @@ async def setup(ctx):
         
         # 诊断模式：任何以 /pet 或 .pet 开头的消息都回显，用于确认插件是否收到消息
         if text.lower().startswith(("/pet", ".pet")):
-            await message.reply(f"[电子宠物诊断] 插件已收到消息: {text[:50]}")
-            ctx.log.info("[电子宠物] 诊断回显: %s", text[:50])
+            try:
+                await message.reply(f"[电子宠物诊断] 插件已收到消息: {text[:50]}")
+                ctx.log.info("[电子宠物] 诊断回显成功: %s", text[:50])
+            except Exception as e:
+                ctx.log.error("[电子宠物] 诊断回显失败: %r", e)
             return
         
         ctx.log.info("[电子宠物] 收到命令文本: %s", text[:50])
         adopt_bare = _bare(ctx.config.get("adopt_command", "/adopt"), "adopt")
 
         async def handle_adopt_cmd():
-            user_id = message.from_user.id
-            if await get_and_update_pet(user_id):
-                return await message.reply("你已经有一只宠物了！使用 /status 查看它吧。")
-            
-            parts = text.split(maxsplit=1)
-            if len(parts) < 2 or not parts[1].strip():
-                return await message.reply(
-                    "请提供宠物名字，例如：\n"
-                    "/adopt 小白\n"
-                    ".adopt 小黑"
+            try:
+                user_id = message.from_user.id
+                if await get_and_update_pet(user_id):
+                    await message.reply("你已经有一只宠物了！使用 /status 查看它吧。")
+                    return
+                
+                parts = text.split(maxsplit=1)
+                if len(parts) < 2 or not parts[1].strip():
+                    await message.reply(
+                        "请提供宠物名字，例如：\n"
+                        "/adopt 小白\n"
+                        ".adopt 小黑"
+                    )
+                    return
+                
+                pet_name = parts[1].strip()
+                species = random.choice(["电子狗 🐕", "像素猫 🐈", "机械龙 🐉"])
+                new_pet = Pet(user_id=user_id, name=pet_name, species=species)
+                await save_pet(user_id, new_pet)
+                await add_pet_owner(user_id)
+                await message.reply(
+                    f"🎉 恭喜！你领养了一只叫做 **{new_pet.name}** 的{new_pet.species}！\n"
+                    "快来和它互动吧：\n"
+                    "/status - 查看状态\n"
+                    "/feed - 喂食\n"
+                    "/play - 玩耍\n"
+                    "/clean - 清洁"
                 )
-            
-            pet_name = parts[1].strip()
-            species = random.choice(["电子狗 🐕", "像素猫 🐈", "机械龙 🐉"])
-            new_pet = Pet(user_id=user_id, name=pet_name, species=species)
-            await save_pet(user_id, new_pet)
-            await add_pet_owner(user_id)
-            await message.reply(
-                f"🎉 恭喜！你领养了一只叫做 **{new_pet.name}** 的{new_pet.species}！\n"
-                "快来和它互动吧：\n"
-                "/status - 查看状态\n"
-                "/feed - 喂食\n"
-                "/play - 玩耍\n"
-                "/clean - 清洁"
-            )
+                ctx.log.info("[电子宠物] 领养成功: %s", pet_name)
+            except Exception as e:
+                ctx.log.error("[电子宠物] handle_adopt_cmd 失败: %r", e)
 
         async def handle_status_cmd():
-            user_id = message.from_user.id
-            pet = await get_and_update_pet(user_id)
-            if not pet:
-                return await message.reply("你还没有领养宠物呢！快使用 /adopt [名字] 来领养一只吧。")
-            await save_pet(user_id, pet)
-            mood_emoji = "😊"
-            if pet.happiness < 30 or pet.hunger > 70:
-                mood_emoji = "😟"
-            if pet.happiness < 10 or pet.hunger > 90:
-                mood_emoji = "😭"
-            status_text = (
-                f"**宠物状态** {mood_emoji}\n\n"
-                f"名字: **{pet.name}**\n"
-                f"物种: {pet.species}\n"
-                f"等级: **{pet.level}** (XP: {int(pet.xp)}/{pet.level * 100})\n"
-                "-------------------\n"
-                f"❤️ 快乐度: {'🟩' * int(pet.happiness/10)}{'🟥' * (10 - int(pet.happiness/10))} [{int(pet.happiness)}%]\n"
-                f"🍖 饥饿度: {'🟥' * int(pet.hunger/10)}{'🟩' * (10 - int(pet.hunger/10))} [{int(pet.hunger)}%]\n"
-                f"🧼 清洁度: {'🟥' * int(pet.cleanliness/10)}{'🟩' * (10 - int(pet.cleanliness/10))} [{int(pet.cleanliness)}%]"
-            )
-            await message.reply(status_text)
+            try:
+                user_id = message.from_user.id
+                pet = await get_and_update_pet(user_id)
+                if not pet:
+                    await message.reply("你还没有领养宠物呢！快使用 /adopt [名字] 来领养一只吧。")
+                    return
+                await save_pet(user_id, pet)
+                mood_emoji = "😊"
+                if pet.happiness < 30 or pet.hunger > 70:
+                    mood_emoji = "😟"
+                if pet.happiness < 10 or pet.hunger > 90:
+                    mood_emoji = "😭"
+                status_text = (
+                    f"**宠物状态** {mood_emoji}\n\n"
+                    f"名字: **{pet.name}**\n"
+                    f"物种: {pet.species}\n"
+                    f"等级: **{pet.level}** (XP: {int(pet.xp)}/{pet.level * 100})\n"
+                    "-------------------\n"
+                    f"❤️ 快乐度: {'🟩' * int(pet.happiness/10)}{'🟥' * (10 - int(pet.happiness/10))} [{int(pet.happiness)}%]\n"
+                    f"🍖 饥饿度: {'🟥' * int(pet.hunger/10)}{'🟩' * (10 - int(pet.hunger/10))} [{int(pet.hunger)}%]\n"
+                    f"🧼 清洁度: {'🟥' * int(pet.cleanliness/10)}{'🟩' * (10 - int(pet.cleanliness/10))} [{int(pet.cleanliness)}%]"
+                )
+                await message.reply(status_text)
+                ctx.log.info("[电子宠物] 状态查询成功")
+            except Exception as e:
+                ctx.log.error("[电子宠物] handle_status_cmd 失败: %r", e)
 
         async def _interact(action: str):
-            user_id = message.from_user.id
-            pet = await get_and_update_pet(user_id)
-            if not pet:
-                return await message.reply("你要和谁互动呀？先用 /adopt 领养一只宠物吧。")
-            reply_text = ""
-            xp_gain = 0
-            if action == "feed":
-                change = random.randint(25, 40)
-                pet.hunger = max(0, pet.hunger - change)
-                pet.happiness = min(100, pet.happiness + 5)
-                xp_gain = 10
-                reply_text = f"你喂了 {pet.name} 一些好吃的，它满足地打了个嗝。"
-            elif action == "play":
-                if pet.hunger > 80:
-                    return await message.reply(f"{pet.name} 饿得没力气玩了，先喂喂它吧！")
-                change = random.randint(20, 35)
-                pet.happiness = min(100, pet.happiness + change)
-                pet.hunger = min(100, pet.hunger + 10)
-                xp_gain = 15
-                reply_text = f"你和 {pet.name} 玩了一会儿球，它看起来开心极了！"
-            elif action == "clean":
-                change = random.randint(30, 50)
-                pet.cleanliness = max(0, pet.cleanliness - change)
-                pet.happiness = min(100, pet.happiness + 10)
-                xp_gain = 5
-                reply_text = f"你给 {pet.name} 洗了个澡，它现在香喷喷的！"
-            pet.xp += xp_gain
-            await message.reply(f"{reply_text} (XP +{xp_gain})")
-            if pet.xp >= pet.level * 100:
-                pet.level += 1
-                pet.xp = 0
-                pet.happiness = min(100, pet.happiness + 20)
-                await message.reply(f"🎉 **升级了！** 你的 {pet.name} 升到了 **{pet.level}** 级！")
-            await save_pet(user_id, pet)
+            try:
+                user_id = message.from_user.id
+                pet = await get_and_update_pet(user_id)
+                if not pet:
+                    await message.reply("你要和谁互动呀？先用 /adopt 领养一只宠物吧。")
+                    return
+                reply_text = ""
+                xp_gain = 0
+                if action == "feed":
+                    change = random.randint(25, 40)
+                    pet.hunger = max(0, pet.hunger - change)
+                    pet.happiness = min(100, pet.happiness + 5)
+                    xp_gain = 10
+                    reply_text = f"你喂了 {pet.name} 一些好吃的，它满足地打了个嗝。"
+                elif action == "play":
+                    if pet.hunger > 80:
+                        await message.reply(f"{pet.name} 饿得没力气玩了，先喂喂它吧！")
+                        return
+                    change = random.randint(20, 35)
+                    pet.happiness = min(100, pet.happiness + change)
+                    pet.hunger = min(100, pet.hunger + 10)
+                    xp_gain = 15
+                    reply_text = f"你和 {pet.name} 玩了一会儿球，它看起来开心极了！"
+                elif action == "clean":
+                    change = random.randint(30, 50)
+                    pet.cleanliness = max(0, pet.cleanliness - change)
+                    pet.happiness = min(100, pet.happiness + 10)
+                    xp_gain = 5
+                    reply_text = f"你给 {pet.name} 洗了个澡，它现在香喷喷的！"
+                pet.xp += xp_gain
+                await message.reply(f"{reply_text} (XP +{xp_gain})")
+                if pet.xp >= pet.level * 100:
+                    pet.level += 1
+                    pet.xp = 0
+                    pet.happiness = min(100, pet.happiness + 20)
+                    await message.reply(f"🎉 **升级了！** 你的 {pet.name} 升到了 **{pet.level}** 级！")
+                await save_pet(user_id, pet)
+                ctx.log.info("[电子宠物] 互动成功: %s", action)
+            except Exception as e:
+                ctx.log.error("[电子宠物] _interact(%s) 失败: %r", action, e)
 
         if _matches(text, adopt_bare):
-            return await handle_adopt_cmd()
+            await handle_adopt_cmd()
+            return
         if _matches(text, "status"):
-            return await handle_status_cmd()
+            await handle_status_cmd()
+            return
         if _matches(text, "feed"):
-            return await _interact("feed")
+            await _interact("feed")
+            return
         if _matches(text, "play"):
-            return await _interact("play")
+            await _interact("play")
+            return
         if _matches(text, "clean"):
-            return await _interact("clean")
+            await _interact("clean")
+            return
 
     async def pet_heartbeat():
         if not ctx.config.get("auto_reminder_enabled", True):
