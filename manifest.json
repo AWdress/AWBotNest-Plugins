@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.5.0",
+    "version": "1.5.1",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.5.0 增加友好提示和诊断模式\n- /adopt 不带名字时现在会提示用法，而不是默默创建\"小可爱\"\n- 新增 /pet 诊断命令：发送 /pet 或 .pet 会立即回显，用于确认插件是否收到消息\n- 提升用户体验和问题排查能力\n\nv1.4.3 对齐仓库稳定命令插件写法\n- 修复命令监听：从 filters.text + target=\"user\" 改回 outgoing & text\n- 完全对齐 getmsg / self_delete / probe 等稳定插件的过滤器组合\n- 这是导致命令无效的根本原因：缺少 outgoing 导致消息不命中",
+    "changelog": "v1.5.1 增加完整异常捕获和错误日志\n- 所有 message.reply() 调用都加了 try-except\n- 增加详细错误日志，定位命令无响应的根本原因\n- 这是解决\"命令到了插件但没有回复\"问题的关键修复\n\nv1.5.0 增加友好提示和诊断模式\n- /adopt 不带名字时现在会提示用法\n- 新增 /pet 诊断命令确认插件是否收到消息",
     "path": "plugins/digital_pet/"
   }
 }
