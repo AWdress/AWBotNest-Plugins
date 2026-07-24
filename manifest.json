@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v2.0.0 电子宠物完整视觉进化版\n- 中文命令体系：领养、状态、喂食、玩耍、清洁、档案、背包、使用\n- 全身像视觉系统：状态图、动作图、事件图、成长进化立绘\n- 三物种差异化成长：电子狗、像素猫、机械龙\n- 随机事件、升级奖励、周期播报、背包与道具体系\n- 特殊事件与互动行为全部接入视觉资源",
+    "changelog": "v2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
     "path": "plugins/digital_pet/"
   }
 }

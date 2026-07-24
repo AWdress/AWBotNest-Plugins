@@ -12,12 +12,12 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v2.0.0 电子宠物完整视觉进化版\n- 中文命令体系：领养、状态、喂食、玩耍、清洁、档案、背包、使用\n- 全身像视觉系统：状态图、动作图、事件图、成长进化立绘\n- 三物种差异化成长：电子狗、像素猫、机械龙\n- 随机事件、升级奖励、周期播报、背包与道具体系\n- 特殊事件与互动行为全部接入视觉资源",
+    "changelog": "v2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
     "requirements": [],
     "default_enabled": False,
     "config_schema": {
@@ -32,6 +32,9 @@ __plugin__ = {
         "event_chance_percent": {"type": "slider","default": 25,"label": "随机事件触发概率（%）","min": 0,"max": 100,"step": 5,"section": "高级玩法"},
         "daily_brief_enabled": {"type": "boolean","default": True,"label": "启用周期状态播报","section": "高级玩法"},
         "daily_brief_chance_percent": {"type": "slider","default": 20,"label": "每轮播报概率（%）","min": 0,"max": 100,"step": 5,"section": "高级玩法"},
+        "status_cooldown_seconds": {"type": "slider","default": 10,"label": "状态命令冷却（秒）","min": 0,"max": 120,"step": 5,"section": "冷却设置"},
+        "action_cooldown_seconds": {"type": "slider","default": 20,"label": "互动命令冷却（秒）","min": 0,"max": 180,"step": 5,"section": "冷却设置"},
+        "use_item_cooldown_seconds": {"type": "slider","default": 15,"label": "使用道具冷却（秒）","min": 0,"max": 180,"step": 5,"section": "冷却设置"},
         "info": {"type": "info","label": "玩法说明","section": "命令说明","text": "先发送 /领养 名字 或 .领养 名字 来领养宠物；领养后可用 /状态、/喂食、/玩耍、/清洁 与它互动。用 /档案 查看成长档案，用 /背包 查看道具，用 /使用 道具名 来使用道具。"}
     },
 }
@@ -262,6 +265,38 @@ async def setup(ctx):
         lines = [f"- {k} × {v}" for k, v in p.inventory.items()]
         return "\n".join(lines)
 
+    def _cd_key(uid, name):
+        return f"pet_cd:{uid}:{name}"
+
+    def _cooldown_seconds(name):
+        mapping = {
+            '状态': int(ctx.config.get('status_cooldown_seconds', 10) or 10),
+            '喂食': int(ctx.config.get('action_cooldown_seconds', 20) or 20),
+            '玩耍': int(ctx.config.get('action_cooldown_seconds', 20) or 20),
+            '清洁': int(ctx.config.get('action_cooldown_seconds', 20) or 20),
+            '使用': int(ctx.config.get('use_item_cooldown_seconds', 15) or 15),
+        }
+        return max(0, mapping.get(name, 0))
+
+    def _check_cd(uid, name):
+        now = int(time.time())
+        raw = ctx.kv.get(_cd_key(uid, name))
+        if not raw:
+            return 0
+        try:
+            ts = int(raw)
+        except Exception:
+            return 0
+        remain = ts - now
+        return remain if remain > 0 else 0
+
+    def _set_cd(uid, name):
+        sec = _cooldown_seconds(name)
+        if sec <= 0:
+            return
+        expire_at = int(time.time()) + sec
+        ctx.kv.set(_cd_key(uid, name), str(expire_at))
+
     async def _edit(m, t):
         try:
             edited = await m.edit(t)
@@ -305,6 +340,10 @@ async def setup(ctx):
 
         async def do_status():
             uid = message.from_user.id
+            remain = _check_cd(uid, '状态')
+            if remain > 0:
+                return await _edit(message, f"⏳ 状态命令冷却中，还需等待 {remain} 秒。")
+            _set_cd(uid, '状态')
             p = get_and_update_pet(uid)
             if not p:
                 return await _edit(message, "你还没有领养宠物呢！快使用 /领养 [名字] 来领养一只吧。")
@@ -360,6 +399,10 @@ async def setup(ctx):
 
         async def do_use_item():
             uid = message.from_user.id
+            remain = _check_cd(uid, '使用')
+            if remain > 0:
+                return await _edit(message, f"⏳ 使用道具冷却中，还需等待 {remain} 秒。")
+            _set_cd(uid, '使用')
             p = get_and_update_pet(uid)
             if not p:
                 return await _edit(message, "你还没有领养宠物呢！快使用 /领养 [名字] 来领养一只吧。")
@@ -392,6 +435,10 @@ async def setup(ctx):
 
         async def do_interact(action):
             uid = message.from_user.id
+            remain = _check_cd(uid, {'feed':'喂食','play':'玩耍','clean':'清洁'}.get(action, action))
+            if remain > 0:
+                return await _edit(message, f"⏳ 指令冷却中，还需等待 {remain} 秒。")
+            _set_cd(uid, {'feed':'喂食','play':'玩耍','clean':'清洁'}.get(action, action))
             p = get_and_update_pet(uid)
             if not p:
                 return await _edit(message, "你要和谁互动呀？先用 /领养 [名字] 领养一只宠物吧。")
