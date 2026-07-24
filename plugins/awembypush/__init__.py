@@ -38,6 +38,7 @@ __plugin__ = {
     "scope": "bot",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
+    "changelog": "v1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
     "default_enabled": False,
     "webhook": True,
