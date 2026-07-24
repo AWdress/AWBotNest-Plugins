@@ -15,6 +15,7 @@ __plugin__ = {
     "id": "digital_pet",
     "version": "1.4.0",
     "author": "AWdress & Hermes",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "requirements": [],
