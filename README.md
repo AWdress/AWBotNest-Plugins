@@ -227,7 +227,6 @@ async def teardown(ctx):
 
 - 平台注入 `props { pluginId, host }`；`host.getConfig()/saveConfig(v)` 读写配置（仍存平台、插件里 `ctx.config` 可读）、`host.callApi(path,{method,body})` 调后端、`host.toast`。
 - 后端接口用 `@ctx.on_api("/path", methods=[...])` 注册，前端 `host.callApi` 调（管理员登录态鉴权）。
-- **获取会话名称**：插件配置中存储的是群组 ID（如 `-100123456789`），Vue 界面要显示群组名称时，可调用平台 API `/api/chats/{chat_id}`（通过 `host.callApi` 自动携带令牌）。响应 `{id, title, type}`。这是**可选增强**，查询失败时应回退显示 ID。
 - **画布约 1000px、窄屏（≤768px）自动全屏——请用响应式布局（百分比 / 栅格 / 容器查询），不要写死过窄或过宽的固定尺寸，否则窄屏溢出**。参考本仓库 `auto_subscribe`（容器查询 + master-detail）。
 - 完整说明见平台 `PLUGIN_GUIDE.md` 的「Vue 模式」与模板 `plugins/_TEMPLATE_VUE/`。
 
