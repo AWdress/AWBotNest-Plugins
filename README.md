@@ -246,7 +246,6 @@ async def teardown(ctx):
 - 平台是**单进程热插拔**，同一个包只能有一个版本生效。装之前先做冲突检测：已满足→跳过；缺失→装；**已装了不兼容版本→拒绝启用并报原因**，绝不强行覆盖。
 - 注意目标平台的 **Python 版本**：选依赖时确认它支持平台所用版本（平台当前跑 Python 3.13），否则会因无兼容版本装不上而启用失败。
 - 缺失依赖是否致命由插件自己决定：若设计成「缺了就降级」，import 处要容错（参考 `yingchao_redpacket/_ocr.py`：OCR 库缺失时降级，不影响基础功能）。
-- **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置；若手动关了 `trust_env`，请自行读取这些环境变量。
 - **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置（`localhost`/`127.0.0.1` 已排除）；若手动关了 `trust_env`，请自行读取这些环境变量。
 
 ### 5.5 Webhook（接收外部回调）
