@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "AWdress & Hermes",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
@@ -288,7 +288,7 @@ async def setup(ctx):
         ctx.log.info("电子宠物心跳任务完成。")
     
     # 注册定时任务（每小时执行一次）
-    ctx.schedule(pet_heartbeat, cron="0 * * * *")
+    ctx.schedule(pet_heartbeat, "cron", minute="0", id="电子宠物心跳")
 
 
 async def teardown(ctx):
