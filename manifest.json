@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.4.2 放宽 adopt 命令监听条件\n- 将命令监听从 outgoing & text 放宽为 text + target=\"user\"\n- 增加最小调试日志，便于确认消息是否进入插件\n- 优先保证 /adopt 在真实平台消息链路里能命中\n\nv1.4.1 补齐插件本体元数据并修正作者信息\n- 插件本体 __plugin__ 补充 icon 与 changelog，和仓库现有插件范式保持一致\n- 作者字段改回 AWdress，不再错误写入 Hermes\n\nv1.4.0 修复命令不响应并补充插件内 logo\n- 将命令触发从 ctx.filters.command 改为 outgoing+text 后手动解析\n- 对齐 getmsg / self_delete / probe 等稳定插件的命令实现方式",
+    "changelog": "v1.4.3 对齐仓库稳定命令插件写法\n- 修复命令监听：从 filters.text + target=\"user\" 改回 outgoing & text\n- 完全对齐 getmsg / self_delete / probe 等稳定插件的过滤器组合\n- 这是导致命令无效的根本原因：缺少 outgoing 导致消息不命中\n\nv1.4.2 放宽 adopt 命令监听条件\n- 将命令监听从 outgoing & text 放宽为 text + target=\"user\"\n- 增加最小调试日志，便于确认消息是否进入插件\n\nv1.4.1 补齐插件本体元数据并修正作者信息\n- 插件本体 __plugin__ 补充 icon 与 changelog",
     "path": "plugins/digital_pet/"
   }
 }
