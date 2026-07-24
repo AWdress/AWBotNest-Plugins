@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "AWdress & Hermes",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.1.0 ✨ 新增 AI 图像生成 \\n- 查看状态时，会根据宠物物种和心情动态生成一张像素风图片\\n- 优化了状态显示的交互，生成图片时会先发送“加载中”提示\\n\\nv1.0.2 修复定时任务和数据健壮性\\n- 修复因 ctx.schedule 用法错误导致定时心跳不执行的严重 Bug\\n- 增加数据校验，避免因 KV 中数据损坏导致整个插件崩溃\\n\\nv1.0.1 修复插件因缺少 scope 字段而无法加载的问题\\n\\nv1.0.0 初始版本",
+    "changelog": "v1.2.0 🛠️ 重大 Bug 修复和代码重构\n- 修复 Pet.from_dict() 丢失时间戳的严重问题\n- 移除了不存在的 ctx.generate_image API 调用\n- 修复定时任务语法，改用标准 cron 表达式\n- 修复通知 API 使用方式，改用 ctx.bot.send_message\n- 增加 teardown 生命周期函数\n- 完善所有异常捕获和错误处理\n- 优化数据序列化/反序列化逻辑\n- 增加 default_enabled: false 字段\n\nv1.1.0 ✨ 新增 AI 图像生成\n- 查看状态时，会根据宠物物种和心情动态生成一张像素风图片\n\nv1.0.2 修复定时任务和数据健壮性\n- 修复因 ctx.schedule 用法错误导致定时心跳不执行的严重 Bug\n\nv1.0.1 修复插件因缺少 scope 字段而无法加载的问题\n\nv1.0.0 初始版本",
     "path": "plugins/digital_pet/"
   }
 }
