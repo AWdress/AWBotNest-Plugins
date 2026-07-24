@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.5.2",
+    "version": "1.5.3",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
@@ -166,16 +166,6 @@ async def setup(ctx):
         if not text:
             return
         
-        # 诊断模式：任何以 /pet 或 .pet 开头的消息都回显，用于确认插件是否收到消息
-        if text.lower().startswith(("/pet", ".pet")):
-            try:
-                await message.edit(f"[电子宠物诊断] 插件已收到消息: {text[:50]}")
-                ctx.log.info("[电子宠物] 诊断回显成功: %s", text[:50])
-            except Exception as e:
-                ctx.log.error("[电子宠物] 诊断回显失败: %r", e)
-            return
-        
-        ctx.log.info("[电子宠物] 收到命令文本: %s", text[:50])
         adopt_bare = _bare(ctx.config.get("adopt_command", "/adopt"), "adopt")
 
         async def handle_adopt_cmd():
@@ -207,9 +197,8 @@ async def setup(ctx):
                     "/play - 玩耍\n"
                     "/clean - 清洁"
                 )
-                ctx.log.info("[电子宠物] 领养成功: %s", pet_name)
             except Exception as e:
-                ctx.log.error("[电子宠物] handle_adopt_cmd 失败: %r", e)
+                ctx.log.error("[电子宠物] 领养失败: %r", e)
 
         async def handle_status_cmd():
             try:
@@ -235,9 +224,8 @@ async def setup(ctx):
                     f"🧼 清洁度: {'🟥' * int(pet.cleanliness/10)}{'🟩' * (10 - int(pet.cleanliness/10))} [{int(pet.cleanliness)}%]"
                 )
                 await message.edit(status_text)
-                ctx.log.info("[电子宠物] 状态查询成功")
             except Exception as e:
-                ctx.log.error("[电子宠物] handle_status_cmd 失败: %r", e)
+                ctx.log.error("[电子宠物] 状态查询失败: %r", e)
 
         async def _interact(action: str):
             try:
@@ -275,11 +263,11 @@ async def setup(ctx):
                     pet.level += 1
                     pet.xp = 0
                     pet.happiness = min(100, pet.happiness + 20)
+                    await asyncio.sleep(1)
                     await message.edit(f"🎉 **升级了！** 你的 {pet.name} 升到了 **{pet.level}** 级！")
                 await save_pet(user_id, pet)
-                ctx.log.info("[电子宠物] 互动成功: %s", action)
             except Exception as e:
-                ctx.log.error("[电子宠物] _interact(%s) 失败: %r", action, e)
+                ctx.log.error("[电子宠物] 互动失败(%s): %r", action, e)
 
         if _matches(text, adopt_bare):
             await handle_adopt_cmd()

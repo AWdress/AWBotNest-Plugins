@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.5.2",
+    "version": "1.5.3",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.5.2 修复命令无响应的根本原因\n- 将所有 message.reply() 改为 message.edit()\n- 对齐 AWBotNest 用户插件的正确消息响应方式\n- 这是导致 TypeError 的真正原因：reply() 在用户插件里不可用\n\nv1.5.1 增加完整异常捕获和错误日志\n- 所有调用都加了 try-except 和详细日志\n- 成功定位到根本问题",
+    "changelog": "v1.5.3 清理多余调试日志\n- 移除 /pet 诊断命令\n- 移除所有成功操作的 info 日志\n- 仅保留错误日志用于故障排查\n\nv1.5.2 修复命令无响应的根本原因\n- 将所有 message.reply() 改为 message.edit()\n- 对齐 AWBotNest 用户插件的正确消息响应方式",
     "path": "plugins/digital_pet/"
   }
 }
