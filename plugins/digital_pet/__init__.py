@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
@@ -160,9 +160,12 @@ async def setup(ctx):
         head = text.split(maxsplit=1)[0].lower() if text else ""
         return head in (f"/{bare}", f".{bare}")
 
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-12)
+    @ctx.on_message(ctx.filters.text, group=-12, target="user")
     async def pet_commands(client, message):
-        text = message.text or ""
+        text = (getattr(message, "text", None) or "").strip()
+        if not text:
+            return
+        ctx.log.info("[电子宠物] 收到文本: %s", text)
         adopt_bare = _bare(ctx.config.get("adopt_command", "/adopt"), "adopt")
 
         async def handle_adopt_cmd():
