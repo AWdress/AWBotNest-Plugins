@@ -176,6 +176,37 @@ async def teardown(ctx):
 
 > 多条规则/不定条数内容，优先用 `list` 字段（可增删行、每行一组表单，用户一看就懂）；来源/目标这类会话选 `chat` 选择器，免手填 id。
 
+#### 推荐排版规范
+
+配置弹窗采用 **12 列栅格系统**（桌面约 1000px 宽，窄屏自动全屏）。
+
+**自动布局（默认）**：
+- 未指定 `cols` 时，大字段（`text`/`list`/`multiselect`/`chat`）自动占 12 列（整行）
+- 短字段（`string`/`password`/`number`/`boolean`/`select`/`slider`）自动占 6 列（半行，两两并排）
+
+**推荐排版**：
+```python
+"config_schema": {
+    # ✅ 推荐：所有开关并排在最上面（用 cols 控制），配合 order 确保优先显示
+    "enable_plugin": {"type": "boolean", "label": "启用插件", "cols": 3, "order": 1, "section": "功能开关"},
+    "auto_delete":   {"type": "boolean", "label": "自动删除", "cols": 3, "order": 2, "section": "功能开关"},
+    "send_notify":   {"type": "boolean", "label": "发送通知", "cols": 3, "order": 3, "section": "功能开关"},
+    "debug_mode":    {"type": "boolean", "label": "调试模式", "cols": 3, "order": 4, "section": "功能开关"},
+    
+    # 其他参数字段跟在后面（order 从 10 开始，给开关预留空间）
+    "api_key":       {"type": "password", "label": "API密钥", "order": 10, "section": "基本配置"},
+    "interval":      {"type": "slider", "label": "间隔(分钟)", "min": 1, "max": 60, "default": 10, "order": 11, "section": "基本配置"},
+}
+```
+
+**常用布局组合**：
+- `6 + 6`：两个字段并排（半行）
+- `4 + 4 + 4`：三个字段并排（三等分）
+- `8 + 4`：主要字段 + 辅助字段
+- `3 + 3 + 3 + 3`：四个开关并排
+
+**移动端适配**：窄屏（≤768px）自动回退单列布局，`cols` 设置失效，所有字段占满宽。
+
 排版建议：先用 `section` 分成少量语义明确的卡片，再用 `order` 固定阅读顺序；同一行优先使用 `6+6`、`4+4+4` 或 `8+4`，避免为了填满一行把长文本、列表和会话选择器压窄。
 
 ### 4.5 Vue 模式（自带界面，进阶）
