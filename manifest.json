@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.5.4",
+    "version": "1.6.1",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v1.5.4 增加回复消息自动删除功能\n- 所有插件回复都改为发出后按配置延时自动删除\n- 新增“自动删除插件回复”开关和“回复消息保留时间”配置项\n\nv1.5.3 参照示例文件修复命令无响应的根本原因\n- 移除对 ctx.kv 的所有 await 调用，对齐平台KV接口\n- 确保命令监听器使用正确的 filters.outgoing & filters.text",
+    "changelog": "v1.6.1 同步本地最终可用版\n- 命令彻底中文化，只保留中文命令：领养、状态、喂食、玩耍、清洁\n- 玩法说明补充 / 和 . 两种前缀写法\n- 移除多余的“领养命令”配置输入框，只保留玩法说明\n- 保留自动删除回复、定时状态提醒等功能\n\nv1.5.4 增加回复消息自动删除功能\n- 所有插件回复都改为发出后按配置延时自动删除\n- 新增自动删除插件回复开关和回复消息保留时间配置项",
     "path": "plugins/digital_pet/"
   }
 }
