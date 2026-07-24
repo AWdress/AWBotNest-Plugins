@@ -42,7 +42,7 @@ __plugin__ = {
     "scope": "user",           # 必填：user(用户账号) | bot(机器人) | both
     "author": "你",            # 可选
     "description": "干啥的",    # 可选
-    "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 必填：详情页展示的版本更新说明
+    "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 推荐与 manifest 同步维护
     "icon": "",                # 可选：图标 URL，前端卡片用；留空回退平台 logo
     "default_enabled": False,  # 可选：放入本地 plugins/ 时是否默认启用
     "webhook": False,          # 可选：声明 True 才能用 @ctx.on_webhook 接收外部回调
@@ -63,7 +63,9 @@ async def teardown(ctx):
     pass
 ```
 
-`changelog` 是发布必填项。新插件写初始版本内容；以后每次更新都要在保留有价值历史的同时，把当前版本的新增、修复和破坏性变化写在最前面，并与 `version`、`manifest.json` 同步更新。
+> 补充：在平台契约层面，`message.reply(...)` 是允许且官方示例里存在的；但在某些用户账号链路/具体插件模式下，`message.edit(...)` 可能更稳定。开发时优先参考 1–3 个当前仓库里已工作的相似插件写法，不要只凭记忆强推某一种发送方式。
+
+`changelog` 在平台本体里不是硬性必填字段，但**在插件商店/市场仓库发布时应视为必填元数据**。新插件写初始版本内容；以后每次更新都要在保留有价值历史的同时，把当前版本的新增、修复和破坏性变化写在最前面，并与 `version`、`manifest.json` 同步更新。
 
 ### 2. 两种形态
 
@@ -244,6 +246,7 @@ async def teardown(ctx):
 - 平台是**单进程热插拔**，同一个包只能有一个版本生效。装之前先做冲突检测：已满足→跳过；缺失→装；**已装了不兼容版本→拒绝启用并报原因**，绝不强行覆盖。
 - 注意目标平台的 **Python 版本**：选依赖时确认它支持平台所用版本（平台当前跑 Python 3.13），否则会因无兼容版本装不上而启用失败。
 - 缺失依赖是否致命由插件自己决定：若设计成「缺了就降级」，import 处要容错（参考 `yingchao_redpacket/_ocr.py`：OCR 库缺失时降级，不影响基础功能）。
+- **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置；若手动关了 `trust_env`，请自行读取这些环境变量。
 - **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置（`localhost`/`127.0.0.1` 已排除）；若手动关了 `trust_env`，请自行读取这些环境变量。
 
 ### 5.5 Webhook（接收外部回调）
