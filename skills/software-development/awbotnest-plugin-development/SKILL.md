@@ -141,6 +141,8 @@ Place a Vite module-federation project in `frontend/` and expose `./Config`. The
 
 Register backend endpoints with `@ctx.on_api("/path", methods=[...])`. Use `req.json` according to the current platform guide; do not invent a separate configuration endpoint when `host.saveConfig` already exists.
 
+To display group names instead of numeric IDs in Vue interfaces, call `/api/chats/{chat_id}` from the plugin backend using `httpx` with an admin Bearer token. The response is `{id, title, type}`. Fall back to displaying the ID if the query fails.
+
 Before publishing, run `npm run build` and commit `frontend/dist/`. Ensure `.gitignore` does not exclude `dist`. Use responsive layouts for the roughly 1000px desktop canvas and narrow full-screen mode.
 
 ## Store state and files correctly
