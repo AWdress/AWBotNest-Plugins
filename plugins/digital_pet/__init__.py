@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "author": "AWdress & Hermes",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
@@ -341,7 +341,14 @@ async def setup(ctx):
     except (ValueError, TypeError):
         interval = 60
     interval = max(10, min(interval, 360))
-    ctx.schedule(pet_heartbeat, "cron", minute=f"*/{interval}", id="电子宠物心跳")
+
+    if interval < 60:
+        ctx.schedule(pet_heartbeat, "cron", minute=f"*/{interval}", id="电子宠物心跳")
+    elif interval == 60:
+        ctx.schedule(pet_heartbeat, "cron", minute="0", id="电子宠物心跳")
+    else:
+        hours = max(1, interval // 60)
+        ctx.schedule(pet_heartbeat, "cron", hour=f"*/{hours}", minute="0", id="电子宠物心跳")
 
 
 async def teardown(ctx):
