@@ -24,26 +24,27 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
-        "groups": {
-            "type": "chat", "default": [], "label": "监听群组", "multi": True,
-            "chat_types": ["group", "channel"], "section": "参与范围",
-            "help": "勾选要参与抽奖的群/频道；留空 = 所有群都参与。",
-        },
         "auto_join": {
             "type": "boolean", "default": False, "label": "自动加入要求的群/频道",
-            "section": "参与范围", "help": "抽奖要求先加群时，是否自动加入。关闭则遇到加群要求就跳过。",
-        },
-        "wait_min": {
-            "type": "slider", "default": 25, "label": "参与前最短等待(秒)",
-            "min": 0, "max": 300, "step": 5, "section": "等待策略",
-        },
-        "wait_max": {
-            "type": "slider", "default": 65, "label": "参与前最长等待(秒)",
-            "min": 5, "max": 600, "step": 5, "section": "等待策略",
+            "cols": 3, "order": 1, "section": "功能开关",
+            "help": "抽奖要求先加群时，是否自动加入。关闭则遇到加群要求就跳过。",
         },
         "notify_owner": {
             "type": "boolean", "default": True, "label": "参与结果通知我",
-            "section": "通知",
+            "cols": 3, "order": 2, "section": "功能开关",
+        },
+        "groups": {
+            "type": "chat", "default": [], "label": "监听群组", "multi": True,
+            "chat_types": ["group", "channel"], "order": 10, "section": "参与范围",
+            "help": "勾选要参与抽奖的群/频道；留空 = 所有群都参与。",
+        },
+        "wait_min": {
+            "type": "slider", "default": 25, "label": "参与前最短等待(秒)",
+            "min": 0, "max": 300, "step": 5, "order": 20, "section": "等待策略",
+        },
+        "wait_max": {
+            "type": "slider", "default": 65, "label": "参与前最长等待(秒)",
+            "min": 5, "max": 600, "step": 5, "order": 21, "section": "等待策略",
         },
     },
 }

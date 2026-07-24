@@ -18,15 +18,18 @@ __plugin__ = {
     "config_schema": {
         "source_chat_id": {
             "type": "string", "default": "-1002466900287", "label": "来源会话ID",
-            "section": "来源", "help": "监听哪个会话里机器人发的列表消息。",
+            "section": "基本配置", "help": "监听哪个会话里机器人发的列表消息。",
+            "order": 10, "cols": 6,
         },
         "target_chat_id": {
             "type": "string", "default": "", "label": "转发到会话ID",
-            "section": "目标", "help": "把列表消息转发到这个会话（群/频道ID或@用户名）。留空则不转发。",
+            "section": "基本配置", "help": "把列表消息转发到这个会话（群/频道ID或@用户名）。留空则不转发。",
+            "order": 11, "cols": 6,
         },
         "keyword": {
             "type": "string", "default": "列表", "label": "触发关键词",
-            "section": "匹配条件", "help": "消息含此关键词才转发。",
+            "section": "基本配置", "help": "消息含此关键词才转发。",
+            "order": 12, "cols": 6,
         },
     },
 }

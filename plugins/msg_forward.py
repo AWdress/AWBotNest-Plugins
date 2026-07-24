@@ -21,15 +21,18 @@ __plugin__ = {
     "default_enabled": False,
     "config_schema": {
         "enable": {
-            "type": "boolean", "default": False, "label": "启用转发", "section": "常规",
+            "type": "boolean", "default": False, "label": "启用转发",
+            "cols": 3, "order": 1, "section": "功能开关",
             "help": "总开关。关闭后不转发任何消息。",
         },
         "forward_album": {
-            "type": "boolean", "default": True, "label": "整组转发相册", "section": "常规",
+            "type": "boolean", "default": True, "label": "整组转发相册",
+            "cols": 3, "order": 2, "section": "功能开关",
             "help": "相册（多图/多视频）整组一起转；关闭则每个文件单独转。",
         },
         "rules": {
-            "type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "规则",
+            "type": "list", "default": [], "label": "转发规则", "item_label": "规则",
+            "order": 10, "section": "规则",
             "fields": {
                 "source": {"type": "string", "label": "来源会话",
                            "help": "填 -100 开头的会话ID 或 @用户名"},

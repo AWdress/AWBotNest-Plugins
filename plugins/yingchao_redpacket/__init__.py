@@ -31,40 +31,46 @@ __plugin__ = {
     "config_schema": {
         "token_enabled": {
             "type": "boolean", "default": False, "label": "启用口令红包监控",
-            "section": "口令红包",
+            "cols": 3, "order": 1, "section": "功能开关",
             "help": "监控指定发包人发的「口令红包」（图片/文档口令），OCR识别或复制他人口令参与。属影巢测试功能。",
-        },
-        "token_targets": {
-            "type": "text", "default": "", "label": "监控发包人",
-            "section": "口令红包", "show_if": {"token_enabled": True},
-            "help": "一行一个，格式 `用户ID 备注` 或 `用户ID`。只抢这些人发的口令红包。",
-        },
-        "token_join_delay": {
-            "type": "slider", "default": 0, "label": "参与延迟(秒)",
-            "min": 0, "max": 60, "step": 1, "section": "口令红包",
-            "show_if": {"token_enabled": True},
-            "help": "识别/复制到口令后等待多少秒再发送，0=立即。",
         },
         "token_ocr_enabled": {
             "type": "boolean", "default": False, "label": "启用OCR识别图片口令",
-            "section": "口令红包", "show_if": {"token_enabled": True},
+            "cols": 3, "order": 2, "section": "功能开关",
+            "show_if": {"token_enabled": True},
             "help": "开启则用 ddddocr 识别图片口令自动参与（识别率较低，失败自动退回复制模式）；关闭则只复制他人已确认的口令（更稳）。需安装 ddddocr，未安装时自动降级为复制模式。",
         },
         "token_trap_detection": {
             "type": "boolean", "default": True, "label": "口令陷阱检测",
-            "section": "口令红包", "show_if": {"token_enabled": True},
+            "cols": 3, "order": 3, "section": "功能开关",
+            "show_if": {"token_enabled": True},
             "help": "发送口令前检查危险/可疑关键词。命令前缀与注入字符始终拦截，不受此开关影响。",
+        },
+        "notify_owner": {
+            "type": "boolean", "default": True, "label": "抢包结果通知我",
+            "cols": 3, "order": 4, "section": "功能开关",
+            "help": "抢到/拦截/失败时用机器人通知平台主人。",
+        },
+        "token_targets": {
+            "type": "text", "default": "", "label": "监控发包人",
+            "order": 10, "section": "参数配置",
+            "show_if": {"token_enabled": True},
+            "help": "一行一个，格式 `用户ID 备注` 或 `用户ID`。只抢这些人发的口令红包。",
+        },
+        "token_join_delay": {
+            "type": "slider", "default": 0, "label": "参与延迟(秒)",
+            "min": 0, "max": 60, "step": 1,
+            "order": 11, "section": "参数配置",
+            "show_if": {"token_enabled": True},
+            "help": "识别/复制到口令后等待多少秒再发送，0=立即。",
         },
         "token_trap_keywords": {
             "type": "text",
             "default": "脚本,挂,机器人,外挂,bot,自动,作弊,封禁,封号,ban,banned,封,禁,script,auto,cheat,hack,fake,test,block",
-            "label": "陷阱关键词", "section": "口令红包",
+            "label": "陷阱关键词",
+            "order": 12, "section": "参数配置",
             "show_if": {"token_enabled": True},
             "help": "逗号或换行分隔。口令命中其中任一关键词则拒绝发送。",
-        },
-        "notify_owner": {
-            "type": "boolean", "default": True, "label": "抢包结果通知我",
-            "section": "通用", "help": "抢到/拦截/失败时用机器人通知平台主人。",
         },
     },
 }

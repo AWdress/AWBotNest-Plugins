@@ -18,18 +18,20 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
+        "delete_command": {
+            "type": "boolean", "default": True, "label": "删除命令消息",
+            "cols": 3, "order": 1, "section": "功能开关",
+            "help": "查询后是否删除你发出的 /id 命令本身。",
+        },
         "command": {
             "type": "string", "default": ".id", "label": "触发命令",
-            "section": "命令", "help": "自己发出、以此开头的消息会触发。/id 与 .id 等价均可识别。",
+            "order": 10, "section": "命令",
+            "help": "自己发出、以此开头的消息会触发。/id 与 .id 等价均可识别。",
         },
         "auto_delete": {
             "type": "slider", "default": 20, "label": "结果自动删除(秒)",
-            "min": 0, "max": 120, "step": 5, "section": "自动清理",
+            "min": 0, "max": 120, "step": 5, "order": 11, "section": "自动清理",
             "help": "查询结果多少秒后自动删除；0 表示不删除。",
-        },
-        "delete_command": {
-            "type": "boolean", "default": True, "label": "删除命令消息",
-            "section": "自动清理", "help": "查询后是否删除你发出的 /id 命令本身。",
         },
     },
 }

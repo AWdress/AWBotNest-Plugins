@@ -43,24 +43,25 @@ __plugin__ = {
     "config_schema": {
         "dyp_enabled": {
             "type": "boolean", "default": False, "label": "启用癫影积分红包",
-            "section": "癫影积分红包",
+            "cols": 3, "order": 1, "section": "功能开关",
             "help": "癫影小助手发的积分红包，逐个点击未抢数字按钮（1~9 已抢的跳过）。现为混合红包（暗含 N 个雷包），照抢、赌不中雷。",
+        },
+        "notify_owner": {
+            "type": "boolean", "default": True, "label": "抢到/踩雷时通知我",
+            "cols": 3, "order": 2, "section": "功能开关",
+            "help": "抢到红包或踩雷时用机器人通知平台主人；未抢到（都被别人抢完）仅记录日志不通知。",
         },
         "dyp_delay": {
             "type": "slider", "default": 0, "label": "点击延迟-最小(秒)",
-            "min": 0, "max": 60, "step": 1, "section": "癫影积分红包",
+            "min": 0, "max": 60, "step": 1, "order": 10, "section": "延迟参数",
             "show_if": {"dyp_enabled": True},
             "help": "抢包前等待的最小秒数。与「点击延迟-最大」配合：最大>最小时在两者间取随机值，别太机械；相等或最大更小则固定等这么久。",
         },
         "dyp_delay_max": {
             "type": "slider", "default": 0, "label": "点击延迟-最大(秒)",
-            "min": 0, "max": 60, "step": 1, "section": "癫影积分红包",
+            "min": 0, "max": 60, "step": 1, "order": 11, "section": "延迟参数",
             "show_if": {"dyp_enabled": True},
             "help": "抢包前等待的最大秒数。填得比「最小」大即启用随机延迟(每次在最小~最大间随机)；填 0 或不大于最小则退化为固定延迟。",
-        },
-        "notify_owner": {
-            "type": "boolean", "default": True, "label": "抢到/踩雷时通知我",
-            "section": "通用", "help": "抢到红包或踩雷时用机器人通知平台主人；未抢到（都被别人抢完）仅记录日志不通知。",
         },
     },
 }

@@ -26,23 +26,28 @@ __plugin__ = {
     "config_schema": {
         "cookie": {
             "type": "password", "default": "", "label": "u2 Cookie",
-            "section": "凭据", "help": "浏览器 F12 复制 u2.dmhy.org 的整条 Cookie 头。",
-        },
-        "cooldown_seconds": {
-            "type": "number", "default": 300, "label": "赠送冷却(秒)",
-            "min": 0, "max": 1200, "section": "限频与清理",
-            "help": "两次赠送的最小间隔（u2 站限频，建议 ≥300）。批量时每个之间也按此间隔。",
+            "section": "凭据", "order": 10,
+            "help": "浏览器 F12 复制 u2.dmhy.org 的整条 Cookie 头。",
         },
         "u2_command": {
             "type": "string", "default": ".u2", "label": "单人命令", "section": "命令",
+            "order": 20,
             "help": "单人赠送命令。/u2 与 .u2 等价。",
         },
         "u2s_command": {
             "type": "string", "default": ".u2s", "label": "批量命令", "section": "命令",
+            "order": 21,
+        },
+        "cooldown_seconds": {
+            "type": "slider", "default": 300, "label": "赠送冷却(秒)",
+            "min": 0, "max": 1200, "step": 10, "section": "限频与清理",
+            "order": 30,
+            "help": "两次赠送的最小间隔（u2 站限频，建议 ≥300）。批量时每个之间也按此间隔。",
         },
         "result_delete": {
             "type": "slider", "default": 90, "label": "结果自动删除(秒)",
             "min": 0, "max": 300, "step": 10, "section": "限频与清理",
+            "order": 31,
         },
     },
 }

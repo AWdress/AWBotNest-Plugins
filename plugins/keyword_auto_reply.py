@@ -22,15 +22,20 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
+        # —— 功能开关（最上方，cols:3, order:1-4）——
         "enabled": {
             "type": "boolean", "default": True, "label": "启用关键词回复",
-            "section": "总开关",
+            "cols": 3, "order": 1, "section": "功能开关",
+        },
+        "midnight_reset": {
+            "type": "boolean", "default": False, "label": "冷却每天零点清零",
+            "cols": 3, "order": 2, "section": "功能开关",
         },
 
-        # —— 规则：逐条添加 ——
+        # —— 规则：逐条添加（order:10+）——
         "rules_text": {
             "type": "list", "default": [], "label": "关键词规则", "item_label": "规则",
-            "section": "规则",
+            "order": 10, "section": "规则",
             "fields": {
                 "keyword": {"type": "string", "label": "关键词"},
                 "reply": {"type": "string", "label": "回复内容"},
@@ -42,36 +47,32 @@ __plugin__ = {
         },
         "match_type": {
             "type": "select", "default": "contains", "label": "匹配方式",
-            "section": "规则",
+            "order": 11, "section": "规则",
             "options": [
                 {"value": "contains", "label": "包含关键词即触发"},
                 {"value": "exact", "label": "消息完全等于关键词才触发"},
             ],
         },
 
-        # —— 范围与冷却 ——
+        # —— 范围与冷却参数（order:20+）——
         "chat_ids": {
             "type": "chat", "default": [], "label": "只在这些群生效（可选）", "multi": True,
-            "chat_types": ["group"], "section": "范围与冷却",
+            "chat_types": ["group"], "order": 20, "section": "范围与冷却",
             "help": "勾选生效的群；留空 = 所有群都生效。",
         },
         "cooldown_hours": {
             "type": "slider", "default": 24, "label": "同一个人冷却(小时)",
-            "min": 0, "max": 72, "step": 1, "section": "范围与冷却",
+            "min": 0, "max": 72, "step": 1, "order": 21, "section": "范围与冷却",
             "help": "同一个人触发后多久内不再回复他。0 = 不限制。",
-        },
-        "midnight_reset": {
-            "type": "boolean", "default": False, "label": "冷却每天零点清零",
-            "section": "范围与冷却",
         },
         "delete_after": {
             "type": "slider", "default": 0, "label": "回复自动删除(秒)",
-            "min": 0, "max": 600, "step": 10, "section": "范围与冷却",
+            "min": 0, "max": 600, "step": 10, "order": 22, "section": "范围与冷却",
             "help": "回复发出后多少秒自动撤回；0 = 不删除。",
         },
         "blacklist_ids": {
             "type": "text", "default": "", "label": "屏蔽用户ID",
-            "section": "范围与冷却",
+            "order": 23, "section": "范围与冷却",
             "help": "这些用户的消息不触发回复。一行一个或逗号分隔的用户ID。",
         },
     },

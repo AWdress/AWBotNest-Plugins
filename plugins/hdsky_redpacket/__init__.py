@@ -30,31 +30,36 @@ __plugin__ = {
     "config_schema": {
         "button_enabled": {
             "type": "boolean", "default": False, "label": "启用拼手气红包",
-            "section": "拼手气红包",
+            "cols": 3, "order": 1, "section": "功能开关",
             "help": "检测「拼手气红包」消息并自动点击「抢红包」内联按钮。",
+        },
+        "button_pre_send": {
+            "type": "boolean", "default": False, "label": "发言占位（/red前）",
+            "cols": 3, "order": 2, "section": "功能开关",
+            "show_if": {"button_enabled": True},
+            "help": "检测到 /red 发包命令时先发一条消息占位（随即删除），应对「限最近发言人」。",
+        },
+        "notify_owner": {
+            "type": "boolean", "default": True, "label": "抢包结果通知我",
+            "cols": 3, "order": 3, "section": "功能开关",
+            "help": "抢到/失败时用机器人通知平台主人。",
         },
         "button_groups": {
             "type": "string", "default": "", "label": "监听群组ID",
-            "section": "拼手气红包", "show_if": {"button_enabled": True},
+            "order": 10, "section": "参数配置",
+            "show_if": {"button_enabled": True},
             "help": "逗号分隔的群组ID，留空=所有群。",
         },
         "button_delay": {
             "type": "slider", "default": 0, "label": "点击延迟(秒)",
-            "min": 0, "max": 60, "step": 1, "section": "拼手气红包",
+            "min": 0, "max": 60, "step": 1,
+            "order": 11, "section": "参数配置",
             "show_if": {"button_enabled": True},
-        },
-        "button_pre_send": {
-            "type": "boolean", "default": False, "label": "发言占位（/red前）",
-            "section": "拼手气红包", "show_if": {"button_enabled": True},
-            "help": "检测到 /red 发包命令时先发一条消息占位（随即删除），应对「限最近发言人」。",
         },
         "button_pre_send_text": {
             "type": "string", "default": ".", "label": "占位消息内容",
-            "section": "拼手气红包", "show_if": {"button_enabled": True},
-        },
-        "notify_owner": {
-            "type": "boolean", "default": True, "label": "抢包结果通知我",
-            "section": "通用", "help": "抢到/失败时用机器人通知平台主人。",
+            "order": 12, "section": "参数配置",
+            "show_if": {"button_enabled": True},
         },
     },
 }

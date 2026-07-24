@@ -22,13 +22,15 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
-        "command": {
-            "type": "string", "default": ".getmsg", "label": "触发命令",
-            "section": "命令", "help": "自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。",
-        },
         "delete_command": {
             "type": "boolean", "default": True, "label": "删除命令消息",
-            "section": "消息处理", "help": "导出后是否删除你发出的 /getmsg 命令本身。",
+            "cols": 3, "order": 1, "section": "功能开关",
+            "help": "导出后是否删除你发出的 /getmsg 命令本身。",
+        },
+        "command": {
+            "type": "string", "default": ".getmsg", "label": "触发命令",
+            "order": 10, "section": "命令",
+            "help": "自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。",
         },
     },
 }
