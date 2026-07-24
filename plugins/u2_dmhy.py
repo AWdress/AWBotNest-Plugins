@@ -16,11 +16,11 @@ import httpx
 __plugin__ = {
     "name": "U2送糖",
     "id": "u2_dmhy",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

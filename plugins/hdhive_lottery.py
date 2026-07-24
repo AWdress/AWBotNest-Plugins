@@ -15,11 +15,11 @@ from random import randint
 __plugin__ = {
     "name": "HDHive抽奖",
     "id": "hdhive_lottery",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {

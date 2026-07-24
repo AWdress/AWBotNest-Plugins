@@ -1,101 +1,101 @@
 {
   "id": {
     "name": "查ID",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/id.py"
   },
   "xjj": {
     "name": "小姐姐视频",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/xjj.py"
   },
   "self_delete": {
     "name": "删除自己消息",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/self_delete.py"
   },
   "zpr": {
     "name": "P站图片",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/zpr.py"
   },
   "keyword_auto_reply": {
     "name": "关键词自动回复",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "path": "plugins/keyword_auto_reply.py"
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.11 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/custom_auto_reply.py"
   },
   "jupai": {
     "name": "举牌",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/jupai.py"
   },
   "zf": {
     "name": "转发复读",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/zf.py"
   },
   "getmsg": {
     "name": "取消息结构",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/getmsg.py"
   },
   "probe": {
     "name": "插件开发探针",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/probe.py"
   },
   "auto_changename": {
     "name": "自动报时昵称",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/auto_changename.py"
   },
   "ai": {
@@ -109,11 +109,11 @@
   },
   "hdhive_lottery": {
     "name": "HDHive抽奖",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
     "path": "plugins/hdhive_lottery.py"
   },
   "hdhive_quiz": {
@@ -127,11 +127,11 @@
   },
   "trans115search": {
     "name": "115搜索结果转发",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/trans115search.py"
   },
   "movie_monitor_115": {
@@ -145,11 +145,11 @@
   },
   "msg_forward": {
     "name": "消息转发",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型/关键词/发送者过滤、原生转发或复制搬运。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
-    "changelog": "v1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/msg_forward.py"
   },
   "quiz_game": {
@@ -181,29 +181,29 @@
   },
   "hdsky_redpacket": {
     "name": "拼手气红包(HDSKY)",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "监控天空(HDSKY)群拼手气红包，自动点击「抢红包」按钮。可选 /red 占位发言应对「限最近发言人」。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.5 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/hdsky_redpacket/"
   },
   "dyp_redpacket": {
     "name": "癫影积分红包",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "author": "AWdress",
     "description": "监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg",
-    "changelog": "v1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
+    "changelog": "v1.2.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
     "path": "plugins/dyp_redpacket/"
   },
   "yingchao_redpacket": {
     "name": "影巢口令红包（测试）",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/yingchao_redpacket/"
   },
   "red_packet_grab": {
@@ -235,20 +235,20 @@
   },
   "auto_avatar": {
     "name": "自动换头像",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "定时把账号头像换成图片池里随机一张。回复图片发 .avataradd 加入池子，.avatarlist/.avatarclear 管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/auto_avatar.py"
   },
   "u2_dmhy": {
     "name": "U2送糖",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却，可走代理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/u2_dmhy.py"
   },
   "red_packet_send": {
@@ -262,11 +262,11 @@
   },
   "common_lottery": {
     "name": "通用抽奖",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
-    "changelog": "v1.0.6 更新插件 Logo\n- 使用通用抽奖专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.7 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.6 更新插件 Logo\n- 使用通用抽奖专属图片作为插件卡片与市场图标",
     "path": "plugins/common_lottery.py"
   },
   "awembypush": {
@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "author": "AWdress",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
+    "changelog": "v2.1.1 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
     "path": "plugins/digital_pet/"
   }
 }
