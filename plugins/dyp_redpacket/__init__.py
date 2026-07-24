@@ -33,13 +33,13 @@ from ._snatch import (
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "description": "监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg",
-    "changelog": "v1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
+    "changelog": "v1.2.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
     "config_schema": {
         "dyp_enabled": {
             "type": "boolean", "default": False, "label": "启用癫影积分红包",
