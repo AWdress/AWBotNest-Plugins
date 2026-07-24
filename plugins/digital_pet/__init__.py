@@ -12,7 +12,7 @@ from dataclasses import dataclass, asdict, field
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "author": "AWdress & Hermes",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
@@ -147,22 +147,48 @@ async def setup(ctx):
     @ctx.on_message(ctx.filters.command("status", prefixes="/."))
     async def handle_status(client, message):
         user_id = message.from_user.id
+        
+        # 发送一个“正在加载”的提示，提升体验
+        loading_message = await message.reply("正在生成宠物状态图，请稍候...")
+
         pet = await get_and_update_pet(user_id)
 
         if not pet:
-            await message.reply("你还没有领养宠物呢！快使用 /adopt [名字] 来领养一只吧。")
+            await loading_message.edit("你还没有领养宠物呢！快使用 /adopt [名字] 来领养一只吧。")
             return
         
         await save_pet(user_id, pet) # 保存更新后的状态
 
-        mood_emoji = "😊"
+        # --- 动态生成 Prompt ---
+        mood = "happy"
         if pet.happiness < 30 or pet.hunger > 70:
-            mood_emoji = "😟"
+            mood = "sad"
         if pet.happiness < 10 or pet.hunger > 90:
-            mood_emoji = "😭"
+            mood = "crying"
+        
+        # 移除物种中的 emoji
+        species_clean = pet.species.split(" ")[0]
+        
+        prompt = (
+            f"a cute {species_clean}, digital pet, pixel art, {mood} expression, "
+            f"simple white background, 8-bit, nostalgic, tamagotchi style"
+        )
 
+        # --- 生成图片 ---
+        image_url = None
+        # 假设平台提供了 ctx.generate_image, 如果没有，则会 gracefully fallback
+        if hasattr(ctx, 'generate_image') and callable(ctx.generate_image):
+            try:
+                # 增加超时以防万一
+                image_url = await asyncio.wait_for(ctx.generate_image(prompt), timeout=60)
+            except (asyncio.TimeoutError, Exception) as e:
+                ctx.log.warning(f"宠物图片生成失败: {e}")
+        else:
+            ctx.log.info("ctx.generate_image 不可用，跳过图片生成。")
+
+
+        # --- 组合并发送最终消息 ---
         status_text = (
-            f"**宠物状态** {mood_emoji}\n\n"
             f"名字: **{pet.name}**\n"
             f"物种: {pet.species}\n"
             f"等级: **{pet.level}** (XP: {int(pet.xp)}/{pet.level * 100})\n"
@@ -171,7 +197,18 @@ async def setup(ctx):
             f"🍖 饥饿度: {'🟥' * int(pet.hunger/10)}{'🟩' * (10 - int(pet.hunger/10))} [{int(pet.hunger)}%]\n"
             f"🧼 清洁度: {'🟥' * int(pet.cleanliness/10)}{'🟩' * (10 - int(pet.cleanliness/10))} [{int(pet.cleanliness)}%]"
         )
-        await message.reply(status_text)
+
+        if image_url:
+            # 如果有图片，图文一起发送
+            await client.send_photo(
+                chat_id=message.chat.id,
+                photo=image_url,
+                caption=status_text
+            )
+            await loading_message.delete() # 删除“正在加载”提示
+        else:
+            # 如果没有图片，编辑原消息
+            await loading_message.edit(f"**宠物状态**\n\n{status_text}")
 
     async def interact(message, action: str):
         user_id = message.from_user.id
