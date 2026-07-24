@@ -14,6 +14,7 @@ __plugin__ = {
     "id": "digital_pet",
     "version": "1.0.0",
     "author": "AWdress & Hermes",
+    "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
     "requirements": [], # V1 无需额外依赖
 }

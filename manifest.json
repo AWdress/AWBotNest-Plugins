@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress & Hermes",
     "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.0.0 初始版本\\n- 支持领养、状态查看\\n- 支持喂食、玩耍、清洁等核心互动\\n- 实现经验值和升级系统\\n- 实现后台自动状态变化（心跳）和低状态告警",
+    "changelog": "v1.0.1 修复插件因缺少 scope 字段而无法加载的问题\\n\\nv1.0.0 初始版本\\n- 支持领养、状态查看\\n- 支持喂食、玩耍、清洁等核心互动\\n- 实现经验值和升级系统\\n- 实现后台自动状态变化（心跳）和低状态告警",
     "path": "plugins/digital_pet/"
   }
 }
