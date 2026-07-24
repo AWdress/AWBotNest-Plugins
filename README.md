@@ -89,6 +89,11 @@ async def teardown(ctx):
 | 通知平台主人 | `await ctx.notify(text, level=, category=, account=)`（平台自动加插件名/级别图标/账号名并投递；别自己拼格式或用 `ctx.bot.send`） |
 | 主人 ID | `ctx.owner_id`（平台主人 Telegram 数字 ID，无主账号为 0） |
 | 配置 | `ctx.config["字段名"]`（每次读取都是前端最新值） |
+| 写回配置 | `ctx.update_config({"key": val})`（局部合并写回本插件配置，**不触发重载**；用于持久化运行状态或把状态回填到 `info` 字段供前端展示） |
+| 下载媒体 | `await ctx.download(message, subdir=None)`（下载消息媒体到本插件目录，返回落盘 `Path`；无媒体抛 `ValueError`） |
+| 浏览器自动化 | `await ctx.browser.page_source(url, ...)`（渲染后 HTML）/ `await ctx.browser.run(url, action, ...)`（传同步 `action(page)` 执行并返回结果；引擎优先 CloakBrowser，回退 Playwright Chromium；首次调用下载内核到 `data/browser_cache`） |
+| 动作按钮 | `@ctx.action("名")`（注册动作按钮处理器，`config_schema` 里 `type:action` 的按钮点击触发；返回 dict(含 `ok`/`message`) / str / None） |
+| Vue后端接口 | `@ctx.on_api("/path", methods=[...])`（Vue 模式后端接口，前端 `host.callApi` 调；管理员登录态鉴权，收 `WebhookRequest`，返回 dict/str/None） |
 | 键值存储 | `ctx.kv.get/set/delete/keys`（每插件独立 sqlite，互不干扰） |
 | 文件目录 | `ctx.data_dir`（`Path`，每插件独享可写目录，存图片/素材等实际文件） |
 | 日志 | `ctx.log.info/debug/warning/error` |
@@ -133,6 +138,20 @@ async def teardown(ctx):
     "test":     {"type": "action", "label": "测试连接", "action": "test", "section": "会话"},
 }
 ```
+
+**字段类型速查**：
+- `boolean`：开关功能
+- `string`：短文本输入（关键词、API地址、用户名）
+- `password`：敏感信息（API密钥、Token、密码）
+- `number`：精确数值（端口号、重试次数、ID）
+- `slider`：**有范围的数值调节**（延迟秒数、音量、透明度、百分比）—— 数值范围调节优先用 `slider` 而非 `number`，用户体验更直观
+- `select`：单选下拉（模式选择、日志级别）
+- `multiselect`：多选标签（通知类型、过滤标签）
+- `text`：多行长文本（消息模板、脚本、JSON配置）
+- `list`：可增删的列表（规则列表、白名单、定时任务）
+- `chat`：会话选择器（转发到的群组、通知频道）
+- `info`：只读说明（使用提示、当前状态显示）
+- `action`：操作按钮（测试连接、立即执行、清空缓存）
 
 字段属性：
 - `type`：`string` / `password` / `number` / `boolean` / `select` / `multiselect` / `slider` / `text`(多行) / `list` / `chat` / `action` / `info`
