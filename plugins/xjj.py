@@ -21,20 +21,24 @@ __plugin__ = {
         "command": {
             "type": "string", "default": ".xjj", "label": "触发命令",
             "section": "命令", "help": "自己发出、以此开头的消息会触发。/xjj 与 .xjj 等价。",
+            "order": 10,
         },
         "api_url": {
             "type": "string",
             "default": "http://47.115.231.249/API/sjsp/api.php?msg=热舞",
             "label": "视频接口地址", "section": "接口",
             "help": "返回 JSON 且含视频直链的接口。",
+            "order": 20,
         },
         "video_key": {
             "type": "string", "default": "url", "label": "直链字段名",
             "section": "接口", "help": "接口返回 JSON 中视频直链所在的字段（支持顶层或 data 下）。",
+            "order": 21,
         },
         "timeout": {
             "type": "slider", "default": 15, "label": "请求超时(秒)",
             "min": 5, "max": 60, "step": 5, "section": "接口",
+            "order": 22,
         },
     },
 }

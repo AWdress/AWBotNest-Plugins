@@ -22,16 +22,16 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".zf", "label": "触发命令",
-            "section": "命令", "help": "自己发出、以此开头的消息会触发。/zf 与 .zf 等价。",
+            "section": "命令", "order": 10, "help": "自己发出、以此开头的消息会触发。/zf 与 .zf 等价。",
         },
         "interval": {
             "type": "slider", "default": 0.3, "label": "每次间隔(秒)",
-            "min": 0, "max": 5, "step": 0.1, "section": "重复限制",
+            "min": 0, "max": 5, "step": 0.1, "section": "重复限制", "order": 20,
             "help": "多次转发时每次之间的间隔，避免过快触发限流。",
         },
         "max_times": {
             "type": "number", "default": 50, "label": "最多次数",
-            "min": 1, "max": 500, "section": "重复限制", "help": "单次命令允许的最大转发次数。",
+            "min": 1, "max": 500, "section": "重复限制", "order": 21, "help": "单次命令允许的最大转发次数。",
         },
     },
 }

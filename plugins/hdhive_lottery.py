@@ -23,18 +23,19 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
+        "notify_owner": {
+            "type": "boolean", "default": True, "label": "参与/中奖通知我",
+            "cols": 3, "order": 1, "section": "功能开关",
+            "help": "参与成功、失败、中奖时用机器人通知平台主人。",
+        },
         "wait_min": {
             "type": "slider", "default": 25, "label": "参与前最短等待(秒)",
-            "min": 0, "max": 300, "step": 5, "section": "等待策略",
+            "min": 0, "max": 300, "step": 5, "order": 10, "section": "等待策略",
             "help": "收到抽奖后随机等待区间下限，避免秒回显得像机器人。",
         },
         "wait_max": {
             "type": "slider", "default": 65, "label": "参与前最长等待(秒)",
-            "min": 5, "max": 600, "step": 5, "section": "等待策略",
-        },
-        "notify_owner": {
-            "type": "boolean", "default": True, "label": "参与/中奖通知我",
-            "section": "通知", "help": "参与成功、失败、中奖时用机器人通知平台主人。",
+            "min": 5, "max": 600, "step": 5, "order": 11, "section": "等待策略",
         },
     },
 }

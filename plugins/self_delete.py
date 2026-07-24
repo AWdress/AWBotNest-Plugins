@@ -21,11 +21,12 @@ __plugin__ = {
     "config_schema": {
         "command": {
             "type": "string", "default": ".dme", "label": "触发命令",
-            "section": "命令", "help": "自己发出、以此开头的消息会触发。/dme 与 .dme 等价。",
+            "section": "基础配置", "order": 10,
+            "help": "自己发出、以此开头的消息会触发。/dme 与 .dme 等价。",
         },
         "tip_seconds": {
             "type": "slider", "default": 2, "label": "提示停留(秒)",
-            "min": 0, "max": 10, "step": 1, "section": "完成提示",
+            "min": 0, "max": 10, "step": 1, "section": "基础配置", "order": 11,
             "help": "删除完成后的「已删除 N 条」提示停留多少秒再消失。",
         },
     },

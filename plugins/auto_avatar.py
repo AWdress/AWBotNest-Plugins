@@ -26,24 +26,28 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
-        "interval_min": {
-            "type": "slider", "default": 60, "label": "换头像间隔(分钟)",
-            "min": 10, "max": 1440, "step": 10, "section": "头像轮换",
-            "help": "每隔多少分钟随机换一次。最小 10 分钟，防 Telegram 限流。改这个值后需「重载」插件生效。",
-        },
         "delete_old": {
             "type": "boolean", "default": True, "label": "删除旧头像",
-            "section": "头像轮换", "help": "换新头像后删掉本插件上次设的那张（不动你原有的真实头像）。",
+            "cols": 3, "order": 1, "section": "功能开关",
+            "help": "换新头像后删掉本插件上次设的那张（不动你原有的真实头像）。",
+        },
+        "interval_min": {
+            "type": "slider", "default": 60, "label": "换头像间隔(分钟)",
+            "min": 10, "max": 1440, "step": 10, "order": 10, "section": "头像轮换",
+            "help": "每隔多少分钟随机换一次。最小 10 分钟，防 Telegram 限流。改这个值后需「重载」插件生效。",
         },
         "add_command": {
             "type": "string", "default": ".avataradd", "label": "加图命令",
-            "section": "图片池命令", "help": "回复图片或发图带此说明，把图存入池子。",
+            "order": 20, "section": "图片池命令",
+            "help": "回复图片或发图带此说明，把图存入池子。",
         },
         "list_command": {
-            "type": "string", "default": ".avatarlist", "label": "查看命令", "section": "图片池命令",
+            "type": "string", "default": ".avatarlist", "label": "查看命令",
+            "order": 21, "section": "图片池命令",
         },
         "clear_command": {
-            "type": "string", "default": ".avatarclear", "label": "清空命令", "section": "图片池命令",
+            "type": "string", "default": ".avatarclear", "label": "清空命令",
+            "order": 22, "section": "图片池命令",
         },
     },
 }

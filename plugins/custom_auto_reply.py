@@ -16,10 +16,17 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
+        # —— 功能开关 ——
+        "notify_owner": {
+            "type": "boolean", "default": False, "label": "把结果通知给我",
+            "section": "功能开关", "cols": 3, "order": 1,
+            "help": "每次发送成功/失败后，平台用机器人私聊你（或发到你账号的收藏夹）报一条。无需填ID。",
+        },
+
         # —— 必填：发给谁、发什么（逐条添加）——
         "target_chat_id": {
             "type": "list", "default": [], "label": "定时规则", "item_label": "规则",
-            "section": "发送内容",
+            "section": "发送内容", "order": 10,
             "fields": {
                 "chat": {"type": "string", "label": "会话",
                          "help": "群/频道ID(形如 -1001234567890)或 @用户名，不知道可用「查ID」插件"},
@@ -32,14 +39,14 @@ __plugin__ = {
         },
         "message": {
             "type": "text", "default": "", "label": "默认消息（可选）",
-            "section": "发送内容",
+            "section": "发送内容", "order": 11,
             "help": "对没单独写内容的会话使用这条。所有会话都各自写了内容时可留空。",
         },
 
         # —— 默认时间（对没单独写时间的行生效）——
         "frequency": {
             "type": "select", "default": "daily", "label": "默认发送频率",
-            "section": "默认时间",
+            "section": "默认时间", "order": 20,
             "options": [
                 {"value": "daily", "label": "每天定点（每天一次）"},
                 {"value": "hours", "label": "每隔几小时循环发"},
@@ -50,35 +57,28 @@ __plugin__ = {
         },
         "daily_hour": {
             "type": "slider", "default": 9, "label": "每天几点", "min": 0, "max": 23, "step": 1,
-            "section": "默认时间", "help": "24 小时制，0~23 点。", "show_if": {"frequency": "daily"},
+            "section": "默认时间", "order": 21, "help": "24 小时制，0~23 点。", "show_if": {"frequency": "daily"},
         },
         "daily_minute": {
             "type": "slider", "default": 0, "label": "几分", "min": 0, "max": 59, "step": 1,
-            "section": "默认时间", "show_if": {"frequency": "daily"},
+            "section": "默认时间", "order": 22, "show_if": {"frequency": "daily"},
         },
         "every_hours": {
             "type": "slider", "default": 3, "label": "每隔几小时", "min": 1, "max": 24, "step": 1,
-            "section": "默认时间", "show_if": {"frequency": "hours"},
+            "section": "默认时间", "order": 23, "show_if": {"frequency": "hours"},
         },
         "every_minutes": {
             "type": "slider", "default": 30, "label": "每隔几分钟", "min": 1, "max": 180, "step": 1,
-            "section": "默认时间", "show_if": {"frequency": "minutes"},
+            "section": "默认时间", "order": 24, "show_if": {"frequency": "minutes"},
         },
         "cron_expr": {
             "type": "string", "default": "0 9 * * 1-5", "label": "cron 表达式",
-            "section": "默认时间", "show_if": {"frequency": "cron"},
+            "section": "默认时间", "order": 25, "show_if": {"frequency": "cron"},
             "help": (
                 "标准 5 段格式：分 时 日 月 周。星期 0/7=周日，1=周一。\n"
                 "例：`0 9 * * 1-5` 工作日每天 9:00；`*/15 9-18 * * *` 9~18 点每 15 分钟一次；"
                 "`30 8 1 * *` 每月 1 号 8:30。"
             ),
-        },
-
-        # —— 可选 ——
-        "notify_owner": {
-            "type": "boolean", "default": False, "label": "把结果通知给我",
-            "section": "高级（可选）",
-            "help": "每次发送成功/失败后，平台用机器人私聊你（或发到你账号的收藏夹）报一条。无需填ID。",
         },
     },
 }
