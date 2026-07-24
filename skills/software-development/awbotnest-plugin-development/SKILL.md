@@ -55,10 +55,11 @@ Require `changelog` on every published plugin. Put the current version first, re
 
 Register handlers only inside `setup(ctx)`. Use `ctx` as the platform boundary:
 
-- Handlers: `ctx.on_message`, `ctx.on_edited_message`, `ctx.on_callback`, `ctx.on_webhook`
+- Handlers: `ctx.on_message`, `ctx.on_edited_message`, `ctx.on_callback`, `ctx.on_webhook`, `ctx.on_api`, `ctx.action`
 - Filters: `ctx.filters.*`; combine with `&`, `|`, and `~`
-- Sending: `ctx.bot`, `ctx.user`, `ctx.user_apps`, `ctx.notify`
-- Runtime: `ctx.config`, `ctx.kv`, `ctx.data_dir`, `ctx.log`
+- Sending: `ctx.bot`, `ctx.user`, `ctx.user_apps`, `ctx.notify`, `ctx.owner_id`
+- Runtime: `ctx.config`, `ctx.update_config`, `ctx.kv`, `ctx.data_dir`, `ctx.log`
+- Utilities: `ctx.download`, `ctx.browser`
 - Lifecycle: `ctx.schedule`, `ctx.add_cleanup`, `ctx.StopPropagation`
 
 Do not import Pyrogram for decorator registration, use `@Client.on_message`, read platform config files, or use `print()` for operational logging. Treat `group=` as ordering only within the plugin; the platform isolates plugin group ranges.
