@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.4.3",
+    "version": "1.5.0",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
@@ -165,6 +165,13 @@ async def setup(ctx):
         text = (getattr(message, "text", None) or "").strip()
         if not text:
             return
+        
+        # 诊断模式：任何以 /pet 或 .pet 开头的消息都回显，用于确认插件是否收到消息
+        if text.lower().startswith(("/pet", ".pet")):
+            await message.reply(f"[电子宠物诊断] 插件已收到消息: {text[:50]}")
+            ctx.log.info("[电子宠物] 诊断回显: %s", text[:50])
+            return
+        
         ctx.log.info("[电子宠物] 收到命令文本: %s", text[:50])
         adopt_bare = _bare(ctx.config.get("adopt_command", "/adopt"), "adopt")
 
@@ -172,8 +179,16 @@ async def setup(ctx):
             user_id = message.from_user.id
             if await get_and_update_pet(user_id):
                 return await message.reply("你已经有一只宠物了！使用 /status 查看它吧。")
+            
             parts = text.split(maxsplit=1)
-            pet_name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "小可爱"
+            if len(parts) < 2 or not parts[1].strip():
+                return await message.reply(
+                    "请提供宠物名字，例如：\n"
+                    "/adopt 小白\n"
+                    ".adopt 小黑"
+                )
+            
+            pet_name = parts[1].strip()
             species = random.choice(["电子狗 🐕", "像素猫 🐈", "机械龙 🐉"])
             new_pet = Pet(user_id=user_id, name=pet_name, species=species)
             await save_pet(user_id, new_pet)
