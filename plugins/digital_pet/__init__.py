@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# digital_pet/__init__.py - 电子宠物插件 V1.2.0
+# digital_pet/__init__.py - 电子宠物插件
 # -----------------------------------------------------------------------------
 
 import time
@@ -13,11 +13,12 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.4.0",
-    "author": "AWdress & Hermes",
-    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
+    "version": "1.4.1",
+    "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
+    "changelog": "v1.4.1 补齐插件本体元数据并修正作者信息\n- 插件本体 __plugin__ 补充 icon 与 changelog，和仓库现有插件范式保持一致\n- 作者字段改回 AWdress，不再错误写入 Hermes\n\nv1.4.0 修复命令不响应并补充插件内 logo\n- 将命令触发从 ctx.filters.command 改为 outgoing+text 后手动解析\n- 对齐 getmsg / self_delete / probe 等稳定插件的命令实现方式\n- 新增插件目录内 logo.png，兼容优先读取插件包 logo 的前端\n- manifest 图标地址同步切到插件目录 logo.png\n\nv1.3.1 修复 60 分钟以上 cron 表达式非法问题\n- 修复 heartbeat_interval_min=60 时生成 */60 导致重载失败\n- 小于 60 分钟使用 minute=*/N\n- 等于 60 分钟使用 minute=0\n- 大于 60 分钟使用 hour=*/N, minute=0\n\nv1.3.0 增加基础配置项并接入运行逻辑\n- 新增 config_schema，不再显示“这个插件没有可配置项”\n- 增加自动提醒总开关\n- 增加状态检查间隔（分钟）配置\n- 增加状态衰减倍率（%）配置",
     "requirements": [],
     "default_enabled": False,
     "config_schema": {
@@ -60,9 +61,6 @@ __plugin__ = {
     },
 }
 
-# -----------------------------------------------------------------------------
-# 1. 宠物数据结构定义
-# -----------------------------------------------------------------------------
 
 @dataclass
 class Pet:
@@ -86,7 +84,6 @@ class Pet:
 
     @classmethod
     def from_dict(cls, data):
-        """从字典创建宠物，使用默认值填充缺失字段"""
         return cls(
             user_id=data.get("user_id", 0),
             name=data.get("name", "未命名"),
@@ -96,21 +93,14 @@ class Pet:
             hunger=data.get("hunger", 20.0),
             happiness=data.get("happiness", 80.0),
             cleanliness=data.get("cleanliness", 10.0),
-            last_update_ts=data.get("last_update_ts", int(time.time()))
+            last_update_ts=data.get("last_update_ts", int(time.time())),
         )
 
-
-# -----------------------------------------------------------------------------
-# 2. 核心逻辑与插件入口
-# -----------------------------------------------------------------------------
 
 async def setup(ctx):
     """插件的主入口，所有逻辑都在这里注册"""
 
-    # --- 2.1 辅助函数 ---
-
     async def get_pet_owners():
-        """获取所有养了宠物的用户ID列表"""
         owners_json = await ctx.kv.get("pet_owners_list")
         if not owners_json:
             return []
@@ -122,17 +112,14 @@ async def setup(ctx):
             return []
 
     async def add_pet_owner(user_id: int):
-        """添加一个新的宠物主人"""
         owners = await get_pet_owners()
         if user_id not in owners:
             owners.append(user_id)
             await ctx.kv.set("pet_owners_list", json.dumps(owners))
 
     def update_pet_state(pet: Pet) -> Pet:
-        """根据时间流逝，计算宠物状态的自然变化"""
         now = int(time.time())
         elapsed_hours = (now - pet.last_update_ts) / 3600.0
-        
         if elapsed_hours < 0:
             elapsed_hours = 0
 
@@ -141,8 +128,7 @@ async def setup(ctx):
         except (ValueError, TypeError):
             decay_multiplier = 1.0
         decay_multiplier = max(0.5, min(decay_multiplier, 3.0))
-        
-        # 每小时状态变化率
+
         hunger_rate = 5 * decay_multiplier
         happiness_rate = 3 * decay_multiplier
         cleanliness_rate = 2 * decay_multiplier
@@ -150,25 +136,21 @@ async def setup(ctx):
         pet.hunger = min(100, pet.hunger + hunger_rate * elapsed_hours)
         pet.happiness = max(0, pet.happiness - happiness_rate * elapsed_hours)
         pet.cleanliness = min(100, pet.cleanliness + cleanliness_rate * elapsed_hours)
-        
         pet.last_update_ts = now
         return pet
 
     async def get_and_update_pet(user_id: int):
-        """获取宠物信息，并立即更新其状态"""
         pet_data = await ctx.kv.get(f"pet_{user_id}")
         if not pet_data:
             return None
-        
         try:
             pet = Pet.from_dict(json.loads(pet_data))
             return update_pet_state(pet)
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             ctx.log.warning(f"用户 {user_id} 的宠物数据损坏: {e}")
             return None
-    
+
     async def save_pet(user_id: int, pet: Pet):
-        """保存宠物状态到数据库"""
         await ctx.kv.set(f"pet_{user_id}", json.dumps(pet.to_dict()))
 
     def _bare(command: str, fallback: str) -> str:
@@ -177,8 +159,6 @@ async def setup(ctx):
     def _matches(text: str, bare: str) -> bool:
         head = text.split(maxsplit=1)[0].lower() if text else ""
         return head in (f"/{bare}", f".{bare}")
-
-    # --- 2.2 用户交互指令 ---
 
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-12)
     async def pet_commands(client, message):
@@ -189,7 +169,6 @@ async def setup(ctx):
             user_id = message.from_user.id
             if await get_and_update_pet(user_id):
                 return await message.reply("你已经有一只宠物了！使用 /status 查看它吧。")
-
             parts = text.split(maxsplit=1)
             pet_name = parts[1].strip() if len(parts) > 1 and parts[1].strip() else "小可爱"
             species = random.choice(["电子狗 🐕", "像素猫 🐈", "机械龙 🐉"])
@@ -275,66 +254,44 @@ async def setup(ctx):
         if _matches(text, "clean"):
             return await _interact("clean")
 
-    # --- 2.3 后台心跳任务 ---
-
     async def pet_heartbeat():
-        """定时检查所有宠物状态并发送提醒"""
         if not ctx.config.get("auto_reminder_enabled", True):
             ctx.log.info("电子宠物自动提醒已关闭，跳过本轮心跳。")
             return
-
         ctx.log.info("执行电子宠物心跳任务...")
         owners = await get_pet_owners()
         dead_pets_owners = []
-
         for user_id in owners:
             await asyncio.sleep(0.1)
-            
             pet = await get_and_update_pet(user_id)
             if not pet:
                 continue
-
-            # 离家出走逻辑
             if pet.happiness <= 0 and pet.hunger >= 100:
                 dead_pets_owners.append(user_id)
                 await ctx.kv.delete(f"pet_{user_id}")
                 try:
-                    await ctx.bot.send_message(
-                        user_id,
-                        f"💔 你的宠物 **{pet.name}** 因为长期得不到照顾，已经离家出走了..."
-                    )
+                    await ctx.bot.send_message(user_id, f"💔 你的宠物 **{pet.name}** 因为长期得不到照顾，已经离家出走了...")
                 except Exception as e:
                     ctx.log.warning(f"无法向用户 {user_id} 发送离家出走通知: {e}")
                 continue
-            
-            # 状态告警逻辑
             if 80 < pet.hunger < 95 and random.random() < 0.5:
                 try:
-                    await ctx.bot.send_message(
-                        user_id,
-                        f"🥺 你的宠物 **{pet.name}** 非常饿了，快给它喂点东西吧！ (/feed)"
-                    )
+                    await ctx.bot.send_message(user_id, f"🥺 你的宠物 **{pet.name}** 非常饿了，快给它喂点东西吧！ (/feed)")
                 except Exception as e:
                     ctx.log.warning(f"无法向用户 {user_id} 发送饥饿提醒: {e}")
-            
             await save_pet(user_id, pet)
-        
-        # 清理已"死亡"的宠物主人
         if dead_pets_owners:
             ctx.log.info(f"清理 {len(dead_pets_owners)} 只离家出走的宠物。")
             current_owners = await get_pet_owners()
             updated_owners = [uid for uid in current_owners if uid not in dead_pets_owners]
             await ctx.kv.set("pet_owners_list", json.dumps(updated_owners))
-        
         ctx.log.info("电子宠物心跳任务完成。")
-    
-    # 注册定时任务（按配置分钟间隔执行）
+
     try:
         interval = int(ctx.config.get("heartbeat_interval_min", 60) or 60)
     except (ValueError, TypeError):
         interval = 60
     interval = max(10, min(interval, 360))
-
     if interval < 60:
         ctx.schedule(pet_heartbeat, "cron", minute=f"*/{interval}", id="电子宠物心跳")
     elif interval == 60:
