@@ -305,11 +305,11 @@
   },
   "digital_pet": {
     "name": "电子宠物",
-    "version": "1.3.1",
+    "version": "1.4.0",
     "author": "AWdress & Hermes",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
-    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/digital_pet.png",
-    "changelog": "v1.3.1 修复 60 分钟以上 cron 表达式非法问题\n- 修复 heartbeat_interval_min=60 时生成 */60 导致重载失败\n- 小于 60 分钟使用 minute=*/N\n- 等于 60 分钟使用 minute=0\n- 大于 60 分钟使用 hour=*/N, minute=0\n\nv1.3.0 增加基础配置项并接入运行逻辑\n- 新增 config_schema，不再显示“这个插件没有可配置项”\n- 增加自动提醒总开关\n- 增加状态检查间隔（分钟）配置\n- 增加状态衰减倍率（%）配置\n- 心跳任务改为按配置间隔注册\n- 状态衰减逻辑改为读取配置\n\nv1.2.1 修复定时任务注册并补充专属图标\n- 按现有 AWBotNest 插件用法改为 ctx.schedule(func, \"cron\", minute=\"0\", id=\"...\")\n- 修复 IntervalTrigger 不接受 cron 参数导致插件启动报错\n- 新增电子宠物像素风专属图标并接入市场卡片",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
+    "changelog": "v1.4.0 修复命令不响应并补充插件内 logo\n- 将命令触发从 ctx.filters.command 改为 outgoing+text 后手动解析\n- 对齐 getmsg / self_delete / probe 等稳定插件的命令实现方式\n- 新增插件目录内 logo.png，兼容优先读取插件包 logo 的前端\n- manifest 图标地址同步切到插件目录 logo.png\n\nv1.3.1 修复 60 分钟以上 cron 表达式非法问题\n- 修复 heartbeat_interval_min=60 时生成 */60 导致重载失败\n- 小于 60 分钟使用 minute=*/N\n- 等于 60 分钟使用 minute=0\n- 大于 60 分钟使用 hour=*/N, minute=0\n\nv1.3.0 增加基础配置项并接入运行逻辑\n- 新增 config_schema，不再显示“这个插件没有可配置项”\n- 增加自动提醒总开关\n- 增加状态检查间隔（分钟）配置\n- 增加状态衰减倍率（%）配置",
     "path": "plugins/digital_pet/"
   }
 }
