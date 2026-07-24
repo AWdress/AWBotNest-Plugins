@@ -12,12 +12,50 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "1.2.1",
+    "version": "1.3.0",
     "author": "AWdress & Hermes",
     "scope": "user",
-    "description": "在 Telegram 养成你的专属电子宠物！支持喂食、玩耍、成长和进化。",
+    "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长和定时状态提醒。",
     "requirements": [],
     "default_enabled": False,
+    "config_schema": {
+        "auto_reminder_enabled": {
+            "type": "boolean",
+            "default": True,
+            "label": "启用自动提醒",
+            "section": "运行设置",
+        },
+        "heartbeat_interval_min": {
+            "type": "slider",
+            "default": 60,
+            "label": "状态检查间隔（分钟）",
+            "min": 10,
+            "max": 360,
+            "step": 10,
+            "section": "运行设置",
+        },
+        "decay_multiplier": {
+            "type": "slider",
+            "default": 100,
+            "label": "状态衰减倍率（%）",
+            "min": 50,
+            "max": 300,
+            "step": 10,
+            "section": "运行设置",
+        },
+        "adopt_command": {
+            "type": "string",
+            "default": "/adopt",
+            "label": "领养命令",
+            "section": "命令说明",
+        },
+        "info": {
+            "type": "info",
+            "label": "玩法说明",
+            "section": "命令说明",
+            "text": "先发送 /adopt 名字 领养宠物，再用 /status、/feed、/play、/clean 与它互动。改动检查间隔后建议重载插件生效。"
+        }
+    },
 }
 
 # -----------------------------------------------------------------------------
@@ -95,11 +133,17 @@ async def setup(ctx):
         
         if elapsed_hours < 0:
             elapsed_hours = 0
+
+        try:
+            decay_multiplier = float(ctx.config.get("decay_multiplier", 100) or 100) / 100.0
+        except (ValueError, TypeError):
+            decay_multiplier = 1.0
+        decay_multiplier = max(0.5, min(decay_multiplier, 3.0))
         
         # 每小时状态变化率
-        hunger_rate = 5
-        happiness_rate = 3
-        cleanliness_rate = 2
+        hunger_rate = 5 * decay_multiplier
+        happiness_rate = 3 * decay_multiplier
+        cleanliness_rate = 2 * decay_multiplier
 
         pet.hunger = min(100, pet.hunger + hunger_rate * elapsed_hours)
         pet.happiness = max(0, pet.happiness - happiness_rate * elapsed_hours)
@@ -242,6 +286,10 @@ async def setup(ctx):
 
     async def pet_heartbeat():
         """定时检查所有宠物状态并发送提醒"""
+        if not ctx.config.get("auto_reminder_enabled", True):
+            ctx.log.info("电子宠物自动提醒已关闭，跳过本轮心跳。")
+            return
+
         ctx.log.info("执行电子宠物心跳任务...")
         owners = await get_pet_owners()
         dead_pets_owners = []
@@ -287,8 +335,13 @@ async def setup(ctx):
         
         ctx.log.info("电子宠物心跳任务完成。")
     
-    # 注册定时任务（每小时执行一次）
-    ctx.schedule(pet_heartbeat, "cron", minute="0", id="电子宠物心跳")
+    # 注册定时任务（按配置分钟间隔执行）
+    try:
+        interval = int(ctx.config.get("heartbeat_interval_min", 60) or 60)
+    except (ValueError, TypeError):
+        interval = 60
+    interval = max(10, min(interval, 360))
+    ctx.schedule(pet_heartbeat, "cron", minute=f"*/{interval}", id="电子宠物心跳")
 
 
 async def teardown(ctx):
