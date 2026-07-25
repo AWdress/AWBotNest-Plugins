@@ -225,7 +225,7 @@ def parse_new_lottery(text: str, entities=None) -> dict:
 
 # ─── 奖品匹配 ────────────────────────────────────────────────────────────────
 # 对应原项目 config.config.PRIZE_LIST（每群组 → 奖品关键词列表）
-# + LOTTERY_PRIZE.universal_prize_match（通用匹配开关）
+# + LOTTERY_PRIZE 单独匹配开关（per_group_prize_match；默认匹配所有群）。
 # + PRIZE_MATCH_RULES.case_sensitive（区分大小写）。
 
 def parse_prize_list(raw) -> dict[int, list[str]]:

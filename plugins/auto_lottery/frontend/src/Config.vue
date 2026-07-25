@@ -14,7 +14,7 @@ const DEFAULTS = {
   auto_lottery_enabled: false, lottery_bot_id: '6461022460', auto_lottery_username: '',
   auto_lottery_time: '', lottery_target_groups: [], custom_lottery_groups: [],
   lottery_forward_enabled: false, lottery_forward_first_participant: false,
-  prize_list: '', universal_prize_match: false, prize_case_sensitive: false,
+  prize_list: '', per_group_prize_match: false, prize_case_sensitive: false,
   trap_enabled: true, trap_case_sensitive: false, trap_enable_prize_pattern_check: true,
   trap_enable_creator_blacklist: true, trap_enable_participant_check: true,
   trap_max_participants: 1, trap_blacklist_creator_ids: '',
@@ -198,7 +198,7 @@ function switchTab(t) {
             <section class="card">
               <label class="row top"><span>奖品列表</span>
                 <textarea v-model="cfg.prize_list" class="inp" rows="4" placeholder="每行 群组ID|奖品1,奖品2&#10;例：-1001234567890|魔力,积分"></textarea></label>
-              <label class="row switch"><input v-model="cfg.universal_prize_match" type="checkbox" /><span>通用奖品匹配（所有群共用全部关键词；关闭=精确模式，建议关闭）</span></label>
+              <label class="row switch"><input v-model="cfg.per_group_prize_match" type="checkbox" /><span>单独奖品匹配（勾选=每个群只匹配自己配置的奖品名；不勾选=匹配所有群的奖品名，默认）</span></label>
               <label class="row switch"><input v-model="cfg.prize_case_sensitive" type="checkbox" /><span>奖品关键词区分大小写</span></label>
             </section>
           </template>

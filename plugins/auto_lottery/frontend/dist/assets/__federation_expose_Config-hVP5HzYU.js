@@ -299,7 +299,7 @@ const DEFAULTS = {
   auto_lottery_enabled: false, lottery_bot_id: '6461022460', auto_lottery_username: '',
   auto_lottery_time: '', lottery_target_groups: [], custom_lottery_groups: [],
   lottery_forward_enabled: false, lottery_forward_first_participant: false,
-  prize_list: '', universal_prize_match: false, prize_case_sensitive: false,
+  prize_list: '', per_group_prize_match: false, prize_case_sensitive: false,
   trap_enabled: true, trap_case_sensitive: false, trap_enable_prize_pattern_check: true,
   trap_enable_creator_blacklist: true, trap_enable_participant_check: true,
   trap_max_participants: 1, trap_blacklist_creator_ids: '',
@@ -566,12 +566,12 @@ return (_ctx, _cache) => {
                           ]),
                           _createElementVNode("label", _hoisted_22, [
                             _withDirectives(_createElementVNode("input", {
-                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((cfg.universal_prize_match) = $event)),
+                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((cfg.per_group_prize_match) = $event)),
                               type: "checkbox"
                             }, null, 512), [
-                              [_vModelCheckbox, cfg.universal_prize_match]
+                              [_vModelCheckbox, cfg.per_group_prize_match]
                             ]),
-                            _cache[61] || (_cache[61] = _createElementVNode("span", null, "通用奖品匹配（所有群共用全部关键词；关闭=精确模式，建议关闭）", -1))
+                            _cache[61] || (_cache[61] = _createElementVNode("span", null, "单独奖品匹配（勾选=每个群只匹配自己配置的奖品名；不勾选=匹配所有群的奖品名，默认）", -1))
                           ]),
                           _createElementVNode("label", _hoisted_23, [
                             _withDirectives(_createElementVNode("input", {
@@ -1163,6 +1163,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-6147ce64"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ba6feb1c"]]);
 
 export { Config as default };

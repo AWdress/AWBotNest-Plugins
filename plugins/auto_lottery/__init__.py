@@ -43,14 +43,14 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
-    "changelog": "v1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -59,7 +59,7 @@ DEFAULTS = {
     "auto_lottery_enabled": False, "lottery_bot_id": "6461022460", "auto_lottery_username": "",
     "auto_lottery_time": "", "lottery_target_groups": [], "custom_lottery_groups": [],
     "lottery_forward_enabled": False, "lottery_forward_first_participant": False,
-    "prize_list": "", "universal_prize_match": False, "prize_case_sensitive": False,
+    "prize_list": "", "per_group_prize_match": False, "prize_case_sensitive": False,
     "trap_enabled": True, "trap_case_sensitive": False, "trap_enable_prize_pattern_check": True,
     "trap_enable_creator_blacklist": True, "trap_enable_participant_check": True,
     "trap_max_participants": 1, "trap_blacklist_creator_ids": "", "trap_suspicious_keywords": "",
@@ -183,11 +183,11 @@ async def setup(ctx):
                 "info", client, skip=True)
             return
 
-        # ── 奖品匹配（PRIZE_LIST + 通用匹配开关）──
+        # ── 奖品匹配（PRIZE_LIST + 单独匹配开关；默认匹配所有群的奖品名）──
         prize_map = parse_prize_list(cfg.get("prize_list", ""))
         matched_group = match_prize_group(
             info.get("prize", ""), prize_map, message.chat.id,
-            universal=cfg.get("universal_prize_match", False),
+            universal=not cfg.get("per_group_prize_match", False),
             case_sensitive=cfg.get("prize_case_sensitive", False))
         if matched_group is None:
             await _maybe_notify(
