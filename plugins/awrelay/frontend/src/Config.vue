@@ -11,6 +11,7 @@
         <div class="section">
           <h3>基本设置</h3>
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
+          <label class="row switch"><input v-model="cfg.startup_notify" type="checkbox" /><span>启动时在中转群发通知</span></label>
           <label class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="超级群组 ID，如 -1001234567890" /></label>
           <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" placeholder="留空允许群内成员，多个 ID 用逗号分隔" /></label>
         </div>
@@ -85,6 +86,7 @@ const props = defineProps({
 })
 const cfg = ref({
   enabled: false, group_id: '', admin_ids: '',
+  startup_notify: true,
   captcha_enabled: true,
   spam_enabled: true, spam_keywords: 'USDT,博彩,兼职,t.me/,http://,https://',
   rate_limit_window: 10, rate_limit_count: 5,
