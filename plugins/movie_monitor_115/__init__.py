@@ -19,11 +19,11 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
-    "changelog": "v1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -208,7 +208,7 @@ async def _resolve_by_search(cfg, title, year, ctx):
         return None, None
     api = TmdbApi(cfg["tmdb_api_key"], cfg.get("tmdb_language", "zh-CN"))
     try:
-        result = await api.multi_search(title, year)
+        result = await api.search_all(title, year)
     except Exception as e:  # noqa: BLE001
         ctx.log.error("[115监控] TMDB 搜索失败: %r", e)
         return None, None
@@ -256,7 +256,7 @@ async def _process(client, cfg, message, ctx):
         emby_key = cfg.get("emby_api_key")
         if emby_url and emby_key:
             try:
-                has = await emby_has_tmdb_id(emby_url, emby_key, tmdb_id)
+                has = await emby_has_tmdb_id(emby_url, emby_key, tmdb_id, media_type)
                 if has:
                     ctx.log.info("[115监控] Emby 已有 %d，跳过", tmdb_id)
                     _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
@@ -282,7 +282,7 @@ async def _cmd_getmedia(client, message, ctx):
         return
     api = TmdbApi(cfg["tmdb_api_key"], cfg.get("tmdb_language", "zh-CN"))
     try:
-        result = await api.multi_search(query, year)
+        result = await api.search_all(query, year)
         summary = _fmt_getmedia(result, query, year)
     except Exception as e:  # noqa: BLE001
         summary = f"❌ 查询失败：{e}"
@@ -354,7 +354,7 @@ async def setup(ctx):
         if cfg.get("tmdb_api_key"):
             api = TmdbApi(cfg["tmdb_api_key"], cfg.get("tmdb_language", "zh-CN"))
             try:
-                await api.multi_search("复仇者联盟", "2012")
+                await api.search_all("复仇者联盟", "2012")
                 msgs.append("TMDB: ✅")
             except Exception as e:  # noqa: BLE001
                 msgs.append(f"TMDB: ❌ {e}")
@@ -379,7 +379,7 @@ async def setup(ctx):
 
     @ctx.on_api("/update_config", methods=["POST"])
     async def _api_update_config(req):
-        body = await req.json()
+        body = req.json or {}
         # shareswitch 从 enabled 推导
         body["shareswitch"] = body.get("shareswitch", True)
         ctx.update_config(body)

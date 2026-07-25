@@ -183,7 +183,9 @@ class Grabber:
         code = self._candidates.get((group_id, reply_to_id))
         if not code:
             return
-        pkt = self._latest_unanswered(group_id)
+        confirmer = message.from_user
+        confirmer_id = confirmer.id if confirmer else None
+        pkt = self._pick_unanswered(group_id, confirmer_id)
         if pkt is None:
             return
         pkt.mode = "复制"
@@ -228,13 +230,25 @@ class Grabber:
         pfx = re.escape((transfer_prefix or "+").strip() or "+")
         return bool(re.fullmatch(rf"{pfx}\s*\d+", text.strip()))
 
-    def _latest_unanswered(self, group_id: int) -> Optional[_Packet]:
-        best = None
+    def _pick_unanswered(self, group_id: int, confirmer_id) -> Optional[_Packet]:
+        """挑出该群一条尚未应答的红包用于复制兜底。
+
+        确认中奖的回复来自发包人，故优先选「发包人 == 确认者」的那条，多条取最晚过期；
+        没有任何发包人匹配时（如发送者信息缺失）退回最新一条兜底，避免把口令记到
+        别的红包上、误标其它包已答而漏掉真正的包。
+        """
+        matched = []
+        fallback = None
         for (g, _p), pkt in self._active.items():
-            if g == group_id and not pkt.answered:
-                if best is None or pkt.expires_at > best.expires_at:
-                    best = pkt
-        return best
+            if g != group_id or pkt.answered:
+                continue
+            if fallback is None or pkt.expires_at > fallback.expires_at:
+                fallback = pkt
+            if confirmer_id is not None and pkt.sender_id == confirmer_id:
+                matched.append(pkt)
+        if matched:
+            return max(matched, key=lambda p: p.expires_at)
+        return fallback
 
     def _sweep_expired(self) -> None:
         now = _time.monotonic()

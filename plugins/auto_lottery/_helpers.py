@@ -158,9 +158,11 @@ def is_within_time_ranges(ranges: list[tuple[str, str]], now: time | None = None
         # 00:00-23:59 视为全天
         if start_str == "00:00" and end_str == "23:59":
             return True
-        if start <= now:
-            if now.hour < end.hour or (now.hour == end.hour and now.minute <= end.minute):
+        if start <= end:
+            if start <= now <= end:
                 return True
+        elif now >= start or now <= end:  # 跨零点窗口，如 22:00-06:00
+            return True
     return False
 
 
@@ -338,6 +340,9 @@ def extract_prize_amount(prize_name: str) -> int:
             before_star = prize_name.split('*')[0].strip()
             if before_star.isdigit():
                 return int(before_star)
+            match = re.match(r'^(\d+)([万千百十wWkKmM])', before_star)
+            if match:
+                return int(int(match.group(1)) * _CN_MULTIPLIERS.get(match.group(2).lower(), 1))
             match = re.match(r'^(\d+)\s', before_star)
             if match:
                 return int(match.group(1))
@@ -363,6 +368,9 @@ def extract_prize_amount(prize_name: str) -> int:
         match = re.match(r'(\d+(?:\.\d+)?)\s*[kK]', prize_name)
         if match:
             return int(float(match.group(1)) * 1000)
+        match = re.match(r'(\d+(?:\.\d+)?)\s*([万千百十])', prize_name)
+        if match:
+            return int(float(match.group(1)) * _CN_MULTIPLIERS.get(match.group(2), 1))
         numbers = re.findall(r'\d+', prize_name)
         if numbers:
             return int(numbers[-1])

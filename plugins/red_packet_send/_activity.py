@@ -134,27 +134,31 @@ def is_create_command(
     return total_amount, packet_count, (custom or None)
 
 
-def allocate_amount(activity: Dict) -> float:
-    """拼手气分配：从剩余金额里随机切一份（分为单位，提高精度）。"""
+def allocate_amount(activity: Dict) -> int:
+    """拼手气分配：从剩余金额（整数魔力）里随机切一份，每份至少 1 魔力。
+
+    与发放/结算统一用整数魔力，保证「扣池额 == 实发额」，避免按分切再取整
+    导致小份额打成 0 或与实际打款不符。
+    """
     remaining_count = activity["remaining_count"]
-    remaining_amount = activity["remaining_amount"]
+    remaining_amount = int(round(activity["remaining_amount"]))
 
     if remaining_count <= 0 or remaining_amount <= 0:
-        return 0.0
+        return 0
 
     if remaining_count == 1:
-        return max(0, round(remaining_amount, 2))
+        return max(0, remaining_amount)
 
-    remaining_cents = int(round(remaining_amount * 100))
-    min_cents = 1
-    max_cents = remaining_cents - (remaining_count - 1) * min_cents
-    if max_cents <= min_cents:
-        return 0.01
+    min_unit = 1
+    # 给后面每个红包至少留 1 魔力后，本份最多能拿多少
+    max_amount = remaining_amount - (remaining_count - 1) * min_unit
+    if max_amount <= min_unit:
+        return min_unit
 
-    allocated_cents = random.randint(
-        min_cents, min(max_cents, remaining_cents // remaining_count * 2)
+    allocated = random.randint(
+        min_unit, min(max_amount, remaining_amount // remaining_count * 2)
     )
-    return round(allocated_cents / 100, 2)
+    return int(allocated)
 
 
 # ─── 活动管理器 ──────────────────────────────────────────────────────────────
@@ -213,6 +217,14 @@ class ActivityManager:
             (message.from_user.username or message.from_user.first_name)
             if message.from_user else str(user_id)
         )
+
+        # 每个红包至少 1 魔力，总额不够分则拒绝创建（避免分配出 0 魔力红包）
+        if total_amount < packet_count:
+            notice = await client.send_message(
+                chat_id, f"总金额至少要 {packet_count} 魔力（每个红包至少 1 魔力）。")
+            if notice:
+                _track(asyncio.create_task(_auto_delete(notice, 8)))
+            return False
 
         if key in self.active:
             notice = await client.send_message(

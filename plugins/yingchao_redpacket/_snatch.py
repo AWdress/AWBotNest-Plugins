@@ -145,6 +145,7 @@ class TokenSnatcher:
         ocr_enabled: bool, trap_enabled: bool, custom_keywords: list[str],
         notify: bool,
     ) -> None:
+        self._prune_expired()
         group_id = message.chat.id
         packet_id = message.id
         caption = extract_text(message)
@@ -211,6 +212,7 @@ class TokenSnatcher:
 
     # —— 处理群内回复（缓存口令 / 失败确认 / 成功确认，合一处理）——
     async def handle_reply(self, client, message, notify: bool) -> None:
+        self._prune_expired()
         group_id = message.chat.id
         reply_to_id = getattr(message, "reply_to_message_id", None)
         if not reply_to_id:
@@ -319,6 +321,16 @@ class TokenSnatcher:
                 f"影巢口令红包-复制口令参与\n发包人: {pending.sender_name}\n口令: {keyword}",
                 level="success", account=client,
             )
+
+    def _prune_expired(self) -> None:
+        """清掉过期的 pending 条目，并同步清失效的 reply_cache。"""
+        now = _time.monotonic()
+        for k in [k for k, p in self._pending_copy.items() if now > p.expires_at]:
+            self._pending_copy.pop(k, None)
+        valid = set(self._pending_copy)  # set of (group_id, packet_id)
+        for rk in [rk for rk, (_kw, orig) in self._reply_cache.items()
+                   if (rk[0], orig) not in valid]:
+            self._reply_cache.pop(rk, None)
 
     def _find_cached_for_packet(self, group_id, packet_id):
         for (g, _r), (kw, orig) in reversed(list(self._reply_cache.items())):

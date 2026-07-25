@@ -14,11 +14,11 @@ from datetime import datetime, timedelta, timezone
 __plugin__ = {
     "name": "自动报时昵称",
     "id": "auto_changename",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 修复报时定时\n- 修复用 cron 分钟通配实现整点报时不准确，改为按分钟间隔调度\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -100,8 +100,8 @@ async def setup(ctx):
         interval = 5
     interval = max(1, min(interval, 60))
 
-    # cron 每 interval 分钟（与旧实现一致：minute=*/interval）
-    ctx.schedule(_make_action(ctx), "cron", minute=f"*/{interval}", id="自动报时昵称")
+    # interval 每 interval 分钟（均匀间隔，避免 cron */N 不整除 60 时间隔不均）
+    ctx.schedule(_make_action(ctx), "interval", minutes=interval, id="自动报时昵称")
     ctx.log.info("[自动报时] 已启用，每 %d 分钟", interval)
 
 

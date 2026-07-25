@@ -30,14 +30,14 @@ from ._quiz import (
 __plugin__ = {
     "name": "影巢答题红包",
     "id": "hdhive_quiz",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "requirements": ["openai>=1.0"],
 }
 
@@ -64,6 +64,7 @@ _ANSWERED_TTL = 6 * 3600
 _STALE_SECS = 24 * 3600
 _sync_status = {"running": False, "message": ""}
 _history = deque(maxlen=200)  # 答题记录环形缓冲
+_BG_TASKS: set[asyncio.Task] = set()  # 自建后台 task 强引用，teardown 时取消
 
 
 def _effective_cfg(ctx) -> dict:
@@ -164,7 +165,9 @@ async def setup(ctx):
         stale = (_time.time() - _bank.last_sync()) > _STALE_SECS
         if _bank.size == 0 or stale:
             await _do_sync("启动")
-    asyncio.create_task(_initial_sync())
+    _t = asyncio.create_task(_initial_sync())
+    _BG_TASKS.add(_t)
+    _t.add_done_callback(_BG_TASKS.discard)
 
     # 定时刷新题库（修正：传协程函数，不能用 lambda+create_task）
     async def _scheduled_sync():
@@ -286,4 +289,6 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    pass
+    for _t in list(_BG_TASKS):
+        _t.cancel()
+    _BG_TASKS.clear()

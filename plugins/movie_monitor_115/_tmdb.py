@@ -11,9 +11,9 @@ import httpx
 class TmdbApi:
     """TMDB 识别匹配（异步）。"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, language: str = "zh-CN"):
         self.api_key = api_key
-        self.language = "zh"
+        self.language = language or "zh-CN"
         self.base_url = "https://api.themoviedb.org/3"
 
     def _client(self) -> httpx.AsyncClient:
@@ -76,7 +76,7 @@ def _item_types(media_type: Optional[str]) -> Optional[str]:
     return None
 
 
-async def emby_has_tmdb_id(emby_server: str, emby_api: str, tmdb_id, media_type: Optional[str],
+async def emby_has_tmdb_id(emby_server: str, emby_api: str, tmdb_id, media_type: Optional[str] = None,
                            log=None) -> bool:
     """直接用 TMDB ID 查 Emby 是否已入库（最可靠，无需标题匹配）。"""
     if not emby_server or not emby_api or not tmdb_id:
@@ -103,8 +103,8 @@ async def emby_has_tmdb_id(emby_server: str, emby_api: str, tmdb_id, media_type:
         return bool(items)
 
 
-async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str,
-                            media_type: Optional[str], log=None) -> List[str]:
+async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str = "",
+                            media_type: Optional[str] = None, log=None) -> List[str]:
     """查 Emby 媒体库里某标题已有项的 TMDB ID 列表。"""
     if not emby_server or not emby_api:
         return []
@@ -117,11 +117,14 @@ async def get_emby_tmdb_ids(emby_server: str, emby_api: str, title: str,
 
     url = f"{emby_server}emby/Items"
     params = {
-        "IncludeItemTypes": item_types or "",
         "Fields": "ProviderIds,OriginalTitle,ProductionYear,Path",
-        "StartIndex": 0, "Recursive": "true", "SearchTerm": title,
+        "StartIndex": 0, "Recursive": "true",
         "Limit": 10, "IncludeSearchTypes": "false", "api_key": emby_api,
     }
+    if item_types:
+        params["IncludeItemTypes"] = item_types
+    if title:
+        params["SearchTerm"] = title
     # Emby 直连、绕过平台出站代理；失败让异常冒泡给上层处理。
     async with httpx.AsyncClient(timeout=10, verify=False, trust_env=False) as client:
         resp = await client.get(url, params=params)

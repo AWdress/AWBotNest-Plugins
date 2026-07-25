@@ -42,14 +42,14 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png",
-    "changelog": "v1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.7 修复抽奖次数校验\n- 修复转盘抽奖未校验次数为正整数，非法次数现在会提示并拦截\n\nv1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -342,6 +342,9 @@ async def _handle_prizewheel(ctx, api_fn, client, message, args):
         )
         return
     count = int(args[0])
+    if count <= 0:
+        await message.reply("```\n次数需为正整数")
+        return
     api = api_fn()
     info = await api.get_info()
     if not info:

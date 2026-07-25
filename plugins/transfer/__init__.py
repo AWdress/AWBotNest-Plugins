@@ -44,14 +44,14 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.23",
+    "version": "1.0.24",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
-    "changelog": "v1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -394,14 +394,16 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, get_sender
         direction = "in"
         # 对手方 = 转出方：① 广播里的非我实体；② 别人回复我「+金额」的发送者（真实 uid）；
         #                  ③ 兜底取首行名字（uid=0）
-        popped = _pop_get_sender(get_senders, amount)
+        # 仅在无实体、需兜底时才 pop，避免采用实体时误消费「回复我+金额」缓存条目
         if other_entity:
             user_id, user_name = user_identity_from_user(other_entity.user)
-        elif popped:
-            user_id, user_name = popped
         else:
-            name = text.split("\n")[0].strip() or "未知用户"
-            user_id, user_name = 0, name[:48]
+            popped = _pop_get_sender(get_senders, amount)
+            if popped:
+                user_id, user_name = popped
+            else:
+                name = text.split("\n")[0].strip() or "未知用户"
+                user_id, user_name = 0, name[:48]
         # 回复目标：bot 消息若在回复链上 → 回复源消息，否则回复 bot 广播消息本身
         target = getattr(message, "reply_to_message", None) or message
     elif self_mentioned:

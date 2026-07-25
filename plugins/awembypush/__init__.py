@@ -34,11 +34,11 @@ import requests
 __plugin__ = {
     "name": "AWEmbyPush",
     "id": "awembypush",
-    "version": "1.5.6",
+    "version": "1.5.7",
     "scope": "bot",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
-    "changelog": "v1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留",
+    "changelog": "v1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
     "default_enabled": False,
     "webhook": True,
@@ -127,14 +127,16 @@ class _EpisodeCache:
         return f"mov_{media.get('tmdb_id', '')}"
 
     def _is_recently_sent(self, key: str) -> bool:
-        now = time.time()
-        expired = [k for k, v in self._sent_records.items() if now - v > self.SEND_DEDUP_WINDOW]
-        for k in expired:
-            del self._sent_records[k]
-        return key in self._sent_records
+        with self.lock:
+            now = time.time()
+            expired = [k for k, v in self._sent_records.items() if now - v > self.SEND_DEDUP_WINDOW]
+            for k in expired:
+                del self._sent_records[k]
+            return key in self._sent_records
 
     def _record_sent(self, key: str):
-        self._sent_records[key] = time.time()
+        with self.lock:
+            self._sent_records[key] = time.time()
 
     def add(self, media: dict):
         if not media.get("is_ep"):

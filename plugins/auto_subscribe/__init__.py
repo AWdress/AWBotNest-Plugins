@@ -19,11 +19,11 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖\n\nv1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
     "scope": "user",
     "default_enabled": False,
     # 配置/管理界面由插件自带 Vue 组件渲染（frontend/src/Config.vue）。
@@ -93,58 +93,67 @@ def _summary(result, label: str) -> str:
     return "\n".join(lines)
 
 
+# 整轮运行并发互斥：手动（后台 task）与定时可整轮并发，否则 kv "handled" 去重历史后写覆盖先写。
+# 在 setup 内创建，避免模块级锁跨事件循环复用。
+_run_lock = None
+
+
 async def _run(ctx, label: str) -> str:
     """执行一轮：阻塞流水线跑在 to_thread，通知/kv 在事件循环。返回汇总文本。"""
-    cfg = _effective_cfg(ctx)
-    if not cfg.get("api_url") or not cfg.get("api_key"):
-        msg = "未配置 NextFind 地址或密钥，跳过"
-        ctx.log.warning("[自动订阅] %s", msg)
-        return msg
-    if not any(cfg.get(k) for k in _ENABLE_KEYS):
-        msg = "未启用任何榜单源，跳过"
-        ctx.log.warning("[自动订阅] %s", msg)
-        return msg
+    if _run_lock.locked():
+        ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次运行(%s)", label)
+        return "上一轮仍在运行，已跳过"
+    async with _run_lock:
+        cfg = _effective_cfg(ctx)
+        if not cfg.get("api_url") or not cfg.get("api_key"):
+            msg = "未配置 NextFind 地址或密钥，跳过"
+            ctx.log.warning("[自动订阅] %s", msg)
+            return msg
+        if not any(cfg.get(k) for k in _ENABLE_KEYS):
+            msg = "未启用任何榜单源，跳过"
+            ctx.log.warning("[自动订阅] %s", msg)
+            return msg
 
-    from . import _pipeline
+        from . import _pipeline
 
-    # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
-    if cfg.get("maoyan_enabled"):
-        cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
+        # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
+        if cfg.get("maoyan_enabled"):
+            cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
 
-    handled = ctx.kv.get("handled", {})
-    nf_cache = ctx.kv.get("netflix_cache", {})
-    ctx.log.info("[自动订阅] 开始运行(%s)", label)
-    try:
-        result = await asyncio.to_thread(_pipeline.run, cfg, handled, nf_cache, ctx.log)
-    except Exception as e:  # noqa: BLE001
-        ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
-        if cfg.get("notify", True):
-            await ctx.notify(f"自动订阅运行异常：{e}", level="error", category="自动订阅")
-        return f"运行异常：{e}"
-
-    ctx.kv.set("handled", result.handled)
-    ctx.kv.set("netflix_cache", result.nf_cache)
-    # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
-    agg: dict = {}
-    for st in result.stats.values():
-        for k, v in st.items():
-            agg[k] = agg.get(k, 0) + v
-    ctx.update_config({
-        "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "last_stats": agg,
-    })
-
-    summary = _summary(result, label)
-    # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
-    # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
-    if cfg.get("notify", True):
-        level = "error" if result.errors else ("success" if result.added else "info")
+        handled = ctx.kv.get("handled", {})
+        nf_cache = ctx.kv.get("netflix_cache", {})
+        ctx.log.info("[自动订阅] 开始运行(%s)", label)
         try:
-            await ctx.notify(summary, level=level, category="自动订阅")
-        except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
-            ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
-    ctx.log.info("[自动订阅] 完成(%s)：新增 %d 部", label, len(result.added))
-    return summary
+            result = await asyncio.to_thread(_pipeline.run, cfg, handled, nf_cache, ctx.log)
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
+            if cfg.get("notify", True):
+                await ctx.notify(f"自动订阅运行异常：{e}", level="error", category="自动订阅")
+            return f"运行异常：{e}"
+
+        ctx.kv.set("handled", result.handled)
+        ctx.kv.set("netflix_cache", result.nf_cache)
+        # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
+        agg: dict = {}
+        for st in result.stats.values():
+            for k, v in st.items():
+                agg[k] = agg.get(k, 0) + v
+        ctx.update_config({
+            "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "last_stats": agg,
+        })
+
+        summary = _summary(result, label)
+        # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
+        # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
+        if cfg.get("notify", True):
+            level = "error" if result.errors else ("success" if result.added else "info")
+            try:
+                await ctx.notify(summary, level=level, category="自动订阅")
+            except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
+                ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
+        ctx.log.info("[自动订阅] 完成(%s)：新增 %d 部", label, len(result.added))
+        return summary
 
 
 def _nf_client(cfg):
@@ -191,6 +200,8 @@ def _country_options() -> list:
 
 
 async def setup(ctx):
+    global _run_lock
+    _run_lock = asyncio.Lock()
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/meta", methods=["GET"])
     async def _api_meta(req):

@@ -1,11 +1,11 @@
 {
   "id": {
     "name": "查ID",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.5 修复用户名显示\n- 修复无 username 时取错字段导致显示为空，改为优先 username、回退昵称\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/id.py"
   },
   "xjj": {
@@ -91,20 +91,20 @@
   },
   "auto_changename": {
     "name": "自动报时昵称",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 修复报时定时\n- 修复用 cron 分钟通配实现整点报时不准确，改为按分钟间隔调度\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/auto_changename.py"
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
-    "changelog": "v1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
+    "changelog": "v1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "path": "plugins/ai/"
   },
   "hdhive_lottery": {
@@ -118,11 +118,11 @@
   },
   "hdhive_quiz": {
     "name": "影巢答题红包",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/hdhive_quiz/"
   },
   "trans115search": {
@@ -136,11 +136,11 @@
   },
   "movie_monitor_115": {
     "name": "115频道监控",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
-    "changelog": "v1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/movie_monitor_115/"
   },
   "msg_forward": {
@@ -163,20 +163,20 @@
   },
   "bomb_game": {
     "name": "数字炸弹",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
-    "changelog": "v1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
+    "changelog": "v1.0.4 修复核心接线错误\n- 修复处理函数调用了不存在的旧版 API 导致插件无法运行\n- 按真实游戏引擎接口重接开局/参与/猜数字/转账确认\n- 转账确认改为失败安全：无法唯一定位参与者时跳过，绝不错记金额\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
     "path": "plugins/bomb_game/"
   },
   "transfer": {
     "name": "多站点转账",
-    "version": "1.0.23",
+    "version": "1.0.24",
     "author": "AWdress",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
-    "changelog": "v1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
     "path": "plugins/transfer/"
   },
   "hdsky_redpacket": {
@@ -199,38 +199,38 @@
   },
   "yingchao_redpacket": {
     "name": "影巢口令红包（测试）",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 修复内存与任务清理\n- 新增过期口令/回复缓存清理，避免长时间运行内存增长\n- 卸载时取消 OCR 超时任务\n\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/yingchao_redpacket/"
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "description": "用你的账号自动参与他人发的「验证码口令红包」。OCR 识别或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/red_packet_grab/"
   },
   "auto_lottery": {
     "name": "小菜抽奖",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "自动参与小菜抽奖(PT站)：识别抽奖→时间段/奖品关键词匹配→陷阱检测→随机等待参与→中奖感谢/发奖。PT群组、奖品、等待时间等全可配。自带 Vue 配置界面 + 待发奖管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
-    "changelog": "v1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
     "path": "plugins/auto_lottery/"
   },
   "zhuque_lottery": {
     "name": "朱雀",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png",
-    "changelog": "v1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.7 修复抽奖次数校验\n- 修复转盘抽奖未校验次数为正整数，非法次数现在会提示并拦截\n\nv1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/zhuque_lottery/"
   },
   "auto_avatar": {
@@ -253,11 +253,11 @@
   },
   "red_packet_send": {
     "name": "发红包",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.11 修复红包金额\n- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n- 总额不足以每个红包至少 1 魔力时拒绝创建\n\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/red_packet_send/"
   },
   "common_lottery": {
@@ -271,19 +271,20 @@
   },
   "awembypush": {
     "name": "AWEmbyPush",
-    "version": "1.5.6",
+    "version": "1.5.7",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
-    "path": "plugins/awembypush/"
+    "path": "plugins/awembypush/",
+    "changelog": "v1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留"
   },
   "auto_subscribe": {
     "name": "自动订阅助手",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖\n\nv1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
     "path": "plugins/auto_subscribe/"
   },
   "awpulse": {
@@ -296,11 +297,11 @@
   },
   "awrelay": {
     "name": "AWRelay",
-    "version": "1.2.7",
+    "version": "1.2.8",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
-    "changelog": "v1.2.7 新增启动通知开关\n- 配置页新增「启动时在中转群发通知」开关，可关闭插件启用时向中转群发送的 AWRelay 已启动通知\n- 默认开启，保持原有行为\n\nv1.2.6 移除 Bot 私聊话题模式\n- 移除不稳定的 Bot 私聊话题创建、核验和消息路由功能\n- 配置界面恢复为仅支持群组论坛话题\n- 已保存的 topic_mode 配置将被忽略，群组转发继续使用话题群组 ID\n\nv1.2.5 修复 Bot 私聊消息未进入对应话题\n- Bot 模式改用 message.copy 并传入 message_thread_id，由 Pyrogram 正确构造私聊话题路由\n- 文本、图片、文件及其他媒体统一投递到用户对应话题\n- 群组模式继续使用原有服务端无署名复制，不改变现有行为\n\nv1.2.4 恢复 Bot 私聊话题删除检测\n- 每次转发前按用户标题查询并核验已保存的私聊话题 ID\n- 话题被删除或关闭后清除旧映射并自动新建，与群组模式一致\n- 存在同用户有效话题时优先复用，查询失败时停止操作以避免重复创建\n\nv1.2.3 修复 Bot 私聊话题投递协议\n- 私聊话题改用 InputReplyToMessage 路由，不再使用群组专用 top_msg_id\n- Bot 模式不再用群组标题结构误判话题已删除\n- 私聊响应缺少 reply_to_top_id 或消息 ID 时按成功处理，避免误报和反复重建\n\nv1.2.2 修复 Bot 私聊重复创建话题\n- 使用 Pyrogram 官方话题创建接口直接解析私聊话题 ID\n- 创建响应异常时先回查实际话题，不再立即重复创建\n- 无法确认话题 ID 时停止转发并给出明确错误，防止连续生成重复话题\n\nv1.2.1 复用管理员 ID 作为私聊目标\n- Bot 私聊话题模式直接使用管理员用户 ID 中的第一个 ID\n- 私聊模式不再显示重复的管理员私聊 ID 输入框\n- 群组模式继续独立保留话题群组 ID 配置\n\nv1.2.0 支持 Bot 私聊话题模式\n- 新增群组论坛话题与 Bot 私聊话题两种中转模式\n- Bot 模式使用 Telegram 私聊话题接口创建、核验和投递用户消息\n- 保留原有群组配置兼容性，并避免管理员私聊消息被当成访客消息转发\n\nv1.1.16 修复并发消息重复创建话题\n- 为每个私聊用户增加独立异步锁，串行执行话题核验、创建和消息发送\n- 同一用户短时间连续发送只会创建一个话题，不同用户仍可并发\n- 媒体组复用相同串行转发路径，避免与普通消息并发重复建话题\n\nv1.1.15 校验实际投递话题并自动纠正\n- 检查 Telegram 发送响应中的真实话题 ID，不再只相信发送参数\n- 发现消息降级到全部时立即撤回误投消息、清除映射并新建话题\n- 强制重建时跳过旧话题扫描缓存，确保不会再次复用已删除话题\n\nv1.1.14 修复已删除话题仍投递到全部\n- 每次转发前向 Telegram 核验本地话题 ID，不再永久信任已校验标记\n- 发现话题已删除、关闭或标题不匹配时立即清除映射并新建话题\n- 消息只在取得有效话题后发送，避免失效 ID 降级进入全部\n\nv1.1.13 对齐 AWRelay 原项目消息复制逻辑\n- 所有消息统一逐条执行 Telegram 服务端 copy，不再区分文本和媒体发送\n- 相册恢复原项目的逐条复制方式，避免批量 RPC 对转发媒体的兼容问题\n- 保留原消息实体、网页预览、说明文字和媒体属性\n\nv1.1.12 修复图片和文件无法转发\n- 非文本消息改由 Telegram 服务器端无署名复制，不再依赖 file_id 二次发送\n- 支持别人转发来的图片、文件、视频、贴纸及其他媒体\n- 媒体组按原顺序批量复制到对应话题并保存回复映射\n\nv1.1.11 修复转发消息丢失与话题误判\n- 优先使用 GetForumTopicsByID 直接核验本地话题，避免数字搜索漏报\n- 旧 v3 映射强制重新核验，确认标题归属后才允许复用\n- 保留文本网页预览，补充动画和特殊转发消息兜底\n\nv1.1.10 修复话题列表拉黑操作\n- 按平台请求规范读取 req.json 属性，修复 /ban API 异常\n- 拉黑与解除统一写入持久化 KV，并返回实际状态\n- 前端校验后端确认结果并同步刷新黑名单计数\n\nv1.1.9 修复私聊投递到错误话题\n- 使用 Telegram 原始 GetForumTopics 按用户 ID 核验真实话题\n- 废弃旧 reconciled_v2 映射并重新校验标题与话题 ID\n- 查询失败时停止转发，避免盲用错误映射或创建重复话题\n\nv1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
+    "changelog": "v1.2.8 修复话题匹配\n- 修复 General 话题（thread_id=0）误命中无 topic_id 的待处理记录\n\nv1.2.7 新增启动通知开关\n- 配置页新增「启动时在中转群发通知」开关，可关闭插件启用时向中转群发送的 AWRelay 已启动通知\n- 默认开启，保持原有行为\n\nv1.2.6 移除 Bot 私聊话题模式\n- 移除不稳定的 Bot 私聊话题创建、核验和消息路由功能\n- 配置界面恢复为仅支持群组论坛话题\n- 已保存的 topic_mode 配置将被忽略，群组转发继续使用话题群组 ID\n\nv1.2.5 修复 Bot 私聊消息未进入对应话题\n- Bot 模式改用 message.copy 并传入 message_thread_id，由 Pyrogram 正确构造私聊话题路由\n- 文本、图片、文件及其他媒体统一投递到用户对应话题\n- 群组模式继续使用原有服务端无署名复制，不改变现有行为\n\nv1.2.4 恢复 Bot 私聊话题删除检测\n- 每次转发前按用户标题查询并核验已保存的私聊话题 ID\n- 话题被删除或关闭后清除旧映射并自动新建，与群组模式一致\n- 存在同用户有效话题时优先复用，查询失败时停止操作以避免重复创建\n\nv1.2.3 修复 Bot 私聊话题投递协议\n- 私聊话题改用 InputReplyToMessage 路由，不再使用群组专用 top_msg_id\n- Bot 模式不再用群组标题结构误判话题已删除\n- 私聊响应缺少 reply_to_top_id 或消息 ID 时按成功处理，避免误报和反复重建\n\nv1.2.2 修复 Bot 私聊重复创建话题\n- 使用 Pyrogram 官方话题创建接口直接解析私聊话题 ID\n- 创建响应异常时先回查实际话题，不再立即重复创建\n- 无法确认话题 ID 时停止转发并给出明确错误，防止连续生成重复话题\n\nv1.2.1 复用管理员 ID 作为私聊目标\n- Bot 私聊话题模式直接使用管理员用户 ID 中的第一个 ID\n- 私聊模式不再显示重复的管理员私聊 ID 输入框\n- 群组模式继续独立保留话题群组 ID 配置\n\nv1.2.0 支持 Bot 私聊话题模式\n- 新增群组论坛话题与 Bot 私聊话题两种中转模式\n- Bot 模式使用 Telegram 私聊话题接口创建、核验和投递用户消息\n- 保留原有群组配置兼容性，并避免管理员私聊消息被当成访客消息转发\n\nv1.1.16 修复并发消息重复创建话题\n- 为每个私聊用户增加独立异步锁，串行执行话题核验、创建和消息发送\n- 同一用户短时间连续发送只会创建一个话题，不同用户仍可并发\n- 媒体组复用相同串行转发路径，避免与普通消息并发重复建话题\n\nv1.1.15 校验实际投递话题并自动纠正\n- 检查 Telegram 发送响应中的真实话题 ID，不再只相信发送参数\n- 发现消息降级到全部时立即撤回误投消息、清除映射并新建话题\n- 强制重建时跳过旧话题扫描缓存，确保不会再次复用已删除话题\n\nv1.1.14 修复已删除话题仍投递到全部\n- 每次转发前向 Telegram 核验本地话题 ID，不再永久信任已校验标记\n- 发现话题已删除、关闭或标题不匹配时立即清除映射并新建话题\n- 消息只在取得有效话题后发送，避免失效 ID 降级进入全部\n\nv1.1.13 对齐 AWRelay 原项目消息复制逻辑\n- 所有消息统一逐条执行 Telegram 服务端 copy，不再区分文本和媒体发送\n- 相册恢复原项目的逐条复制方式，避免批量 RPC 对转发媒体的兼容问题\n- 保留原消息实体、网页预览、说明文字和媒体属性\n\nv1.1.12 修复图片和文件无法转发\n- 非文本消息改由 Telegram 服务器端无署名复制，不再依赖 file_id 二次发送\n- 支持别人转发来的图片、文件、视频、贴纸及其他媒体\n- 媒体组按原顺序批量复制到对应话题并保存回复映射\n\nv1.1.11 修复转发消息丢失与话题误判\n- 优先使用 GetForumTopicsByID 直接核验本地话题，避免数字搜索漏报\n- 旧 v3 映射强制重新核验，确认标题归属后才允许复用\n- 保留文本网页预览，补充动画和特殊转发消息兜底\n\nv1.1.10 修复话题列表拉黑操作\n- 按平台请求规范读取 req.json 属性，修复 /ban API 异常\n- 拉黑与解除统一写入持久化 KV，并返回实际状态\n- 前端校验后端确认结果并同步刷新黑名单计数\n\nv1.1.9 修复私聊投递到错误话题\n- 使用 Telegram 原始 GetForumTopics 按用户 ID 核验真实话题\n- 废弃旧 reconciled_v2 映射并重新校验标题与话题 ID\n- 查询失败时停止转发，避免盲用错误映射或创建重复话题\n\nv1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
     "path": "plugins/awrelay/"
   },
   "digital_pet": {
