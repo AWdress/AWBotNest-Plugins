@@ -66,6 +66,12 @@ onMounted(async () => {
         cfg[k] = String(cfg[k] || '').split(',').map(s => Number(s.trim())).filter(Boolean)
       }
     }
+    // 旧配置兼容：把「自定义抽奖群组」并入「参与抽奖群组」，统一为单个选择器
+    if (Array.isArray(cfg.custom_lottery_groups) && cfg.custom_lottery_groups.length) {
+      cfg.lottery_target_groups = Array.from(new Set([
+        ...(cfg.lottery_target_groups || []), ...cfg.custom_lottery_groups]))
+    }
+    cfg.custom_lottery_groups = []
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
@@ -173,11 +179,9 @@ function switchTab(t) {
                   <label class="row"><span>PT用户名</span><input v-model="cfg.auto_lottery_username" class="inp" placeholder="如 AWdress" /></label>
                 </div>
                 <label class="row"><span>抽奖时间段</span><input v-model="cfg.auto_lottery_time" class="inp" placeholder="08:00-11:00,20:00-23:00，留空=全天" /></label>
-                <div class="fld"><span class="lbl">预定义抽奖群组</span>
+                <div class="fld"><span class="lbl">参与抽奖群组</span>
                   <ChatPicker v-model="cfg.lottery_target_groups" :dialogs="dialogs" /></div>
-                <div class="fld"><span class="lbl">自定义抽奖群组</span>
-                  <ChatPicker v-model="cfg.custom_lottery_groups" :dialogs="dialogs" /></div>
-                <p class="tip">两组群合并去重后生效；都留空 = 不参与任何群。</p>
+                <p class="tip">不选 = 全部群组都参与；选了则只在这些群参与（中奖回应也只在这些群发）。</p>
               </template>
             </section>
           </template>

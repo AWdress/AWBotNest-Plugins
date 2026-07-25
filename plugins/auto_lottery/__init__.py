@@ -43,14 +43,14 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
-    "changelog": "v1.0.11 修正奖品匹配语义\n- 默认除陷阱外全部参与，不再按奖品名过滤\n- 「单独匹配」改为自定义奖品名白名单：勾选后只抽命中列表的，且忽略群组列（跨群匹配）\n- 奖品列表支持裸关键词行（无需再写 群组ID|），兼容旧写法\n\nv1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
+    "changelog": "v1.0.12 合并参与群组选择器\n- 「预定义/自定义抽奖群组」合并为单个「参与抽奖群组」\n- 不选 = 全部群组都参与（原为不参与任何群）；旧自定义群组自动并入\n\nv1.0.11 修正奖品匹配语义\n- 默认除陷阱外全部参与，不再按奖品名过滤\n- 「单独匹配」改为自定义奖品名白名单：勾选后只抽命中列表的，且忽略群组列（跨群匹配）\n- 奖品列表支持裸关键词行（无需再写 群组ID|），兼容旧写法\n\nv1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -138,9 +138,9 @@ async def setup(ctx):
         fu = message.from_user
         if not (fu and fu.is_bot and fu.id == bot_id):
             return
-        # 群组校验（预定义 + 自定义，合并去重）
+        # 参与群组校验（合并去重；不选 = 全部群组都参与）
         groups = _all_lottery_groups(cfg)
-        if message.chat.id not in groups:
+        if groups and message.chat.id not in groups:
             return
 
         _state.prune_stale(ctx.log)
@@ -348,7 +348,8 @@ async def setup(ctx):
         # 发奖不受此限制：发奖是给「自己发起的抽奖」的中奖者发，与在哪些群自动参与无关，
         # 原项目 record_lottery_result 本就没有群组过滤。迁移时把两者合并到一个 handler
         # 并在开头统一过滤，导致没把开奖群配进「自动参与群组」时发奖完全不触发。
-        in_lottery_group = message.chat.id in _all_lottery_groups(cfg)
+        _lot_groups = _all_lottery_groups(cfg)
+        in_lottery_group = (not _lot_groups) or message.chat.id in _lot_groups  # 不选=全部群参与
 
         # ── 中奖社交回应（仅自动开奖消息含中奖信息块，且在自动参与群组内）──
         if is_auto and in_lottery_group:
