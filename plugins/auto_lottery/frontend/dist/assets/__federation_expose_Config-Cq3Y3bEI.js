@@ -299,7 +299,7 @@ const DEFAULTS = {
   auto_lottery_enabled: false, lottery_bot_id: '6461022460', auto_lottery_username: '',
   auto_lottery_time: '', lottery_target_groups: [], custom_lottery_groups: [],
   lottery_forward_enabled: false, lottery_forward_first_participant: false,
-  prize_list: '', per_group_prize_match: false, prize_case_sensitive: false,
+  prize_list: '', only_listed_prizes: false, prize_case_sensitive: false,
   trap_enabled: true, trap_case_sensitive: false, trap_enable_prize_pattern_check: true,
   trap_enable_creator_blacklist: true, trap_enable_participant_check: true,
   trap_max_participants: 1, trap_blacklist_creator_ids: '',
@@ -559,19 +559,19 @@ return (_ctx, _cache) => {
                               "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((cfg.prize_list) = $event)),
                               class: "inp",
                               rows: "4",
-                              placeholder: "每行 群组ID|奖品1,奖品2\n例：-1001234567890|魔力,积分"
+                              placeholder: "每行一个或多个奖品名（逗号分隔），匹配时忽略群组\n例：魔力,积分\n兼容旧写法 群组ID|奖品名"
                             }, null, 512), [
                               [_vModelText, cfg.prize_list]
                             ])
                           ]),
                           _createElementVNode("label", _hoisted_22, [
                             _withDirectives(_createElementVNode("input", {
-                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((cfg.per_group_prize_match) = $event)),
+                              "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((cfg.only_listed_prizes) = $event)),
                               type: "checkbox"
                             }, null, 512), [
-                              [_vModelCheckbox, cfg.per_group_prize_match]
+                              [_vModelCheckbox, cfg.only_listed_prizes]
                             ]),
-                            _cache[61] || (_cache[61] = _createElementVNode("span", null, "单独奖品匹配（勾选=每个群只匹配自己配置的奖品名；不勾选=匹配所有群的奖品名，默认）", -1))
+                            _cache[61] || (_cache[61] = _createElementVNode("span", null, "单独匹配（自定义奖品名白名单：勾选后只参与奖品名命中下方列表的抽奖，列表中的群组ID被忽略；不勾选=除陷阱外全部都抽，默认）", -1))
                           ]),
                           _createElementVNode("label", _hoisted_23, [
                             _withDirectives(_createElementVNode("input", {
@@ -1163,6 +1163,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ba6feb1c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-47967939"]]);
 
 export { Config as default };

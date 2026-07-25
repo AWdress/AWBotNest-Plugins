@@ -225,29 +225,34 @@ def parse_new_lottery(text: str, entities=None) -> dict:
 
 # ─── 奖品匹配 ────────────────────────────────────────────────────────────────
 # 对应原项目 config.config.PRIZE_LIST（每群组 → 奖品关键词列表）
-# + LOTTERY_PRIZE 单独匹配开关（per_group_prize_match；默认匹配所有群）。
+# + LOTTERY_PRIZE 单独匹配开关（only_listed_prizes；默认除陷阱外全部参与，勾选才按白名单过滤、忽略群组列）。
 # + PRIZE_MATCH_RULES.case_sensitive（区分大小写）。
 
 def parse_prize_list(raw) -> dict[int, list[str]]:
     """
-    解析「奖品列表」配置（对应 PRIZE_LIST）。
-    每行 `群组ID|奖品1,奖品2,...`，例如：
-        -1001234567890|魔力,积分
-        -1001234567891|金币,币,GB,邀请
-    返回 {group_id: [关键词...]}。
+    解析「奖品列表」配置（自定义奖品名白名单，匹配时忽略群组）。
+    每行一个或多个奖品名（逗号分隔），例如：
+        魔力,积分
+        爆米花
+    兼容旧写法 `群组ID|奖品1,奖品2`（群组ID 仅参与解析、匹配时不判断），
+    以及左侧非数字的容错（整行当关键词）。返回 {group_id: [关键词...]}；
+    单独匹配用 universal 跨组合并，故 group_id 取值不影响匹配结果。
     """
     out: dict[int, list[str]] = {}
     if not raw:
         return out
     for line in str(raw).splitlines():
         line = line.strip()
-        if not line or "|" not in line:
+        if not line:
             continue
-        gid_part, _, kw_part = line.partition("|")
-        try:
-            gid = int(gid_part.strip())
-        except ValueError:
-            continue
+        if "|" in line:
+            gid_part, _, kw_part = line.partition("|")
+            try:
+                gid = int(gid_part.strip())
+            except ValueError:
+                gid, kw_part = 0, line  # 左侧非数字：整行当关键词
+        else:
+            gid, kw_part = 0, line
         kws = [k.strip() for k in kw_part.split(",") if k.strip()]
         if kws:
             out.setdefault(gid, [])

@@ -6,7 +6,7 @@ let store = {
   auto_lottery_enabled: false, lottery_bot_id: '6461022460', auto_lottery_username: '',
   auto_lottery_time: '', lottery_target_groups: [], custom_lottery_groups: [],
   lottery_forward_enabled: false, lottery_forward_first_participant: false,
-  prize_list: '', per_group_prize_match: false, prize_case_sensitive: false,
+  prize_list: '', only_listed_prizes: false, prize_case_sensitive: false,
   trap_enabled: true, trap_case_sensitive: false, trap_enable_prize_pattern_check: true,
   trap_enable_creator_blacklist: true, trap_enable_participant_check: true,
   trap_max_participants: 1, trap_blacklist_creator_ids: '', trap_suspicious_keywords: '脚本,挂机,机器人',
