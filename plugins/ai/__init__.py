@@ -151,12 +151,7 @@ async def setup(ctx):
         except Exception:
             status = message
         try:
-            image = await generate_image(
-                ctx,
-                cfg.get("api_key", ""), cfg.get("base_url", ""), model, prompt,
-                str(cfg.get("image_size") or "1024x1024"),
-                str(cfg.get("image_quality") or "auto"),
-            )
+            image = await generate_image(ctx, prompt, str(cfg.get("image_size") or "1024x1024"), str(cfg.get("image_quality") or "auto"))
             output = BytesIO(image)
             output.name = "ai-generated.png"
             await client.send_photo(
@@ -238,11 +233,7 @@ async def setup(ctx):
             messages.append({"role": "user", "content": text})
 
             try:
-                reply = await generate(
-                    ctx,
-                    cfg.get("api_key", ""), cfg.get("base_url", ""),
-                    cfg.get("model", "gpt-3.5-turbo"), messages,
-                )
+                reply = await generate(ctx, messages)
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[AI] 人形回复生成失败: %r", e)
                 return  # 人形回复失败静默，不打扰群
@@ -305,11 +296,7 @@ async def setup(ctx):
             {"role": "user", "content": prompt},
         ]
         try:
-            response = await generate(
-                ctx,
-                cfg.get("api_key", ""), cfg.get("base_url", ""),
-                cfg.get("model", "gpt-3.5-turbo"), messages, image_bytes=image_bytes,
-            )
+            response = await generate(ctx, messages, image_bytes=image_bytes)
         except Exception as e:  # noqa: BLE001
             ctx.log.warning("[AI] /ai 解释失败: %r", e)
             return await _edit_autodel(code_msg, classify_error(e))
@@ -392,11 +379,7 @@ async def setup(ctx):
                 {"role": "user", "content": target["text"]},
             ]
             try:
-                opener = await generate(
-                    ctx,
-                    cfg.get("api_key", ""), cfg.get("base_url", ""),
-                    cfg.get("model", "gpt-3.5-turbo"), messages,
-                )
+                opener = await generate(ctx, messages)
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[AI] 主动搭话生成失败: %r", e)
                 return
@@ -438,12 +421,7 @@ async def setup(ctx):
         if not cfg.get("api_key"):
             return {"ok": False, "message": "未配置 API Key"}
         try:
-            reply = await generate(
-                ctx,
-                cfg.get("api_key", ""), cfg.get("base_url", ""),
-                cfg.get("model", "gpt-3.5-turbo"),
-                [{"role": "user", "content": "ping"}],
-            )
+            reply = await generate(ctx, [{"role": "user", "content": "ping"}])
             return {"ok": True, "model": cfg.get("model", ""),
                     "message": "连接正常" + (f"（回复：{reply[:30]}）" if reply else "")}
         except Exception as e:  # noqa: BLE001

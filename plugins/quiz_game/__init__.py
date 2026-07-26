@@ -100,11 +100,7 @@ async def setup(ctx):
                 if q:
                     pool.append(q)
             return pool
-        return await fetch_from_ai(
-            ctx, rounds, "中等",
-            cfg.get("ai_api_key", ""), cfg.get("ai_base_url", ""),
-            cfg.get("ai_model", "gpt-4o-mini"), ctx.log,
-        )
+        return await fetch_from_ai(ctx, rounds, "中等", ctx.log)
 
     def _schedule_timeout(client, chat_id, timeout):
         async def _runner():
