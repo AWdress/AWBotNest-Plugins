@@ -12,12 +12,12 @@ from dataclasses import dataclass, asdict
 __plugin__ = {
     "name": "电子宠物",
     "id": "digital_pet",
-    "version": "2.1.1",
+    "version": "2.1.2",
     "author": "AWdress",
     "scope": "user",
     "description": "在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
-    "changelog": "v2.1.1 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
+    "changelog": "v2.1.2 修复定时通知与卸载残留任务\n- 定时提醒改用新版平台 ctx.bot.send 接口\n- 卸载后残留的心跳回调会立即停止，不再发送通知或重复处理宠物状态\n- teardown 增加幂等保护，避免重复输出卸载日志\n\nv2.1.1 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
     "requirements": [],
     "default_enabled": False,
     "config_schema": {
@@ -41,6 +41,7 @@ __plugin__ = {
 
 
 DEFAULT_INVENTORY = {"零食": 0, "玩具球": 0, "泡泡浴球": 0, "能量核心": 0}
+_ACTIVE_CONTEXTS = set()
 
 
 @dataclass
@@ -85,6 +86,8 @@ class Pet:
 
 
 async def setup(ctx):
+    context_id = id(ctx)
+    _ACTIVE_CONTEXTS.add(context_id)
     base_dir = Path(__file__).resolve().parent
 
     def get_pet_owners():
@@ -511,12 +514,16 @@ async def setup(ctx):
             return await do_interact('clean')
 
     async def pet_heartbeat():
+        if context_id not in _ACTIVE_CONTEXTS:
+            return
         if not ctx.config.get("auto_reminder_enabled", True):
             return
         owners = get_pet_owners()
         dead = []
         for uid in owners:
             await asyncio.sleep(0.1)
+            if context_id not in _ACTIVE_CONTEXTS:
+                return
             p = get_and_update_pet(uid)
             if not p:
                 continue
@@ -524,13 +531,13 @@ async def setup(ctx):
                 dead.append(uid)
                 ctx.kv.delete(f"pet_{uid}")
                 try:
-                    await ctx.bot.send_message(uid, f"💔 你的宠物 **{p.name}** 因为长期得不到照顾，已经离家出走了...")
+                    await ctx.bot.send(uid, f"💔 你的宠物 **{p.name}** 因为长期得不到照顾，已经离家出走了...")
                 except Exception as e:
                     ctx.log.warning(f"无法向用户 {uid} 发送离家出走通知: {e}")
                 continue
             if 80 < p.hunger < 95 and random.random() < 0.5:
                 try:
-                    await ctx.bot.send_message(uid, f"🥺 你的宠物 **{p.name}** 非常饿了，快给它喂点东西吧！（/喂食）")
+                    await ctx.bot.send(uid, f"🥺 你的宠物 **{p.name}** 非常饿了，快给它喂点东西吧！（/喂食）")
                 except Exception as e:
                     ctx.log.warning(f"无法向用户 {uid} 发送饥饿提醒: {e}")
             if ctx.config.get('daily_brief_enabled', True):
@@ -542,7 +549,7 @@ async def setup(ctx):
                 if random.randint(1, 100) <= chance:
                     brief = _mood_line(p)
                     try:
-                        await ctx.bot.send_message(uid, f"📮 **{p.name} 的近况播报**\n{brief}\n\n当前：快乐 {int(p.happiness)} / 饥饿 {int(p.hunger)} / 清洁 {int(p.cleanliness)}")
+                        await ctx.bot.send(uid, f"📮 **{p.name} 的近况播报**\n{brief}\n\n当前：快乐 {int(p.happiness)} / 饥饿 {int(p.hunger)} / 清洁 {int(p.cleanliness)}")
                     except Exception as e:
                         ctx.log.warning(f"无法向用户 {uid} 发送周期播报: {e}")
             save_pet(uid, p)
@@ -565,4 +572,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    context_id = id(ctx)
+    if context_id not in _ACTIVE_CONTEXTS:
+        return
+    _ACTIVE_CONTEXTS.discard(context_id)
     ctx.log.info("电子宠物插件正在卸载...")
