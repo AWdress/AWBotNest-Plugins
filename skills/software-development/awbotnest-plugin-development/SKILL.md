@@ -123,57 +123,19 @@ Do not:
 - use `@Client.on_message`
 - use `print`
 
-## Use platform AI capabilities
+## AI-related plugin work
 
-Plugins requiring AI features should use the platform's unified AI service (`ctx.ai`) instead of managing their own API keys and model configurations. This reduces configuration burden for administrators and ensures consistent behavior across plugins.
+`PLUGIN_GUIDE.md` and `_TEMPLATE.py` do not currently define a dedicated AI-plugin chapter. So for AI-related plugin work, treat the plugin guide as the base contract, then inspect the current repository implementations before deciding architecture.
 
-### Available AI methods
+Practical rule:
 
-```python
-# Text generation
-response = await ctx.ai.chat(
-    prompt="用户问题",
-    system="系统提示词（可选）",
-    temperature=0.7
-)
+- Do not present AI-related patterns as plugin-spec hard law unless they are actually written in the plugin guide/template.
+- If the current repo already uses shared/platform AI capability in existing plugins, treat that as a **current repo practice**, not as a replacement for the plugin contract itself.
+- For AI plugins, explicitly distinguish between:
+  - what the plugin guide guarantees
+  - what the current repo happens to implement today
 
-# Vision (image + text)
-response = await ctx.ai.vision(
-    image=image_bytes,
-    prompt="请描述这张图片",
-    system="系统提示词（可选）"
-)
-
-# Image generation
-image_path = await ctx.ai.generate_image(
-    prompt="一只可爱的猫",
-    size="1024x1024",
-    quality="standard"
-)
-
-# Check availability
-if ctx.ai.is_available("text"):
-    response = await ctx.ai.chat(prompt="测试")
-```
-
-### AI rules
-
-- Prefer `ctx.ai` when the plugin needs text generation, vision, or image generation.
-- Do not add plugin-local OpenAI-style config fields (`api_key`, `base_url`, `model`) unless the current product requirement explicitly needs plugin-private routing.
-- If migrating an existing plugin from self-managed AI to platform AI, remove stale plugin-local credential UI and runtime guards as part of the same change.
-
-### AI migration example
-
-```python
-# Before
-import openai
-client = openai.AsyncOpenAI(api_key=cfg["api_key"], base_url=cfg.get("base_url"))
-resp = await client.chat.completions.create(model=cfg["model"], messages=[...])
-text = resp.choices[0].message.content
-
-# After
-text = await ctx.ai.chat(prompt="用户问题", system="系统提示词")
-```
+This avoids turning repository drift or transitional implementation details into fake “official plugin spec”.
 
 ## Handler rules
 
@@ -362,7 +324,7 @@ Before finishing plugin work:
 - [ ] runtime state uses `ctx.kv` / `ctx.data_dir`
 - [ ] dependencies are declared, not self-installed
 - [ ] Vue plugins have aligned defaults and shipped `frontend/dist`
-- [ ] AI plugins use `ctx.ai` when platform AI is the intended architecture
+- [ ] AI-related behaviour is described as current repo practice unless the plugin guide/template explicitly defines it
 - [ ] manifest/version metadata updated when publishing
 - [ ] edited plugin actually matches 1–3 similar working plugins where behaviour is repo-specific
 
