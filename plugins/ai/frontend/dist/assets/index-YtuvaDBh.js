@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-D4u6p2-Z.js';
+import Config from './__federation_expose_Config-DZTpRhu2.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -45,6 +45,8 @@ const {createApp,h} = await importShared('vue');
 
 let store = {
   api_key: '', base_url: '', model: 'gpt-3.5-turbo',
+  enable_image_generation: true, image_model: 'gpt-image-1',
+  image_size: '1024x1024', image_quality: 'auto',
   enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
   system_prompt: '# Role\n你是一个相处了很久的普通网友。',
   max_history: 10,

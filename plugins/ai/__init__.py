@@ -18,17 +18,18 @@ import tempfile
 import time
 from collections import deque
 from html import escape
+from io import BytesIO
 
-from ._engine import generate, classify_error
+from ._engine import generate, generate_image, classify_error
 
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.0.7",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "私聊/群@你时 AI 人形对话（带记忆，群聊可指定群组）；可选随机主动搭话开启话题；回复消息发 /ai 让 AI 解释或解答（支持图片）。自带 Vue 配置界面 + 对话记忆管理。",
+    "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及使用独立生图模型通过 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
-    "changelog": "v1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
+    "changelog": "v1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -38,6 +39,8 @@ __plugin__ = {
 # 初始化表单）。后端各处 ctx.config.get(key, 默认) 已带默认值，此处仅作文档/单点参考。
 DEFAULTS = {
     "api_key": "", "base_url": "", "model": "gpt-3.5-turbo",
+    "enable_image_generation": True, "image_model": "gpt-image-1",
+    "image_size": "1024x1024", "image_quality": "auto",
     "enable_private_chat": True, "enable_group_chat": True, "group_chat_ids": "",
     "system_prompt": (
         "# Role\n你是一个相处了很久的普通网友。\n\n"
@@ -125,6 +128,49 @@ def _hist_key(chat_id: int) -> str:
 
 
 async def setup(ctx):
+    # ── 功能 0：AI 生图命令（自己发出）──
+    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-14)
+    async def ai_image(client, message):
+        text = (message.text or "").strip()
+        matched = re.match(r"^[/\.](?:生图|draw)(?:\s+(.+))?$", text, re.IGNORECASE | re.DOTALL)
+        if not matched:
+            return
+        cfg = ctx.config
+        if not cfg.get("enable_image_generation", True):
+            return await _edit_autodel(message, "AI 生图功能未启用")
+        if not cfg.get("api_key"):
+            return await _edit_autodel(message, "未配置 API Key")
+        prompt = (matched.group(1) or "").strip()
+        if not prompt:
+            return await _edit_autodel(message, "请在 /生图 后填写画面描述")
+        model = str(cfg.get("image_model") or "gpt-image-1").strip()
+        if not model:
+            return await _edit_autodel(message, "未配置生图模型")
+        try:
+            status = await message.edit("正在生成图片...")
+        except Exception:
+            status = message
+        try:
+            image = await generate_image(
+                cfg.get("api_key", ""), cfg.get("base_url", ""), model, prompt,
+                str(cfg.get("image_size") or "1024x1024"),
+                str(cfg.get("image_quality") or "auto"),
+            )
+            output = BytesIO(image)
+            output.name = "ai-generated.png"
+            await client.send_photo(
+                message.chat.id, output,
+                caption=f"🎨 {prompt[:900]}",
+                reply_to_message_id=getattr(message.reply_to_message, "id", None),
+            )
+            try:
+                await status.delete()
+            except Exception:
+                pass
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("[AI] 生图失败 model=%s: %r", model, exc)
+            await _edit_autodel(status, classify_error(exc), 60)
+
     # ── 功能 1：人形回复（监听收到的私聊/群消息）──
     @ctx.on_message((ctx.filters.private | ctx.filters.group) & ~ctx.filters.outgoing, group=6)
     async def human_reply(client, message):

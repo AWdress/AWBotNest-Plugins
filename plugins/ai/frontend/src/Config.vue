@@ -11,6 +11,8 @@ const props = defineProps({
 
 const DEFAULTS = {
   api_key: '', base_url: '', model: 'gpt-3.5-turbo',
+  enable_image_generation: true, image_model: 'gpt-image-1',
+  image_size: '1024x1024', image_quality: 'auto',
   enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
   system_prompt: (
     '# Role\n你是一个相处了很久的普通网友。\n\n' +
@@ -35,6 +37,7 @@ const DEFAULTS = {
 
 const GROUPS = [
   { key: 'api', label: '接口' },
+  { key: 'image', label: 'AI 生图', en: 'enable_image_generation' },
   { key: 'human', label: '人形回复', en: 'enable_private_chat' },
   { key: 'proactive', label: '主动搭话', en: 'enable_proactive' },
   { key: 'explain', label: '解释命令', en: 'enable_explain_command' },
@@ -179,6 +182,39 @@ function switchTab(t) {
               <label class="row"><span>模型</span>
                 <input v-model="cfg.model" class="inp" placeholder="gpt-4o-mini / gpt-3.5-turbo 等" /></label>
               <div class="row"><button class="btn" :disabled="testing" @click="testConn">{{ testing ? '测试中…' : '测试连接' }}</button></div>
+            </section>
+          </template>
+
+          <!-- AI 生图 -->
+          <template v-else-if="group === 'image'">
+            <h3 class="det-title">AI 生图</h3>
+            <section class="card">
+              <label class="row switch"><input v-model="cfg.enable_image_generation" type="checkbox" /><span>启用 AI 生图命令</span></label>
+              <p class="tip">发送 /生图 画面描述 或 /draw prompt，生成后会直接把图片发到当前会话。</p>
+              <template v-if="cfg.enable_image_generation">
+                <label class="row"><span>生图模型</span>
+                  <input v-model="cfg.image_model" class="inp" placeholder="gpt-image-1 / dall-e-3 / 兼容模型名" /></label>
+                <div class="grid">
+                  <label class="row"><span>图片尺寸</span>
+                    <select v-model="cfg.image_size" class="inp">
+                      <option value="1024x1024">1024 × 1024</option>
+                      <option value="1536x1024">1536 × 1024（横图）</option>
+                      <option value="1024x1536">1024 × 1536（竖图）</option>
+                      <option value="1792x1024">1792 × 1024（DALL·E 3 横图）</option>
+                      <option value="1024x1792">1024 × 1792（DALL·E 3 竖图）</option>
+                    </select></label>
+                  <label class="row"><span>生成质量</span>
+                    <select v-model="cfg.image_quality" class="inp">
+                      <option value="auto">自动</option>
+                      <option value="low">低</option>
+                      <option value="medium">中</option>
+                      <option value="high">高</option>
+                      <option value="standard">标准（DALL·E）</option>
+                      <option value="hd">高清（DALL·E）</option>
+                    </select></label>
+                </div>
+                <p class="tip">不同兼容接口支持的尺寸和质量可能不同；不确定时质量选“自动”、尺寸选 1024 × 1024。</p>
+              </template>
             </section>
           </template>
 

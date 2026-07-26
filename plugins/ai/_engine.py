@@ -3,6 +3,7 @@
 # =============================================================================
 
 import base64
+import urllib.request
 from typing import Optional
 
 import openai
@@ -62,3 +63,42 @@ async def generate(
     if resp.choices:
         return resp.choices[0].message.content or ""
     return ""
+
+
+async def generate_image(
+    api_key: str,
+    base_url: Optional[str],
+    model: str,
+    prompt: str,
+    size: str = "1024x1024",
+    quality: str = "auto",
+) -> bytes:
+    """调用 OpenAI 兼容 Images API，兼容 b64_json、data URL 和普通 URL。"""
+    client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
+    kwargs = {
+        "model": model,
+        "prompt": prompt,
+        "n": 1,
+        "size": size,
+    }
+    if quality and quality != "auto":
+        kwargs["quality"] = quality
+    resp = await client.images.generate(**kwargs)
+    data = getattr(resp, "data", None) or []
+    if not data:
+        raise RuntimeError("生图接口未返回图片")
+    item = data[0]
+    encoded = getattr(item, "b64_json", None)
+    if encoded:
+        return base64.b64decode(encoded)
+    url = str(getattr(item, "url", None) or "")
+    if url.startswith("data:") and "," in url:
+        return base64.b64decode(url.split(",", 1)[1])
+    if url:
+        def _download() -> bytes:
+            request = urllib.request.Request(url, headers={"User-Agent": "AWBotNest-AI/1.1"})
+            with urllib.request.urlopen(request, timeout=60) as response:
+                return response.read()
+        import asyncio
+        return await asyncio.to_thread(_download)
+    raise RuntimeError("生图接口未返回可读取的图片数据")

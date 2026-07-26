@@ -5,6 +5,8 @@ import Config from './Config.vue'
 
 let store = {
   api_key: '', base_url: '', model: 'gpt-3.5-turbo',
+  enable_image_generation: true, image_model: 'gpt-image-1',
+  image_size: '1024x1024', image_quality: 'auto',
   enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
   system_prompt: '# Role\n你是一个相处了很久的普通网友。',
   max_history: 10,
