@@ -1,6 +1,6 @@
 ---
 name: awbotnest-plugin-development
-description: Create, modify, review, validate, or publish AWBotNest plugins and AWBotNest-Plugins marketplace entries. Use for plugin metadata, ctx APIs, config_schema, Vue plugin config, dependencies, webhook handlers, manifest sync, hot-reload-safe implementation, and platform AI integration.
+description: Create, modify, review, validate, or publish AWBotNest plugins and AWBotNest-Plugins marketplace entries. Use for plugin metadata, ctx APIs, config_schema, Vue plugin config, dependencies, webhook handlers, manifest sync, and hot-reload-safe implementation.
 ---
 
 # AWBotNest Plugin Development
