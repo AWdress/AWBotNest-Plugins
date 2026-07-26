@@ -25,11 +25,11 @@ from ._engine import generate, generate_image, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及使用独立生图模型通过 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
-    "changelog": "v1.3.1 前端移除自带 API 配置字段\n- 删除"接口"分组，移除 api_key/base_url/model 配置界面\n- 移除生图模型字段和测试连接功能\n- 配置界面仅保留功能开关和业务参数\n\nv1.3.0 改为仅使用平台统一 AI\n- 移除插件自带 OpenAI 配置的回退逻辑，仅调用平台统一 AI\n- 不再需要配置 api_key/base_url/model，统一由平台管理\n- 代码精简，去除 openai 库直接依赖\n\nv1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
+    "changelog": "v1.3.2 修复插件解析失败\n- 修复版本日志中的未转义引号导致 __init__.py 语法错误\n- 插件更新后可正常重新加载\n\nv1.3.1 前端移除自带 API 配置字段\n- 删除接口分组，移除 api_key/base_url/model 配置界面\n- 移除生图模型字段和测试连接功能\n- 配置界面仅保留功能开关和业务参数\n\nv1.3.0 改为仅使用平台统一 AI\n- 移除插件自带 OpenAI 配置的回退逻辑，仅调用平台统一 AI\n- 不再需要配置 api_key/base_url/model，统一由平台管理\n- 代码精简，去除 openai 库直接依赖\n\nv1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
