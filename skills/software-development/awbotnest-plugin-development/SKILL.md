@@ -59,10 +59,103 @@ Register handlers only inside `setup(ctx)`. Use `ctx` as the platform boundary:
 - Filters: `ctx.filters.*`; combine with `&`, `|`, and `~`
 - Sending: `ctx.bot`, `ctx.user`, `ctx.user_apps`, `ctx.notify`, `ctx.owner_id`
 - Runtime: `ctx.config`, `ctx.update_config`, `ctx.kv`, `ctx.data_dir`, `ctx.log`
+- AI capabilities: `ctx.ai.chat`, `ctx.ai.vision`, `ctx.ai.generate_image`, `ctx.ai.is_available`
 - Utilities: `ctx.download`, `ctx.browser`
 - Lifecycle: `ctx.schedule`, `ctx.add_cleanup`, `ctx.StopPropagation`
 
 Do not import Pyrogram for decorator registration, use `@Client.on_message`, read platform config files, or use `print()` for operational logging. Treat `group=` as ordering only within the plugin; the platform isolates plugin group ranges.
+
+## Use platform AI capabilities
+
+Plugins requiring AI features should use the platform's unified AI service (`ctx.ai`) instead of managing their own API keys and model configurations. This reduces configuration burden for administrators and ensures consistent behavior across plugins.
+
+### Available AI methods
+
+```python
+# Text generation
+response = await ctx.ai.chat(
+    prompt="用户问题",
+    system="系统提示词（可选）",
+    temperature=0.7  # 可选，默认 0.7
+)
+
+# Vision (image + text)
+response = await ctx.ai.vision(
+    image=image_bytes,  # bytes or Path
+    prompt="请描述这张图片",
+    system="系统提示词（可选）"
+)
+
+# Image generation
+image_path = await ctx.ai.generate_image(
+    prompt="一只可爱的猫",
+    size="1024x1024",  # 可选
+    quality="standard"  # 可选: standard/hd
+)
+# Returns pathlib.Path, read with image_path.read_bytes()
+
+# Check availability before using
+if ctx.ai.is_available("text"):
+    response = await ctx.ai.chat(prompt="测试")
+elif ctx.ai.is_available("vision"):
+    # Has vision capability
+    pass
+```
+
+### When to use platform AI
+
+Use `ctx.ai` when:
+
+- The plugin needs text generation, vision, or image generation
+- The AI capability is core to the plugin's functionality (e.g., AI assistant, quiz generation, image recognition)
+- You want administrators to configure AI once for all plugins
+
+Do **not** add OpenAI API configuration fields (`api_key`, `base_url`, `model`) to plugin settings. Let the platform manage AI services centrally in「系统设置→AI 服务」.
+
+### Error handling
+
+Platform AI methods raise exceptions on failure. Handle them gracefully:
+
+```python
+try:
+    response = await ctx.ai.chat(prompt=user_input)
+    await message.reply(response)
+except Exception as e:
+    ctx.log.error("AI 调用失败: %r", e)
+    await message.reply("AI 服务暂时不可用，请稍后再试")
+```
+
+If the plugin has a fallback mechanism (e.g., using a local model or API), check availability first:
+
+```python
+if ctx.ai.is_available("text"):
+    response = await ctx.ai.chat(prompt=user_input)
+else:
+    response = await fallback_method(user_input)
+```
+
+### Migration from self-managed AI
+
+When updating existing plugins that use OpenAI or similar APIs:
+
+1. Replace direct API calls with `ctx.ai` methods
+2. Remove `api_key`, `base_url`, `model` from `config_schema`
+3. Remove API configuration UI from Vue frontends
+4. Update plugin description to mention "使用平台统一 AI 服务"
+5. Bump version and document the change in `changelog`
+
+Example migration:
+
+```python
+# Before: plugin manages its own OpenAI client
+import openai
+client = openai.AsyncOpenAI(api_key=cfg["api_key"], base_url=cfg.get("base_url"))
+resp = await client.chat.completions.create(model=cfg["model"], messages=[...])
+text = resp.choices[0].message.content
+
+# After: use platform AI
+text = await ctx.ai.chat(prompt="用户问题", system="系统提示词")
+```
 
 ## Choose configuration mode deliberately
 
