@@ -5,7 +5,7 @@
 #   1. 人形回复：私聊直接对话；群里 @你 或回复你的消息时对话（带上下文记忆）。
 #   2. /ai 解释：回复一条消息（或图片）再发 /ai，让 AI 解释/解答（单次，无记忆）。
 #
-# 自洽实现：直接调用 OpenAI 兼容接口（openai 库），对话历史存 ctx.kv，不依赖平台 DI 容器。
+# AI 能力统一通过平台 ctx.ai 调用，对话历史存 ctx.kv。
 # Vue 模式：配置/对话记忆管理界面由自带 Vue 组件渲染（frontend/src/Config.vue），
 # 配置默认值集中在 DEFAULTS，后端接口见 setup 里的 ctx.on_api。
 # =============================================================================
@@ -25,11 +25,11 @@ from ._engine import generate, generate_image, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "author": "AWdress",
-    "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及使用独立生图模型通过 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
+    "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
-    "changelog": "v1.3.2 修复插件解析失败\n- 修复版本日志中的未转义引号导致 __init__.py 语法错误\n- 插件更新后可正常重新加载\n\nv1.3.1 前端移除自带 API 配置字段\n- 删除接口分组，移除 api_key/base_url/model 配置界面\n- 移除生图模型字段和测试连接功能\n- 配置界面仅保留功能开关和业务参数\n\nv1.3.0 改为仅使用平台统一 AI\n- 移除插件自带 OpenAI 配置的回退逻辑，仅调用平台统一 AI\n- 不再需要配置 api_key/base_url/model，统一由平台管理\n- 代码精简，去除 openai 库直接依赖\n\nv1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
+    "changelog": "v1.3.3 修复平台 AI 调用\n- 清理遗留的插件 API Key 校验，不再误报未配置 API Key\n- 对话、解释、主动搭话和生图均按平台统一 AI 能力判断\n- 清理前端与后端遗留的旧接口配置字段\n\nv1.3.2 修复插件解析失败\n- 修复版本日志中的未转义引号导致 __init__.py 语法错误\n- 插件更新后可正常重新加载\n\nv1.3.1 前端移除自带 API 配置字段\n- 删除接口分组，移除 api_key/base_url/model 配置界面\n- 移除生图模型字段和测试连接功能\n- 配置界面仅保留功能开关和业务参数\n\nv1.3.0 改为仅使用平台统一 AI\n- 移除插件自带 OpenAI 配置的回退逻辑，仅调用平台统一 AI\n- 不再需要配置 api_key/base_url/model，统一由平台管理\n- 代码精简，去除 openai 库直接依赖\n\nv1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -38,8 +38,7 @@ __plugin__ = {
 # vue 模式无 config_schema：配置默认值集中在此，供后端读取（前端 Config.vue 用同一套默认
 # 初始化表单）。后端各处 ctx.config.get(key, 默认) 已带默认值，此处仅作文档/单点参考。
 DEFAULTS = {
-    "api_key": "", "base_url": "", "model": "gpt-3.5-turbo",
-    "enable_image_generation": True, "image_model": "gpt-image-1",
+    "enable_image_generation": True,
     "image_size": "1024x1024", "image_quality": "auto",
     "enable_private_chat": True, "enable_group_chat": True, "group_chat_ids": "",
     "system_prompt": (
@@ -127,6 +126,14 @@ def _hist_key(chat_id: int) -> str:
     return f"hist:{chat_id}"
 
 
+def _ai_available(ctx, capability: str) -> bool:
+    """按平台统一 AI 权限与模型配置判断能力是否可用。"""
+    checker = getattr(ctx.ai, "is_available", None)
+    if callable(checker):
+        return bool(checker(capability))
+    return bool(getattr(ctx.ai, "available", False))
+
+
 async def setup(ctx):
     # ── 功能 0：AI 生图命令（自己发出）──
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-14)
@@ -138,14 +145,11 @@ async def setup(ctx):
         cfg = ctx.config
         if not cfg.get("enable_image_generation", True):
             return await _edit_autodel(message, "AI 生图功能未启用")
-        if not cfg.get("api_key"):
-            return await _edit_autodel(message, "未配置 API Key")
+        if not _ai_available(ctx, "image"):
+            return await _edit_autodel(message, "平台未配置可用的 AI 生图模型")
         prompt = (matched.group(1) or "").strip()
         if not prompt:
             return await _edit_autodel(message, "请在 /生图 后填写画面描述")
-        model = str(cfg.get("image_model") or "gpt-image-1").strip()
-        if not model:
-            return await _edit_autodel(message, "未配置生图模型")
         try:
             status = await message.edit("正在生成图片...")
         except Exception:
@@ -164,7 +168,7 @@ async def setup(ctx):
             except Exception:
                 pass
         except Exception as exc:  # noqa: BLE001
-            ctx.log.warning("[AI] 生图失败 model=%s: %r", model, exc)
+            ctx.log.warning("[AI] 平台生图失败: %r", exc)
             await _edit_autodel(status, classify_error(exc), 60)
 
     # ── 功能 1：人形回复（监听收到的私聊/群消息）──
@@ -176,7 +180,7 @@ async def setup(ctx):
         fu = message.from_user
         if not fu or fu.is_self or fu.is_bot:
             return
-        if not cfg.get("api_key"):
+        if not _ai_available(ctx, "text"):
             return
 
         chat_id = message.chat.id
@@ -260,9 +264,6 @@ async def setup(ctx):
             return
         if not cfg.get("enable_explain_command", True):
             return await _edit_autodel(message, "/ai 解释命令未启用")
-        if not cfg.get("api_key"):
-            return await _edit_autodel(message, "未配置 API Key")
-
         command_text = (message.text or "").strip()
         extra_text = re.sub(r"^[/\.]ai\s*", "", command_text, flags=re.IGNORECASE).strip()
 
@@ -272,6 +273,10 @@ async def setup(ctx):
         if reply:
             target_text = (reply.text or reply.caption or "").strip()
             image_bytes = await _extract_image(client, reply, ctx)
+
+        capability = "vision" if image_bytes else "text"
+        if not _ai_available(ctx, capability):
+            return await _edit_autodel(message, f"平台未配置可用的 AI {'识图' if capability == 'vision' else '文本'}模型")
 
         if not target_text and not extra_text and not image_bytes:
             return await _edit_autodel(message, "请回复要解释的消息/图片，或在 /ai 后直接带文本")
@@ -345,7 +350,7 @@ async def setup(ctx):
     # 3b. 定时器：每分钟检查一次，到了随机间隔就挑一条候选消息主动回复。
     async def proactive_tick():
         cfg = ctx.config
-        if not cfg.get("enable_proactive", False) or not cfg.get("api_key"):
+        if not cfg.get("enable_proactive", False) or not _ai_available(ctx, "text"):
             return
         pids = _parse_ids(cfg.get("proactive_chat_ids", ""))
         if not pids:
@@ -417,13 +422,11 @@ async def setup(ctx):
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/test", methods=["POST"])
     async def _api_test(req):
-        cfg = ctx.config
-        if not cfg.get("api_key"):
-            return {"ok": False, "message": "未配置 API Key"}
+        if not _ai_available(ctx, "text"):
+            return {"ok": False, "message": "平台未配置可用的 AI 文本模型"}
         try:
             reply = await generate(ctx, [{"role": "user", "content": "ping"}])
-            return {"ok": True, "model": cfg.get("model", ""),
-                    "message": "连接正常" + (f"（回复：{reply[:30]}）" if reply else "")}
+            return {"ok": True, "message": "平台 AI 连接正常" + (f"（回复：{reply[:30]}）" if reply else "")}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": classify_error(e)}
 

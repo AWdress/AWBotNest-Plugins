@@ -10,8 +10,7 @@ const props = defineProps({
 })
 
 const DEFAULTS = {
-  api_key: '', base_url: '', model: 'gpt-3.5-turbo',
-  enable_image_generation: true, image_model: 'gpt-image-1',
+  enable_image_generation: true,
   image_size: '1024x1024', image_quality: 'auto',
   enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
   system_prompt: (

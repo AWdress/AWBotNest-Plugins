@@ -114,8 +114,7 @@ const _sfc_main = {
 const props = __props;
 
 const DEFAULTS = {
-  api_key: '', base_url: '', model: 'gpt-3.5-turbo',
-  enable_image_generation: true, image_model: 'gpt-image-1',
+  enable_image_generation: true,
   image_size: '1024x1024', image_quality: 'auto',
   enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
   system_prompt: (
@@ -293,7 +292,7 @@ return (_ctx, _cache) => {
                                   "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.image_size) = $event)),
                                   class: "inp"
                                 }, [...(_cache[20] || (_cache[20] = [
-                                  _createStaticVNode("<option value=\"1024x1024\" data-v-b86e1c91>1024 × 1024</option><option value=\"1536x1024\" data-v-b86e1c91>1536 × 1024（横图）</option><option value=\"1024x1536\" data-v-b86e1c91>1024 × 1536（竖图）</option><option value=\"1792x1024\" data-v-b86e1c91>1792 × 1024（DALL·E 3 横图）</option><option value=\"1024x1792\" data-v-b86e1c91>1024 × 1792（DALL·E 3 竖图）</option>", 5)
+                                  _createStaticVNode("<option value=\"1024x1024\" data-v-03d56a90>1024 × 1024</option><option value=\"1536x1024\" data-v-03d56a90>1536 × 1024（横图）</option><option value=\"1024x1536\" data-v-03d56a90>1024 × 1536（竖图）</option><option value=\"1792x1024\" data-v-03d56a90>1792 × 1024（DALL·E 3 横图）</option><option value=\"1024x1792\" data-v-03d56a90>1024 × 1792（DALL·E 3 竖图）</option>", 5)
                                 ]))], 512), [
                                   [_vModelSelect, cfg.image_size]
                                 ])
@@ -304,7 +303,7 @@ return (_ctx, _cache) => {
                                   "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.image_quality) = $event)),
                                   class: "inp"
                                 }, [...(_cache[22] || (_cache[22] = [
-                                  _createStaticVNode("<option value=\"auto\" data-v-b86e1c91>自动</option><option value=\"low\" data-v-b86e1c91>低</option><option value=\"medium\" data-v-b86e1c91>中</option><option value=\"high\" data-v-b86e1c91>高</option><option value=\"standard\" data-v-b86e1c91>标准（DALL·E）</option><option value=\"hd\" data-v-b86e1c91>高清（DALL·E）</option>", 6)
+                                  _createStaticVNode("<option value=\"auto\" data-v-03d56a90>自动</option><option value=\"low\" data-v-03d56a90>低</option><option value=\"medium\" data-v-03d56a90>中</option><option value=\"high\" data-v-03d56a90>高</option><option value=\"standard\" data-v-03d56a90>标准（DALL·E）</option><option value=\"hd\" data-v-03d56a90>高清（DALL·E）</option>", 6)
                                 ]))], 512), [
                                   [_vModelSelect, cfg.image_quality]
                                 ])
@@ -593,6 +592,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b86e1c91"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-03d56a90"]]);
 
 export { Config as default };
