@@ -10,6 +10,7 @@
 provider 抓榜单 → RankMediaItem(标题/年份/类型/…)
   → pre 过滤(热度) → NextFind /search 取最佳匹配(类型一致+年份就近)
   → 库/订阅判定 + 评分/类型/年份过滤 → POST /subscriptions/add → 记历史(ctx.kv)
+  → 可选：POST /subscriptions/info 批量检查活跃剧集 → POST /media/fill_missing 触发明确缺集项
 ```
 
 关键：一次 `GET /search` 就返回 `id(=tmdb)`、`raw_type`、`year`、`_vote_average`、`is_subscribed`、`is_in_library`，所以识别、去重、库查重、评分过滤合并为一步，无需多次请求。
@@ -36,6 +37,7 @@ provider 抓榜单 → RankMediaItem(标题/年份/类型/…)
 
 - **订阅配置**：左侧分组导航（全局设置 + 各来源，启用的带绿点，底部显示「启用来源 N/4」）+ 右侧明细。全局设置含 NextFind 地址/密钥（测试连接）、定时 cron、结果推送、立即运行、全局过滤；各来源含启用开关、来源选项与每源独立过滤。
 - **订阅历史**：顶部 6 张统计卡（新增订阅 / 库中已有 / 已订阅 / 已过滤 / 未识别 / 失败，取自上次运行）+ 记录表，可按状态筛选、删除、清空。
+- **自动补缺集**：可随定时任务批量检查 NextFind 活跃剧集的入库进度，仅将明确缺集项推入高优搜索队列，并支持每轮数量上限。
 - **订阅管理**：NextFind 当前活跃订阅列表，可取消订阅。
 
 配置值经 `host.getConfig/saveConfig` 存平台统一存储，插件里 `ctx.config` 读取。业务数据经 `ctx.on_api` 接口 + `host.callApi` 交互。
@@ -51,6 +53,9 @@ provider 抓榜单 → RankMediaItem(标题/年份/类型/…)
 | `/history/delete` | POST | 删除单条 / 清空历史 |
 | `/subscriptions` | GET | NextFind 活跃订阅列表 |
 | `/subscriptions/remove` | POST | 取消某条订阅 |
+
+补缺集由定时/手动运行流程直接调用 NextFind 的 `POST /subscriptions/info` 与
+`POST /media/fill_missing`，不额外暴露插件管理接口。
 
 ## 定时与推送
 

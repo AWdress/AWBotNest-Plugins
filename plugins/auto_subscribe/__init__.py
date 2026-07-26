@@ -19,11 +19,11 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.0.6",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖\n\nv1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
+    "changelog": "v1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖\n\nv1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
     "scope": "user",
     "default_enabled": False,
     # 配置/管理界面由插件自带 Vue 组件渲染（frontend/src/Config.vue）。
@@ -35,6 +35,7 @@ __plugin__ = {
 DEFAULTS = {
     "api_url": "", "api_key": "",
     "schedule": "0 8 * * *", "notify": True,
+    "auto_fill_missing": False, "auto_fill_missing_limit": 20,
     "min_year": 0, "min_vote": 0, "min_popularity": 0, "media_type": "all",
     # 豆瓣
     "douban_enabled": False, "douban_ranks": ["movie-hot-gaia", "tv-hot"],
@@ -98,6 +99,74 @@ def _summary(result, label: str) -> str:
 _run_lock = None
 
 
+def _tmdb_id(item: dict) -> str:
+    return str(item.get("tmdb_id") or item.get("id") or "").strip()
+
+
+def _media_type(item: dict) -> str:
+    return str(item.get("media_type") or item.get("raw_type") or item.get("type") or "").lower()
+
+
+def _has_missing_episodes(item: dict) -> bool:
+    """只识别响应明确给出的缺集状态，避免字段未知时误触发全库补缺。"""
+    for key in ("has_missing", "has_missing_episodes", "is_missing"):
+        if item.get(key) is True:
+            return True
+    for key in ("missing_count", "missing_episode_count"):
+        try:
+            if int(item.get(key) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    missing = item.get("missing_episodes")
+    if isinstance(missing, (list, tuple, set, dict)) and len(missing) > 0:
+        return True
+    try:
+        total = int(item.get("total_episodes") or 0)
+        local = int(item.get("local_episodes") or item.get("downloaded_episodes") or 0)
+        if total > 0 and local < total:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(item.get("status") or item.get("library_status") or "").lower() == "missing"
+
+
+def _fill_missing_round(cfg: dict, log=None) -> dict:
+    """检查活跃剧集订阅，并只触发明确缺集的项目。"""
+    client = _nf_client(cfg)
+    subscriptions = client.list_subscriptions()
+    tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
+    query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
+    details = client.subscription_info(query) if query else []
+    by_id = {_tmdb_id(item): item for item in tv_items}
+    for detail in details:
+        key = _tmdb_id(detail)
+        if key:
+            by_id[key] = {**by_id.get(key, {}), **detail}
+    candidates = [item for item in by_id.values() if _has_missing_episodes(item)]
+    limit = max(1, min(int(cfg.get("auto_fill_missing_limit", 20) or 20), 100))
+    triggered = failed = 0
+    for item in candidates[:limit]:
+        tmdb_id = _tmdb_id(item)
+        title = str(item.get("title") or "")
+        try:
+            ok, message = client.fill_missing(tmdb_id, "tv", title)
+            triggered += int(ok)
+            failed += int(not ok)
+            if log:
+                log.info("[自动订阅] 补缺集 · %s(%s) → %s%s", title or "未命名", tmdb_id,
+                         "已触发" if ok else "失败", f"（{message}）" if message else "")
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            if log:
+                log.error("[自动订阅] 补缺集 · %s(%s) 调用失败: %r", title or "未命名", tmdb_id, exc)
+    return {
+        "checked": len(tv_items), "missing": len(candidates),
+        "triggered": triggered, "failed": failed,
+        "limited": max(0, len(candidates) - limit),
+    }
+
+
 async def _run(ctx, label: str) -> str:
     """执行一轮：阻塞流水线跑在 to_thread，通知/kv 在事件循环。返回汇总文本。"""
     if _run_lock.locked():
@@ -109,8 +178,8 @@ async def _run(ctx, label: str) -> str:
             msg = "未配置 NextFind 地址或密钥，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
-        if not any(cfg.get(k) for k in _ENABLE_KEYS):
-            msg = "未启用任何榜单源，跳过"
+        if not any(cfg.get(k) for k in _ENABLE_KEYS) and not cfg.get("auto_fill_missing"):
+            msg = "未启用任何榜单源或自动补缺集，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
 
@@ -144,6 +213,18 @@ async def _run(ctx, label: str) -> str:
         })
 
         summary = _summary(result, label)
+        if cfg.get("auto_fill_missing") and not result.auth_error:
+            try:
+                fill_stats = await asyncio.to_thread(_fill_missing_round, cfg, ctx.log)
+                ctx.update_config({"last_fill_missing_stats": fill_stats})
+                extra = (f"补缺集：检查{fill_stats['checked']}，缺集{fill_stats['missing']}，"
+                         f"已触发{fill_stats['triggered']}，失败{fill_stats['failed']}")
+                if fill_stats["limited"]:
+                    extra += f"，另有{fill_stats['limited']}条受每轮上限限制"
+                summary += "\n" + extra
+            except Exception as exc:  # noqa: BLE001
+                ctx.log.error("[自动订阅] 自动补缺集失败: %r", exc)
+                summary += f"\n⚠️ 自动补缺集失败：{exc}"
         # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
         # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
         if cfg.get("notify", True):

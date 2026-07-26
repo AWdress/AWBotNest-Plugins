@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-btsXdASn.js';
+import Config from './__federation_expose_Config-yUvB9eEJ.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -45,6 +45,7 @@ const {createApp,h} = await importShared('vue');
 
 let store = {
   api_url: 'https://nf.example.com/api/openapi', api_key: '',
+  auto_fill_missing: false, auto_fill_missing_limit: 20,
   schedule: '0 8 * * *', notify: true,
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
   douban_enabled: true, douban_ranks: ['movie-hot-gaia', 'tv-hot'],

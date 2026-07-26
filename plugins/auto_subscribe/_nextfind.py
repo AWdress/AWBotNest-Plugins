@@ -86,6 +86,19 @@ class NextFindClient:
         data = (payload or {}).get("data")
         return data if isinstance(data, list) else []
 
+    def subscription_info(self, items: List[dict]) -> List[dict]:
+        """批量查询订阅入库进度，兼容常见的数据包装格式。"""
+        payload = self._post("/subscriptions/info", {"items": items})
+        data = (payload or {}).get("data")
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("items", "results", "subscriptions"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return value
+        return []
+
     def quota(self) -> dict:
         """查询额度/积分（供「测试连接」动作）。"""
         payload = self._get("/quota", {})
@@ -110,3 +123,14 @@ class NextFindClient:
         payload = self._post("/subscriptions/remove", body)
         status = str((payload or {}).get("status") or "").lower()
         return status == "success", str((payload or {}).get("message") or "")
+
+    def fill_missing(self, tmdb_id, media_type: str, title: str = "") -> Tuple[bool, str]:
+        """把存在缺集的订阅推入 NextFind 高优补缺队列。"""
+        payload = self._post("/media/fill_missing", {
+            "tmdb_id": str(tmdb_id),
+            "media_type": str(media_type).lower(),
+            "title": str(title or ""),
+        })
+        status = str((payload or {}).get("status") or "").lower()
+        ok = status in ("success", "ok") or bool((payload or {}).get("success"))
+        return ok, str((payload or {}).get("message") or "")

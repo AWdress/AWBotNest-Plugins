@@ -5,6 +5,7 @@ import Config from './Config.vue'
 
 let store = {
   api_url: 'https://nf.example.com/api/openapi', api_key: '',
+  auto_fill_missing: false, auto_fill_missing_limit: 20,
   schedule: '0 8 * * *', notify: true,
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
   douban_enabled: true, douban_ranks: ['movie-hot-gaia', 'tv-hot'],
