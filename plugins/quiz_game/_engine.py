@@ -1,12 +1,11 @@
 # =============================================================================
-# quiz_game 私有辅助：出题源（AI / 天行数据）+ 题目解析
+# quiz_game 私有辅助：出题源（优先平台 AI，回退自带配置 / 天行数据）+ 题目解析
 # =============================================================================
 
 import random
 from typing import Any, Optional
 
 import httpx
-import openai
 
 
 def _normalize_line(s: str) -> str:
@@ -48,19 +47,33 @@ def parse_multi_qa(resp_text: str, expected: int) -> list[dict]:
     return result
 
 
-async def fetch_from_ai(rounds: int, difficulty: str, api_key: str,
+async def fetch_from_ai(ctx, rounds: int, difficulty: str, api_key: str,
                         base_url: str, model: str, log) -> list[dict]:
-    """用 OpenAI 兼容接口批量出题。"""
-    if not api_key:
-        log.warning("[答题] 未配置 AI API Key")
-        return []
+    """用 AI 批量出题（优先平台统一 AI，回退插件自带配置）。"""
     prompt = (
         f"请出 {rounds} 道中文趣味答题，难度：{difficulty}。\n"
         "题型可选：Emoji猜成语、脑筋急转弯、谜语、字谜、歇后语、常识问答。\n"
         "每道题输出两行：第一行 题目: ...，第二行 答案: ...\n"
         "不同题目之间用空行分隔，不要编号，不要额外解释。"
     )
+
+    # 优先平台统一 AI
+    if ctx.ai.is_available("text"):
+        try:
+            text = await ctx.ai.chat(prompt=prompt, temperature=0.9)
+            result = parse_multi_qa(text, rounds)
+            if result:
+                return result
+            log.warning("[答题] 平台 AI 出题解析失败，回退自带配置")
+        except Exception as e:  # noqa: BLE001
+            log.warning("[答题] 平台 AI 出题失败，回退自带配置: %r", e)
+
+    # 回退插件自带 OpenAI 配置
+    if not api_key:
+        log.warning("[答题] 平台 AI 不可用且未配置插件 API Key")
+        return []
     try:
+        import openai
         client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
         resp = await client.chat.completions.create(
             model=model, messages=[{"role": "user", "content": prompt}], temperature=0.9
@@ -68,7 +81,7 @@ async def fetch_from_ai(rounds: int, difficulty: str, api_key: str,
         text = resp.choices[0].message.content if resp.choices else ""
         return parse_multi_qa(text, rounds)
     except Exception as e:  # noqa: BLE001
-        log.error("[答题] AI 出题失败: %r", e)
+        log.error("[答题] 自带配置出题失败: %r", e)
         return []
 
 

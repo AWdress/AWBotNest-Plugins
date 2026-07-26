@@ -25,11 +25,11 @@ from ._engine import generate, generate_image, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及使用独立生图模型通过 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
-    "changelog": "v1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
+    "changelog": "v1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -152,6 +152,7 @@ async def setup(ctx):
             status = message
         try:
             image = await generate_image(
+                ctx,
                 cfg.get("api_key", ""), cfg.get("base_url", ""), model, prompt,
                 str(cfg.get("image_size") or "1024x1024"),
                 str(cfg.get("image_quality") or "auto"),
@@ -238,6 +239,7 @@ async def setup(ctx):
 
             try:
                 reply = await generate(
+                    ctx,
                     cfg.get("api_key", ""), cfg.get("base_url", ""),
                     cfg.get("model", "gpt-3.5-turbo"), messages,
                 )
@@ -304,6 +306,7 @@ async def setup(ctx):
         ]
         try:
             response = await generate(
+                ctx,
                 cfg.get("api_key", ""), cfg.get("base_url", ""),
                 cfg.get("model", "gpt-3.5-turbo"), messages, image_bytes=image_bytes,
             )
@@ -390,6 +393,7 @@ async def setup(ctx):
             ]
             try:
                 opener = await generate(
+                    ctx,
                     cfg.get("api_key", ""), cfg.get("base_url", ""),
                     cfg.get("model", "gpt-3.5-turbo"), messages,
                 )
@@ -435,6 +439,7 @@ async def setup(ctx):
             return {"ok": False, "message": "未配置 API Key"}
         try:
             reply = await generate(
+                ctx,
                 cfg.get("api_key", ""), cfg.get("base_url", ""),
                 cfg.get("model", "gpt-3.5-turbo"),
                 [{"role": "user", "content": "ping"}],

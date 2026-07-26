@@ -30,14 +30,14 @@ from ._quiz import (
 __plugin__ = {
     "name": "影巢答题红包",
     "id": "hdhive_quiz",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.4 接入平台统一 AI 能力\n- 大模型兜底优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n\nv1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "requirements": ["openai>=1.0"],
 }
 
@@ -129,7 +129,7 @@ async def _resolve_answer(ctx, parsed: dict) -> tuple[object, str, str]:
 
     # 2) 大模型兜底
     if cfg.get("llm_enabled", False):
-        ans, err = await _engine.ask_answer(cfg, q, opts, qtype, ctx.log)
+        ans, err = await _engine.ask_answer(ctx, cfg, q, opts, qtype, ctx.log)
         if ans:
             if qtype == "judge":
                 return (match_live_option(ans, opts, qtype), ans, "大模型")
@@ -206,7 +206,7 @@ async def setup(ctx):
             return {"ok": False, "message": "大模型兜底未启用"}
         test_q = "以下哪个是哺乳动物？"
         test_opts = [("A", "鲸鱼"), ("B", "鲨鱼"), ("C", "鳄鱼"), ("D", "蝙蝠")]
-        ans, err = await _engine.ask_answer(cfg, test_q, test_opts, "single", ctx.log)
+        ans, err = await _engine.ask_answer(ctx, cfg, test_q, test_opts, "single", ctx.log)
         if err:
             return {"ok": False, "message": f"调用失败: {err}"}
         return {"ok": True, "message": f"测试成功，返回: {ans}"}

@@ -1,9 +1,10 @@
 # =============================================================================
-# ai 插件私有辅助：OpenAI 兼容接口封装（不被平台识别为插件，_ 开头）
+# ai 插件私有辅助：AI 调用封装（优先用平台统一 AI，回退自带 OpenAI 配置）
 # =============================================================================
 
 import base64
 import urllib.request
+from pathlib import Path
 from typing import Optional
 
 import openai
@@ -30,6 +31,7 @@ def classify_error(err: Exception) -> str:
 
 
 async def generate(
+    ctx,
     api_key: str,
     base_url: Optional[str],
     model: str,
@@ -38,10 +40,36 @@ async def generate(
     image_bytes: Optional[bytes] = None,
 ) -> str:
     """
-    调 OpenAI 兼容接口生成回复。messages 为 [{"role","content"}, ...]。
+    调 AI 生成回复（优先平台统一 AI，回退插件自带配置）。
+    messages 为 [{"role","content"}, ...]。
     带 image_bytes 时把图片塞进最后一条 user 消息（vision 格式）。
     出错抛异常，由调用方分类处理。
     """
+    # 优先平台统一 AI
+    if ctx.ai.is_available("vision" if image_bytes else "text"):
+        try:
+            # 提取 system 和最后一条 user 消息
+            system_msg = None
+            user_prompt = ""
+            for msg in messages:
+                if msg.get("role") == "system":
+                    system_msg = msg.get("content", "")
+                elif msg.get("role") == "user":
+                    user_prompt = msg.get("content", "")
+            if not user_prompt:
+                user_prompt = "请回复。"
+            if image_bytes:
+                return await ctx.ai.vision(
+                    image=image_bytes, prompt=user_prompt, system=system_msg
+                )
+            else:
+                return await ctx.ai.chat(
+                    prompt=user_prompt, system=system_msg, temperature=temperature
+                )
+        except Exception as e:
+            ctx.log.warning("[AI 助手] 平台 AI 调用失败，回退自带配置: %r", e)
+
+    # 回退插件自带 OpenAI 配置
     client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
     formatted = [{"role": m["role"], "content": m["content"]} for m in messages]
 
@@ -66,6 +94,7 @@ async def generate(
 
 
 async def generate_image(
+    ctx,
     api_key: str,
     base_url: Optional[str],
     model: str,
@@ -73,7 +102,18 @@ async def generate_image(
     size: str = "1024x1024",
     quality: str = "auto",
 ) -> bytes:
-    """调用 OpenAI 兼容 Images API，兼容 b64_json、data URL 和普通 URL。"""
+    """调用 AI 生图（优先平台统一 AI，回退插件自带配置）。"""
+    # 优先平台统一 AI
+    if ctx.ai.is_available("image"):
+        try:
+            path = await ctx.ai.generate_image(
+                prompt=prompt, size=size, quality=quality if quality != "auto" else None
+            )
+            return path.read_bytes()
+        except Exception as e:
+            ctx.log.warning("[AI 助手] 平台 AI 生图失败，回退自带配置: %r", e)
+
+    # 回退插件自带 OpenAI 配置
     client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url or None)
     kwargs = {
         "model": model,
