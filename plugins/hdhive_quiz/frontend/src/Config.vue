@@ -24,9 +24,7 @@
         <div class="section">
           <h3>大模型兜底</h3>
           <label class="row switch"><input v-model="cfg.llm_enabled" type="checkbox" /><span>题库未命中时用大模型兜底</span></label>
-          <label class="row"><span>API Key</span><input v-model="cfg.llm_api_key" type="password" class="inp" :disabled="!cfg.llm_enabled" /></label>
-          <label class="row"><span>接口地址</span><input v-model="cfg.llm_base_url" class="inp" placeholder="如 https://api.openai.com/v1" :disabled="!cfg.llm_enabled" /></label>
-          <label class="row"><span>模型</span><input v-model="cfg.llm_model" class="inp" placeholder="gpt-4o-mini" :disabled="!cfg.llm_enabled" /></label>
+          <p class="tip">使用平台统一 AI 服务（在「系统设置→AI 服务」配置）。勾选后题库没找到答案时会自动调用 AI 作答。</p>
         </div>
 
         <div class="section">
@@ -48,8 +46,6 @@
           <div class="kv"><span>同步状态</span><b :class="status.sync_running ? 'running' : ''">{{ status.sync_status || '空闲' }}</b></div>
         </div>
         <button @click="syncBank" class="btn" :disabled="syncing">{{ syncing ? '同步中...' : '手动同步题库' }}</button>
-        <button @click="testLLM" class="btn" :disabled="testing || !cfg.llm_enabled">{{ testing ? '测试中...' : '测试大模型' }}</button>
-        <p v-if="testResult" class="test-result" :class="testResult.ok ? 'ok' : 'err'">{{ testResult.message }}</p>
       </div>
 
       <div v-else class="history">
@@ -88,8 +84,6 @@ const tab = ref('settings')
 const saving = ref(false)
 const status = ref({})
 const syncing = ref(false)
-const testing = ref(false)
-const testResult = ref(null)
 const history = ref([])
 
 onMounted(() => {
@@ -127,19 +121,6 @@ async function syncBank() {
     alert('同步失败：' + e.message)
   } finally {
     syncing.value = false
-  }
-}
-
-async function testLLM() {
-  testing.value = true
-  testResult.value = null
-  try {
-    const r = await props.api.post('/test_llm')
-    testResult.value = r
-  } catch (e) {
-    testResult.value = { ok: false, message: '测试失败：' + e.message }
-  } finally {
-    testing.value = false
   }
 }
 

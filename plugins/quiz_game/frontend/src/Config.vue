@@ -20,9 +20,7 @@
           </select></label>
 
           <template v-if="cfg.source === 'ai'">
-            <label class="row"><span>API Key</span><input v-model="cfg.ai_api_key" type="password" class="inp" /></label>
-            <label class="row"><span>接口地址</span><input v-model="cfg.ai_base_url" class="inp" placeholder="如 https://api.openai.com/v1" /></label>
-            <label class="row"><span>模型</span><input v-model="cfg.ai_model" class="inp" placeholder="gpt-4o-mini" /></label>
+            <p class="tip">使用平台统一 AI 服务（在「系统设置→AI 服务」配置）。</p>
           </template>
 
           <template v-if="cfg.source === 'tianapi'">

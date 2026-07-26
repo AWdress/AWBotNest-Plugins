@@ -36,7 +36,6 @@ const DEFAULTS = {
 }
 
 const GROUPS = [
-  { key: 'api', label: '接口' },
   { key: 'image', label: 'AI 生图', en: 'enable_image_generation' },
   { key: 'human', label: '人形回复', en: 'enable_private_chat' },
   { key: 'proactive', label: '主动搭话', en: 'enable_proactive' },
@@ -45,10 +44,9 @@ const GROUPS = [
 ]
 
 const tab = ref('settings')
-const group = ref('api')
+const group = ref('image')
 const loading = ref(true)
 const saving = ref(false)
-const testing = ref(false)
 const cfg = reactive({ ...DEFAULTS })
 
 // 对话记忆
@@ -79,19 +77,6 @@ async function save() {
     props.host.toast.error('保存失败：' + (e.message || e))
   } finally {
     saving.value = false
-  }
-}
-
-async function testConn() {
-  testing.value = true
-  try {
-    const r = await props.host.callApi('/test', { method: 'POST', body: {} })
-    if (r.ok) props.host.toast.success('连接正常 ✅ ' + (r.model || ''))
-    else props.host.toast.error('连接失败：' + (r.message || '未知'))
-  } catch (e) {
-    props.host.toast.error('连接失败：' + (e.message || e))
-  } finally {
-    testing.value = false
   }
 }
 
@@ -171,29 +156,13 @@ function switchTab(t) {
         </aside>
 
         <div class="detail">
-          <!-- 接口 -->
-          <template v-if="group === 'api'">
-            <h3 class="det-title">OpenAI 兼容接口</h3>
-            <section class="card">
-              <label class="row"><span>API Key</span>
-                <input v-model="cfg.api_key" class="inp" type="password" placeholder="接口密钥" /></label>
-              <label class="row"><span>接口地址</span>
-                <input v-model="cfg.base_url" class="inp" placeholder="https://api.openai.com/v1（留空用官方默认）" /></label>
-              <label class="row"><span>模型</span>
-                <input v-model="cfg.model" class="inp" placeholder="gpt-4o-mini / gpt-3.5-turbo 等" /></label>
-              <div class="row"><button class="btn" :disabled="testing" @click="testConn">{{ testing ? '测试中…' : '测试连接' }}</button></div>
-            </section>
-          </template>
-
           <!-- AI 生图 -->
-          <template v-else-if="group === 'image'">
+          <template v-if="group === 'image'">
             <h3 class="det-title">AI 生图</h3>
             <section class="card">
               <label class="row switch"><input v-model="cfg.enable_image_generation" type="checkbox" /><span>启用 AI 生图命令</span></label>
-              <p class="tip">发送 /生图 画面描述 或 /draw prompt，生成后会直接把图片发到当前会话。</p>
+              <p class="tip">发送 /生图 画面描述 或 /draw prompt，生成后会直接把图片发到当前会话（使用平台统一 AI 服务）。</p>
               <template v-if="cfg.enable_image_generation">
-                <label class="row"><span>生图模型</span>
-                  <input v-model="cfg.image_model" class="inp" placeholder="gpt-image-1 / dall-e-3 / 兼容模型名" /></label>
                 <div class="grid">
                   <label class="row"><span>图片尺寸</span>
                     <select v-model="cfg.image_size" class="inp">
@@ -213,7 +182,7 @@ function switchTab(t) {
                       <option value="hd">高清（DALL·E）</option>
                     </select></label>
                 </div>
-                <p class="tip">不同兼容接口支持的尺寸和质量可能不同；不确定时质量选“自动”、尺寸选 1024 × 1024。</p>
+                <p class="tip">不同模型支持的尺寸和质量可能不同；不确定时质量选"自动"、尺寸选 1024 × 1024。</p>
               </template>
             </section>
           </template>
