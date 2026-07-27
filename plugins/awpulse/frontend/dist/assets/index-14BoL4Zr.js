@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-bkPjdQ8A.js';
+import Config from './__federation_expose_Config-BNAIzMqV.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -52,9 +52,8 @@ let store = {
   schedule_cron: '', schedule_times: ['03:00', '09:00', '15:00', '21:00'], notify: true,
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
-  ai_api_type: 'openai', ai_api_url: '', ai_api_key: '', ai_model: 'gpt-3.5-turbo',
-  proxy: { enabled: false, http_proxy: '', https_proxy: '', use_for_ai: true, use_for_browser: false },
-  notify: true,
+  ai_system_prompt: '你是一个论坛用户，需要根据帖子标题和内容生成简短的回复。回复要自然、简洁，不超过50字。',
+  proxy: { enabled: false, http_proxy: '', https_proxy: '', use_for_browser: false },
 };
 
 const mockHost = {
@@ -86,7 +85,6 @@ const mockHost = {
     if (path === '/messages/refresh') return { ok: true, count: 1, unread: 1 }
     if (path === '/logs') return { ok: true, lines: ['03:00:01 - INFO - 开始运行(定时)', '03:00:12 - INFO - 自动化任务完成'] }
     if (path === '/cookie/check') return { ok: true, exists: true, valid: true, age_days: 1.2, cookie_count: 12, message: '有效（已保存 1.2 天）' }
-    if (path === '/test_ai') return { ok: true, reply: '这内容不错，支持一下！' }
     return { ok: true }
   },
   toast: {

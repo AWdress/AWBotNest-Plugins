@@ -16,6 +16,7 @@
 # =============================================================================
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -27,10 +28,10 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
-    "changelog": "v1.0.2 修复定时任务无反馈\n- 补全运行结果通知的默认配置，默认开启通知\n- 定时触发后立即记录日志，跳过原因同步写入运行状态\n- 运行状态页显示调度器返回的实际下次运行时间\n\nv1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
+    "description": "色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
+    "changelog": "v1.1.0 接入平台统一 AI\n- AI 回复、帖子类型识别和自动发帖辅助统一使用 ctx.ai\n- 删除插件自带接口类型、地址、密钥、模型、超时及测试连接配置\n- 保留回复发送前审核与本地规则降级\n\nv1.0.2 修复定时任务无反馈\n- 补全运行结果通知的默认配置，默认开启通知\n- 定时触发后立即记录日志，跳过原因同步写入运行状态\n- 运行状态页显示调度器返回的实际下次运行时间\n\nv1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -105,18 +106,11 @@ DEFAULTS = {
     # 自定义特征规则（可选）：{features:{名:{keywords:[],replies:[]}}, generic_fallback:[]}
     "reply_rules": None,
     # AI
-    "ai_api_type": "openai",
-    "ai_api_url": "",
-    "ai_api_key": "",
-    "ai_model": "gpt-3.5-turbo",
-    "ai_temperature": 0.8,
-    "ai_max_tokens": 200,
-    "ai_timeout": 10,
     "ai_system_prompt": "你是一个论坛用户，需要根据帖子标题和内容生成简短的回复。回复要自然、简洁，不超过50字。",
-    # 代理（AI/浏览器可分别决定是否使用；留空则出站默认走平台代理）
+    # 浏览器代理；平台 AI 使用平台统一代理设置。
     "proxy": {
         "enabled": False, "http_proxy": "", "https_proxy": "",
-        "no_proxy": "localhost,127.0.0.1", "use_for_browser": False, "use_for_ai": True,
+        "no_proxy": "localhost,127.0.0.1", "use_for_browser": False,
     },
     "browser_headers": {
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
@@ -136,6 +130,30 @@ _RUN = {
 }
 _LOG_RING = deque(maxlen=800)   # 供前端「日志」页展示的环形缓冲
 _log_handler = None             # 挂到 root 的日志采集器（按 pathname 过滤本插件）
+
+
+class _PlatformAIProxy:
+    """让同步浏览器线程安全调用平台异步 ctx.ai。"""
+
+    def __init__(self, ctx, loop):
+        self._ai = ctx.ai
+        self._loop = loop
+
+    def is_available(self, capability: str = "text") -> bool:
+        checker = getattr(self._ai, "is_available", None)
+        if callable(checker):
+            return bool(checker(capability))
+        return bool(getattr(self._ai, "available", False))
+
+    def chat(self, prompt: str, **kwargs) -> str:
+        future = asyncio.run_coroutine_threadsafe(
+            self._ai.chat(prompt=prompt, **kwargs),
+            self._loop,
+        )
+        try:
+            return str(future.result())
+        except concurrent.futures.CancelledError as exc:
+            raise RuntimeError("平台 AI 请求已取消") from exc
 
 
 class _RingHandler(logging.Handler):
@@ -175,6 +193,13 @@ class _RingHandler(logging.Handler):
 def _effective_cfg(ctx) -> dict:
     """默认值 + 已保存配置合并（保存的覆盖默认）。"""
     cfg = {**DEFAULTS, **dict(ctx.config or {})}
+    for key in (
+        "ai_api_type", "ai_api_url", "ai_api_key", "ai_model",
+        "ai_temperature", "ai_max_tokens", "ai_timeout", "ai_proxy",
+    ):
+        cfg.pop(key, None)
+    if isinstance(cfg.get("proxy"), dict):
+        cfg["proxy"] = {key: value for key, value in cfg["proxy"].items() if key != "use_for_ai"}
     # 容器内无显示器：无论用户如何配置，强制 headless。
     cfg["headless"] = True
     return cfg
@@ -229,6 +254,7 @@ async def _run(ctx, label: str) -> str:
         return msg
 
     base = _data_root(ctx)
+    cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop())
     _RUN.update(running=True, task=label, stop=False,
                 started_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 finished_at="", last_result="")
@@ -508,29 +534,6 @@ async def setup(ctx):
             if os.path.exists(path):
                 os.remove(path)
             return {"ok": True, "message": "已删除登录状态"}
-        except Exception as e:  # noqa: BLE001
-            return {"ok": False, "message": str(e)}
-
-    @ctx.on_api("/test_ai", methods=["POST"])
-    async def _api_test_ai(req):
-        data = req.json or {}
-        cfg = _effective_cfg(ctx)
-        if not cfg.get("ai_api_url") or not cfg.get("ai_api_key"):
-            return {"ok": False, "message": "请先填写 AI 接口地址与密钥"}
-
-        def _do():
-            os.environ["AWPULSE_BASE"] = _data_root(ctx)
-            from ._core.ai_reply_service import AIReplyService
-            svc = AIReplyService({**cfg, "enable_ai_reply": True})
-            title = data.get("title") or "【测试】这是一个测试帖子标题"
-            content = data.get("content") or "测试内容"
-            return svc.generate_reply(title, content)
-
-        try:
-            reply = await asyncio.to_thread(_do)
-            if reply:
-                return {"ok": True, "reply": reply}
-            return {"ok": False, "message": "AI 未返回内容（检查地址/密钥/模型/代理）"}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": str(e)}
 

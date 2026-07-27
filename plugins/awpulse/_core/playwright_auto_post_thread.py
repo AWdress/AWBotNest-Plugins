@@ -90,26 +90,16 @@ class PlaywrightAutoPostThread:
     def _extract_title_by_ai(self, filename, file_path):
         """使用AI识别并生成标准格式的标题"""
         try:
-            # 检查是否启用AI发帖识别
             if not self.config.get('enable_ai_post', False):
                 return None
-            
-            # 检查AI配置
-            ai_api_url = self.config.get('ai_api_url', '')
-            ai_api_key = self.config.get('ai_api_key', '')
-            
-            if not ai_api_url or not ai_api_key:
-                logging.debug("AI配置不完整，跳过AI识别")
+            platform_ai = self.config.get('_platform_ai')
+            if not platform_ai or not platform_ai.is_available('text'):
+                logging.debug("平台 AI 文本模型不可用，跳过AI识别")
                 return None
-            
             logging.info("使用AI识别标题...")
-            
-            # 读取文件内容（前2000字符）
             content = self._read_file_content(file_path, max_chars=2000)
             if not content:
                 return None
-            
-            # 构建AI提示词
             prompt = f"""请分析以下小说内容，提取书名、章节范围和作者信息。
 
 文件名: {filename}
@@ -126,69 +116,25 @@ class PlaywrightAutoPostThread:
 2. 章节格式如: 1-84 或 第1-84章
 3. 作者名要完整
 """
-            
-            # 调用AI API
-            import requests
-            import json
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {ai_api_key}'
-            }
-            
-            data = {
-                'model': self.config.get('ai_model', 'gpt-3.5-turbo'),
-                'messages': [
-                    {'role': 'user', 'content': prompt}
-                ],
-                'temperature': 0.3,
-                'max_tokens': 200
-            }
-            
-            # 使用代理（如果配置了）
-            proxies = None
-            ai_proxy = self.config.get('ai_proxy', '')
-            if ai_proxy:
-                proxies = {
-                    'http': ai_proxy,
-                    'https': ai_proxy
+            ai_response = platform_ai.chat(
+                prompt, temperature=0.3, max_tokens=200,
+            ).strip()
+            title_match = re.search(r'书名[：:]\s*(.+)', ai_response)
+            chapters_match = re.search(r'章节[：:]\s*(.+)', ai_response)
+            author_match = re.search(r'作者[：:]\s*(.+)', ai_response)
+            title = title_match.group(1).strip() if title_match else ''
+            chapters = chapters_match.group(1).strip() if chapters_match else ''
+            author = author_match.group(1).strip() if author_match else ''
+            if title:
+                logging.info(f"AI识别成功: 书名={title}, 章节={chapters}, 作者={author}")
+                return {
+                    'title': title,
+                    'chapters': chapters,
+                    'author': author,
+                    'full_title': f"【{title}】({chapters}) 作者：{author}" if chapters and author else title
                 }
-            
-            response = requests.post(
-                ai_api_url,
-                headers=headers,
-                json=data,
-                proxies=proxies,
-                timeout=30
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                ai_response = result['choices'][0]['message']['content'].strip()
-                
-                # 解析AI返回的结果
-                title_match = re.search(r'书名[：:]\s*(.+)', ai_response)
-                chapters_match = re.search(r'章节[：:]\s*(.+)', ai_response)
-                author_match = re.search(r'作者[：:]\s*(.+)', ai_response)
-                
-                title = title_match.group(1).strip() if title_match else ''
-                chapters = chapters_match.group(1).strip() if chapters_match else ''
-                author = author_match.group(1).strip() if author_match else ''
-                
-                if title:
-                    logging.info(f"AI识别成功: 书名={title}, 章节={chapters}, 作者={author}")
-                    return {
-                        'title': title,
-                        'chapters': chapters,
-                        'author': author,
-                        'full_title': f"【{title}】({chapters}) 作者：{author}" if chapters and author else title
-                    }
-            else:
-                logging.debug(f"AI API调用失败: {response.status_code}")
-                
         except Exception as e:
-            logging.debug(f"AI识别失败: {e}")
-        
+            logging.debug(f"平台 AI 识别失败: {e}")
         return None
     
     def _extract_info_from_content(self, file_path):
@@ -346,14 +292,9 @@ class PlaywrightAutoPostThread:
     def _detect_category_by_ai(self, title, content):
         """使用AI识别分类"""
         try:
-            # 检查AI配置
-            ai_api_url = self.config.get('ai_api_url', '')
-            ai_api_key = self.config.get('ai_api_key', '')
-            
-            if not ai_api_url or not ai_api_key:
+            platform_ai = self.config.get('_platform_ai')
+            if not platform_ai or not platform_ai.is_available('text'):
                 return None
-            
-            # 准备AI提示词
             available_categories = [
                 '凌辱虐情', '唯美纯爱', '都市奇缘', '女警英雄', 
                 '青春校园', '历史古香', '同人衍生', '作者合集', 
@@ -375,58 +316,16 @@ class PlaywrightAutoPostThread:
 3. 如果无法判断，返回"无法识别"
 
 分类："""
-            
-            # 调用AI API
-            import requests
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {ai_api_key}'
-            }
-            
-            data = {
-                'model': self.config.get('ai_model', 'gpt-3.5-turbo'),
-                'messages': [
-                    {'role': 'user', 'content': prompt}
-                ],
-                'temperature': 0.3,
-                'max_tokens': 50
-            }
-            
-            # 设置代理
-            proxies = None
-            if self.config.get('proxy', {}).get('use_for_ai', False):
-                http_proxy = self.config.get('proxy', {}).get('http_proxy', '')
-                https_proxy = self.config.get('proxy', {}).get('https_proxy', http_proxy)
-                if http_proxy:
-                    proxies = {
-                        'http': http_proxy,
-                        'https': https_proxy
-                    }
-            
-            response = requests.post(
-                ai_api_url,
-                headers=headers,
-                json=data,
-                proxies=proxies,
-                timeout=10
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                category = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
-                
-                # 验证返回的分类是否有效
-                if category in available_categories:
-                    return category
-                elif '无法识别' in category:
-                    logging.info("AI无法识别分类，降级到关键词识别")
-                    return None
-            
+            category = platform_ai.chat(
+                prompt, temperature=0.3, max_tokens=50,
+            ).strip()
+            if category in available_categories:
+                return category
+            if '无法识别' in category:
+                logging.info("AI无法识别分类，降级到关键词识别")
             return None
-            
         except Exception as e:
-            logging.debug(f"AI识别失败: {e}")
+            logging.debug(f"平台 AI 识别失败: {e}")
             return None
     
     def _detect_category_by_keywords(self, title, content):

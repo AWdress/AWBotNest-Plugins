@@ -9,7 +9,7 @@ const props = defineProps({
   host: { type: Object, required: true },
 })
 
-const AI_TYPES = [{ v: 'openai', l: 'OpenAI 兼容' }, { v: 'claude', l: 'Claude' }, { v: 'custom', l: '自定义' }]
+const LEGACY_AI_KEYS = ['ai_api_type', 'ai_api_url', 'ai_api_key', 'ai_model', 'ai_temperature', 'ai_max_tokens', 'ai_timeout', 'ai_proxy']
 
 // Discuz 论坛固定的安全提问（值为字符串，与后端一致）。
 const SECURITY_QUESTIONS = [
@@ -54,12 +54,9 @@ const DEFAULTS = {
     enabled: false, target_fid: 139, category_id: null, post_folder: 'novels', posted_folder: 'posted',
     post_interval: 300, max_posts_per_day: 5, content_preview_length: 500, move_after_post: true, skip_posted_files: true,
   },
-  ai_api_type: 'openai', ai_api_url: '', ai_api_key: '', ai_model: 'gpt-3.5-turbo',
-  ai_temperature: 0.8, ai_max_tokens: 200, ai_timeout: 10,
   ai_system_prompt: '你是一个论坛用户，需要根据帖子标题和内容生成简短的回复。回复要自然、简洁，不超过50字。',
-  proxy: { enabled: false, http_proxy: '', https_proxy: '', no_proxy: 'localhost,127.0.0.1', use_for_browser: false, use_for_ai: true },
+  proxy: { enabled: false, http_proxy: '', https_proxy: '', no_proxy: 'localhost,127.0.0.1', use_for_browser: false },
   browser_headers: { user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36', accept_language: 'zh-CN,zh;q=0.9,en;q=0.8' },
-  notify: true,
 }
 
 function deepMerge(base, over) {
@@ -82,7 +79,6 @@ const loading = ref(true)
 const saving = ref(false)
 const running = ref(false)
 const stopping = ref(false)
-const testingAi = ref(false)
 const cfg = reactive(JSON.parse(JSON.stringify(DEFAULTS)))
 
 // 运行状态
@@ -101,10 +97,6 @@ const cookieImport = ref('')
 // 日志
 const logs = ref([])
 let logTimer = null
-// AI 测试
-const aiTestTitle = ref('')
-const aiTestResult = ref('')
-
 // ── 行文本 <-> 数组（每行一项） ──
 function lineModel(key) {
   return computed({
@@ -141,6 +133,8 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, deepMerge(DEFAULTS, saved || {}))
+    LEGACY_AI_KEYS.forEach(key => delete cfg[key])
+    if (cfg.proxy) delete cfg.proxy.use_for_ai
     if (!Array.isArray(cfg.reply_interval) || cfg.reply_interval.length < 2) cfg.reply_interval = [60, 120]
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
@@ -155,7 +149,10 @@ onUnmounted(() => { clearInterval(statusTimer); clearInterval(logTimer) })
 async function save() {
   saving.value = true
   try {
-    await props.host.saveConfig(JSON.parse(JSON.stringify(cfg)))
+    const payload = JSON.parse(JSON.stringify(cfg))
+    LEGACY_AI_KEYS.forEach(key => delete payload[key])
+    if (payload.proxy) delete payload.proxy.use_for_ai
+    await props.host.saveConfig(payload)
     props.host.toast.success('配置已保存（定时任务将随之更新）')
   } catch (e) {
     props.host.toast.error('保存失败：' + (e.message || e))
@@ -252,20 +249,6 @@ async function clearLogs() {
   try { await props.host.callApi('/logs/clear', { method: 'POST', body: {} }); logs.value = [] } catch (e) { /* 静默 */ }
 }
 
-// ── AI 测试 ──
-async function testAi() {
-  testingAi.value = true
-  aiTestResult.value = '生成中…'
-  try {
-    const r = await props.host.callApi('/test_ai', { method: 'POST', body: { title: aiTestTitle.value } })
-    aiTestResult.value = r.ok ? ('✅ ' + r.reply) : ('❌ ' + (r.message || '失败'))
-  } catch (e) {
-    aiTestResult.value = '❌ ' + (e.message || e)
-  } finally {
-    testingAi.value = false
-  }
-}
-
 function switchTab(t) {
   tab.value = t
   clearInterval(logTimer); logTimer = null
@@ -358,7 +341,7 @@ function switchTab(t) {
               <label class="row switch"><input v-model="cfg.enable_daily_checkin" type="checkbox" /><span>每日签到</span></label>
               <label class="row switch"><input v-model="cfg.enable_auto_reply" type="checkbox" /><span>自动回复</span></label>
               <label class="row switch"><input v-model="cfg.enable_smart_reply" type="checkbox" /><span>智能回复（按帖子特征选模板/规则）</span></label>
-              <label class="row switch"><input v-model="cfg.enable_ai_reply" type="checkbox" /><span>AI 回复（需在「AI 设置」配置接口）</span></label>
+              <label class="row switch"><input v-model="cfg.enable_ai_reply" type="checkbox" /><span>AI 回复（使用平台统一 AI）</span></label>
               <label class="row switch"><input v-model="cfg.enable_ai_post_filter" type="checkbox" /><span>AI 帖子类型识别/过滤</span></label>
               <label class="row switch"><input v-model="cfg.enable_auto_post" type="checkbox" /><span>自动发帖</span></label>
               <label class="row switch"><input v-model="cfg.skip_admin_posts" type="checkbox" /><span>跳过管理员/版主帖子</span></label>
@@ -421,23 +404,10 @@ function switchTab(t) {
 
           <!-- AI -->
           <template v-else-if="group === 'ai'">
-            <h3 class="det-title">AI 设置（OpenAI 兼容接口）</h3>
+            <h3 class="det-title">平台 AI</h3>
             <section class="card">
-              <div class="grid">
-                <label class="row"><span>接口类型</span><select v-model="cfg.ai_api_type" class="inp"><option v-for="o in AI_TYPES" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-                <label class="row"><span>接口地址</span><input v-model="cfg.ai_api_url" class="inp" placeholder="https://api.openai.com/v1/chat/completions" /></label>
-                <label class="row"><span>密钥</span><input v-model="cfg.ai_api_key" class="inp" type="password" /></label>
-                <label class="row"><span>模型</span><input v-model="cfg.ai_model" class="inp" /></label>
-                <label class="row"><span>温度</span><input v-model.number="cfg.ai_temperature" class="inp" type="number" step="0.1" /></label>
-                <label class="row"><span>最大tokens</span><input v-model.number="cfg.ai_max_tokens" class="inp" type="number" /></label>
-                <label class="row"><span>超时(秒)</span><input v-model.number="cfg.ai_timeout" class="inp" type="number" /></label>
-              </div>
+              <p class="tip">AI 服务、模型、密钥、超时和代理统一由平台「系统设置 → AI 服务」管理。本插件只保留业务提示词。</p>
               <label class="row top"><span>系统提示词</span><textarea v-model="cfg.ai_system_prompt" class="inp" rows="4"></textarea></label>
-              <div class="run-row">
-                <input v-model="aiTestTitle" class="inp" placeholder="测试帖子标题（留空用默认）" />
-                <button class="btn" :disabled="testingAi" @click="testAi">{{ testingAi ? '生成中…' : '测试生成' }}</button>
-              </div>
-              <pre v-if="aiTestResult" class="output">{{ aiTestResult }}</pre>
             </section>
           </template>
 
@@ -464,7 +434,6 @@ function switchTab(t) {
                   <label class="row"><span>HTTPS</span><input v-model="cfg.proxy.https_proxy" class="inp" placeholder="http://127.0.0.1:7890" /></label>
                   <label class="row"><span>no_proxy</span><input v-model="cfg.proxy.no_proxy" class="inp" /></label>
                 </div>
-                <label class="row switch"><input v-model="cfg.proxy.use_for_ai" type="checkbox" /><span>用于 AI 接口</span></label>
                 <label class="row switch"><input v-model="cfg.proxy.use_for_browser" type="checkbox" /><span>用于浏览器</span></label>
               </template>
             </section>
