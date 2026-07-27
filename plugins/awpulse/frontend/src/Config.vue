@@ -44,6 +44,7 @@ const DEFAULTS = {
   enable_test_mode: false, enable_test_checkin: false, enable_test_reply: false, enable_test_post: false,
   skip_admin_posts: true, max_replies_per_day: 3, reply_interval: [60, 120],
   schedule_cron: '', schedule_times: ['03:00', '09:00', '15:00', '21:00'], schedule_time: '03:00',
+  notify: true,
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
   skip_keywords: ['公告', '通知', '规则', '版规', '置顶', '热门', '2024年永久访问本站方法', 'APP下载', '白名单', '邀请码', '访问方法', '屏蔽', '封禁', '违规', '删除', '警告', '发布器', '最新方法', '申诉', '二次验证', '禁止申诉', '高薪', '招聘'],
@@ -302,6 +303,7 @@ function switchTab(t) {
             <span class="muted">上次开始：{{ status.started_at || '—' }}</span>
             <span class="muted">上次结束：{{ status.finished_at || '—' }}</span>
             <span class="muted">计划：{{ status.schedule || '未设置' }}</span>
+            <span class="muted">下次运行：{{ (status.next_runs || []).join('、') || '未注册' }}</span>
           </div>
           <pre v-if="status.last_result" class="output">{{ status.last_result }}</pre>
         </section>

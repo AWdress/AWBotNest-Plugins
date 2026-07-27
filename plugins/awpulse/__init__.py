@@ -27,10 +27,10 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/AI回复/AI帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
-    "changelog": "v1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
+    "changelog": "v1.0.2 修复定时任务无反馈\n- 补全运行结果通知的默认配置，默认开启通知\n- 定时触发后立即记录日志，跳过原因同步写入运行状态\n- 运行状态页显示调度器返回的实际下次运行时间\n\nv1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -72,6 +72,7 @@ DEFAULTS = {
     "schedule_cron": "",
     "schedule_times": ["03:00", "09:00", "15:00", "21:00"],
     "schedule_time": "03:00",
+    "notify": True,
     "target_forums": ["fid=141"],
     "forum_names": {
         "fid=141": "网友原创区", "fid=2": "亚洲无码原创区", "fid=36": "亚洲有码原创区",
@@ -210,11 +211,21 @@ def _run_bot_sync(cfg: dict, base: str) -> bool:
 async def _run(ctx, label: str) -> str:
     """执行一轮自动化并落地状态/通知。返回汇总文本。"""
     if _RUN["running"]:
-        return "已有任务在运行中，忽略本次触发"
+        msg = "已有任务在运行中，忽略本次触发"
+        ctx.log.warning("[AWPulse] %s(%s)", msg, label)
+        _RUN["last_result"] = msg
+        return msg
     cfg = _effective_cfg(ctx)
     if not cfg.get("username") or not cfg.get("password"):
         msg = "未配置论坛账号/密码，跳过"
         ctx.log.warning("[AWPulse] %s", msg)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _RUN.update(task=label, started_at=now, finished_at=now, last_result=msg)
+        if cfg.get("notify", True):
+            try:
+                await ctx.notify("AWPulse · %s：%s" % (label, msg), level="warning", category="AWPulse")
+            except Exception as e:  # noqa: BLE001
+                ctx.log.warning("[AWPulse] 跳过通知投递失败：%r", e)
         return msg
 
     base = _data_root(ctx)
@@ -350,6 +361,7 @@ def _cron_specs(cfg: dict):
 async def setup(ctx):
     global _log_handler
     _data_root(ctx)
+    scheduled_jobs = []
 
     # 采集 _core 日志到环形缓冲（供 UI）。marker 用插件目录名，避免误采平台日志。
     if _log_handler is None:
@@ -387,6 +399,12 @@ async def setup(ctx):
             out["today"], out["user_info"] = {}, {}
         # 下次计划（仅展示配置文本）
         out["schedule"] = cfg.get("schedule_cron") or "、".join(cfg.get("schedule_times") or [])
+        next_runs = []
+        for job in scheduled_jobs:
+            next_run = getattr(job, "next_run_time", None)
+            if next_run is not None:
+                next_runs.append(next_run.strftime("%Y-%m-%d %H:%M:%S"))
+        out["next_runs"] = next_runs
         return out
 
     @ctx.on_api("/run", methods=["POST"])
@@ -521,6 +539,7 @@ async def setup(ctx):
     # 不能用 lambda: asyncio.create_task(...)——同步回调会在线程池里跑，那里没有运行中的事件
     # 循环，create_task 会抛 "no running event loop"，任务看似注册了却永远不触发。
     async def _scheduled_run():
+        ctx.log.info("[AWPulse] 定时任务已触发")
         await _run(ctx, "定时")
 
     cfg = _effective_cfg(ctx)
@@ -530,7 +549,7 @@ async def setup(ctx):
     except Exception as e:  # noqa: BLE001
         ctx.log.error("[AWPulse] 定时表达式无效：%r", e)
     for trig, name in specs:
-        ctx.schedule(_scheduled_run, trig, id=name)
+        scheduled_jobs.append(ctx.schedule(_scheduled_run, trig, id=name))
     if specs:
         ctx.log.info("[AWPulse] 已注册 %d 个定时任务：%s", len(specs), "、".join(n for _, n in specs))
 

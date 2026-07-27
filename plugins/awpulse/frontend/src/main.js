@@ -9,7 +9,7 @@ let store = {
   enable_daily_checkin: true, enable_auto_reply: true, enable_smart_reply: true,
   enable_ai_reply: false, enable_ai_post_filter: true, enable_auto_post: false,
   max_replies_per_day: 3, reply_interval: [60, 120],
-  schedule_cron: '', schedule_times: ['03:00', '09:00', '15:00', '21:00'],
+  schedule_cron: '', schedule_times: ['03:00', '09:00', '15:00', '21:00'], notify: true,
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
   ai_api_type: 'openai', ai_api_url: '', ai_api_key: '', ai_model: 'gpt-3.5-turbo',
