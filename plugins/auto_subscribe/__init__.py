@@ -11,6 +11,7 @@
 # =============================================================================
 
 import asyncio
+import concurrent.futures
 import traceback
 from datetime import datetime
 
@@ -19,11 +20,11 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "自动订阅助手",
     "id": "auto_subscribe",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "AWdress",
-    "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，按全局或每源独立过滤自动订阅到 NextFind。定时运行 + 结果推送，自带 Vue 管理界面。",
+    "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，可选平台 AI 辅助识别片名，按过滤规则自动订阅到 NextFind。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖\n\nv1.0.5 更新插件 Logo\n- 使用自动订阅专属图片作为插件卡片与市场图标",
+    "changelog": "v1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
     "scope": "user",
     "default_enabled": False,
     # 配置/管理界面由插件自带 Vue 组件渲染（frontend/src/Config.vue）。
@@ -34,7 +35,7 @@ __plugin__ = {
 # 前端 Config.vue 也用同一套默认初始化表单）。
 DEFAULTS = {
     "api_url": "", "api_key": "",
-    "schedule": "0 8 * * *", "notify": True,
+    "schedule": "0 8 * * *", "notify": True, "ai_assist_recognition": False,
     "auto_fill_missing": False, "auto_fill_missing_limit": 20,
     "min_year": 0, "min_vote": 0, "min_popularity": 0, "media_type": "all",
     # 豆瓣
@@ -97,6 +98,30 @@ def _summary(result, label: str) -> str:
 # 整轮运行并发互斥：手动（后台 task）与定时可整轮并发，否则 kv "handled" 去重历史后写覆盖先写。
 # 在 setup 内创建，避免模块级锁跨事件循环复用。
 _run_lock = None
+
+
+class _PlatformAIProxy:
+    """让同步榜单流水线安全调用平台异步 AI。"""
+
+    def __init__(self, ctx, loop):
+        self._ai = ctx.ai
+        self._loop = loop
+
+    def is_available(self, capability: str = "text") -> bool:
+        checker = getattr(self._ai, "is_available", None)
+        if callable(checker):
+            return bool(checker(capability))
+        return bool(getattr(self._ai, "available", False))
+
+    def chat(self, prompt: str, **kwargs) -> str:
+        future = asyncio.run_coroutine_threadsafe(
+            self._ai.chat(prompt=prompt, **kwargs),
+            self._loop,
+        )
+        try:
+            return str(future.result())
+        except concurrent.futures.CancelledError as exc:
+            raise RuntimeError("平台 AI 请求已取消") from exc
 
 
 def _tmdb_id(item: dict) -> str:
@@ -188,6 +213,8 @@ async def _run(ctx, label: str) -> str:
         # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
         if cfg.get("maoyan_enabled"):
             cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
+        if cfg.get("ai_assist_recognition"):
+            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop())
 
         handled = ctx.kv.get("handled", {})
         nf_cache = ctx.kv.get("netflix_cache", {})

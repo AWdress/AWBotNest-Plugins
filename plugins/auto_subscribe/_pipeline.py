@@ -10,7 +10,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from dataclasses import replace
 from datetime import datetime
+import json
 import re
 from typing import Dict, List, Optional
 
@@ -190,6 +192,72 @@ def _search_best(client: NextFindClient, item):
     return None, "", season
 
 
+def _parse_ai_media(text: str) -> Optional[dict]:
+    """解析平台 AI 的严格 JSON；异常输出不得进入订阅链路。"""
+    raw = str(text or "").strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.IGNORECASE | re.DOTALL)
+    if fenced:
+        raw = fenced.group(1)
+    else:
+        start, end = raw.find("{"), raw.rfind("}")
+        if start >= 0 and end > start:
+            raw = raw[start:end + 1]
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()
+    media_type = str(data.get("media_type") or "").strip().lower()
+    if not title or len(title) > 200 or media_type not in ("movie", "tv"):
+        return None
+    try:
+        season = int(data["season"]) if data.get("season") not in (None, "") else None
+    except (TypeError, ValueError):
+        season = None
+    if season is not None and not 1 <= season <= 200:
+        season = None
+    return {"title": title, "media_type": media_type, "season": season}
+
+
+def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
+    """仅在常规识别失败后，用平台 AI 提取搜索词，再交给 NextFind 核验。"""
+    ai = cfg.get("_platform_ai")
+    if not cfg.get("ai_assist_recognition") or ai is None:
+        return None, "", item.season
+    try:
+        if not ai.is_available("text"):
+            if log:
+                log.warning("[自动订阅] 已开启 AI 辅助识别，但平台文本 AI 不可用")
+            return None, "", item.season
+        source = item.source_meta.get("source") or "未知榜单"
+        prompt = (
+            "你是影视榜单名称清洗器。根据原始榜单条目提取可用于 TMDB 搜索的标准作品名。"
+            "只输出一个 JSON 对象，不要解释："
+            '{"title":"标准片名","media_type":"movie或tv","season":季号或null}。'
+            "不要编造作品；无法判断时 title 设为空字符串。\n"
+            f"来源：{source}\n原始标题：{item.title}\n"
+            f"年份：{item.year or '未知'}\n原类型提示：{item.type_hint or '未知'}\n"
+            f"原季号：{item.season if item.season is not None else '未知'}"
+        )
+        parsed = _parse_ai_media(ai.chat(prompt=prompt, temperature=0))
+        if not parsed:
+            return None, "", item.season
+        assisted = replace(
+            item,
+            title=parsed["title"],
+            type_hint=parsed["media_type"],
+            season=parsed["season"] if parsed["season"] is not None else item.season,
+        )
+        best, query, season = _search_best(client, assisted)
+        if best and log:
+            log.info("[自动订阅] AI 辅助识别 · %s → %s（%s）", item.title, query, parsed["media_type"])
+        return best, query, season
+    except Exception as exc:  # noqa: BLE001 - AI 是可选降级能力
+        if log:
+            log.warning("[自动订阅] AI 辅助识别失败，按未识别处理 · %s: %r", item.title, exc)
+        return None, "", item.season
+
+
 def _pick_best(results: List[dict], item) -> Optional[dict]:
     """从 /search 候选里挑最佳匹配：优先类型一致，再按年份就近。"""
     if not results:
@@ -214,7 +282,7 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
     return candidates[0]
 
 
-def _process_item(client: NextFindClient, item, filters: Filters, handled: dict):
+def _process_item(client: NextFindClient, item, filters: Filters, handled: dict, cfg: dict, log=None):
     """处理单条，返回 (status, title, detail)。detail 为可读原因（供运行日志逐条展示）。
     终态写入 handled（跨轮去重）。"""
     title = item.title
@@ -230,6 +298,10 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
 
     # 解析：NextFind /search。
     best, matched_query, detected_season = _search_best(client, item)
+    ai_assisted = False
+    if not best:
+        best, matched_query, detected_season = _ai_assisted_search(client, item, cfg, log)
+        ai_assisted = bool(best)
     if not best:
         return STATUS_UNRECOGNIZED, title, f"搜索无结果（{item.type_hint or '全部'}）"
 
@@ -256,7 +328,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict)
     key = make_history_key(tmdb_id, raw_type, season)
     tag = f"tmdb {tmdb_id}" + (f" S{season}" if season is not None else "")
     if matched_query and matched_query != item.title:
-        tag += f"，回退标题：{matched_query}"
+        tag += f"，{'AI识别' if ai_assisted else '回退标题'}：{matched_query}"
 
     # 跨轮去重：历史里已是终态则跳过。
     prev = handled.get(key)
@@ -308,7 +380,7 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                     continue
                 title, detail = item.title, ""
                 try:
-                    status, title, detail = _process_item(client, item, filters, result.handled)
+                    status, title, detail = _process_item(client, item, filters, result.handled, cfg, log)
                 except NextFindAuthError as exc:
                     # 密钥无效/过期：继续跑只会每条都 401，立即中止整轮并明确报因。
                     result.auth_error = str(exc)

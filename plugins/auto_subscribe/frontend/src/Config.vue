@@ -58,7 +58,7 @@ const GROUPS = [
 const SOURCE_ENABLE_KEYS = ['douban_enabled', 'mikan_enabled', 'netflix_enabled', 'maoyan_enabled']
 
 const DEFAULTS = {
-  api_url: '', api_key: '', schedule: '0 8 * * *', notify: true,
+  api_url: '', api_key: '', schedule: '0 8 * * *', notify: true, ai_assist_recognition: false,
   auto_fill_missing: false, auto_fill_missing_limit: 20,
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
   douban_enabled: false, douban_ranks: ['movie-hot-gaia', 'tv-hot'],
@@ -266,9 +266,11 @@ function switchTab(t) {
               <div class="grid">
                 <label class="row"><span>定时(cron)</span><input v-model="cfg.schedule" class="inp" placeholder="0 8 * * *（留空=不定时）" /></label>
                 <label class="row switch"><input v-model="cfg.notify" type="checkbox" /><span>推送运行结果</span></label>
+                <label class="row switch"><input v-model="cfg.ai_assist_recognition" type="checkbox" /><span>平台 AI 辅助识别</span></label>
                 <label class="row switch"><input v-model="cfg.auto_fill_missing" type="checkbox" /><span>自动补缺集</span></label>
                 <label v-if="cfg.auto_fill_missing" class="row"><span>每轮补缺上限</span><input v-model.number="cfg.auto_fill_missing_limit" class="inp" type="number" min="1" max="100" /></label>
               </div>
+              <div v-if="cfg.ai_assist_recognition" class="hint">仅在常规搜索无结果时调用平台 AI 清洗片名、判断电影/剧集及季号；识别结果仍须经 NextFind 核验，平台 AI 不可用时自动降级。</div>
               <div v-if="cfg.auto_fill_missing" class="hint">批量检查 NextFind 活跃剧集的入库进度，只将明确缺集的订阅推入高优搜索队列；无需启用榜单源。</div>
               <div class="row">
                 <button class="btn primary" :disabled="running" @click="runNow">{{ running ? '运行中…' : '立即运行一次' }}</button>
