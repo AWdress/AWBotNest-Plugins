@@ -185,6 +185,12 @@ class ReplyMixin:
                 reject_keywords = [
                     '抱歉，我无法', '抱歉，我不能', '我无法满足', '我不能满足',
                     '无法提供', '不能提供', '违反',
+                    '无法检索', '不能检索', '未能检索', '检索不到',
+                    '无法搜索', '不能搜索', '未能搜索', '搜索不到',
+                    '未找到相关内容', '找不到相关内容', '没有找到相关内容',
+                    '无法获取相关内容', '不能获取相关内容',
+                    '无法访问', '不能访问', '无法查看', '不能查看',
+                    '无法读取', '不能读取',
                     'sorry', "can't help", "cannot help", 'unable to', 'i refuse'
                 ]
                 is_reject = any(keyword in ai_reply.lower() for keyword in reject_keywords)
