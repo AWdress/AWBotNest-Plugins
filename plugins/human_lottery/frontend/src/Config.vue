@@ -15,12 +15,14 @@ const DEFAULTS = {
   announce_delay_min: 1, announce_delay_max: 3,
   draw_delay_min: 2, draw_delay_max: 8, progress_every: 0,
   blacklist_ids: '', notify_owner: true,
+  auto_award: true, award_command: '+{amount}',
+  award_delay_min: 1, award_delay_max: 3,
   announce_template: '🎉 抽奖开始啦！\n\n🎁 奖品：{prize}\n🏆 中奖人数：{winners} 人\n⏰ 开奖时间：{draw_time}\n🔑 参与方式：发送「{keyword}」\n\n每人只能参与一次，祝大家好运～',
   result_template: '🎊 开奖啦！\n\n🎁 奖品：{prize}\n👥 参与人数：{participants}\n🏆 中奖名单：\n{winner_list}\n\n恭喜中奖，感谢大家参与～',
   empty_template: '这次抽奖参与人数不足（{participants}/{minimum}），先取消啦，下次再来～',
 }
 const groups = [
-  ['basic', '基本设置'], ['commands', '群内命令'], ['rules', '参与规则'],
+  ['basic', '基本设置'], ['commands', '群内命令'], ['award', '自动发奖'], ['rules', '参与规则'],
   ['human', '人形行为'], ['text', '发布文案'], ['block', '黑名单'],
 ]
 const cfg = reactive({ ...DEFAULTS })
@@ -99,7 +101,17 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
               <label>取消抽奖<input v-model="cfg.cancel_word"></label>
             </div>
             <label class="switch"><input v-model="cfg.delete_commands" type="checkbox">执行后删除我的命令消息</label>
-            <p class="tip">格式：{{ cfg.create_word }} 奖品 | 中奖人数 | 持续分钟 | 参与关键词<br>示例：{{ cfg.create_word }} 1000魔力 | 3 | 10 | 冲鸭</p>
+            <p class="tip">格式：{{ cfg.create_word }} 奖品 | 中奖人数 | 持续分钟 | 参与关键词 | 每人奖励<br>最后一项可省略，插件会从奖品名称提取数字。示例：{{ cfg.create_word }} 1000魔力 | 3 | 10 | 冲鸭</p>
+          </section>
+          <section v-else-if="group === 'award'" class="card">
+            <h3>自动发奖</h3>
+            <label class="switch"><input v-model="cfg.auto_award" type="checkbox">开奖后自动给中奖者发奖</label>
+            <label>发奖命令模板<input v-model="cfg.award_command" placeholder="+{amount}"></label>
+            <div class="grid">
+              <label>逐人间隔最少秒<input v-model.number="cfg.award_delay_min" type="number" min="0" step=".5"></label>
+              <label>逐人间隔最多秒<input v-model.number="cfg.award_delay_max" type="number" min="0" step=".5"></label>
+            </div>
+            <p class="tip">默认回复中奖者的参与消息发送“+金额”，供群转账 Bot 打款。模板可用 {amount} {prize} {lottery_id}。</p>
           </section>
           <section v-else-if="group === 'rules'" class="card">
             <h3>参与规则</h3>

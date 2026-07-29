@@ -12,14 +12,14 @@ import time
 __plugin__ = {
     "name": "人形抽奖",
     "id": "human_lottery",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
-    "changelog": "v1.0.0 初始版本\n- 用户账号通过自然命令在群里发起抽奖\n- 群友发送参与关键词报名，同一用户自动去重\n- 支持定时开奖、提前开奖、取消、参与播报和随机人形延迟\n- 支持用户黑名单、最低参与人数、命令自动删除及活动历史面板",
+    "changelog": "v1.0.1 新增自动发奖\n- 开奖后由用户账号回复中奖者的参与消息发送 +金额\n- 创建命令支持第 5 项指定每人奖励金额，省略时自动从奖品名称提取数字\n- 支持自动发奖开关、命令模板、逐人随机间隔及发奖结果记录\n\nv1.0.0 初始版本\n- 用户账号通过自然命令在群里发起抽奖\n- 群友发送参与关键词报名，同一用户自动去重\n- 支持定时开奖、提前开奖、取消、参与播报和随机人形延迟\n- 支持用户黑名单、最低参与人数、命令自动删除及活动历史面板",
 }
 
 
@@ -45,6 +45,10 @@ DEFAULTS = {
     "progress_every": 0,
     "blacklist_ids": "",
     "notify_owner": True,
+    "auto_award": True,
+    "award_command": "+{amount}",
+    "award_delay_min": 1,
+    "award_delay_max": 3,
     "announce_template": "🎉 抽奖开始啦！\n\n🎁 奖品：{prize}\n🏆 中奖人数：{winners} 人\n⏰ 开奖时间：{draw_time}\n🔑 参与方式：发送「{keyword}」\n\n每人只能参与一次，祝大家好运～",
     "result_template": "🎊 开奖啦！\n\n🎁 奖品：{prize}\n👥 参与人数：{participants}\n🏆 中奖名单：\n{winner_list}\n\n恭喜中奖，感谢大家参与～",
     "empty_template": "这次抽奖参与人数不足（{participants}/{minimum}），先取消啦，下次再来～",
@@ -103,14 +107,14 @@ def _activity_key(client, chat_id: int) -> str:
 
 
 def _parse_create(text: str, cfg: dict):
-    """格式：创建抽奖 奖品 | 中奖人数 | 持续分钟 | 参与关键词。"""
+    """格式：创建抽奖 奖品 | 中奖人数 | 持续分钟 | 参与关键词 | 每人奖励。"""
     word = str(cfg.get("create_word") or "创建抽奖").strip()
     raw = str(text or "").strip()
     if raw != word and not raw.startswith(word + " "):
         return None
     body = raw[len(word):].strip()
     if not body:
-        return {"error": "格式：创建抽奖 奖品 | 中奖人数 | 持续分钟 | 参与关键词"}
+        return {"error": "格式：创建抽奖 奖品 | 中奖人数 | 持续分钟 | 参与关键词 | 每人奖励（可省略）"}
     parts = [part.strip() for part in re.split(r"\s*[|｜]\s*", body)]
     prize = parts[0]
     if not prize:
@@ -130,7 +134,19 @@ def _parse_create(text: str, cfg: dict):
         return {"error": "参与关键词不能为空"}
     if len(prize) > 200 or len(keyword) > 50:
         return {"error": "奖品最多 200 字，参与关键词最多 50 字"}
-    return {"prize": prize, "winners": winners, "duration": duration, "keyword": keyword}
+    award_amount = ""
+    if len(parts) > 4 and parts[4]:
+        amount_match = re.search(r"\d+(?:\.\d+)?", parts[4].replace(",", ""))
+        award_amount = amount_match.group(0) if amount_match else ""
+        if not award_amount:
+            return {"error": "每人奖励必须包含有效数字，例如 1000"}
+    elif cfg.get("auto_award", True):
+        amount_match = re.search(r"\d+(?:\.\d+)?", prize.replace(",", ""))
+        award_amount = amount_match.group(0) if amount_match else ""
+    return {
+        "prize": prize, "winners": winners, "duration": duration,
+        "keyword": keyword, "award_amount": award_amount,
+    }
 
 
 async def _safe_delete(message):
@@ -204,6 +220,7 @@ class LotteryManager:
             "prize": params["prize"],
             "winner_count": params["winners"],
             "keyword": params["keyword"],
+            "award_amount": params.get("award_amount", ""),
             "duration": params["duration"],
             "created_at": now,
             "draw_at": draw_at,
@@ -259,6 +276,7 @@ class LotteryManager:
                 "id": user_id,
                 "name": _display_name(user),
                 "username": getattr(user, "username", None) or "",
+                "message_id": getattr(message, "id", None),
                 "joined_at": time.time(),
             }
             count = len(activity["participants"])
@@ -312,8 +330,10 @@ class LotteryManager:
                 reply_to_message_id=activity["announcement_id"],
                 parse_mode=None,
             )
+            award_result = await self._send_awards(activity, winners)
             status = "已开奖"
         else:
+            award_result = {"enabled": False, "success": 0, "total": 0, "failed": []}
             text = _format_template(
                 self._cfg("empty_template", DEFAULTS["empty_template"]),
                 prize=activity["prize"], participants=len(participants),
@@ -325,7 +345,7 @@ class LotteryManager:
             )
             status = "人数不足"
 
-        self._finish(activity, status, winners, reason)
+        self._finish(activity, status, winners, reason, award_result)
         if self._cfg("notify_owner", True):
             try:
                 await self.ctx.notify(
@@ -339,6 +359,55 @@ class LotteryManager:
                 self.ctx.log.warning("开奖通知失败：%r", exc)
         return True
 
+    async def _send_awards(self, activity: dict, winners: list[dict]) -> dict:
+        amount = str(activity.get("award_amount") or "").strip()
+        if not self._cfg("auto_award", True) or not amount:
+            if self._cfg("auto_award", True) and not amount:
+                self.ctx.log.warning(
+                    "抽奖 #%s 未提取到奖励金额，已跳过自动发奖",
+                    activity["lottery_id"],
+                )
+            return {"enabled": False, "success": 0, "total": len(winners), "failed": []}
+
+        command = _format_template(
+            str(self._cfg("award_command", "+{amount}") or "+{amount}"),
+            amount=amount,
+            prize=activity["prize"],
+            lottery_id=activity["lottery_id"],
+        ).strip()
+        success, failed = 0, []
+        for winner in winners:
+            message_id = winner.get("message_id")
+            try:
+                if not message_id:
+                    raise RuntimeError("缺少参与消息 ID")
+                await self._human_delay(
+                    self._cfg("award_delay_min", 1),
+                    self._cfg("award_delay_max", 3),
+                )
+                sent = await activity["client"].send_message(
+                    activity["chat_id"],
+                    command,
+                    reply_to_message_id=message_id,
+                )
+                if not sent:
+                    raise RuntimeError("Telegram 未返回发奖消息")
+                success += 1
+                self.ctx.log.info(
+                    "抽奖 #%s 已给 %s (%s) 发奖：%s",
+                    activity["lottery_id"], winner["name"], winner["id"], command,
+                )
+            except Exception as exc:  # noqa: BLE001
+                failed.append({"id": winner["id"], "name": winner["name"], "error": str(exc)})
+                self.ctx.log.error(
+                    "抽奖 #%s 给 %s (%s) 发奖失败：%r",
+                    activity["lottery_id"], winner["name"], winner["id"], exc,
+                )
+        return {
+            "enabled": True, "amount": amount, "command": command,
+            "success": success, "total": len(winners), "failed": failed,
+        }
+
     async def cancel(self, key: str, reason: str = "手动取消") -> bool:
         activity = self.active.get(key)
         if not activity:
@@ -351,10 +420,16 @@ class LotteryManager:
             f"抽奖 #{activity['lottery_id']} 已取消，大家不用再发参与关键词啦～",
             reply_to_message_id=activity["announcement_id"],
         )
-        self._finish(activity, "已取消", [], reason)
+        self._finish(
+            activity, "已取消", [], reason,
+            {"enabled": False, "success": 0, "total": 0, "failed": []},
+        )
         return True
 
-    def _finish(self, activity: dict, status: str, winners: list, reason: str):
+    def _finish(
+        self, activity: dict, status: str, winners: list, reason: str,
+        award_result: dict,
+    ):
         history = self.ctx.kv.get(self.HISTORY_KEY, [])
         if not isinstance(history, list):
             history = []
@@ -367,6 +442,7 @@ class LotteryManager:
             "winner_count": activity["winner_count"],
             "participants": len(activity["participants"]),
             "winners": [{"id": w["id"], "name": w["name"]} for w in winners],
+            "award": award_result,
             "status": status,
             "reason": reason,
             "created_at": activity["created_at"],
