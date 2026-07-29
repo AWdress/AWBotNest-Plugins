@@ -342,6 +342,7 @@ async def setup(ctx):
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
 | AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | bot | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
 | 自动订阅助手 | `auto_subscribe` | 定时 / Vue 配置界面 | user | 聚合豆瓣/Mikan新番/奈飞/猫眼榜单，按全局或每源过滤后自动订阅到 NextFind；自带 Vue 管理界面（自 MoviePilot 移植） |
+| GPT-GOD 自动签到 | `gptgod_checkin` | 定时 / 立即签到 | user | 使用平台托管浏览器登录 GPT-GOD，按网站原生动态校验流程每日领取签到积分 |
 
 ### 群游戏（自建）
 
