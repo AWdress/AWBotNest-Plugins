@@ -39,6 +39,14 @@ class AIReplyService:
     def __init__(self, config: dict):
         self.enabled = bool(config.get("enable_ai_reply", False))
         self.enable_post_filter = bool(config.get("enable_ai_post_filter", True))
+        raw_reject_markers = config.get("ai_reply_reject_markers", "")
+        if isinstance(raw_reject_markers, (list, tuple, set)):
+            custom_markers = raw_reject_markers
+        else:
+            custom_markers = re.split(r"[\n,，]+", str(raw_reject_markers or ""))
+        self.custom_reject_markers = tuple(
+            marker.strip().lower() for marker in custom_markers if str(marker).strip()
+        )
         self.platform_ai = config.get("_platform_ai")
         self.system_prompt = config.get(
             "ai_system_prompt",
@@ -142,6 +150,8 @@ class AIReplyService:
             reason = "包含拒答/免责声明"
         elif any(marker in lowered for marker in self._REPLY_META_MARKERS):
             reason = "包含提示词或替代模板话术"
+        elif any(marker in lowered for marker in self.custom_reject_markers):
+            reason = "命中自定义拦截词"
         if reason:
             self.logger.warning(
                 "AI回复审核未通过，按生成失败处理: %s; 内容=%s",

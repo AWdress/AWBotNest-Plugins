@@ -193,6 +193,16 @@ class ReplyMixin:
                     '无法读取', '不能读取',
                     'sorry', "can't help", "cannot help", 'unable to', 'i refuse'
                 ]
+                raw_custom = self.config.get('ai_reply_reject_markers', '')
+                if isinstance(raw_custom, (list, tuple, set)):
+                    custom_reject = raw_custom
+                else:
+                    custom_reject = re.split(r'[\n,，]+', str(raw_custom or ''))
+                reject_keywords.extend(
+                    item.strip().lower()
+                    for item in custom_reject
+                    if str(item).strip()
+                )
                 is_reject = any(keyword in ai_reply.lower() for keyword in reject_keywords)
 
                 if is_reject:

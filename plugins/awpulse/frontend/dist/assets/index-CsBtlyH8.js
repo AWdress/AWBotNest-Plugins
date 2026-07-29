@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BNAIzMqV.js';
+import Config from './__federation_expose_Config-LN_It3HS.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -53,6 +53,7 @@ let store = {
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
   ai_system_prompt: '你是一个论坛用户，需要根据帖子标题和内容生成简短的回复。回复要自然、简洁，不超过50字。',
+  ai_reply_reject_markers: '',
   proxy: { enabled: false, http_proxy: '', https_proxy: '', use_for_browser: false },
 };
 

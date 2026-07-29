@@ -55,6 +55,7 @@ const DEFAULTS = {
     post_interval: 300, max_posts_per_day: 5, content_preview_length: 500, move_after_post: true, skip_posted_files: true,
   },
   ai_system_prompt: '你是一个论坛用户，需要根据帖子标题和内容生成简短的回复。回复要自然、简洁，不超过50字。',
+  ai_reply_reject_markers: '',
   proxy: { enabled: false, http_proxy: '', https_proxy: '', no_proxy: 'localhost,127.0.0.1', use_for_browser: false },
   browser_headers: { user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36', accept_language: 'zh-CN,zh;q=0.9,en;q=0.8' },
 }
@@ -408,6 +409,8 @@ function switchTab(t) {
             <section class="card">
               <p class="tip">AI 服务、模型、密钥、超时和代理统一由平台「系统设置 → AI 服务」管理。本插件只保留业务提示词。</p>
               <label class="row top"><span>系统提示词</span><textarea v-model="cfg.ai_system_prompt" class="inp" rows="4"></textarea></label>
+              <label class="row top"><span>自定义回复拦截词</span><textarea v-model="cfg.ai_reply_reject_markers" class="inp" rows="5" placeholder="一行一个或用逗号分隔&#10;例如：无法检索&#10;作为 AI"></textarea></label>
+              <p class="tip">命中任意自定义词时，AI 回复不会发送，并自动改用本地规则回复。自定义词会与内置拒答审核规则合并。</p>
             </section>
           </template>
 
