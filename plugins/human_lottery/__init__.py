@@ -1,4 +1,4 @@
-"""人形抽奖：用户账号在群里发起、收集参与者并随机开奖。"""
+"""幸运抽奖：用户账号在群里发起、收集参与者并随机开奖。"""
 
 from __future__ import annotations
 
@@ -10,16 +10,16 @@ import time
 
 
 __plugin__ = {
-    "name": "人形抽奖",
+    "name": "幸运抽奖",
     "id": "human_lottery",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。",
-    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
-    "changelog": "v1.0.1 新增自动发奖\n- 开奖后由用户账号回复中奖者的参与消息发送 +金额\n- 创建命令支持第 5 项指定每人奖励金额，省略时自动从奖品名称提取数字\n- 支持自动发奖开关、命令模板、逐人随机间隔及发奖结果记录\n\nv1.0.0 初始版本\n- 用户账号通过自然命令在群里发起抽奖\n- 群友发送参与关键词报名，同一用户自动去重\n- 支持定时开奖、提前开奖、取消、参与播报和随机人形延迟\n- 支持用户黑名单、最低参与人数、命令自动删除及活动历史面板",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg",
+    "changelog": "v1.0.2 更名并启用原创 Logo\n- 插件名称由「人形抽奖」调整为「幸运抽奖」\n- 新增原创霓虹幸运轮盘与礼盒 Logo，不再复用其他抽奖插件图标\n\nv1.0.1 新增自动发奖\n- 开奖后由用户账号回复中奖者的参与消息发送 +金额\n- 创建命令支持第 5 项指定每人奖励金额，省略时自动从奖品名称提取数字\n- 支持自动发奖开关、命令模板、逐人随机间隔及发奖结果记录\n\nv1.0.0 初始版本\n- 用户账号通过自然命令在群里发起抽奖\n- 群友发送参与关键词报名，同一用户自动去重\n- 支持定时开奖、提前开奖、取消、参与播报和随机人形延迟\n- 支持用户黑名单、最低参与人数、命令自动删除及活动历史面板",
 }
 
 
@@ -352,7 +352,7 @@ class LotteryManager:
                     f"抽奖 #{activity['lottery_id']} {status}：{activity['prize']}，"
                     f"参与 {len(participants)} 人，中奖 {len(winners)} 人",
                     level="success" if winners else "warning",
-                    category="人形抽奖",
+                    category="幸运抽奖",
                     account=activity["client"],
                 )
             except Exception as exc:  # noqa: BLE001
@@ -581,7 +581,7 @@ async def setup(ctx):
         ok = bool(key) and await _manager.cancel(key, reason="管理面板取消")
         return {"ok": ok, "message": "已取消" if ok else "活动不存在或已结束"}
 
-    ctx.log.info("人形抽奖插件已启用")
+    ctx.log.info("幸运抽奖插件已启用")
 
 
 async def teardown(ctx):
@@ -589,4 +589,4 @@ async def teardown(ctx):
     if _manager:
         _manager.close()
     _manager = None
-    ctx.log.info("人形抽奖插件已停用")
+    ctx.log.info("幸运抽奖插件已停用")

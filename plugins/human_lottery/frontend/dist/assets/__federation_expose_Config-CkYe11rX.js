@@ -187,7 +187,7 @@ return (_ctx, _cache) => {
                       }, null, 512), [
                         [_vModelCheckbox, cfg.enabled]
                       ]),
-                      _cache[30] || (_cache[30] = _createTextVNode("启用人形抽奖", -1))
+                      _cache[30] || (_cache[30] = _createTextVNode("启用幸运抽奖", -1))
                     ]),
                     _createElementVNode("label", _hoisted_8, [
                       _withDirectives(_createElementVNode("input", {
@@ -647,6 +647,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-9837ce0c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d7b3ce0f"]]);
 
 export { Config as default };

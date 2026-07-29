@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="幸运抽奖">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="72%">
+      <stop offset="0" stop-color="#342068"/>
+      <stop offset=".55" stop-color="#151638"/>
+      <stop offset="1" stop-color="#080b1c"/>
+    </radialGradient>
+    <linearGradient id="gold" x1=".1" y1=".1" x2=".9" y2=".9">
+      <stop stop-color="#fff1a8"/>
+      <stop offset=".38" stop-color="#ffc642"/>
+      <stop offset="1" stop-color="#e77816"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#45efff"/>
+      <stop offset=".5" stop-color="#7768ff"/>
+      <stop offset="1" stop-color="#e74cff"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#02030c" flood-opacity=".72"/>
+    </filter>
+  </defs>
+  <rect x="14" y="14" width="484" height="484" rx="116" fill="url(#bg)"/>
+  <rect x="25" y="25" width="462" height="462" rx="105" fill="none" stroke="#635dff" stroke-opacity=".28" stroke-width="3"/>
+  <circle cx="256" cy="217" r="143" fill="#11152f" stroke="url(#gold)" stroke-width="15" filter="url(#shadow)"/>
+  <circle cx="256" cy="217" r="119" fill="none" stroke="url(#neon)" stroke-width="8" filter="url(#glow)"/>
+  <path d="M256 99v118L187 121a118 118 0 0 1 69-22Z" fill="#795cff"/>
+  <path d="M256 99a118 118 0 0 1 102 59l-102 59Z" fill="#39ddec"/>
+  <path d="M358 158a118 118 0 0 1 0 118l-102-59Z" fill="#ef4fc8"/>
+  <path d="M358 276a118 118 0 0 1-102 59V217Z" fill="#7558e9"/>
+  <path d="M256 335a118 118 0 0 1-102-59l102-59Z" fill="#35cbd9"/>
+  <path d="M154 276a118 118 0 0 1 33-155l69 96Z" fill="#dc47bc"/>
+  <g fill="none" stroke="#fff" stroke-opacity=".52" stroke-width="4">
+    <circle cx="256" cy="217" r="118"/>
+    <path d="M256 99v236M154 158l204 118M154 276l204-118"/>
+  </g>
+  <circle cx="256" cy="217" r="32" fill="url(#gold)" stroke="#fff4bd" stroke-width="6"/>
+  <path d="m256 61-17 29h34Z" fill="url(#gold)" stroke="#fff4bd" stroke-width="4" filter="url(#glow)"/>
+  <g filter="url(#shadow)">
+    <path d="M129 310h254v122a34 34 0 0 1-34 34H163a34 34 0 0 1-34-34Z" fill="url(#neon)" stroke="#99f7ff" stroke-width="7"/>
+    <path d="M110 292a20 20 0 0 1 20-20h252a20 20 0 0 1 20 20v52H110Z" fill="#725cff" stroke="#b9b0ff" stroke-width="7"/>
+    <path d="M225 272h62v194h-62Z" fill="url(#gold)"/>
+    <path d="M256 273c-70-68-117-54-113-15 3 31 48 35 113 15Zm0 0c70-68 117-54 113-15-3 31-48 35-113 15Z" fill="none" stroke="url(#gold)" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <g fill="#fff6aa" filter="url(#glow)">
+    <path d="m82 183 7 18 18 7-18 7-7 18-7-18-18-7 18-7Z"/>
+    <path d="m427 178 5 13 13 5-13 5-5 13-5-13-13-5 13-5Z"/>
+    <path d="m419 381 7 17 17 7-17 7-7 17-7-17-17-7 17-7Z"/>
+  </g>
+  <g fill="#55efa5" stroke="#d9ffe9" stroke-width="3" transform="translate(405 92)">
+    <circle cx="-13" cy="0" r="15"/><circle cx="13" cy="0" r="15"/>
+    <circle cx="0" cy="-13" r="15"/><circle cx="0" cy="13" r="15"/>
+    <path d="M0 17c4 17 12 25 22 31" fill="none" stroke="#55efa5" stroke-width="7" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -81,7 +81,7 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
         <main>
           <section v-if="group === 'basic'" class="card">
             <h3>基本设置</h3>
-            <label class="switch"><input v-model="cfg.enabled" type="checkbox">启用人形抽奖</label>
+            <label class="switch"><input v-model="cfg.enabled" type="checkbox">启用幸运抽奖</label>
             <label class="switch"><input v-model="cfg.notify_owner" type="checkbox">开奖结果通知我</label>
             <div class="grid">
               <label>默认参与词<input v-model="cfg.default_keyword"></label>
