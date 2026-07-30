@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
+    "changelog": "v1.0.5 修复网站受控登录表单\n- 邮箱和密码改为模拟真人逐键输入，触发网站内部表单状态更新\n- 按可见按钮实际文字精确匹配“登录”，避免点击同一区域内的其他按钮\n- 已使用平台 CloakBrowser 实测登录成功并取得会话 Cookie，未执行签到\n\nv1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -117,6 +117,39 @@ def _click_first_visible(
             except Exception:  # noqa: BLE001 - 尝试下一个可见元素或选择器
                 continue
     return False
+
+
+def _click_visible_button_text(page, labels: tuple[str, ...]) -> bool:
+    """按可见按钮实际文字精确点击，忽略网站在“登 录”中插入的空格。"""
+    normalized_labels = {"".join(str(label).split()).lower() for label in labels}
+    try:
+        buttons = page.locator("button")
+        count = min(buttons.count(), 30)
+    except Exception:  # noqa: BLE001 - 页面切换时按未匹配处理
+        return False
+    matches = []
+    for index in range(count):
+        try:
+            candidate = buttons.nth(index)
+            text = "".join(candidate.inner_text().split()).lower()
+            if candidate.is_visible(timeout=1_000) and text in normalized_labels:
+                matches.append(candidate)
+        except Exception:  # noqa: BLE001 - 尝试下一个按钮
+            continue
+    if len(matches) != 1:
+        return False
+    try:
+        matches[0].click()
+        return True
+    except Exception:  # noqa: BLE001 - 交给 Enter 兜底
+        return False
+
+
+def _type_like_user(locator, value: str) -> None:
+    """触发真实键盘事件；GPT-GOD 受控表单不会可靠接收 Playwright.fill。"""
+    locator.click()
+    locator.press("Control+A")
+    locator.type(str(value), delay=20)
 
 
 def _wait_for_any_visible(page, selectors: tuple[str, ...], timeout_ms: int = 45_000):
@@ -231,18 +264,11 @@ def _browser_checkin(page, email: str, password: str) -> dict:
         ), timeout_ms=10_000)
         if password_input is None:
             raise _loading_error(page, "登录页密码框")
-        email_input.fill(email)
-        password_input.fill(password)
-        submitted = _click_first_visible(page, (
-            "button.ant-pro-form-login-main-submit",
-            ".ant-pro-form-login-main button",
-            'form button[type="submit"]',
-            'button[type="submit"]',
-            'button:has-text("登 录")',
-            'button:has-text("登录")',
-            'button:has-text("Login")',
-            'button:has-text("Sign in")',
-        ), require_enabled=True)
+        _type_like_user(email_input, email)
+        _type_like_user(password_input, password)
+        submitted = _click_visible_button_text(
+            page, ("登 录", "登录", "Login", "Sign in"),
+        )
         if not submitted:
             try:
                 password_input.press("Enter")
