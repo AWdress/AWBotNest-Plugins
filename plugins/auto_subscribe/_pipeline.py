@@ -25,6 +25,7 @@ from ._models import (
     TERMINAL_STATUSES, make_history_key,
 )
 from ._nextfind import NextFindAuthError, NextFindClient
+from ._bangumi import subject_titles
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -179,6 +180,23 @@ def _title_queries(item) -> tuple[List[str], Optional[int]]:
             base = title[:match.start()].strip(" -–—:：·～~")
             if base and base not in queries:
                 queries.append(base)
+    # 蜜柑经常把英文/日文名与中文名并排展示，例如
+    # “Candy Caries 蛀在糖糖里”。拆开后逐个交给 NextFind 核验，
+    # 比直接搜索整串更容易命中，同时不会直接产生订阅误判。
+    if item.source_meta.get("mikan_id") and title:
+        for separator in ("/", "／", "|", "｜"):
+            if separator in title:
+                for part in title.split(separator):
+                    candidate = part.strip(" -–—:：·～~")
+                    if len(candidate) >= 2 and candidate not in queries:
+                        queries.append(candidate)
+        first_cjk = re.search(r"[\u3400-\u9fff]", title)
+        if first_cjk and re.search(r"[A-Za-z]", title[:first_cjk.start()]):
+            left = title[:first_cjk.start()].strip(" -–—:：·～~")
+            right = title[first_cjk.start():].strip(" -–—:：·～~")
+            for candidate in (right, left):
+                if len(candidate) >= 2 and candidate not in queries:
+                    queries.append(candidate)
     return queries, season
 
 
@@ -258,6 +276,21 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
         return None, "", item.season
 
 
+def _bangumi_assisted_search(client: NextFindClient, item, log=None):
+    """根据蜜柑提供的 Bangumi ID 搜索标准中日文名和别名。"""
+    if not item.source_meta.get("mikan_id") or not item.bangumi_id:
+        return None, "", item.season
+    titles = subject_titles(item.bangumi_id)
+    for title in titles:
+        assisted = replace(item, title=title, type_hint="tv")
+        best, query, season = _search_best(client, assisted)
+        if best:
+            if log:
+                log.info("[自动订阅] Bangumi 别名识别 · %s → %s", item.title, query)
+            return best, query, season
+    return None, "", item.season
+
+
 def _pick_best(results: List[dict], item) -> Optional[dict]:
     """从 /search 候选里挑最佳匹配：优先类型一致，再按年份就近。"""
     if not results:
@@ -298,10 +331,13 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
 
     # 解析：NextFind /search。
     best, matched_query, detected_season = _search_best(client, item)
-    ai_assisted = False
+    assisted_by = ""
+    if not best:
+        best, matched_query, detected_season = _bangumi_assisted_search(client, item, log)
+        assisted_by = "Bangumi别名" if best else ""
     if not best:
         best, matched_query, detected_season = _ai_assisted_search(client, item, cfg, log)
-        ai_assisted = bool(best)
+        assisted_by = "AI识别" if best else ""
     if not best:
         return STATUS_UNRECOGNIZED, title, f"搜索无结果（{item.type_hint or '全部'}）"
 
@@ -328,7 +364,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
     key = make_history_key(tmdb_id, raw_type, season)
     tag = f"tmdb {tmdb_id}" + (f" S{season}" if season is not None else "")
     if matched_query and matched_query != item.title:
-        tag += f"，{'AI识别' if ai_assisted else '回退标题'}：{matched_query}"
+        tag += f"，{assisted_by or '回退标题'}：{matched_query}"
 
     # 跨轮去重：历史里已是终态则跳过。
     prev = handled.get(key)
