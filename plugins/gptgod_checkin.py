@@ -11,7 +11,7 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
     "changelog": "v1.0.5 修复网站受控登录表单\n- 邮箱和密码改为模拟真人逐键输入，触发网站内部表单状态更新\n- 按可见按钮实际文字精确匹配“登录”，避免点击同一区域内的其他按钮\n- 已使用平台 CloakBrowser 实测登录成功并取得会话 Cookie，未执行签到\n\nv1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
@@ -63,6 +63,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.0.9 修复 Docker 环境积分未显示\n"
+    "- 签到结果优先从当前免费积分页面读取“当前可用积分”\n"
+    "- 读取失败时重新加载签到页重试，不再跳到积分规则页\n"
+    "- 已签到和本次签到成功的通知都会附带剩余积分\n\n"
     "v1.0.8 修复隐藏组件导致的已签到误判\n"
     "- 不再通过整页文字判断状态，只读取当前可见的签到按钮\n"
     "- 未签到账号必须实际点击“签到领取”并等待按钮变为“今天已签到”\n"
@@ -223,7 +227,12 @@ def _extract_points(text: str) -> str | None:
 
 
 def _read_current_points(page, timeout_ms: int = 30_000) -> str | None:
-    page.goto(POINTS_URL, wait_until="domcontentloaded")
+    # 当前签到页已经包含精确的“当前可用积分”，先直接读取，避免 Docker
+    # 环境跳转到积分规则页后 SPA 尚未渲染或页面结构不同而丢失积分。
+    points = _extract_points(_page_text(page))
+    if points:
+        return points
+    page.goto(WELFARE_URL, wait_until="domcontentloaded")
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
         points = _extract_points(_page_text(page))
