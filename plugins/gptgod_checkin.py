@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import re
 import time
 
 
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
+    "changelog": "v1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -50,12 +51,23 @@ __plugin__ = {
             "type": "info", "default": "尚未运行", "label": "最近结果",
             "section": "运行状态", "cols": 12, "order": 40,
         },
+        "current_points": {
+            "type": "info", "default": "尚未读取", "label": "当前积分",
+            "section": "运行状态", "cols": 12, "order": 41,
+        },
+        "checkin_history": {
+            "type": "info", "default": "暂无记录", "label": "最近签到记录",
+            "section": "运行状态", "cols": 12, "order": 42,
+        },
     },
 }
 
 
 LOGIN_URL = "https://gptgod.online/login"
 WELFARE_URL = "https://gptgod.online/token/welfare"
+POINTS_URL = "https://gptgod.online/token/rule"
+HISTORY_KEY = "checkin_history"
+HISTORY_LIMIT = 30
 _run_lock: asyncio.Lock | None = None
 
 
@@ -139,6 +151,51 @@ def _loading_error(page, area: str) -> RuntimeError:
     return RuntimeError(f"{area}加载超时，未找到预期控件")
 
 
+def _extract_points(text: str) -> str | None:
+    patterns = (
+        r"当前可用积分\s*[:：]?\s*([\d,]+(?:\.\d+)?)\s*(万)?",
+        r"(?:^|\s)积分\s*[:：]?\s*([\d,]+(?:\.\d+)?)\s*(万)?(?:\s|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, str(text or ""), re.MULTILINE)
+        if not match:
+            continue
+        raw_value = match.group(1).replace(",", "")
+        try:
+            if match.group(2):
+                value = int(float(raw_value) * 10_000)
+            else:
+                value = int(float(raw_value))
+        except (TypeError, ValueError):
+            continue
+        return f"{value:,}"
+    return None
+
+
+def _read_current_points(page, timeout_ms: int = 30_000) -> str | None:
+    page.goto(POINTS_URL, wait_until="domcontentloaded")
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        points = _extract_points(_page_text(page))
+        if points:
+            return points
+        if "/login" in _current_url(page):
+            return None
+        page.wait_for_timeout(500)
+    return None
+
+
+def _checkin_result(page, status: str, message: str) -> dict:
+    points = None
+    try:
+        points = _read_current_points(page)
+    except Exception:  # noqa: BLE001 - 积分读取失败不能改变签到结果
+        pass
+    if points:
+        message = f"{message}，剩余积分：{points}"
+    return {"status": status, "message": message, "points": points}
+
+
 def _browser_checkin(page, email: str, password: str) -> dict:
     """同步浏览器动作；由 ctx.browser.run 在线程中执行。"""
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
@@ -216,7 +273,7 @@ def _browser_checkin(page, email: str, password: str) -> dict:
 
     welfare_text = _page_text(page)
     if any(marker in welfare_text for marker in ("今天已签到", "今日已签到", "Already Checked In Today")):
-        return {"status": "already", "message": "今天已经签到，无需重复领取"}
+        return _checkin_result(page, "already", "今天已经签到，无需重复领取")
 
     if not _click_first_visible(page, (
         'button:has-text("签到领取")',
@@ -237,7 +294,7 @@ def _browser_checkin(page, email: str, password: str) -> dict:
     page.goto(WELFARE_URL, wait_until="domcontentloaded")
     result_text = _page_text(page)
     if any(marker in result_text for marker in ("今天已签到", "今日已签到", "Already Checked In Today")):
-        return {"status": "success", "message": "签到成功，已领取每日积分"}
+        return _checkin_result(page, "success", "签到成功，已领取每日积分")
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
             raise RuntimeError(marker)
@@ -270,6 +327,7 @@ async def _run(ctx, source: str) -> dict:
                     "ok": status in ("success", "already"),
                     "already": status == "already",
                     "message": str((browser_result or {}).get("message") or "签到完成"),
+                    "points": (browser_result or {}).get("points"),
                 }
             except Exception as exc:  # noqa: BLE001 - 转换成可读运行结果
                 ctx.log.error("签到失败：%r", exc)
@@ -277,8 +335,24 @@ async def _run(ctx, source: str) -> dict:
 
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         display = f"{stamp} · {result['message']}"
-        ctx.update_config({"last_result": display})
-        ctx.kv.set("last_result", {"time": stamp, **result})
+        record = {"time": stamp, **result}
+        history = ctx.kv.get(HISTORY_KEY, [])
+        if not isinstance(history, list):
+            history = []
+        history = [*history, record][-HISTORY_LIMIT:]
+        history_display = "\n".join(
+            f"{item.get('time', '')} · {item.get('message', '')}"
+            for item in reversed(history[-10:])
+        )
+        config_updates = {
+            "last_result": display,
+            "checkin_history": history_display or "暂无记录",
+        }
+        if result.get("points"):
+            config_updates["current_points"] = f"{result['points']} 积分"
+        ctx.update_config(config_updates)
+        ctx.kv.set("last_result", record)
+        ctx.kv.set(HISTORY_KEY, history)
         if ctx.config.get("notify", True):
             try:
                 level = "success" if result["ok"] and not result.get("already") else (
