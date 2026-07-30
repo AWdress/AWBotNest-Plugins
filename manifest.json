@@ -307,7 +307,7 @@
   },
   "gptgod_checkin": {
     "name": "GPT-GOD 自动签到",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
     "icon": "https://gptgod.online/favicon.ico",

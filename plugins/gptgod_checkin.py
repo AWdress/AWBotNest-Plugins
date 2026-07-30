@@ -11,7 +11,7 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
     "changelog": "v1.0.5 修复网站受控登录表单\n- 邮箱和密码改为模拟真人逐键输入，触发网站内部表单状态更新\n- 按可见按钮实际文字精确匹配“登录”，避免点击同一区域内的其他按钮\n- 已使用平台 CloakBrowser 实测登录成功并取得会话 Cookie，未执行签到\n\nv1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
@@ -63,6 +63,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.0.8 修复隐藏组件导致的已签到误判\n"
+    "- 不再通过整页文字判断状态，只读取当前可见的签到按钮\n"
+    "- 未签到账号必须实际点击“签到领取”并等待按钮变为“今天已签到”\n"
+    "- 通知附带脱敏后的实际登录账号和积分，明确本次操作对应账号\n\n"
     "v1.0.7 按账号复用登录会话\n"
     "- 当前账号未变化时优先复用已保存 Cookie，避免每天重复登录\n"
     "- 更换邮箱后自动丢弃旧 Cookie，使用干净会话登录新账号\n"
@@ -250,6 +254,39 @@ def _displayed_account_matches(page, email: str) -> bool:
     return not displayed_emails or email.casefold() in displayed_emails
 
 
+def _masked_email(email: str) -> str:
+    local, separator, domain = str(email or "").partition("@")
+    if not separator:
+        return (local[:2] + "***") if local else "未知账号"
+    visible = local[:2] if len(local) > 2 else local[:1]
+    return f"{visible}***@{domain}"
+
+
+def _visible_checkin_state(page) -> str | None:
+    """只读取可见按钮，避免隐藏的桌面/移动端组件污染整页文字判断。"""
+    try:
+        buttons = page.locator("button")
+        count = min(buttons.count(), 80)
+    except Exception:  # noqa: BLE001 - 页面切换期间按未知状态处理
+        return None
+    for index in range(count):
+        try:
+            candidate = buttons.nth(index)
+            if not candidate.is_visible(timeout=500):
+                continue
+            text = "".join(candidate.inner_text().split()).lower()
+            if text in {"今天已签到", "今日已签到", "alreadycheckedintoday"}:
+                return "already"
+            if (
+                text in {"签到", "check-in", "checkin"}
+                or text.startswith("签到领取")
+            ):
+                return "claim"
+        except Exception:  # noqa: BLE001 - 尝试下一个按钮
+            continue
+    return None
+
+
 def _session_cookie(page) -> str:
     try:
         return "; ".join(
@@ -262,11 +299,14 @@ def _session_cookie(page) -> str:
 
 
 def _finish_checkin(page, email: str) -> dict:
-    welfare_text = _page_text(page)
     if not _displayed_account_matches(page, email):
         raise RuntimeError("网站实际登录账号与插件当前配置邮箱不一致，已停止签到以防串号")
-    if any(marker in welfare_text for marker in ("今天已签到", "今日已签到", "Already Checked In Today")):
-        return _checkin_result(page, "already", "今天已经签到，无需重复领取")
+    account = _masked_email(email)
+    state = _visible_checkin_state(page)
+    if state == "already":
+        return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取")
+    if state != "claim":
+        raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
 
     if not _click_first_visible(page, (
         'button:has-text("签到领取")',
@@ -285,8 +325,8 @@ def _finish_checkin(page, email: str) -> dict:
 
     page.goto(WELFARE_URL, wait_until="domcontentloaded")
     result_text = _page_text(page)
-    if any(marker in result_text for marker in ("今天已签到", "今日已签到", "Already Checked In Today")):
-        return _checkin_result(page, "success", "签到成功，已领取每日积分")
+    if _visible_checkin_state(page) == "already":
+        return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分")
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
             raise RuntimeError(marker)
