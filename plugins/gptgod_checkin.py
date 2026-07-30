@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
+    "changelog": "v1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -198,78 +198,77 @@ def _checkin_result(page, status: str, message: str) -> dict:
 
 def _browser_checkin(page, email: str, password: str) -> dict:
     """同步浏览器动作；由 ctx.browser.run 在线程中执行。"""
-    page.goto(LOGIN_URL, wait_until="domcontentloaded")
-
-    # GPT-GOD 是单页应用：domcontentloaded 时表单通常还没有挂载，必须等待实际控件。
-    # 如果浏览器保存了有效登录态，访问 /login 会直接跳往 /session，此时无需再次登录。
-    if "/login" in _current_url(page):
-        email_input = _wait_for_any_visible(page, (
-            "#email",
-            'input[name="email"]',
-            'input[type="email"]',
-            'input[placeholder*="邮箱"]',
-            'input[placeholder*="Email"]',
-        ), timeout_ms=45_000)
-        if email_input is None:
-            if "/login" not in _current_url(page):
-                email_input = None
-            else:
-                raise _loading_error(page, "登录页")
-
-        if email_input is not None:
-            password_input = _wait_for_any_visible(page, (
-                "#password",
-                'input[name="password"]',
-                'input[type="password"]',
-            ), timeout_ms=10_000)
-            if password_input is None:
-                raise _loading_error(page, "登录页密码框")
-            email_input.fill(email)
-            password_input.fill(password)
-            submitted = _click_first_visible(page, (
-                "button.ant-pro-form-login-main-submit",
-                ".ant-pro-form-login-main button",
-                'form button[type="submit"]',
-                'button[type="submit"]',
-                'button:has-text("登 录")',
-                'button:has-text("登录")',
-                'button:has-text("Login")',
-                'button:has-text("Sign in")',
-            ), require_enabled=True)
-            if not submitted:
-                try:
-                    password_input.press("Enter")
-                    submitted = True
-                except Exception:  # noqa: BLE001 - 下方统一返回表单提交错误
-                    pass
-            if not submitted:
-                raise RuntimeError("登录表单无法提交，网站页面可能已更新")
-
-            try:
-                page.wait_for_url("**/session/**", timeout=45_000)
-            except Exception:  # noqa: BLE001 - 下方读取页面给出具体失败原因
-                pass
-
-            login_text = _page_text(page)
-            if "/login" in _current_url(page):
-                for marker in ("邮箱或密码错误", "密码错误", "登录失败", "账号不存在", "网络异常"):
-                    if marker in login_text:
-                        raise RuntimeError(marker)
-                raise RuntimeError("登录后仍停留在登录页，请检查邮箱、密码或网站安全验证")
-
-    page.goto(WELFARE_URL, wait_until="domcontentloaded")
-    welfare_button = _wait_for_any_visible(page, (
+    welfare_selectors = (
         'button:has-text("今天已签到")',
         'button:has-text("今日已签到")',
         'button:has-text("Already Checked In Today")',
         'button:has-text("签到领取")',
         'button:has-text("签到")',
         'button:has-text("Check-in")',
-    ), timeout_ms=45_000)
+    )
+    email_selectors = (
+            "#email",
+            'input[name="email"]',
+            'input[type="email"]',
+            'input[placeholder*="邮箱"]',
+            'input[placeholder*="Email"]',
+    )
+
+    # 先访问受保护的免费积分页。已有会话时会直接看到签到控件；未登录才会被转到登录页。
+    page.goto(WELFARE_URL, wait_until="domcontentloaded")
+    welfare_button = _wait_for_any_visible(page, welfare_selectors, timeout_ms=12_000)
     if welfare_button is None:
-        if "/login" in _current_url(page):
-            raise RuntimeError("登录状态未生效，已被网站退回登录页")
-        raise _loading_error(page, "免费积分页")
+        email_input = _wait_for_any_visible(page, email_selectors, timeout_ms=33_000)
+        if email_input is None:
+            if "/login" in _current_url(page):
+                raise _loading_error(page, "登录页")
+            raise _loading_error(page, "免费积分页")
+
+        password_input = _wait_for_any_visible(page, (
+            "#password",
+            'input[name="password"]',
+            'input[type="password"]',
+        ), timeout_ms=10_000)
+        if password_input is None:
+            raise _loading_error(page, "登录页密码框")
+        email_input.fill(email)
+        password_input.fill(password)
+        submitted = _click_first_visible(page, (
+            "button.ant-pro-form-login-main-submit",
+            ".ant-pro-form-login-main button",
+            'form button[type="submit"]',
+            'button[type="submit"]',
+            'button:has-text("登 录")',
+            'button:has-text("登录")',
+            'button:has-text("Login")',
+            'button:has-text("Sign in")',
+        ), require_enabled=True)
+        if not submitted:
+            try:
+                password_input.press("Enter")
+                submitted = True
+            except Exception:  # noqa: BLE001 - 下方统一返回表单提交错误
+                pass
+        if not submitted:
+            raise RuntimeError("登录表单无法提交，网站页面可能已更新")
+
+        # URL 在 SPA 登录完成后可能暂时保持 /login；等待短暂跳转后直接用受保护页面核验。
+        try:
+            page.wait_for_url("**/session/**", timeout=15_000)
+        except Exception:  # noqa: BLE001 - 以免费积分页的实际访问结果为最终依据
+            pass
+        login_text = _page_text(page)
+        for marker in ("邮箱或密码错误", "密码错误", "登录失败", "账号不存在", "网络异常"):
+            if marker in login_text:
+                raise RuntimeError(marker)
+
+        page.goto(WELFARE_URL, wait_until="domcontentloaded")
+        welfare_button = _wait_for_any_visible(page, welfare_selectors, timeout_ms=45_000)
+        if welfare_button is None:
+            login_input = _wait_for_any_visible(page, email_selectors, timeout_ms=2_000)
+            if login_input is not None or "/login" in _current_url(page):
+                raise RuntimeError("登录状态未生效，请检查邮箱、密码或网站安全验证")
+            raise _loading_error(page, "免费积分页")
 
     welfare_text = _page_text(page)
     if any(marker in welfare_text for marker in ("今天已签到", "今日已签到", "Already Checked In Today")):
