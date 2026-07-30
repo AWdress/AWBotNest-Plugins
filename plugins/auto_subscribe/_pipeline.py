@@ -25,6 +25,7 @@ from ._models import (
     TERMINAL_STATUSES, make_history_key,
 )
 from ._nextfind import NextFindAuthError, NextFindClient
+from ._tslm import parse_title as parse_tslm_title
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -258,6 +259,33 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
         return None, "", item.season
 
 
+def _tslm_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
+    """仅为 Mikan 条目调用 TSLM；结果仍须通过 NextFind 搜索核验。"""
+    if not cfg.get("mikan_tslm_enabled") or not item.source_meta.get("mikan_id"):
+        return None, "", item.season
+    endpoint = str(cfg.get("mikan_tslm_endpoint") or "").strip()
+    if not endpoint:
+        if log:
+            log.warning("[自动订阅] 已开启 TSLM，但未配置 Endpoint")
+        return None, "", item.season
+    try:
+        parsed = parse_tslm_title(
+            endpoint,
+            str(cfg.get("mikan_tslm_token") or ""),
+            item.title,
+            int(cfg.get("mikan_tslm_timeout") or 10),
+        )
+        assisted = replace(item, title=parsed.title, type_hint="tv")
+        best, query, season = _search_best(client, assisted)
+        if best and log:
+            log.info("[自动订阅] TSLM 辅助识别 · %s → %s", item.title, query)
+        return best, query, season
+    except Exception as exc:  # noqa: BLE001 - TSLM 是可选降级能力
+        if log:
+            log.warning("[自动订阅] TSLM 辅助识别失败，继续尝试其他方式 · %s: %r", item.title, exc)
+        return None, "", item.season
+
+
 def _pick_best(results: List[dict], item) -> Optional[dict]:
     """从 /search 候选里挑最佳匹配：优先类型一致，再按年份就近。"""
     if not results:
@@ -298,10 +326,13 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
 
     # 解析：NextFind /search。
     best, matched_query, detected_season = _search_best(client, item)
-    ai_assisted = False
+    assisted_by = ""
+    if not best:
+        best, matched_query, detected_season = _tslm_assisted_search(client, item, cfg, log)
+        assisted_by = "TSLM识别" if best else ""
     if not best:
         best, matched_query, detected_season = _ai_assisted_search(client, item, cfg, log)
-        ai_assisted = bool(best)
+        assisted_by = "AI识别" if best else ""
     if not best:
         return STATUS_UNRECOGNIZED, title, f"搜索无结果（{item.type_hint or '全部'}）"
 
@@ -328,7 +359,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
     key = make_history_key(tmdb_id, raw_type, season)
     tag = f"tmdb {tmdb_id}" + (f" S{season}" if season is not None else "")
     if matched_query and matched_query != item.title:
-        tag += f"，{'AI识别' if ai_assisted else '回退标题'}：{matched_query}"
+        tag += f"，{assisted_by or '回退标题'}：{matched_query}"
 
     # 跨轮去重：历史里已是终态则跳过。
     prev = handled.get(key)

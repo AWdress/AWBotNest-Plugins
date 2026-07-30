@@ -10,6 +10,7 @@ let store = {
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
   douban_enabled: true, douban_ranks: ['movie-hot-gaia', 'tv-hot'],
   netflix_enabled: false, maoyan_enabled: false, mikan_enabled: false,
+  mikan_tslm_enabled: false, mikan_tslm_endpoint: '', mikan_tslm_token: '', mikan_tslm_timeout: 10,
 }
 
 const mockHost = {

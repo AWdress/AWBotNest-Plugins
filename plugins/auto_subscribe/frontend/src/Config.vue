@@ -65,6 +65,7 @@ const DEFAULTS = {
   douban_rsshub: 'https://rsshub.app', douban_rss_custom: '',
   douban_filter_custom: false, douban_min_year: 0, douban_min_vote: 0, douban_media_type: 'all',
   mikan_enabled: false, mikan_season: '当前', mikan_year: 0, mikan_resolve_detail: true,
+  mikan_tslm_enabled: false, mikan_tslm_endpoint: '', mikan_tslm_token: '', mikan_tslm_timeout: 10,
   mikan_filter_custom: false, mikan_min_year: 0, mikan_min_vote: 0,
   netflix_enabled: false, netflix_global: true, netflix_dataset: 'all-weeks-global',
   netflix_media_types: ['Films (English)', 'Films (Non-English)', 'TV (English)', 'TV (Non-English)'],
@@ -81,6 +82,7 @@ const loading = ref(true)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
+const testingTslm = ref(false)
 const cfg = reactive({ ...DEFAULTS })
 const countries = ref([])
 const runOutput = ref('')
@@ -139,6 +141,28 @@ async function testConn() {
     props.host.toast.error('连接失败：' + (e.message || e))
   } finally {
     testing.value = false
+  }
+}
+
+async function testTslm() {
+  testingTslm.value = true
+  try {
+    const r = await props.host.callApi('/test-tslm', {
+      method: 'POST',
+      body: {
+        endpoint: cfg.mikan_tslm_endpoint,
+        token: cfg.mikan_tslm_token,
+        timeout: cfg.mikan_tslm_timeout,
+      },
+    })
+    if (r.ok) {
+      const episode = r.episode === null || r.episode === undefined ? '' : ` · 第 ${r.episode} 集`
+      props.host.toast.success(`TSLM 连接正常：${r.title}${episode}`)
+    } else props.host.toast.error('TSLM 测试失败：' + (r.message || '未知'))
+  } catch (e) {
+    props.host.toast.error('TSLM 测试失败：' + (e.message || e))
+  } finally {
+    testingTslm.value = false
   }
 }
 
@@ -323,6 +347,16 @@ function switchTab(t) {
                   <label class="row"><span>年份</span><input v-model.number="cfg.mikan_year" class="inp" type="number" /><span class="hint">0=当前年</span></label>
                 </div>
                 <label class="row switch"><input v-model="cfg.mikan_resolve_detail" type="checkbox" /><span>抓详情补放送年(更准更慢)</span></label>
+                <label class="row switch"><input v-model="cfg.mikan_tslm_enabled" type="checkbox" /><span>TSLM 动漫名称辅助识别</span></label>
+                <div v-if="cfg.mikan_tslm_enabled" class="subfilter">
+                  <label class="row"><span>Endpoint</span><input v-model="cfg.mikan_tslm_endpoint" class="inp" placeholder="https://example.com/parse" /></label>
+                  <div class="grid">
+                    <label class="row"><span>Bearer Token</span><input v-model="cfg.mikan_tslm_token" class="inp" type="password" /></label>
+                    <label class="row"><span>超时(秒)</span><input v-model.number="cfg.mikan_tslm_timeout" class="inp" type="number" min="3" max="60" /></label>
+                  </div>
+                  <div class="row"><button class="btn" :disabled="testingTslm" @click="testTslm">{{ testingTslm ? '测试中…' : '测试 TSLM' }}</button></div>
+                  <div class="hint">仅在 Mikan 原名称无法被 NextFind 识别时调用；TSLM 提取的番剧名仍需经 NextFind 核验，失败后继续尝试平台 AI。</div>
+                </div>
                 <label class="row switch"><input v-model="cfg.mikan_filter_custom" type="checkbox" /><span>独立过滤(否则用全局)</span></label>
                 <div v-if="cfg.mikan_filter_custom" class="grid subfilter">
                   <label class="row"><span>年份≥</span><input v-model.number="cfg.mikan_min_year" class="inp" type="number" /></label>
