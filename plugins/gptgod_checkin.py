@@ -10,10 +10,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
+    "changelog": "v1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -73,29 +73,51 @@ def _page_text(page) -> str:
         return page.content()
 
 
-def _click_first_visible(page, selectors: tuple[str, ...]):
-    for selector in selectors:
+def _matching_locators(page, selector: str):
+    try:
+        locator = page.locator(selector)
+        count = min(locator.count(), 20)
+    except Exception:  # noqa: BLE001 - 页面切换时 locator 可能短暂失效
+        return
+
+    for index in range(count):
         try:
-            locator = page.locator(selector)
-            if locator.count() == 1 and locator.is_visible(timeout=2_000):
-                locator.click()
-                return True
-        except Exception:  # noqa: BLE001 - 尝试下一稳定选择器
+            yield locator.nth(index)
+        except Exception:  # noqa: BLE001 - 尝试同一选择器的下一个元素
             continue
+
+
+def _click_first_visible(
+    page,
+    selectors: tuple[str, ...],
+    *,
+    require_enabled: bool = False,
+):
+    for selector in selectors:
+        for candidate in _matching_locators(page, selector):
+            try:
+                if not candidate.is_visible(timeout=1_000):
+                    continue
+                if require_enabled and not candidate.is_enabled():
+                    continue
+                candidate.click()
+                return True
+            except Exception:  # noqa: BLE001 - 尝试下一个可见元素或选择器
+                continue
     return False
 
 
 def _wait_for_any_visible(page, selectors: tuple[str, ...], timeout_ms: int = 45_000):
-    """等待 SPA 渲染出任一目标控件，返回匹配的唯一 locator。"""
+    """等待 SPA 渲染出任一目标控件，返回第一个可见 locator。"""
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
         for selector in selectors:
-            try:
-                locator = page.locator(selector)
-                if locator.count() == 1 and locator.is_visible(timeout=1_000):
-                    return locator
-            except Exception:  # noqa: BLE001 - SPA 导航过程中 locator 可能短暂失效
-                continue
+            for candidate in _matching_locators(page, selector):
+                try:
+                    if candidate.is_visible(timeout=500):
+                        return candidate
+                except Exception:  # noqa: BLE001 - SPA 导航过程中 locator 可能短暂失效
+                    continue
         page.wait_for_timeout(500)
     return None
 
@@ -124,7 +146,13 @@ def _browser_checkin(page, email: str, password: str) -> dict:
     # GPT-GOD 是单页应用：domcontentloaded 时表单通常还没有挂载，必须等待实际控件。
     # 如果浏览器保存了有效登录态，访问 /login 会直接跳往 /session，此时无需再次登录。
     if "/login" in _current_url(page):
-        email_input = _wait_for_any_visible(page, ("#email",), timeout_ms=45_000)
+        email_input = _wait_for_any_visible(page, (
+            "#email",
+            'input[name="email"]',
+            'input[type="email"]',
+            'input[placeholder*="邮箱"]',
+            'input[placeholder*="Email"]',
+        ), timeout_ms=45_000)
         if email_input is None:
             if "/login" not in _current_url(page):
                 email_input = None
@@ -132,17 +160,33 @@ def _browser_checkin(page, email: str, password: str) -> dict:
                 raise _loading_error(page, "登录页")
 
         if email_input is not None:
-            password_input = _wait_for_any_visible(page, ("#password",), timeout_ms=10_000)
+            password_input = _wait_for_any_visible(page, (
+                "#password",
+                'input[name="password"]',
+                'input[type="password"]',
+            ), timeout_ms=10_000)
             if password_input is None:
                 raise _loading_error(page, "登录页密码框")
             email_input.fill(email)
             password_input.fill(password)
-            if not _click_first_visible(page, (
+            submitted = _click_first_visible(page, (
+                "button.ant-pro-form-login-main-submit",
+                ".ant-pro-form-login-main button",
+                'form button[type="submit"]',
+                'button[type="submit"]',
                 'button:has-text("登 录")',
                 'button:has-text("登录")',
-                'button[type="submit"]',
-            )):
-                raise RuntimeError("未找到登录按钮，网站页面可能已更新")
+                'button:has-text("Login")',
+                'button:has-text("Sign in")',
+            ), require_enabled=True)
+            if not submitted:
+                try:
+                    password_input.press("Enter")
+                    submitted = True
+                except Exception:  # noqa: BLE001 - 下方统一返回表单提交错误
+                    pass
+            if not submitted:
+                raise RuntimeError("登录表单无法提交，网站页面可能已更新")
 
             try:
                 page.wait_for_url("**/session/**", timeout=45_000)

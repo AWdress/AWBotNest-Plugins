@@ -233,7 +233,6 @@ class ReplyMixin:
         # 内置规则回复（fallback）
         # 合并标题和内容
         full_text = title + " " + content
-        import re
         
         # 提取明星名字（中国明星优先）
         star_name = ""
