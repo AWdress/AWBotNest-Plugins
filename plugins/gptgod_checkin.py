@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.14",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.14 修复 Docker 积分卡片与会话复用\n- 积分读取先在已成功加载的原页面等待，不再立即跳转破坏页面状态\n- 定向读取“当前可用积分”卡片的父级和相邻节点，兼容异步卡片布局\n- 缓存会话等待延长至 75 秒，并区分 Cookie 被拒绝与页面渲染缓慢\n- 原页面超时后才清缓存重载一次进行最终读取\n\nv1.0.13 修复部分账号积分未显示\n- 兼容全角逗号、数字空格及 K/W/万 等积分格式并增加读取日志\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别、签到点击和积分读取步骤\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理旧前端缓存并兼容 ChunkLoadError\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
+    "changelog": "v1.1.0 支持多账号签到\n- 配置页改为账号列表，每个账号独立填写邮箱和密码\n- 多账号依次签到、独立复用 Cookie，单个失败不影响其他账号\n- 移除积分读取及当前积分状态，避免无效等待\n- 自动兼容旧版单账号配置和会话缓存\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -27,13 +27,20 @@ __plugin__ = {
             "type": "boolean", "default": True, "label": "推送签到结果",
             "section": "功能开关", "cols": 4, "order": 2,
         },
-        "email": {
-            "type": "string", "default": "", "label": "登录邮箱",
-            "help": "GPT-GOD 注册邮箱。", "section": "账号", "cols": 6, "order": 10,
-        },
-        "password": {
-            "type": "password", "default": "", "label": "账户密码",
-            "help": "GPT-GOD 账户密码，不是邮箱密码。", "section": "账号", "cols": 6, "order": 11,
+        "accounts": {
+            "type": "list", "default": [], "label": "签到账号", "item_label": "账号",
+            "help": "逐个添加 GPT-GOD 账号。旧版单账号配置会自动继续使用。",
+            "section": "账号", "cols": 12, "order": 10,
+            "fields": {
+                "email": {
+                    "type": "string", "label": "登录邮箱",
+                    "help": "GPT-GOD 注册邮箱。",
+                },
+                "password": {
+                    "type": "password", "label": "账户密码",
+                    "help": "GPT-GOD 账户密码，不是邮箱密码。",
+                },
+            },
         },
         "checkin_hour": {
             "type": "slider", "default": 8, "label": "签到小时",
@@ -51,23 +58,19 @@ __plugin__ = {
             "type": "info", "default": "尚未运行", "label": "最近结果",
             "section": "运行状态", "cols": 12, "order": 40,
         },
-        "current_points": {
-            "type": "info", "default": "尚未读取", "label": "当前积分",
-            "section": "运行状态", "cols": 12, "order": 41,
-        },
         "checkin_history": {
             "type": "info", "default": "暂无记录", "label": "最近签到记录",
-            "section": "运行状态", "cols": 12, "order": 42,
+            "section": "运行状态", "cols": 12, "order": 41,
         },
     },
 }
 
 LOGIN_URL = "https://gptgod.online/login"
 WELFARE_URL = "https://gptgod.online/token/welfare"
-POINTS_URL = "https://gptgod.online/token/rule"
 HISTORY_KEY = "checkin_history"
 HISTORY_LIMIT = 30
-SESSION_KEY = "account_session"
+SESSION_KEY = "account_sessions"
+LEGACY_SESSION_KEY = "account_session"
 _run_lock: asyncio.Lock | None = None
 
 
@@ -215,114 +218,8 @@ def _loading_error(page, area: str) -> RuntimeError:
     return RuntimeError(f"{area}加载超时，未找到预期控件")
 
 
-def _extract_points(text: str) -> str | None:
-    normalized = str(text or "").replace("，", ",").replace("\u00a0", " ")
-    patterns = (
-        r"当前可用积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
-        r"(?:剩余|可用)?积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?(?:\s|$)",
-        r"当前可用积分[\s\S]{0,30}?([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*积分",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, normalized, re.MULTILINE)
-        if not match:
-            continue
-        raw_value = re.sub(r"\s+", "", match.group(1).replace(",", ""))
-        try:
-            unit = str(match.group(2) or "").casefold()
-            if unit in {"万", "w"}:
-                value = int(float(raw_value) * 10_000)
-            elif unit == "k":
-                value = int(float(raw_value) * 1_000)
-            else:
-                value = int(float(raw_value))
-        except (TypeError, ValueError):
-            continue
-        return f"{value:,}"
-    return None
-
-
-def _extract_points_from_page(page) -> str | None:
-    points = _extract_points(_page_text(page))
-    if points:
-        return points
-    # 部分 Docker 视口下积分卡片被拆成多个节点；定向拼接标签附近内容。
-    try:
-        nearby_text = page.evaluate("""() => {
-            const visible = (node) => {
-                if (!node || !node.getBoundingClientRect) return false;
-                const style = getComputedStyle(node);
-                const box = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden'
-                    && box.width > 0 && box.height > 0;
-            };
-            const nodes = [...document.querySelectorAll('div,section,article,span,p')];
-            const label = nodes.find((node) => visible(node)
-                && (node.innerText || '').trim() === '当前可用积分');
-            if (!label) return '';
-            const pieces = [label.innerText || ''];
-            let current = label;
-            for (let i = 0; i < 4 && current; i += 1) {
-                if (current.parentElement && visible(current.parentElement)) {
-                    pieces.push(current.parentElement.innerText || '');
-                }
-                if (current.nextElementSibling && visible(current.nextElementSibling)) {
-                    pieces.push(current.nextElementSibling.innerText || '');
-                }
-                current = current.parentElement;
-            }
-            return pieces.join('\\n');
-        }""")
-        return _extract_points(str(nearby_text or ""))
-    except Exception:  # noqa: BLE001 - DOM 定向读取失败时继续等待
-        return None
-
-
-def _read_current_points(page, timeout_ms: int = 30_000, trace=None) -> str | None:
-    trace = trace or (lambda _message: None)
-    trace("开始读取当前积分")
-    # 当前签到页已经包含精确的“当前可用积分”，先直接读取，避免 Docker
-    # 环境跳转到积分规则页后 SPA 尚未渲染或页面结构不同而丢失积分。
-    # 已签到状态所在页面是当前最可信页面；先等待异步积分卡片挂载。
-    deadline = time.monotonic() + timeout_ms / 1000
-    while time.monotonic() < deadline:
-        points = _extract_points_from_page(page)
-        if points:
-            trace(f"已从当前积分卡片读取：{points}")
-            return points
-        if "/login" in _current_url(page):
-            trace("读取积分时会话失效并返回登录页")
-            return None
-        page.wait_for_timeout(500)
-    trace("原页面等待 30 秒仍无积分卡片，清理前端缓存后重载一次")
-    _clear_site_frontend_cache(page)
-    _goto_fresh(page, WELFARE_URL)
-    retry_deadline = time.monotonic() + timeout_ms / 1000
-    while time.monotonic() < retry_deadline:
-        points = _extract_points_from_page(page)
-        if points:
-            trace(f"重载后已读取当前积分：{points}")
-            return points
-        if "/login" in _current_url(page):
-            trace("重载积分页后会话失效并返回登录页")
-            return None
-        page.wait_for_timeout(500)
-    page_text = _page_text(page)
-    trace(
-        "积分读取超时：页面%s积分标签，但未匹配到数值"
-        % ("包含" if "积分" in page_text else "不包含")
-    )
-    return None
-
-
 def _checkin_result(page, status: str, message: str, trace=None) -> dict:
-    points = None
-    try:
-        points = _read_current_points(page, trace=trace)
-    except Exception:  # noqa: BLE001 - 积分读取失败不能改变签到结果
-        pass
-    if points:
-        message = f"{message}，剩余积分：{points}"
-    return {"status": status, "message": message, "points": points}
+    return {"status": status, "message": message}
 
 
 def _displayed_account_matches(page, email: str) -> bool:
@@ -472,7 +369,7 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
     state = _wait_for_checkin_state(page)
     trace(f"签到状态识别结果：{state or '未识别'}")
     if state == "already":
-        trace("网站显示今天已签到，开始读取当前积分")
+        trace("网站显示今天已签到，当前账号完成")
         return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取", trace)
     if state != "claim":
         raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
@@ -495,7 +392,7 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
     trace(f"签到后状态确认：{result_state or '未识别'}")
     result_text = _page_text(page)
     if result_state == "already":
-        trace("签到成功，开始读取当前积分")
+        trace("签到成功，当前账号完成")
         return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分", trace)
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
@@ -604,6 +501,28 @@ def _browser_checkin(
     return result
 
 
+def _configured_accounts(config: dict) -> list[dict]:
+    accounts = []
+    seen = set()
+    raw_accounts = config.get("accounts") or []
+    if isinstance(raw_accounts, list):
+        for item in raw_accounts:
+            if not isinstance(item, dict):
+                continue
+            email = str(item.get("email") or "").strip()
+            password = str(item.get("password") or "")
+            key = email.casefold()
+            if email and password and key not in seen:
+                seen.add(key)
+                accounts.append({"email": email, "password": password})
+    # 兼容升级前已经保存的单账号字段；列表中存在同邮箱时不重复添加。
+    legacy_email = str(config.get("email") or "").strip()
+    legacy_password = str(config.get("password") or "")
+    if legacy_email and legacy_password and legacy_email.casefold() not in seen:
+        accounts.append({"email": legacy_email, "password": legacy_password})
+    return accounts
+
+
 async def _run(ctx, source: str) -> dict:
     global _run_lock
     if _run_lock is None:
@@ -612,28 +531,34 @@ async def _run(ctx, source: str) -> dict:
         return {"ok": False, "message": "已有签到任务正在运行，请稍后再试"}
 
     async with _run_lock:
-        email = str(ctx.config.get("email") or "").strip()
-        password = str(ctx.config.get("password") or "")
-        if not email or not password:
-            result = {"ok": False, "message": "请先配置 GPT-GOD 登录邮箱和账户密码"}
+        accounts = _configured_accounts(dict(ctx.config or {}))
+        if not accounts:
+            result = {"ok": False, "message": "请先添加至少一个 GPT-GOD 签到账号"}
         else:
-            ctx.log.info("开始%s签到", source)
-            try:
-                cached_session = ctx.kv.get(SESSION_KEY, {}) or {}
-                same_account = (
-                    isinstance(cached_session, dict)
-                    and str(cached_session.get("email") or "").casefold() == email.casefold()
-                )
-                cached_cookie = str(cached_session.get("cookie") or "") if same_account else ""
-                if not same_account:
-                    ctx.kv.delete(SESSION_KEY)
+            ctx.log.info("开始%s签到，共 %s 个账号", source, len(accounts))
+            sessions = ctx.kv.get(SESSION_KEY, {}) or {}
+            if not isinstance(sessions, dict):
+                sessions = {}
+            legacy_session = ctx.kv.get(LEGACY_SESSION_KEY, {}) or {}
+            if isinstance(legacy_session, dict):
+                legacy_email = str(legacy_session.get("email") or "").casefold()
+                legacy_cookie = str(legacy_session.get("cookie") or "")
+                if legacy_email and legacy_cookie and legacy_email not in sessions:
+                    sessions[legacy_email] = legacy_cookie
+
+            account_results = []
+            for index, account in enumerate(accounts, 1):
+                email, password = account["email"], account["password"]
+                account_key = email.casefold()
+                masked = _masked_email(email)
+                cached_cookie = str(sessions.get(account_key) or "")
                 ctx.log.info(
-                    "[签到流程] 启动平台托管浏览器；账号=%s，会话缓存=%s",
-                    _masked_email(email), "有" if cached_cookie else "无",
+                    "[签到流程][%s/%s][%s] 启动托管浏览器；会话缓存=%s",
+                    index, len(accounts), masked, "有" if cached_cookie else "无",
                 )
 
-                def trace(message: str) -> None:
-                    ctx.log.info("[签到流程] %s", message)
+                def trace(message: str, label=masked) -> None:
+                    ctx.log.info("[签到流程][%s] %s", label, message)
 
                 def browser_action(page):
                     try:
@@ -641,31 +566,43 @@ async def _run(ctx, source: str) -> dict:
                             page, email, password, bool(cached_cookie), trace,
                         )
                     except Exception as exc:
-                        ctx.log.error("[签到流程] 浏览器步骤失败：%s", exc)
+                        ctx.log.error("[签到流程][%s] 浏览器步骤失败：%s", masked, exc)
                         raise
 
-                browser_result = await ctx.browser.run(
-                    LOGIN_URL,
-                    browser_action,
-                    cookies=cached_cookie or None,
-                    headless=True,
-                    timeout=240,
-                )
-                session_cookie = str((browser_result or {}).get("session_cookie") or "")
-                if session_cookie:
-                    ctx.kv.set(SESSION_KEY, {"email": email, "cookie": session_cookie})
-                    ctx.log.info("[签到流程] 已更新当前账号会话缓存")
-                status = str((browser_result or {}).get("status") or "")
-                ctx.log.info("[签到流程] 流程完成，结果=%s", status or "未知")
-                result = {
-                    "ok": status in ("success", "already"),
-                    "already": status == "already",
-                    "message": str((browser_result or {}).get("message") or "签到完成"),
-                    "points": (browser_result or {}).get("points"),
-                }
-            except Exception as exc:  # noqa: BLE001 - 转换成可读运行结果
-                ctx.log.error("签到失败：%r", exc)
-                result = {"ok": False, "message": f"签到失败：{exc}"}
+                try:
+                    browser_result = await ctx.browser.run(
+                        LOGIN_URL, browser_action,
+                        cookies=cached_cookie or None,
+                        headless=True, timeout=240,
+                    )
+                    session_cookie = str((browser_result or {}).get("session_cookie") or "")
+                    if session_cookie:
+                        sessions[account_key] = session_cookie
+                        ctx.log.info("[签到流程][%s] 已更新独立会话缓存", masked)
+                    status = str((browser_result or {}).get("status") or "")
+                    item = {
+                        "ok": status in ("success", "already"),
+                        "already": status == "already",
+                        "message": str((browser_result or {}).get("message") or "签到完成"),
+                    }
+                    ctx.log.info("[签到流程][%s] 完成，结果=%s", masked, status or "未知")
+                except Exception as exc:  # noqa: BLE001 - 继续处理下一个账号
+                    item = {"ok": False, "message": f"账号 {masked} 签到失败：{exc}"}
+                    ctx.log.error("[签到流程][%s] 签到失败：%r", masked, exc)
+                account_results.append(item)
+
+            ctx.kv.set(SESSION_KEY, sessions)
+            ctx.kv.delete(LEGACY_SESSION_KEY)
+            success_count = sum(1 for item in account_results if item["ok"])
+            failed_count = len(account_results) - success_count
+            summary = f"多账号签到完成：成功 {success_count}，失败 {failed_count}"
+            details = "\n".join(item["message"] for item in account_results)
+            result = {
+                "ok": failed_count == 0,
+                "partial": success_count > 0 and failed_count > 0,
+                "message": f"{summary}\n{details}",
+                "accounts": account_results,
+            }
 
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         display = f"{stamp} · {result['message']}"
@@ -674,24 +611,19 @@ async def _run(ctx, source: str) -> dict:
         if not isinstance(history, list):
             history = []
         history = [*history, record][-HISTORY_LIMIT:]
-        history_display = "\n".join(
+        history_display = "\n\n".join(
             f"{item.get('time', '')} · {item.get('message', '')}"
             for item in reversed(history[-10:])
         )
-        config_updates = {
+        ctx.update_config({
             "last_result": display,
             "checkin_history": history_display or "暂无记录",
-        }
-        if result.get("points"):
-            config_updates["current_points"] = f"{result['points']} 积分"
-        ctx.update_config(config_updates)
+        })
         ctx.kv.set("last_result", record)
         ctx.kv.set(HISTORY_KEY, history)
         if ctx.config.get("notify", True):
             try:
-                level = "success" if result["ok"] and not result.get("already") else (
-                    "info" if result["ok"] else "error"
-                )
+                level = "success" if result["ok"] else ("warning" if result.get("partial") else "error")
                 await ctx.notify(result["message"], level=level, category="GPT-GOD 签到")
             except Exception as exc:  # noqa: BLE001 - 通知失败不改变签到结果
                 ctx.log.warning("签到结果通知失败：%r", exc)
