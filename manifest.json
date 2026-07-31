@@ -307,11 +307,11 @@
   },
   "gptgod_checkin": {
     "name": "GPT-GOD 自动签到",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
     "icon": "https://gptgod.online/favicon.ico",
-    "changelog": "v1.0.11 修复 Docker 前端缓存失效\n- 签到前清理 GPT-GOD 的 Cache Storage 与旧 Service Worker，避免旧页面引用已删除的 chunk 文件\n- 登录页和免费积分页增加防缓存参数，并在页面空壳时清缓存重新加载\n- 兼容非按钮形式的签到控件，同时明确识别 ChunkLoadError 页面\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.8 修复隐藏组件导致的已签到误判\n- 只读取当前可见签到控件，未签到必须实际点击并等待状态变化\n\nv1.0.7 按账号复用登录会话\n- 账号未变化时复用 Cookie，更换邮箱后自动使用干净会话\n\nv1.0.6 修复切换账号后串号\n- 登录后核验网站账号与配置邮箱一致，避免旧会话状态误报\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.0.12 增加分步骤运行日志\n- 记录浏览器启动、缓存会话、前端缓存清理、登录提交、积分页加载、状态识别、签到点击和积分读取步骤\n- 失败日志附带当前步骤，且不会输出密码、Cookie 等敏感内容\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理 Cache Storage 与旧 Service Worker，并使用防缓存地址加载页面\n- 兼容非按钮签到控件并识别 ChunkLoadError\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "path": "plugins/gptgod_checkin.py"
   },
   "awrelay": {

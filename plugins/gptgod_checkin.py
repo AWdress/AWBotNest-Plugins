@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.11 修复 Docker 前端缓存失效\n- 签到前清理 GPT-GOD 的 Cache Storage 与旧 Service Worker，避免旧页面引用已删除的 chunk 文件\n- 登录页和免费积分页增加防缓存参数，并在页面空壳时清缓存重新加载\n- 兼容非按钮形式的签到控件，同时明确识别 ChunkLoadError 页面\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.8 修复隐藏组件导致的已签到误判\n- 只读取当前可见签到控件，未签到必须实际点击并等待状态变化\n\nv1.0.7 按账号复用登录会话\n- 账号未变化时复用 Cookie，更换邮箱后自动使用干净会话\n\nv1.0.6 修复切换账号后串号\n- 登录后核验网站账号与配置邮箱一致，避免旧会话状态误报\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.0.12 增加分步骤运行日志\n- 记录浏览器启动、缓存会话、前端缓存清理、登录提交、积分页加载、状态识别、签到点击和积分读取步骤\n- 失败日志附带当前步骤，且不会输出密码、Cookie 等敏感内容\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理 Cache Storage 与旧 Service Worker，并使用防缓存地址加载页面\n- 兼容非按钮签到控件并识别 ChunkLoadError\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -398,16 +398,22 @@ def _session_cookie(page) -> str:
         return ""
 
 
-def _finish_checkin(page, email: str) -> dict:
+def _finish_checkin(page, email: str, trace=None) -> dict:
+    trace = trace or (lambda _message: None)
+    trace("核验当前登录账号")
     if not _displayed_account_matches(page, email):
         raise RuntimeError("网站实际登录账号与插件当前配置邮箱不一致，已停止签到以防串号")
     account = _masked_email(email)
+    trace("等待免费积分页签到控件")
     state = _wait_for_checkin_state(page)
+    trace(f"签到状态识别结果：{state or '未识别'}")
     if state == "already":
+        trace("网站显示今天已签到，开始读取当前积分")
         return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取")
     if state != "claim":
         raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
 
+    trace("点击签到控件")
     if not _click_checkin(page):
         raise RuntimeError("未找到签到按钮，网站页面可能已更新")
 
@@ -419,10 +425,13 @@ def _finish_checkin(page, email: str) -> dict:
     except Exception:  # noqa: BLE001 - 重新载入积分页进行最终核验
         pass
 
+    trace("签到请求已提交，重新加载免费积分页确认结果")
     _goto_fresh(page, WELFARE_URL)
     result_state = _wait_for_checkin_state(page, timeout_ms=45_000)
+    trace(f"签到后状态确认：{result_state or '未识别'}")
     result_text = _page_text(page)
     if result_state == "already":
+        trace("签到成功，开始读取当前积分")
         return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分")
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
@@ -430,8 +439,11 @@ def _finish_checkin(page, email: str) -> dict:
     raise RuntimeError("签到后未能确认成功状态，请稍后重试")
 
 
-def _browser_checkin(page, email: str, password: str, reuse_session: bool = False) -> dict:
+def _browser_checkin(
+    page, email: str, password: str, reuse_session: bool = False, trace=None,
+) -> dict:
     """同步浏览器动作；由 ctx.browser.run 在线程中执行。"""
+    trace = trace or (lambda _message: None)
     email_selectors = (
             "#email",
             'input[name="email"]',
@@ -441,22 +453,30 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
     )
 
     if reuse_session:
+        trace("检测到同账号缓存会话，清理旧前端缓存")
         _clear_site_frontend_cache(page)
+        trace("使用缓存会话打开免费积分页")
         _goto_fresh(page, WELFARE_URL)
         cached_state = _wait_for_checkin_state(page, timeout_ms=20_000)
+        trace(f"缓存会话状态：{cached_state or '无效或页面未加载'}")
         if cached_state is not None and _displayed_account_matches(page, email):
-            result = _finish_checkin(page, email)
+            trace("缓存会话有效，无需重新登录")
+            result = _finish_checkin(page, email, trace)
             result["session_cookie"] = _session_cookie(page)
             return result
+        trace("缓存会话不可用，切换为干净登录流程")
 
     # Docker 浏览器内核可能残留旧站点会话。每次清理状态并使用当前配置
     # 重新登录，避免换号后沿用旧账号的“今天已签到”状态。
     try:
+        trace("清理旧账号 Cookie")
         page.context.clear_cookies()
     except Exception:  # noqa: BLE001 - 部分浏览器内核可能不暴露该方法
         pass
+    trace("打开 GPT-GOD 登录页")
     _goto_fresh(page, LOGIN_URL)
     try:
+        trace("清理站点本地存储和旧前端缓存")
         page.evaluate("() => { localStorage.clear(); sessionStorage.clear(); }")
         _clear_site_frontend_cache(page)
         _goto_fresh(page, LOGIN_URL)
@@ -466,6 +486,7 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
     email_input = _wait_for_any_visible(page, email_selectors, timeout_ms=33_000)
     if email_input is None:
         raise _loading_error(page, "登录页")
+    trace("登录页邮箱输入框已加载")
     password_input = _wait_for_any_visible(page, (
         "#password",
         'input[name="password"]',
@@ -473,6 +494,7 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
     ), timeout_ms=10_000)
     if password_input is None:
         raise _loading_error(page, "登录页密码框")
+    trace("填写登录表单（敏感内容不写入日志）")
     _type_like_user(email_input, email)
     _type_like_user(password_input, password)
     submitted = _click_visible_button_text(page, ("登 录", "登录", "Login", "Sign in"))
@@ -484,6 +506,7 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
             pass
     if not submitted:
         raise RuntimeError("登录表单无法提交，网站页面可能已更新")
+    trace("登录表单已提交，等待网站建立会话")
 
     try:
         page.wait_for_url("**/session/**", timeout=15_000)
@@ -494,16 +517,19 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
         if marker in login_text:
             raise RuntimeError(marker)
 
+    trace("登录响应未发现账号错误，清理前端缓存")
     _clear_site_frontend_cache(page)
+    trace("打开免费积分页")
     _goto_fresh(page, WELFARE_URL)
     welfare_state = _wait_for_checkin_state(page, timeout_ms=60_000)
+    trace(f"免费积分页状态：{welfare_state or '未找到签到控件'}")
     if welfare_state is None:
         login_input = _wait_for_any_visible(page, email_selectors, timeout_ms=2_000)
         if login_input is not None or "/login" in _current_url(page):
             raise RuntimeError("登录状态未生效，请检查邮箱、密码或网站安全验证")
         raise _loading_error(page, "免费积分页")
 
-    result = _finish_checkin(page, email)
+    result = _finish_checkin(page, email, trace)
     result["session_cookie"] = _session_cookie(page)
     return result
 
@@ -531,9 +557,26 @@ async def _run(ctx, source: str) -> dict:
                 cached_cookie = str(cached_session.get("cookie") or "") if same_account else ""
                 if not same_account:
                     ctx.kv.delete(SESSION_KEY)
+                ctx.log.info(
+                    "[签到流程] 启动平台托管浏览器；账号=%s，会话缓存=%s",
+                    _masked_email(email), "有" if cached_cookie else "无",
+                )
+
+                def trace(message: str) -> None:
+                    ctx.log.info("[签到流程] %s", message)
+
+                def browser_action(page):
+                    try:
+                        return _browser_checkin(
+                            page, email, password, bool(cached_cookie), trace,
+                        )
+                    except Exception as exc:
+                        ctx.log.error("[签到流程] 浏览器步骤失败：%s", exc)
+                        raise
+
                 browser_result = await ctx.browser.run(
                     LOGIN_URL,
-                    lambda page: _browser_checkin(page, email, password, bool(cached_cookie)),
+                    browser_action,
                     cookies=cached_cookie or None,
                     headless=True,
                     timeout=240,
@@ -541,7 +584,9 @@ async def _run(ctx, source: str) -> dict:
                 session_cookie = str((browser_result or {}).get("session_cookie") or "")
                 if session_cookie:
                     ctx.kv.set(SESSION_KEY, {"email": email, "cookie": session_cookie})
+                    ctx.log.info("[签到流程] 已更新当前账号会话缓存")
                 status = str((browser_result or {}).get("status") or "")
+                ctx.log.info("[签到流程] 流程完成，结果=%s", status or "未知")
                 result = {
                     "ok": status in ("success", "already"),
                     "already": status == "already",
