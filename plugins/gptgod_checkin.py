@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.13 修复部分账号积分未显示\n- 兼容全角逗号、数字空格及 K/W/万 等积分格式\n- 兼容积分数字位于标签前后的页面布局\n- 增加积分读取开始、重载、成功和未匹配日志\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别、签到点击和积分读取步骤\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理 Cache Storage 与旧 Service Worker，并使用防缓存地址加载页面\n- 兼容非按钮签到控件并识别 ChunkLoadError\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.0.14 修复 Docker 积分卡片与会话复用\n- 积分读取先在已成功加载的原页面等待，不再立即跳转破坏页面状态\n- 定向读取“当前可用积分”卡片的父级和相邻节点，兼容异步卡片布局\n- 缓存会话等待延长至 75 秒，并区分 Cookie 被拒绝与页面渲染缓慢\n- 原页面超时后才清缓存重载一次进行最终读取\n\nv1.0.13 修复部分账号积分未显示\n- 兼容全角逗号、数字空格及 K/W/万 等积分格式并增加读取日志\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别、签到点击和积分读取步骤\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理旧前端缓存并兼容 ChunkLoadError\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -241,25 +241,69 @@ def _extract_points(text: str) -> str | None:
     return None
 
 
+def _extract_points_from_page(page) -> str | None:
+    points = _extract_points(_page_text(page))
+    if points:
+        return points
+    # 部分 Docker 视口下积分卡片被拆成多个节点；定向拼接标签附近内容。
+    try:
+        nearby_text = page.evaluate("""() => {
+            const visible = (node) => {
+                if (!node || !node.getBoundingClientRect) return false;
+                const style = getComputedStyle(node);
+                const box = node.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && box.width > 0 && box.height > 0;
+            };
+            const nodes = [...document.querySelectorAll('div,section,article,span,p')];
+            const label = nodes.find((node) => visible(node)
+                && (node.innerText || '').trim() === '当前可用积分');
+            if (!label) return '';
+            const pieces = [label.innerText || ''];
+            let current = label;
+            for (let i = 0; i < 4 && current; i += 1) {
+                if (current.parentElement && visible(current.parentElement)) {
+                    pieces.push(current.parentElement.innerText || '');
+                }
+                if (current.nextElementSibling && visible(current.nextElementSibling)) {
+                    pieces.push(current.nextElementSibling.innerText || '');
+                }
+                current = current.parentElement;
+            }
+            return pieces.join('\\n');
+        }""")
+        return _extract_points(str(nearby_text or ""))
+    except Exception:  # noqa: BLE001 - DOM 定向读取失败时继续等待
+        return None
+
+
 def _read_current_points(page, timeout_ms: int = 30_000, trace=None) -> str | None:
     trace = trace or (lambda _message: None)
     trace("开始读取当前积分")
     # 当前签到页已经包含精确的“当前可用积分”，先直接读取，避免 Docker
     # 环境跳转到积分规则页后 SPA 尚未渲染或页面结构不同而丢失积分。
-    points = _extract_points(_page_text(page))
-    if points:
-        trace(f"已读取当前积分：{points}")
-        return points
-    trace("当前页面暂未匹配到积分，重新加载免费积分页")
-    _goto_fresh(page, WELFARE_URL)
+    # 已签到状态所在页面是当前最可信页面；先等待异步积分卡片挂载。
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
-        points = _extract_points(_page_text(page))
+        points = _extract_points_from_page(page)
         if points:
-            trace(f"重新加载后已读取当前积分：{points}")
+            trace(f"已从当前积分卡片读取：{points}")
             return points
         if "/login" in _current_url(page):
             trace("读取积分时会话失效并返回登录页")
+            return None
+        page.wait_for_timeout(500)
+    trace("原页面等待 30 秒仍无积分卡片，清理前端缓存后重载一次")
+    _clear_site_frontend_cache(page)
+    _goto_fresh(page, WELFARE_URL)
+    retry_deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < retry_deadline:
+        points = _extract_points_from_page(page)
+        if points:
+            trace(f"重载后已读取当前积分：{points}")
+            return points
+        if "/login" in _current_url(page):
+            trace("重载积分页后会话失效并返回登录页")
             return None
         page.wait_for_timeout(500)
     page_text = _page_text(page)
@@ -379,11 +423,15 @@ def _click_checkin(page) -> bool:
         return False
 
 
-def _wait_for_checkin_state(page, timeout_ms: int = 45_000) -> str | None:
+def _wait_for_checkin_state(
+    page, timeout_ms: int = 45_000, *, stop_on_login: bool = False,
+) -> str | None:
     """等待 SPA 签到卡片稳定。Docker 首屏渲染慢时会自动滚动并重载一次。"""
     deadline = time.monotonic() + timeout_ms / 1000
     reloaded = False
     while time.monotonic() < deadline:
+        if stop_on_login and "/login" in _current_url(page):
+            return None
         state = _visible_checkin_state(page)
         if state:
             return state
@@ -473,14 +521,20 @@ def _browser_checkin(
         _clear_site_frontend_cache(page)
         trace("使用缓存会话打开免费积分页")
         _goto_fresh(page, WELFARE_URL)
-        cached_state = _wait_for_checkin_state(page, timeout_ms=20_000)
+        cached_state = _wait_for_checkin_state(
+            page, timeout_ms=75_000, stop_on_login=True,
+        )
         trace(f"缓存会话状态：{cached_state or '无效或页面未加载'}")
         if cached_state is not None and _displayed_account_matches(page, email):
             trace("缓存会话有效，无需重新登录")
             result = _finish_checkin(page, email, trace)
             result["session_cookie"] = _session_cookie(page)
             return result
-        trace("缓存会话不可用，切换为干净登录流程")
+        cached_login_input = _wait_for_any_visible(page, email_selectors, timeout_ms=2_000)
+        if cached_login_input is not None or "/login" in _current_url(page):
+            trace("缓存 Cookie 被网站拒绝并返回登录页，切换为干净登录流程")
+        else:
+            trace("缓存 Cookie 未被退回登录页，但页面长期未渲染签到控件，重新登录恢复")
 
     # Docker 浏览器内核可能残留旧站点会话。每次清理状态并使用当前配置
     # 重新登录，避免换号后沿用旧账号的“今天已签到”状态。
