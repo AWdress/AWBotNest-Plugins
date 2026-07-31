@@ -14,11 +14,12 @@ const DEFAULTS = {
   allow_creator: false, require_reply: false, delete_commands: true,
   announce_delay_min: 1, announce_delay_max: 3,
   draw_delay_min: 2, draw_delay_max: 8, progress_every: 0,
+  participation_reply: true, participation_reply_delete: 5, cleanup_delay: 30,
   blacklist_ids: '', notify_owner: true,
   auto_award: true, award_command: '+{amount}',
   award_delay_min: 1, award_delay_max: 3,
-  announce_template: '🎉 抽奖开始啦！\n\n🎁 奖品：{prize}\n🏆 中奖人数：{winners} 人\n⏰ 开奖时间：{draw_time}\n🔑 参与方式：发送「{keyword}」\n\n每人只能参与一次，祝大家好运～',
-  result_template: '🎊 开奖啦！\n\n🎁 奖品：{prize}\n👥 参与人数：{participants}\n🏆 中奖名单：\n{winner_list}\n\n恭喜中奖，感谢大家参与～',
+  announce_template: '🎁 <b>幸运抽奖 #{lottery_id}</b>\n\n✨ 奖品：<b>{prize}</b>\n🏆 中奖名额：{winners} 人\n{draw_rule}\n\n发送关键词参与：\n<code>{keyword}</code>\n\n每人限参与一次，祝你好运 🍀',
+  result_template: '🎊 <b>幸运开奖 #{lottery_id}</b>\n\n🎁 奖品：<b>{prize}</b>\n👥 参与人数：{participants} 人\n🏆 中奖名单：\n{winner_list}\n\n🔗 <a href="{announcement_link}">查看本次抽奖</a>\n\n恭喜中奖，感谢大家参与 ✨',
   empty_template: '这次抽奖参与人数不足（{participants}/{minimum}），先取消啦，下次再来～',
 }
 const groups = [
@@ -101,7 +102,13 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
               <label>取消抽奖<input v-model="cfg.cancel_word"></label>
             </div>
             <label class="switch"><input v-model="cfg.delete_commands" type="checkbox">执行后删除我的命令消息</label>
-            <p class="tip">格式：{{ cfg.create_word }} 奖品 | 中奖人数 | 持续分钟 | 参与关键词 | 每人奖励<br>最后一项可省略，插件会从奖品名称提取数字。示例：{{ cfg.create_word }} 1000魔力 | 3 | 10 | 冲鸭</p>
+            <div class="example">
+              <b>纯空格创建格式</b>
+              <code>{{ cfg.create_word }} 奖品 中奖人数 开奖条件 参与词 每人奖励</code>
+              <span>定时开奖：{{ cfg.create_word }} 1000魔力 3 10分钟 冲鸭 1000</span>
+              <span>人数开奖：{{ cfg.create_word }} 1000魔力 3 20人 冲鸭 1000</span>
+              <small>每人奖励可省略；奖品和参与词内请不要包含空格。</small>
+            </div>
           </section>
           <section v-else-if="group === 'award'" class="card">
             <h3>自动发奖</h3>
@@ -117,6 +124,12 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
             <h3>参与规则</h3>
             <label class="switch"><input v-model="cfg.allow_creator" type="checkbox">允许创建者参与</label>
             <label class="switch"><input v-model="cfg.require_reply" type="checkbox">必须回复抽奖公告才计入</label>
+            <label class="switch"><input v-model="cfg.participation_reply" type="checkbox">参与成功后回复确认</label>
+            <div class="grid">
+              <label>参与提示删除秒数<input v-model.number="cfg.participation_reply_delete" type="number" min="0"></label>
+              <label>结束后清理秒数<input v-model.number="cfg.cleanup_delay" type="number" min="0"></label>
+            </div>
+            <p class="tip">抽奖结束后会删除公告、参与关键词、参与提示、进度、开奖结果和自动发奖消息。</p>
             <label>每 N 人播报一次（0=关闭）<input v-model.number="cfg.progress_every" type="number" min="0"></label>
           </section>
           <section v-else-if="group === 'human'" class="card">
@@ -133,7 +146,7 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
             <label>抽奖公告<textarea v-model="cfg.announce_template" rows="8"></textarea></label>
             <label>开奖文案<textarea v-model="cfg.result_template" rows="8"></textarea></label>
             <label>人数不足文案<textarea v-model="cfg.empty_template" rows="3"></textarea></label>
-            <p class="tip">公告可用 {prize} {winners} {keyword} {duration} {draw_time}；开奖可用 {prize} {participants} {winners} {winner_list}。</p>
+            <p class="tip">公告可用 {prize} {winners} {keyword} {duration} {draw_time} {draw_rule}；开奖可用 {prize} {participants} {winners} {winner_list} {announcement_link}。支持 Telegram HTML。</p>
           </section>
           <section v-else class="card">
             <h3>参与黑名单</h3>
@@ -169,4 +182,5 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
 
 <style scoped>
 .root{display:flex;flex-direction:column;gap:14px;color:var(--text-primary,#e8ebf0);container-type:inline-size}.tabs{display:flex;gap:6px;border-bottom:1px solid var(--border-light,#2a2e3a)}button{padding:7px 12px;border:1px solid var(--border-light,#2a2e3a);border-radius:7px;background:var(--bg-card,#12141c);color:var(--text-secondary,#b9c0cc);cursor:pointer}.tabs button{border-width:0 0 2px;background:none;border-radius:0}.tabs .on,aside .on{color:var(--accent,#6ea8fe);border-color:var(--accent,#6ea8fe);background:var(--accent-dim,#1e3a5f)}.layout{display:flex;gap:16px;align-items:flex-start}aside{flex:0 0 140px;display:flex;flex-direction:column;gap:5px;padding:10px;border:1px solid var(--border-light,#2a2e3a);border-radius:10px;background:var(--bg-elevated,#1a1d27)}aside button{text-align:left;border:none;background:none}main{flex:1;min-width:0}.card{display:flex;flex-direction:column;gap:13px;padding:16px;border:1px solid var(--border-light,#2a2e3a);border-radius:10px;background:var(--bg-elevated,#1a1d27)}h3{margin:0 0 6px;font-size:15px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 18px}label{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary,#b9c0cc)}label:not(.switch){flex-direction:column;align-items:stretch}input,textarea{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid var(--border-light,#2a2e3a);border-radius:6px;background:var(--bg-card,#12141c);color:var(--text-primary,#e8ebf0);font:inherit}textarea{resize:vertical}.switch input{width:auto}.tip,.muted{font-size:12px;color:var(--text-muted,#7a8291);line-height:1.6}.save{display:flex;justify-content:flex-end;margin-top:12px}.primary{color:var(--accent,#6ea8fe);border-color:var(--accent,#6ea8fe)}.monitor{display:flex;flex-direction:column;gap:14px}.toolbar{display:flex;justify-content:space-between;align-items:center}.empty{text-align:center;padding:48px;color:var(--text-muted,#7a8291)}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px;text-align:left;border-bottom:1px solid var(--border-light,#2a2e3a)}th{font-size:12px;color:var(--text-muted,#7a8291)}td button+button{margin-left:5px}.danger{color:#ff6b6b}.danger:hover{border-color:#ff6b6b}button:disabled{opacity:.5;cursor:not-allowed}@container(max-width:680px){.layout{flex-direction:column}aside{width:100%;box-sizing:border-box;flex-direction:row;flex-wrap:wrap;flex-basis:auto}.grid{grid-template-columns:1fr}.monitor{overflow:auto}}
+.example{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid color-mix(in srgb,var(--accent,#6ea8fe) 35%,transparent);border-radius:9px;background:color-mix(in srgb,var(--accent,#6ea8fe) 8%,transparent);font-size:12px}.example code{padding:8px 10px;border-radius:6px;background:var(--bg-card,#12141c);color:var(--accent,#6ea8fe);user-select:all}.example small{color:var(--text-muted,#7a8291)}
 </style>
