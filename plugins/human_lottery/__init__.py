@@ -15,14 +15,14 @@ from pyrogram.enums import ParseMode
 __plugin__ = {
     "name": "幸运抽奖",
     "id": "human_lottery",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg",
-    "changelog": "v1.1.0 优化抽奖交互与清理\n- 创建格式改为纯空格分隔，支持“10分钟”定时开奖和“20人”满员开奖\n- 参与成功会回复确认并自动删除，关键词使用可复制代码样式\n- 中奖者使用昵称超链接，开奖结果附原抽奖消息链接\n- 开奖或取消后延迟删除公告、参与、提示、结果及发奖消息\n\nv1.0.2 更名并启用原创 Logo\n- 插件名称调整为「幸运抽奖」并使用原创 Logo\n\nv1.0.1 新增自动发奖\n- 开奖后回复中奖者参与消息发送奖励命令\n\nv1.0.0 初始版本\n- 支持用户账号发起、参与、开奖、取消和历史记录",
+    "changelog": "v1.1.1 简化创建格式\n- 删除重复的“每人奖励”参数，奖品即为每位中奖者获得的奖励\n- 自动发奖金额统一从奖品名称中提取\n\nv1.1.0 优化抽奖交互与清理\n- 支持按时间或人数开奖、参与提示、昵称链接、原消息链接和结束清理\n\nv1.0.2 更名并启用原创 Logo\n- 插件名称调整为「幸运抽奖」并使用原创 Logo\n\nv1.0.1 新增自动发奖\n- 开奖后回复中奖者参与消息发送奖励命令\n\nv1.0.0 初始版本\n- 支持用户账号发起、参与、开奖、取消和历史记录",
 }
 
 
@@ -122,17 +122,19 @@ def _activity_key(client, chat_id: int) -> str:
 
 
 def _parse_create(text: str, cfg: dict):
-    """格式：创建抽奖 奖品 中奖人数 10分钟|20人 参与词 [每人奖励]。"""
+    """格式：创建抽奖 奖品 中奖人数 10分钟|20人 参与词。"""
     word = str(cfg.get("create_word") or "创建抽奖").strip()
     raw = str(text or "").strip()
     if raw != word and not raw.startswith(word + " "):
         return None
     body = raw[len(word):].strip()
     if not body:
-        return {"error": "格式：创建抽奖 奖品 中奖人数 10分钟/20人 参与关键词 每人奖励（可省略）"}
+        return {"error": "格式：创建抽奖 奖品 中奖人数 10分钟/20人 参与关键词"}
     parts = body.split()
     if len(parts) < 4:
-        return {"error": "参数不足，例如：创建抽奖 1000魔力 3 10分钟 冲鸭 1000"}
+        return {"error": "参数不足，例如：创建抽奖 1000魔力 3 10分钟 冲鸭"}
+    if len(parts) > 4:
+        return {"error": "参数过多；奖品即为每位中奖者的奖励，例如：创建抽奖 1000魔力 3 10分钟 冲鸭"}
     prize = parts[0]
     if not prize:
         return {"error": "奖品不能为空"}
@@ -158,12 +160,7 @@ def _parse_create(text: str, cfg: dict):
     if len(prize) > 200 or len(keyword) > 50:
         return {"error": "奖品最多 200 字，参与关键词最多 50 字"}
     award_amount = ""
-    if len(parts) > 4 and parts[4]:
-        amount_match = re.search(r"\d+(?:\.\d+)?", parts[4].replace(",", ""))
-        award_amount = amount_match.group(0) if amount_match else ""
-        if not award_amount:
-            return {"error": "每人奖励必须包含有效数字，例如 1000"}
-    elif cfg.get("auto_award", True):
+    if cfg.get("auto_award", True):
         amount_match = re.search(r"\d+(?:\.\d+)?", prize.replace(",", ""))
         award_amount = amount_match.group(0) if amount_match else ""
     return {

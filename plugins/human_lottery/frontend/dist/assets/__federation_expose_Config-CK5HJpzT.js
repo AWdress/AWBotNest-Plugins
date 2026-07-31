@@ -335,10 +335,10 @@ return (_ctx, _cache) => {
                       ]),
                       _createElementVNode("div", _hoisted_13, [
                         _cache[47] || (_cache[47] = _createElementVNode("b", null, "纯空格创建格式", -1)),
-                        _createElementVNode("code", null, _toDisplayString(cfg.create_word) + " 奖品 中奖人数 开奖条件 参与词 每人奖励", 1),
-                        _createElementVNode("span", null, "定时开奖：" + _toDisplayString(cfg.create_word) + " 1000魔力 3 10分钟 冲鸭 1000", 1),
-                        _createElementVNode("span", null, "人数开奖：" + _toDisplayString(cfg.create_word) + " 1000魔力 3 20人 冲鸭 1000", 1),
-                        _cache[48] || (_cache[48] = _createElementVNode("small", null, "每人奖励可省略；奖品和参与词内请不要包含空格。", -1))
+                        _createElementVNode("code", null, _toDisplayString(cfg.create_word) + " 奖品 中奖人数 开奖条件 参与词", 1),
+                        _createElementVNode("span", null, "定时开奖：" + _toDisplayString(cfg.create_word) + " 1000魔力 3 10分钟 冲鸭", 1),
+                        _createElementVNode("span", null, "人数开奖：" + _toDisplayString(cfg.create_word) + " 1000魔力 3 20人 冲鸭", 1),
+                        _cache[48] || (_cache[48] = _createElementVNode("small", null, "奖品就是每位中奖者获得的奖励，自动发奖金额会从奖品中提取；奖品和参与词内请不要包含空格。", -1))
                       ])
                     ]))
                   : (group.value === 'award')
@@ -694,6 +694,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-3b005466"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-045dc226"]]);
 
 export { Config as default };

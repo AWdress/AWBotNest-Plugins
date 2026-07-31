@@ -104,10 +104,10 @@ function switchTab(value) { tab.value = value; if (value === 'monitor') refresh(
             <label class="switch"><input v-model="cfg.delete_commands" type="checkbox">执行后删除我的命令消息</label>
             <div class="example">
               <b>纯空格创建格式</b>
-              <code>{{ cfg.create_word }} 奖品 中奖人数 开奖条件 参与词 每人奖励</code>
-              <span>定时开奖：{{ cfg.create_word }} 1000魔力 3 10分钟 冲鸭 1000</span>
-              <span>人数开奖：{{ cfg.create_word }} 1000魔力 3 20人 冲鸭 1000</span>
-              <small>每人奖励可省略；奖品和参与词内请不要包含空格。</small>
+              <code>{{ cfg.create_word }} 奖品 中奖人数 开奖条件 参与词</code>
+              <span>定时开奖：{{ cfg.create_word }} 1000魔力 3 10分钟 冲鸭</span>
+              <span>人数开奖：{{ cfg.create_word }} 1000魔力 3 20人 冲鸭</span>
+              <small>奖品就是每位中奖者获得的奖励，自动发奖金额会从奖品中提取；奖品和参与词内请不要包含空格。</small>
             </div>
           </section>
           <section v-else-if="group === 'award'" class="card">
