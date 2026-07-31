@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.5 修复网站受控登录表单\n- 邮箱和密码改为模拟真人逐键输入，触发网站内部表单状态更新\n- 按可见按钮实际文字精确匹配“登录”，避免点击同一区域内的其他按钮\n- 已使用平台 CloakBrowser 实测登录成功并取得会话 Cookie，未执行签到\n\nv1.0.4 修复已登录状态误判\n- 运行时优先访问免费积分页，已有有效登录态时直接签到，不再重复打开登录页\n- 登录提交后改用受保护积分页确认会话，不再仅凭 URL 仍含 /login 判定失败\n- 只有积分页确实退回登录表单时才提示检查账号或安全验证\n\nv1.0.3 增加积分记录\n- 每次签到完成后读取当前可用积分，并在通知中显示剩余积分\n- 配置页显示当前积分和最近 10 次签到记录\n- 持久保存最近 30 次签到结果，插件重载后记录不会消失\n\nv1.0.2 修复登录按钮识别\n- 兼容页面组件生成的登录按钮和同一页面存在多个隐藏按钮\n- 登录按钮无法点击时会尝试通过密码框提交，不再误报按钮不存在\n- 签到按钮同样会选择第一个可见按钮\n\nv1.0.1 修复登录页识别\n- 等待 GPT-GOD 单页应用完成登录表单渲染，避免页面刚打开就误报表单不存在\n- 兼容浏览器已有登录状态时直接跳转，跳过重复登录\n- 等待积分页签到控件加载，并细分 Cloudflare、登录和页面加载错误\n\nv1.0.0 初始版本\n- 支持邮箱、密码登录 GPT-GOD\n- 使用网站原生页面流程完成动态校验和每日签到\n- 支持定时签到、立即签到、重复签到识别和结果通知",
+    "changelog": "v1.0.10 修复 Docker 签到页加载识别\n- 等待单页应用完整渲染签到卡片，自动滚动并在长时间未出现时刷新一次\n- 同时识别签到按钮和页面顶部可见的‘今天已签到’状态，不读取隐藏模板\n- 点击后等待页面明确变为已签到，已使用平台托管浏览器完成真实签到测试\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.8 修复隐藏组件导致的已签到误判\n- 只读取当前可见签到控件，未签到必须实际点击并等待状态变化\n\nv1.0.7 按账号复用登录会话\n- 账号未变化时复用 Cookie，更换邮箱后自动使用干净会话\n\nv1.0.6 修复切换账号后串号\n- 登录后核验网站账号与配置邮箱一致，避免旧会话状态误报\n\nv1.0.5 修复网站受控登录表单\n- 模拟真人逐键输入并精确点击可见登录按钮\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -61,27 +61,6 @@ __plugin__ = {
         },
     },
 }
-
-__plugin__["changelog"] = (
-    "v1.0.9 修复 Docker 环境积分未显示\n"
-    "- 签到结果优先从当前免费积分页面读取“当前可用积分”\n"
-    "- 读取失败时重新加载签到页重试，不再跳到积分规则页\n"
-    "- 已签到和本次签到成功的通知都会附带剩余积分\n\n"
-    "v1.0.8 修复隐藏组件导致的已签到误判\n"
-    "- 不再通过整页文字判断状态，只读取当前可见的签到按钮\n"
-    "- 未签到账号必须实际点击“签到领取”并等待按钮变为“今天已签到”\n"
-    "- 通知附带脱敏后的实际登录账号和积分，明确本次操作对应账号\n\n"
-    "v1.0.7 按账号复用登录会话\n"
-    "- 当前账号未变化时优先复用已保存 Cookie，避免每天重复登录\n"
-    "- 更换邮箱后自动丢弃旧 Cookie，使用干净会话登录新账号\n"
-    "- 复用会话时继续核验网站账号，失效或串号会自动重新登录\n\n"
-    "v1.0.6 修复切换账号后串号\n"
-    "- 每次签到清理浏览器 Cookie 与本地会话并强制使用当前配置重新登录\n"
-    "- 登录完成后核验网站显示邮箱与配置邮箱一致，不一致时停止签到并明确报错\n"
-    "- 避免 Docker 浏览器残留旧会话，将旧账号的已签到状态误报给新账号\n\n"
-    + __plugin__["changelog"]
-)
-
 
 LOGIN_URL = "https://gptgod.online/login"
 WELFARE_URL = "https://gptgod.online/token/welfare"
@@ -293,6 +272,39 @@ def _visible_checkin_state(page) -> str | None:
                 return "claim"
         except Exception:  # noqa: BLE001 - 尝试下一个按钮
             continue
+    # 新版页面顶部还会显示独立状态徽标；某些窄屏布局中操作按钮延迟挂载，
+    # 但徽标已经可见。只接受精确文字且实际可见的元素，避免再次误读隐藏模板。
+    for label in ("今天已签到", "今日已签到", "Already Checked In Today"):
+        try:
+            matches = page.get_by_text(label, exact=True)
+            for index in range(min(matches.count(), 20)):
+                if matches.nth(index).is_visible(timeout=300):
+                    return "already"
+        except Exception:  # noqa: BLE001 - 引擎不支持 get_by_text 时继续
+            continue
+    return None
+
+
+def _wait_for_checkin_state(page, timeout_ms: int = 45_000) -> str | None:
+    """等待 SPA 签到卡片稳定。Docker 首屏渲染慢时会自动滚动并重载一次。"""
+    deadline = time.monotonic() + timeout_ms / 1000
+    reloaded = False
+    while time.monotonic() < deadline:
+        state = _visible_checkin_state(page)
+        if state:
+            return state
+        try:
+            page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        except Exception:  # noqa: BLE001
+            pass
+        remaining = deadline - time.monotonic()
+        if not reloaded and remaining < timeout_ms / 2000:
+            try:
+                page.reload(wait_until="domcontentloaded")
+                reloaded = True
+            except Exception:  # noqa: BLE001 - 继续在当前页面等待
+                pass
+        page.wait_for_timeout(750)
     return None
 
 
@@ -311,7 +323,7 @@ def _finish_checkin(page, email: str) -> dict:
     if not _displayed_account_matches(page, email):
         raise RuntimeError("网站实际登录账号与插件当前配置邮箱不一致，已停止签到以防串号")
     account = _masked_email(email)
-    state = _visible_checkin_state(page)
+    state = _wait_for_checkin_state(page)
     if state == "already":
         return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取")
     if state != "claim":
@@ -333,8 +345,9 @@ def _finish_checkin(page, email: str) -> dict:
         pass
 
     page.goto(WELFARE_URL, wait_until="domcontentloaded")
+    result_state = _wait_for_checkin_state(page, timeout_ms=45_000)
     result_text = _page_text(page)
-    if _visible_checkin_state(page) == "already":
+    if result_state == "already":
         return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分")
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
@@ -344,14 +357,6 @@ def _finish_checkin(page, email: str) -> dict:
 
 def _browser_checkin(page, email: str, password: str, reuse_session: bool = False) -> dict:
     """同步浏览器动作；由 ctx.browser.run 在线程中执行。"""
-    welfare_selectors = (
-        'button:has-text("今天已签到")',
-        'button:has-text("今日已签到")',
-        'button:has-text("Already Checked In Today")',
-        'button:has-text("签到领取")',
-        'button:has-text("签到")',
-        'button:has-text("Check-in")',
-    )
     email_selectors = (
             "#email",
             'input[name="email"]',
@@ -362,8 +367,8 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
 
     if reuse_session:
         page.goto(WELFARE_URL, wait_until="domcontentloaded")
-        cached_button = _wait_for_any_visible(page, welfare_selectors, timeout_ms=15_000)
-        if cached_button is not None and _displayed_account_matches(page, email):
+        cached_state = _wait_for_checkin_state(page, timeout_ms=20_000)
+        if cached_state is not None and _displayed_account_matches(page, email):
             result = _finish_checkin(page, email)
             result["session_cookie"] = _session_cookie(page)
             return result
@@ -413,8 +418,8 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
             raise RuntimeError(marker)
 
     page.goto(WELFARE_URL, wait_until="domcontentloaded")
-    welfare_button = _wait_for_any_visible(page, welfare_selectors, timeout_ms=45_000)
-    if welfare_button is None:
+    welfare_state = _wait_for_checkin_state(page, timeout_ms=60_000)
+    if welfare_state is None:
         login_input = _wait_for_any_visible(page, email_selectors, timeout_ms=2_000)
         if login_input is not None or "/login" in _current_url(page):
             raise RuntimeError("登录状态未生效，请检查邮箱、密码或网站安全验证")
