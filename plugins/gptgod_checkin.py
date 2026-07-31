@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.0 支持多账号签到\n- 配置页改为账号列表，每个账号独立填写邮箱和密码\n- 多账号依次签到、独立复用 Cookie，单个失败不影响其他账号\n- 移除积分读取及当前积分状态，避免无效等待\n- 自动兼容旧版单账号配置和会话缓存\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -72,6 +72,7 @@ HISTORY_LIMIT = 30
 SESSION_KEY = "account_sessions"
 LEGACY_SESSION_KEY = "account_session"
 _run_lock: asyncio.Lock | None = None
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _bounded_int(value, default: int, low: int, high: int) -> int:
@@ -637,7 +638,14 @@ async def setup(ctx):
 
     @ctx.action("run_now")
     async def _run_now():
-        return await _run(ctx, "手动")
+        if not _configured_accounts(dict(ctx.config or {})):
+            return {"ok": False, "message": "请先添加至少一个 GPT-GOD 签到账号"}
+        if _run_lock and _run_lock.locked():
+            return {"ok": True, "message": "签到任务已在后台运行，请查看运行日志"}
+        task = asyncio.create_task(_run(ctx, "手动"))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        return {"ok": True, "message": "多账号签到已在后台开始，请查看运行日志"}
 
     if ctx.config.get("auto_checkin", True):
         hour = _bounded_int(ctx.config.get("checkin_hour"), 8, 0, 23)
@@ -660,4 +668,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    for task in list(_background_tasks):
+        if not task.done():
+            task.cancel()
+    _background_tasks.clear()
     ctx.log.info("GPT-GOD 自动签到插件已停用")
