@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.12 增加分步骤运行日志\n- 记录浏览器启动、缓存会话、前端缓存清理、登录提交、积分页加载、状态识别、签到点击和积分读取步骤\n- 失败日志附带当前步骤，且不会输出密码、Cookie 等敏感内容\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理 Cache Storage 与旧 Service Worker，并使用防缓存地址加载页面\n- 兼容非按钮签到控件并识别 ChunkLoadError\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.0.13 修复部分账号积分未显示\n- 兼容全角逗号、数字空格及 K/W/万 等积分格式\n- 兼容积分数字位于标签前后的页面布局\n- 增加积分读取开始、重载、成功和未匹配日志\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别、签到点击和积分读取步骤\n\nv1.0.11 修复 Docker 前端缓存失效\n- 清理 Cache Storage 与旧 Service Worker，并使用防缓存地址加载页面\n- 兼容非按钮签到控件并识别 ChunkLoadError\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -216,18 +216,23 @@ def _loading_error(page, area: str) -> RuntimeError:
 
 
 def _extract_points(text: str) -> str | None:
+    normalized = str(text or "").replace("，", ",").replace("\u00a0", " ")
     patterns = (
-        r"当前可用积分\s*[:：]?\s*([\d,]+(?:\.\d+)?)\s*(万)?",
-        r"(?:^|\s)积分\s*[:：]?\s*([\d,]+(?:\.\d+)?)\s*(万)?(?:\s|$)",
+        r"当前可用积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
+        r"(?:剩余|可用)?积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?(?:\s|$)",
+        r"当前可用积分[\s\S]{0,30}?([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*积分",
     )
     for pattern in patterns:
-        match = re.search(pattern, str(text or ""), re.MULTILINE)
+        match = re.search(pattern, normalized, re.MULTILINE)
         if not match:
             continue
-        raw_value = match.group(1).replace(",", "")
+        raw_value = re.sub(r"\s+", "", match.group(1).replace(",", ""))
         try:
-            if match.group(2):
+            unit = str(match.group(2) or "").casefold()
+            if unit in {"万", "w"}:
                 value = int(float(raw_value) * 10_000)
+            elif unit == "k":
+                value = int(float(raw_value) * 1_000)
             else:
                 value = int(float(raw_value))
         except (TypeError, ValueError):
@@ -236,28 +241,39 @@ def _extract_points(text: str) -> str | None:
     return None
 
 
-def _read_current_points(page, timeout_ms: int = 30_000) -> str | None:
+def _read_current_points(page, timeout_ms: int = 30_000, trace=None) -> str | None:
+    trace = trace or (lambda _message: None)
+    trace("开始读取当前积分")
     # 当前签到页已经包含精确的“当前可用积分”，先直接读取，避免 Docker
     # 环境跳转到积分规则页后 SPA 尚未渲染或页面结构不同而丢失积分。
     points = _extract_points(_page_text(page))
     if points:
+        trace(f"已读取当前积分：{points}")
         return points
+    trace("当前页面暂未匹配到积分，重新加载免费积分页")
     _goto_fresh(page, WELFARE_URL)
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
         points = _extract_points(_page_text(page))
         if points:
+            trace(f"重新加载后已读取当前积分：{points}")
             return points
         if "/login" in _current_url(page):
+            trace("读取积分时会话失效并返回登录页")
             return None
         page.wait_for_timeout(500)
+    page_text = _page_text(page)
+    trace(
+        "积分读取超时：页面%s积分标签，但未匹配到数值"
+        % ("包含" if "积分" in page_text else "不包含")
+    )
     return None
 
 
-def _checkin_result(page, status: str, message: str) -> dict:
+def _checkin_result(page, status: str, message: str, trace=None) -> dict:
     points = None
     try:
-        points = _read_current_points(page)
+        points = _read_current_points(page, trace=trace)
     except Exception:  # noqa: BLE001 - 积分读取失败不能改变签到结果
         pass
     if points:
@@ -409,7 +425,7 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
     trace(f"签到状态识别结果：{state or '未识别'}")
     if state == "already":
         trace("网站显示今天已签到，开始读取当前积分")
-        return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取")
+        return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取", trace)
     if state != "claim":
         raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
 
@@ -432,7 +448,7 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
     result_text = _page_text(page)
     if result_state == "already":
         trace("签到成功，开始读取当前积分")
-        return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分")
+        return _checkin_result(page, "success", f"账号 {account} 签到成功，已领取每日积分", trace)
     for marker in ("签到失败", "操作频繁", "请稍后", "验证失败", "网络异常"):
         if marker in result_text:
             raise RuntimeError(marker)
