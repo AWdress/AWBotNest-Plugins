@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "使用平台托管浏览器登录 GPT-GOD，每日自动领取签到积分，支持立即签到和结果通知。",
-    "changelog": "v1.0.10 修复 Docker 签到页加载识别\n- 等待单页应用完整渲染签到卡片，自动滚动并在长时间未出现时刷新一次\n- 同时识别签到按钮和页面顶部可见的‘今天已签到’状态，不读取隐藏模板\n- 点击后等待页面明确变为已签到，已使用平台托管浏览器完成真实签到测试\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.8 修复隐藏组件导致的已签到误判\n- 只读取当前可见签到控件，未签到必须实际点击并等待状态变化\n\nv1.0.7 按账号复用登录会话\n- 账号未变化时复用 Cookie，更换邮箱后自动使用干净会话\n\nv1.0.6 修复切换账号后串号\n- 登录后核验网站账号与配置邮箱一致，避免旧会话状态误报\n\nv1.0.5 修复网站受控登录表单\n- 模拟真人逐键输入并精确点击可见登录按钮\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.0.11 修复 Docker 前端缓存失效\n- 签到前清理 GPT-GOD 的 Cache Storage 与旧 Service Worker，避免旧页面引用已删除的 chunk 文件\n- 登录页和免费积分页增加防缓存参数，并在页面空壳时清缓存重新加载\n- 兼容非按钮形式的签到控件，同时明确识别 ChunkLoadError 页面\n\nv1.0.10 修复 Docker 签到页加载识别\n- 等待 SPA 完整渲染签到卡片并兼容顶部已签到状态\n\nv1.0.9 修复 Docker 环境积分未显示\n- 从免费积分页读取当前可用积分，读取失败时刷新重试\n\nv1.0.8 修复隐藏组件导致的已签到误判\n- 只读取当前可见签到控件，未签到必须实际点击并等待状态变化\n\nv1.0.7 按账号复用登录会话\n- 账号未变化时复用 Cookie，更换邮箱后自动使用干净会话\n\nv1.0.6 修复切换账号后串号\n- 登录后核验网站账号与配置邮箱一致，避免旧会话状态误报\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "user",
     "default_enabled": False,
@@ -172,8 +172,39 @@ def _current_url(page) -> str:
     return str(value() if callable(value) else value)
 
 
+def _clear_site_frontend_cache(page) -> None:
+    """清除持久 Docker 浏览器中的旧前端构建缓存，不触碰登录 Cookie。"""
+    try:
+        page.evaluate("""async () => {
+            if ('caches' in window) {
+                for (const key of await caches.keys()) await caches.delete(key);
+            }
+            if ('serviceWorker' in navigator) {
+                for (const reg of await navigator.serviceWorker.getRegistrations()) {
+                    await reg.unregister();
+                }
+            }
+        }""")
+    except Exception:  # noqa: BLE001 - 站点未启用相关能力时无需处理
+        pass
+
+
+def _fresh_url(url: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}_aw_checkin={int(time.time() * 1000)}"
+
+
+def _goto_fresh(page, url: str) -> None:
+    page.goto(_fresh_url(url), wait_until="domcontentloaded")
+
+
 def _loading_error(page, area: str) -> RuntimeError:
     text = _page_text(page)
+    if any(marker in text for marker in (
+        "Loading CSS chunk", "Loading chunk", "ChunkLoadError",
+        "Failed to fetch dynamically imported module", "Something went wrong",
+    )):
+        return RuntimeError(f"{area}前端资源加载失败，已清理缓存但 GPT-GOD 当前发布资源仍不可用")
     if any(marker in text for marker in (
         "Just a moment", "Checking your browser", "验证您是否是真人",
         "请完成安全验证", "Cloudflare",
@@ -211,7 +242,7 @@ def _read_current_points(page, timeout_ms: int = 30_000) -> str | None:
     points = _extract_points(_page_text(page))
     if points:
         return points
-    page.goto(WELFARE_URL, wait_until="domcontentloaded")
+    _goto_fresh(page, WELFARE_URL)
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
         points = _extract_points(_page_text(page))
@@ -282,7 +313,54 @@ def _visible_checkin_state(page) -> str | None:
                     return "already"
         except Exception:  # noqa: BLE001 - 引擎不支持 get_by_text 时继续
             continue
+    # 新版 Ant Design 页面可能把操作区渲染为带 role 的容器而非 button。
+    # body.inner_text 只返回实际渲染文字，可避开 display:none 的响应式模板。
+    try:
+        visible_text = "".join(_page_text(page).split()).lower()
+        if "今天已签到" in visible_text or "今日已签到" in visible_text:
+            return "already"
+        if (
+            "签到领取" in visible_text
+            or "每日签到" in visible_text and "签到" in visible_text
+            or "check-in" in visible_text and "already" not in visible_text
+        ):
+            return "claim"
+    except Exception:  # noqa: BLE001
+        pass
     return None
+
+
+def _click_checkin(page) -> bool:
+    if _click_first_visible(page, (
+        'button:has-text("签到领取")',
+        'button:has-text("签到")',
+        '[role="button"]:has-text("签到领取")',
+        '[role="button"]:has-text("签到")',
+        'button:has-text("Check-in")',
+        '[role="button"]:has-text("Check-in")',
+    ), require_enabled=True):
+        return True
+    # 末级兼容：只点击可见、可交互且文字明确为签到的元素。
+    try:
+        return bool(page.evaluate("""() => {
+            const nodes = [...document.querySelectorAll('button,[role="button"],a,.ant-btn')];
+            const target = nodes.find((node) => {
+                const text = (node.innerText || '').replace(/\\s+/g, '').toLowerCase();
+                const style = getComputedStyle(node);
+                const visible = style.display !== 'none' && style.visibility !== 'hidden'
+                    && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
+                const enabled = !node.disabled && node.getAttribute('aria-disabled') !== 'true';
+                return visible && enabled && (
+                    text === '签到' || text.startsWith('签到领取')
+                    || text === 'check-in' || text === 'checkin'
+                );
+            });
+            if (!target) return false;
+            target.click();
+            return true;
+        }"""))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _wait_for_checkin_state(page, timeout_ms: int = 45_000) -> str | None:
@@ -300,7 +378,8 @@ def _wait_for_checkin_state(page, timeout_ms: int = 45_000) -> str | None:
         remaining = deadline - time.monotonic()
         if not reloaded and remaining < timeout_ms / 2000:
             try:
-                page.reload(wait_until="domcontentloaded")
+                _clear_site_frontend_cache(page)
+                _goto_fresh(page, WELFARE_URL)
                 reloaded = True
             except Exception:  # noqa: BLE001 - 继续在当前页面等待
                 pass
@@ -329,11 +408,7 @@ def _finish_checkin(page, email: str) -> dict:
     if state != "claim":
         raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
 
-    if not _click_first_visible(page, (
-        'button:has-text("签到领取")',
-        'button:has-text("签到")',
-        'button:has-text("Check-in")',
-    )):
+    if not _click_checkin(page):
         raise RuntimeError("未找到签到按钮，网站页面可能已更新")
 
     try:
@@ -344,7 +419,7 @@ def _finish_checkin(page, email: str) -> dict:
     except Exception:  # noqa: BLE001 - 重新载入积分页进行最终核验
         pass
 
-    page.goto(WELFARE_URL, wait_until="domcontentloaded")
+    _goto_fresh(page, WELFARE_URL)
     result_state = _wait_for_checkin_state(page, timeout_ms=45_000)
     result_text = _page_text(page)
     if result_state == "already":
@@ -366,7 +441,8 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
     )
 
     if reuse_session:
-        page.goto(WELFARE_URL, wait_until="domcontentloaded")
+        _clear_site_frontend_cache(page)
+        _goto_fresh(page, WELFARE_URL)
         cached_state = _wait_for_checkin_state(page, timeout_ms=20_000)
         if cached_state is not None and _displayed_account_matches(page, email):
             result = _finish_checkin(page, email)
@@ -379,10 +455,11 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
         page.context.clear_cookies()
     except Exception:  # noqa: BLE001 - 部分浏览器内核可能不暴露该方法
         pass
-    page.goto(LOGIN_URL, wait_until="domcontentloaded")
+    _goto_fresh(page, LOGIN_URL)
     try:
         page.evaluate("() => { localStorage.clear(); sessionStorage.clear(); }")
-        page.reload(wait_until="domcontentloaded")
+        _clear_site_frontend_cache(page)
+        _goto_fresh(page, LOGIN_URL)
     except Exception:  # noqa: BLE001 - 页面未使用本地存储时不影响登录
         pass
 
@@ -417,7 +494,8 @@ def _browser_checkin(page, email: str, password: str, reuse_session: bool = Fals
         if marker in login_text:
             raise RuntimeError(marker)
 
-    page.goto(WELFARE_URL, wait_until="domcontentloaded")
+    _clear_site_frontend_cache(page)
+    _goto_fresh(page, WELFARE_URL)
     welfare_state = _wait_for_checkin_state(page, timeout_ms=60_000)
     if welfare_state is None:
         login_input = _wait_for_any_visible(page, email_selectors, timeout_ms=2_000)
@@ -458,7 +536,7 @@ async def _run(ctx, source: str) -> dict:
                     lambda page: _browser_checkin(page, email, password, bool(cached_cookie)),
                     cookies=cached_cookie or None,
                     headless=True,
-                    timeout=180,
+                    timeout=240,
                 )
                 session_cookie = str((browser_result or {}).get("session_cookie") or "")
                 if session_cookie:
