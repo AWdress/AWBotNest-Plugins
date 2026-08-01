@@ -1,0 +1,973 @@
+# =============================================================================
+# AWBotNest 插件：Emby 工具箱（emby_toolbox）
+#
+# 集成 Emby 实用维护功能：
+# 1. 剧集季集校验 / 按文件名修复
+# 2. 删除单集 Genre
+# 3. Genre 映射 / 删除
+# 4. 季名刮削（TMDB）
+# 5. 国家 / 语言转 Tag（TMDB）
+# 6. 别名写入 SortName（TMDB）
+# 7. STRM MediaInfo 刷新
+# 8. 元数据缺失检查
+#
+# 说明：
+# - 每个功能都有独立开关。
+# - 每个功能也有独立 action 按钮。
+# - 所有 Emby 写操作默认可选锁定数据，尽量减少后续被刮削覆盖。
+# =============================================================================
+
+import json
+import os
+import re
+import time
+from typing import Any
+
+import requests
+
+__plugin__ = {
+    "name": "Emby 工具箱",
+    "id": "emby_toolbox",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
+    "changelog": "v1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "scope": "user",
+    "default_enabled": False,
+    "requirements": ["requests>=2.28"],
+    "config_schema": {
+        "enabled": {
+            "type": "boolean", "default": True, "label": "启用插件",
+            "section": "功能开关", "cols": 3, "order": 1,
+        },
+        "auto_delete_command": {
+            "type": "boolean", "default": True, "label": "自动删除命令消息",
+            "section": "功能开关", "cols": 3, "order": 2,
+        },
+
+        "enable_episode_fix": {
+            "type": "boolean", "default": True, "label": "启用剧集季集校验/修复",
+            "section": "功能开关", "cols": 4, "order": 10,
+        },
+        "enable_delete_episode_genre": {
+            "type": "boolean", "default": False, "label": "启用删除单集 Genre",
+            "section": "功能开关", "cols": 4, "order": 11,
+        },
+        "enable_genre_mapper": {
+            "type": "boolean", "default": False, "label": "启用 Genre 映射",
+            "section": "功能开关", "cols": 4, "order": 12,
+        },
+        "enable_season_renamer": {
+            "type": "boolean", "default": False, "label": "启用季名刮削",
+            "section": "功能开关", "cols": 4, "order": 13,
+        },
+        "enable_country_scraper": {
+            "type": "boolean", "default": False, "label": "启用国家/语言 Tag",
+            "section": "功能开关", "cols": 4, "order": 14,
+        },
+        "enable_alt_renamer": {
+            "type": "boolean", "default": False, "label": "启用别名写入 SortName",
+            "section": "功能开关", "cols": 4, "order": 15,
+        },
+        "enable_strm_mediainfo": {
+            "type": "boolean", "default": False, "label": "启用 STRM MediaInfo 刷新",
+            "section": "功能开关", "cols": 4, "order": 16,
+        },
+        "enable_damaged_check": {
+            "type": "boolean", "default": False, "label": "启用元数据缺失检查",
+            "section": "功能开关", "cols": 4, "order": 17,
+        },
+
+        "emby_server": {
+            "type": "string", "default": "", "label": "Emby 地址",
+            "section": "基础配置", "order": 20,
+            "help": "例如：https://v.awdys.cn/",
+            "required": True,
+        },
+        "api_key": {
+            "type": "password", "default": "", "label": "Emby API Key",
+            "section": "基础配置", "order": 21,
+            "required": True,
+        },
+        "user_id": {
+            "type": "string", "default": "", "label": "Emby 用户 ID（可选）",
+            "section": "基础配置", "order": 22,
+            "help": "留空时自动取第一个用户。",
+        },
+        "tmdb_key": {
+            "type": "password", "default": "", "label": "TMDB API Key（季名/国家/别名功能用）",
+            "section": "基础配置", "order": 23,
+            "show_if": {"enable_season_renamer": True},
+        },
+        "library_names": {
+            "type": "text", "default": "", "label": "媒体库名称列表",
+            "section": "基础配置", "order": 24,
+            "help": "一行一个，或逗号分隔。用于 Genre/季名/Tag/别名/STRM/缺失检查。",
+        },
+
+        "fix_lock_data": {
+            "type": "boolean", "default": True, "label": "修复后锁定条目数据",
+            "section": "修复策略", "cols": 4, "order": 30,
+        },
+        "max_output": {
+            "type": "slider", "default": 50, "label": "输出条目上限",
+            "min": 5, "max": 200, "step": 5,
+            "section": "修复策略", "order": 31,
+        },
+        "genre_mapping_json": {
+            "type": "text", "default": '{\n  "Sci-Fi & Fantasy": "科幻",\n  "War & Politics": "战争"\n}',
+            "label": "Genre 映射 JSON",
+            "section": "修复策略", "order": 32,
+            "show_if": {"enable_genre_mapper": True},
+            "help": "格式：旧 Genre -> 新 Genre 名称。",
+        },
+        "genre_remove_list": {
+            "type": "text", "default": "", "label": "要删除的 Genre（每行一个）",
+            "section": "修复策略", "order": 33,
+            "show_if": {"enable_genre_mapper": True},
+        },
+        "add_hant_title": {
+            "type": "boolean", "default": True, "label": "别名写入时包含繁中标题",
+            "section": "修复策略", "cols": 4, "order": 34,
+            "show_if": {"enable_alt_renamer": True},
+        },
+        "strm_delay": {
+            "type": "slider", "default": 3, "label": "STRM 刷新间隔秒数",
+            "min": 0, "max": 30, "step": 1,
+            "section": "修复策略", "order": 35,
+            "show_if": {"enable_strm_mediainfo": True},
+        },
+
+        "test_connection": {
+            "type": "action", "label": "测试连接", "action": "test_connection",
+            "section": "操作", "order": 40,
+        },
+        "scan_episode_mismatch": {
+            "type": "action", "label": "扫描剧集季集不匹配", "action": "scan_episode_mismatch",
+            "section": "操作", "order": 41,
+            "show_if": {"enable_episode_fix": True},
+        },
+        "fix_episode_mismatch": {
+            "type": "action", "label": "按文件名修复剧集季集", "action": "fix_episode_mismatch",
+            "section": "操作", "order": 42,
+            "danger": True,
+            "show_if": {"enable_episode_fix": True},
+        },
+        "run_delete_episode_genre": {
+            "type": "action", "label": "删除所有单集 Genre", "action": "run_delete_episode_genre",
+            "section": "操作", "order": 43,
+            "danger": True,
+            "show_if": {"enable_delete_episode_genre": True},
+        },
+        "run_genre_mapper": {
+            "type": "action", "label": "执行 Genre 映射", "action": "run_genre_mapper",
+            "section": "操作", "order": 44,
+            "danger": True,
+            "show_if": {"enable_genre_mapper": True},
+        },
+        "run_season_renamer": {
+            "type": "action", "label": "执行季名刮削", "action": "run_season_renamer",
+            "section": "操作", "order": 45,
+            "show_if": {"enable_season_renamer": True},
+        },
+        "run_country_scraper": {
+            "type": "action", "label": "执行国家/语言 Tag", "action": "run_country_scraper",
+            "section": "操作", "order": 46,
+            "show_if": {"enable_country_scraper": True},
+        },
+        "run_alt_renamer": {
+            "type": "action", "label": "执行别名写入", "action": "run_alt_renamer",
+            "section": "操作", "order": 47,
+            "show_if": {"enable_alt_renamer": True},
+        },
+        "run_strm_mediainfo": {
+            "type": "action", "label": "执行 STRM MediaInfo 刷新", "action": "run_strm_mediainfo",
+            "section": "操作", "order": 48,
+            "show_if": {"enable_strm_mediainfo": True},
+        },
+        "run_damaged_check": {
+            "type": "action", "label": "执行元数据缺失检查", "action": "run_damaged_check",
+            "section": "操作", "order": 49,
+            "show_if": {"enable_damaged_check": True},
+        },
+        "last_summary": {
+            "type": "info", "label": "最近执行结果", "text": "尚未执行", "section": "状态", "order": 50,
+        },
+    },
+}
+
+EP_REGEX = re.compile(r"[Ss](\d{1,2})[\._\- ]?[Ee](\d+)")
+EP_FIELDS = "Path,ProviderIds,ParentIndexNumber,IndexNumber,SeriesName,Name,SeasonName"
+NON_TARGET_LANG_REGEX = re.compile(r'[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF\u0E00-\u0E7F\u0590-\u05FF]')
+INVALID_ALT_CHARS = ['ā', 'á', 'ǎ', 'à', 'ē', 'é', 'ě', 'è', 'ī', 'í', 'ǐ', 'ì', 'ō', 'ó', 'ǒ', 'ò', 'ū', 'ú', 'ǔ', 'ù', 'ǖ', 'ǘ', 'ǚ', 'ǜ', 'デ', 'ô', 'â', 'Ś', 'ü', 'É']
+COUNTRY_DICT = {
+    'KR': '韩国', 'CN': '中国', 'HK': '香港', 'TW': '台湾',
+    'JP': '日本', 'US': '美国', 'GB': '英国', 'FR': '法国',
+    'DE': '德国', 'IN': '印度', 'RU': '俄罗斯', 'CA': '加拿大',
+}
+LANGUAGE_DICT = {
+    'cn': '粤语', 'zh': '国语', 'ja': '日语', 'en': '英语',
+    'ko': '韩语', 'fr': '法语', 'de': '德语', 'ru': '俄语', 'es': '西班牙语',
+}
+DEFAULT_COUNTRY = '其他国家'
+DEFAULT_LANGUAGE = '其他语种'
+
+
+def _cfg(ctx):
+    c = ctx.config
+    return {
+        'enabled': bool(c.get('enabled', True)),
+        'auto_delete_command': bool(c.get('auto_delete_command', True)),
+        'emby_server': str(c.get('emby_server', '') or '').strip(),
+        'api_key': str(c.get('api_key', '') or '').strip(),
+        'user_id': str(c.get('user_id', '') or '').strip(),
+        'tmdb_key': str(c.get('tmdb_key', '') or '').strip(),
+        'library_names': str(c.get('library_names', '') or ''),
+        'fix_lock_data': bool(c.get('fix_lock_data', True)),
+        'max_output': int(c.get('max_output', 50) or 50),
+        'genre_mapping_json': str(c.get('genre_mapping_json', '') or ''),
+        'genre_remove_list': str(c.get('genre_remove_list', '') or ''),
+        'add_hant_title': bool(c.get('add_hant_title', True)),
+        'strm_delay': int(c.get('strm_delay', 3) or 3),
+        'enable_episode_fix': bool(c.get('enable_episode_fix', True)),
+        'enable_delete_episode_genre': bool(c.get('enable_delete_episode_genre', False)),
+        'enable_genre_mapper': bool(c.get('enable_genre_mapper', False)),
+        'enable_season_renamer': bool(c.get('enable_season_renamer', False)),
+        'enable_country_scraper': bool(c.get('enable_country_scraper', False)),
+        'enable_alt_renamer': bool(c.get('enable_alt_renamer', False)),
+        'enable_strm_mediainfo': bool(c.get('enable_strm_mediainfo', False)),
+        'enable_damaged_check': bool(c.get('enable_damaged_check', False)),
+    }
+
+
+def _base_url(server: str) -> str:
+    return server.rstrip('/')
+
+
+def _headers(api_key: str) -> dict[str, str]:
+    return {'X-Emby-Token': api_key, 'Accept': 'application/json'}
+
+
+def _post_headers(api_key: str) -> dict[str, str]:
+    return {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
+
+
+def _validate_basic(cfg: dict[str, Any], need_tmdb: bool = False) -> tuple[bool, str]:
+    if not cfg['emby_server']:
+        return False, '未配置 Emby 地址'
+    if not cfg['api_key']:
+        return False, '未配置 Emby API Key'
+    if need_tmdb and not cfg['tmdb_key']:
+        return False, '该功能需要 TMDB API Key'
+    return True, 'ok'
+
+
+def _parse_libs(raw: str) -> list[str]:
+    libs = []
+    for part in str(raw or '').replace('\n', ',').split(','):
+        part = part.strip()
+        if part:
+            libs.append(part)
+    return libs
+
+
+def _parse_genre_mapping(raw: str) -> dict[str, dict[str, Any]]:
+    if not raw.strip():
+        return {}
+    obj = json.loads(raw)
+    out = {}
+    for k, v in obj.items():
+        if isinstance(v, dict):
+            out[str(k).strip()] = v
+        else:
+            out[str(k).strip()] = {'Name': str(v).strip()}
+    return out
+
+
+def _parse_remove_list(raw: str) -> list[str]:
+    return [x.strip() for x in str(raw or '').splitlines() if x.strip()]
+
+
+def _get_first_user_id(cfg: dict[str, Any]) -> str:
+    url = f"{_base_url(cfg['emby_server'])}/emby/Users"
+    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    if isinstance(data, list) and data:
+        uid = data[0].get('Id')
+        if uid:
+            return str(uid)
+    raise RuntimeError('无法自动获取 Emby 用户 ID')
+
+
+def _resolve_user_id(cfg: dict[str, Any]) -> str:
+    return cfg['user_id'] or _get_first_user_id(cfg)
+
+
+def _get_user_item(cfg: dict[str, Any], user_id: str, item_id: str) -> dict[str, Any]:
+    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Items/{item_id}"
+    r = requests.get(url, headers=_headers(cfg['api_key']), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
+def _update_item(cfg: dict[str, Any], item: dict[str, Any]) -> None:
+    item_id = str(item['Id'])
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}?api_key={cfg['api_key']}"
+    r = requests.post(url, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+    r.raise_for_status()
+
+
+def _refresh_item(cfg: dict[str, Any], item_id: str) -> None:
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}/Refresh"
+    params = {
+        'api_key': cfg['api_key'],
+        'Recursive': 'false',
+        'MetadataRefreshMode': 'FullRefresh',
+        'ImageRefreshMode': 'Default',
+        'ReplaceAllMetadata': 'false',
+        'ReplaceAllImages': 'false',
+    }
+    r = requests.post(url, params=params, timeout=30)
+    r.raise_for_status()
+
+
+def _get_libraries(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    user_id = _resolve_user_id(cfg)
+    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Views"
+    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+    r.raise_for_status()
+    return r.json().get('Items', [])
+
+
+def _get_library_id(cfg: dict[str, Any], lib_name: str) -> str | None:
+    for item in _get_libraries(cfg):
+        if item.get('Name') == lib_name:
+            return str(item.get('Id'))
+    return None
+
+
+def _get_lib_items(cfg: dict[str, Any], parent_id: str) -> list[dict[str, Any]]:
+    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{_resolve_user_id(cfg)}/Items"
+    params = {
+        'api_key': cfg['api_key'],
+        'ParentId': parent_id,
+        'Recursive': 'false',
+        'Fields': 'ProviderIds,Name,Type',
+        'SortBy': 'SortName',
+        'SortOrder': 'Ascending',
+    }
+    r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
+    r.raise_for_status()
+    return r.json().get('Items', [])
+
+
+def _tmdb_fetch(cfg: dict[str, Any], tmdb_id: str, is_movie: bool) -> dict[str, Any] | None:
+    media_type = 'movie' if is_movie else 'tv'
+    url = f'https://api.themoviedb.org/3/{media_type}/{tmdb_id}'
+    params = {
+        'api_key': cfg['tmdb_key'],
+        'language': 'zh-CN',
+        'append_to_response': 'alternative_titles',
+    }
+    r = requests.get(url, params=params, timeout=30)
+    if r.status_code != 200:
+        return None
+    data = r.json()
+    # 再取繁中备选
+    if not is_movie:
+        try:
+            r2 = requests.get(url, params={'api_key': cfg['tmdb_key'], 'language': 'zh-TW'}, timeout=30)
+            if r2.status_code == 200:
+                d2 = r2.json()
+                name = (d2.get('name') or '').strip()
+                if name and name != data.get('name'):
+                    data['hant_trans'] = [name]
+        except Exception:
+            pass
+    return data
+
+
+def _invalid_alt_name(name: str) -> bool:
+    if not name:
+        return True
+    if any(ch in name for ch in INVALID_ALT_CHARS):
+        return True
+    if NON_TARGET_LANG_REGEX.search(name):
+        return True
+    return False
+
+
+def _set_last_summary(ctx, summary: str):
+    try:
+        ctx.update_config({'last_summary': summary})
+    except Exception:
+        pass
+
+
+def _episode_collect(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+    params = {
+        'api_key': cfg['api_key'],
+        'Recursive': 'true',
+        'IncludeItemTypes': 'Episode',
+        'Fields': EP_FIELDS,
+    }
+    r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=120)
+    r.raise_for_status()
+    items = r.json().get('Items', [])
+    checked = 0
+    mismatches = []
+    for item in items:
+        path = item.get('Path') or ''
+        if not path:
+            continue
+        m = EP_REGEX.search(os.path.basename(path))
+        if not m:
+            continue
+        checked += 1
+        fs, fe = int(m.group(1)), int(m.group(2))
+        es, ee = item.get('ParentIndexNumber'), item.get('IndexNumber')
+        if es != fs or ee != fe:
+            mismatches.append({
+                'id': item.get('Id'),
+                'series': item.get('SeriesName') or item.get('Name') or '未知剧集',
+                'name': item.get('Name') or '',
+                'path': path,
+                'file_season': fs,
+                'file_episode': fe,
+                'emby_season': es,
+                'emby_episode': ee,
+            })
+    return mismatches, checked
+
+
+def _episode_summary(mismatches: list[dict[str, Any]], checked: int, max_output: int) -> str:
+    lines = [f'共检查到 {checked} 个带 SxxExx 标记的文件。', f'发现不匹配 {len(mismatches)} 个。']
+    if not mismatches:
+        lines.append('🎉 所有带 SxxExx 标记的文件与 Emby 识别完全一致！')
+        return '\n'.join(lines)
+    lines.append('')
+    lines.append('前几条不匹配如下：')
+    for row in mismatches[:max_output]:
+        lines.append(f"- {row['series']}｜文件名 S{row['file_season']:02d}E{row['file_episode']}｜Emby S{row['emby_season']}E{row['emby_episode']}")
+    if len(mismatches) > max_output:
+        lines.append(f'……其余 {len(mismatches)-max_output} 条请看日志')
+    return '\n'.join(lines)
+
+
+def _episode_fix(cfg: dict[str, Any]) -> str:
+    user_id = _resolve_user_id(cfg)
+    mismatches, checked = _episode_collect(cfg)
+    if not mismatches:
+        return f'共检查到 {checked} 个带 SxxExx 标记的文件，当前没有不匹配项。'
+    ok_count = 0
+    fail_count = 0
+    for row in mismatches:
+        try:
+            item = _get_user_item(cfg, user_id, str(row['id']))
+            item['ParentIndexNumber'] = row['file_season']
+            item['IndexNumber'] = row['file_episode']
+            if cfg['fix_lock_data']:
+                item['LockData'] = True
+            _update_item(cfg, item)
+            verify = _get_user_item(cfg, user_id, str(row['id']))
+            if verify.get('ParentIndexNumber') == row['file_season'] and verify.get('IndexNumber') == row['file_episode']:
+                ok_count += 1
+            else:
+                fail_count += 1
+        except Exception:
+            fail_count += 1
+    return f'扫描到 {len(mismatches)} 条不匹配，已尝试按文件名修复。成功 {ok_count} 条，失败 {fail_count} 条。'
+
+
+def _delete_episode_genre(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    count = 0
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        series_list = _get_lib_items(cfg, parent_id)
+        for serie in series_list:
+            serie_id = serie['Id']
+            url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+            params = {'ParentId': serie_id}
+            seasons = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60).json().get('Items', [])
+            for season in seasons:
+                season_id = season.get('Id')
+                eps = requests.get(url, headers=_headers(cfg['api_key']), params={
+                    'ParentId': season_id, 'Fields': 'Genres,Overview', 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
+                }, timeout=60).json().get('Items', [])
+                for ep in eps:
+                    item = _get_user_item(cfg, _resolve_user_id(cfg), str(ep['Id']))
+                    if item.get('Genres'):
+                        item['Genres'] = []
+                        item['GenreItems'] = []
+                        if cfg['fix_lock_data']:
+                            item['LockData'] = True
+                        _update_item(cfg, item)
+                        count += 1
+    return f'单集 Genre 清理完成，共更新 {count} 条。'
+
+
+def _genre_mapper(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    mapping = _parse_genre_mapping(cfg['genre_mapping_json'])
+    remove_list = _parse_remove_list(cfg['genre_remove_list'])
+    count = 0
+    user_id = _resolve_user_id(cfg)
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        items = _get_lib_items(cfg, parent_id)
+        for item0 in items:
+            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            raw_genres = item.get('Genres', [])
+            genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
+            genre_items = item.get('GenreItems', [])
+            need = any(g in mapping or g in remove_list for g in genres) or any((g.get('Name') or '').strip() in mapping for g in genre_items)
+            if not need:
+                continue
+            new_genres = [mapping[g]['Name'] if g in mapping else g for g in genres]
+            new_genres = [g for g in new_genres if g not in remove_list and g != '']
+            if new_genres == genres:
+                continue
+            item['Genres'] = new_genres
+            new_genre_items = []
+            for gi in genre_items:
+                gname = (gi.get('Name') or '').strip()
+                if gname in mapping:
+                    new_genre_items.append(mapping[gname])
+                elif gname not in remove_list and gname != '':
+                    new_genre_items.append(gi)
+            item['GenreItems'] = new_genre_items
+            if cfg['fix_lock_data']:
+                item['LockData'] = True
+            _update_item(cfg, item)
+            count += 1
+    return f'Genre 映射完成，共更新 {count} 条。'
+
+
+def _season_renamer(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    user_id = _resolve_user_id(cfg)
+    count = 0
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        series_list = _get_lib_items(cfg, parent_id)
+        for serie in series_list:
+            if serie.get('Type') == 'Movie':
+                continue
+            provider = (serie.get('ProviderIds') or {}).get('Tmdb')
+            if not provider:
+                continue
+            tmdb = _tmdb_fetch(cfg, str(provider), is_movie=False)
+            if not tmdb or 'seasons' not in tmdb:
+                continue
+            url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+            seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': serie['Id'], 'fields': 'Name,IndexNumber,LockedFields'}, timeout=60).json().get('Items', [])
+            for season in seasons:
+                idx = season.get('IndexNumber')
+                if idx is None:
+                    continue
+                tmdb_season = next((s for s in tmdb.get('seasons', []) if s.get('season_number') == idx), None)
+                if not tmdb_season:
+                    continue
+                new_name = (tmdb_season.get('name') or '').strip()
+                if not new_name or new_name == (season.get('Name') or '').strip():
+                    continue
+                full = _get_user_item(cfg, user_id, str(season['Id']))
+                full['Name'] = new_name
+                lf = full.get('LockedFields') or []
+                if 'Name' not in lf:
+                    lf.append('Name')
+                full['LockedFields'] = lf
+                if cfg['fix_lock_data']:
+                    full['LockData'] = True
+                _update_item(cfg, full)
+                count += 1
+    return f'季名刮削完成，共更新 {count} 条。'
+
+
+def _country_scraper(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    user_id = _resolve_user_id(cfg)
+    count = 0
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        items = _get_lib_items(cfg, parent_id)
+        for item0 in items:
+            provider = (item0.get('ProviderIds') or {}).get('Tmdb')
+            if not provider:
+                continue
+            is_movie = item0.get('Type') == 'Movie'
+            tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
+            if not tmdb:
+                continue
+            prod = tmdb.get('production_countries', []) or []
+            langs = tmdb.get('spoken_languages', []) or []
+            if not prod and not langs:
+                continue
+            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            old_tags = [t['Name'].strip() for t in item.get('TagItems', []) if isinstance(t, dict) and t.get('Name') and t.get('Name').strip()]
+            if not old_tags and item.get('Tags'):
+                old_tags = [t.strip() for t in item.get('Tags') if isinstance(t, str) and t.strip()]
+            existing = {t.lower() for t in old_tags}
+            new_tags = list(old_tags)
+            changed = False
+            countries = []
+            for c in prod:
+                tag = COUNTRY_DICT.get(c.get('iso_3166_1'), DEFAULT_COUNTRY)
+                if tag not in countries:
+                    countries.append(tag)
+            for c in countries:
+                if c.lower() not in existing and (c != DEFAULT_COUNTRY or len(countries) <= 2):
+                    new_tags.append(c)
+                    existing.add(c.lower())
+                    changed = True
+            langs_out = []
+            for l in langs:
+                tag = LANGUAGE_DICT.get(l.get('iso_639_1'), DEFAULT_LANGUAGE)
+                if tag not in langs_out:
+                    langs_out.append(tag)
+            for l in langs_out:
+                if l.lower() not in existing and (l != DEFAULT_LANGUAGE or len(langs_out) <= 2):
+                    new_tags.append(l)
+                    existing.add(l.lower())
+                    changed = True
+            if not changed:
+                continue
+            item['Tags'] = new_tags
+            item['TagItems'] = [{'Name': t} for t in new_tags]
+            lf = item.get('LockedFields') or []
+            if 'Tags' not in lf:
+                lf.append('Tags')
+            item['LockedFields'] = lf
+            if cfg['fix_lock_data']:
+                item['LockData'] = True
+            _update_item(cfg, item)
+            count += 1
+    return f'国家/语言 Tag 更新完成，共更新 {count} 条。'
+
+
+def _alt_renamer(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    user_id = _resolve_user_id(cfg)
+    count = 0
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        items = _get_lib_items(cfg, parent_id)
+        for item0 in items:
+            provider = (item0.get('ProviderIds') or {}).get('Tmdb')
+            if not provider:
+                continue
+            is_movie = item0.get('Type') == 'Movie'
+            tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
+            if not tmdb:
+                continue
+            titles = tmdb.get('alternative_titles', {})
+            raw_alt = titles.get('titles' if is_movie else 'results', []) or []
+            alt_names = [x.get('title') for x in raw_alt if x.get('iso_3166_1') == 'CN' and x.get('title')]
+            if cfg['add_hant_title'] and tmdb.get('hant_trans'):
+                alt_names.extend(tmdb['hant_trans'])
+            if not alt_names:
+                continue
+            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            splitr = ' / '
+            old_sort = item.get('SortName', '') or ''
+            old_names = [n.strip() for n in old_sort.split(splitr) if n and n.strip()] if old_sort else []
+            if not old_names and item.get('Name'):
+                old_names = [str(item.get('Name')).strip()]
+            existing = set(old_names)
+            res = list(old_names)
+            changed = False
+            clean_alt = []
+            for raw in alt_names:
+                if raw:
+                    clean_alt.extend([p.strip() for p in raw.replace('/', ' / ').split('/') if p and p.strip()])
+            for name in clean_alt:
+                if name and name not in existing and not _invalid_alt_name(name):
+                    res.append(name)
+                    existing.add(name)
+                    changed = True
+            sort_all = splitr.join(res)
+            if not changed or sort_all == old_sort:
+                continue
+            item['SortName'] = sort_all
+            item['ForcedSortName'] = sort_all
+            lf = item.get('LockedFields') or []
+            if 'SortName' not in lf:
+                lf.append('SortName')
+            item['LockedFields'] = lf
+            if cfg['fix_lock_data']:
+                item['LockData'] = True
+            _update_item(cfg, item)
+            count += 1
+    return f'别名写入完成，共更新 {count} 条。'
+
+
+def _strm_mediainfo(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    user_id = _resolve_user_id(cfg)
+    count = 0
+    delay = cfg['strm_delay']
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        items = _get_lib_items(cfg, parent_id)
+        for item0 in items:
+            item_type = item0.get('Type')
+            targets = []
+            if item_type == 'Movie':
+                targets = [item0['Id']]
+            elif item_type == 'Series':
+                url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+                seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': item0['Id']}, timeout=60).json().get('Items', [])
+                for season in seasons:
+                    eps = requests.get(url, headers=_headers(cfg['api_key']), params={
+                        'ParentId': season.get('Id'), 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
+                    }, timeout=60).json().get('Items', [])
+                    targets.extend([ep['Id'] for ep in eps])
+            for item_id in targets:
+                item = _get_user_item(cfg, user_id, str(item_id))
+                if item.get('LocationType') == 'Virtual':
+                    continue
+                media_streams = item.get('MediaStreams') or []
+                if len(media_streams) != 0:
+                    continue
+                url = f"{_base_url(cfg['emby_server'])}/Items/{item_id}/PlaybackInfo?AutoOpenLiveStream=true&IsPlayback=true&api_key={cfg['api_key']}&UserId={user_id}"
+                r = requests.post(url, headers=_headers(cfg['api_key']), timeout=60)
+                if r.status_code == 200:
+                    count += 1
+                time.sleep(delay)
+    return f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
+
+
+def _damaged_check(cfg: dict[str, Any]) -> str:
+    libs = _parse_libs(cfg['library_names'])
+    if not libs:
+        raise RuntimeError('未配置媒体库名称列表')
+    user_id = _resolve_user_id(cfg)
+    damaged = []
+    total = 0
+    for lib in libs:
+        parent_id = _get_library_id(cfg, lib)
+        if not parent_id:
+            continue
+        items = _get_lib_items(cfg, parent_id)
+        for item0 in items:
+            total += 1
+            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            has_overview = bool(item.get('Overview'))
+            has_year = bool(item.get('ProductionYear'))
+            has_premiere = bool(item.get('PremiereDate'))
+            if not has_overview and not has_year and not has_premiere:
+                damaged.append({'lib': lib, 'id': item0['Id'], 'name': item0.get('Name', '未知名称'), 'type': item.get('Type', 'Unknown')})
+    lines = [f'总计扫描条目: {total} 个', f'受影响/缺少关键元数据条目: {len(damaged)} 个']
+    if damaged:
+        lines.append('前几条如下：')
+        for row in damaged[:cfg['max_output']]:
+            lines.append(f"- [{row['lib']}] 《{row['name']}》 | ItemId: {row['id']} | 类型: {row['type']}")
+    else:
+        lines.append('🎉 未检测到元数据缺失条目')
+    return '\n'.join(lines)
+
+
+def _auto_delete(ctx, message):
+    if not ctx.config.get('auto_delete_command', True):
+        return
+    async def _run():
+        try:
+            await message.delete()
+        except Exception:
+            pass
+    import asyncio
+    asyncio.create_task(_run())
+
+
+async def setup(ctx):
+    @ctx.action('test_connection')
+    async def action_test_connection():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            user_id = _resolve_user_id(cfg)
+            r = requests.get(f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}", headers=_headers(cfg['api_key']), params={'api_key': cfg['api_key']}, timeout=30)
+            r.raise_for_status()
+            summary = f'连接成功，用户 ID：{user_id}'
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'连接失败：{e}'}
+
+    @ctx.action('scan_episode_mismatch')
+    async def action_scan_episode_mismatch():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            mismatches, checked = _episode_collect(cfg)
+            summary = _episode_summary(mismatches, checked, cfg['max_output'])
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'扫描失败：{e}'}
+
+    @ctx.action('fix_episode_mismatch')
+    async def action_fix_episode_mismatch():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _episode_fix(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'自动修复失败：{e}'}
+
+    @ctx.action('run_delete_episode_genre')
+    async def action_delete_episode_genre():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _delete_episode_genre(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_genre_mapper')
+    async def action_genre_mapper():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _genre_mapper(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_season_renamer')
+    async def action_season_renamer():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg, need_tmdb=True)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _season_renamer(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_country_scraper')
+    async def action_country_scraper():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg, need_tmdb=True)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _country_scraper(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_alt_renamer')
+    async def action_alt_renamer():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg, need_tmdb=True)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _alt_renamer(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_strm_mediainfo')
+    async def action_strm_mediainfo():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _strm_mediainfo(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.action('run_damaged_check')
+    async def action_damaged_check():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            summary = _damaged_check(cfg)
+            _set_last_summary(ctx, summary)
+            return {'ok': True, 'message': summary}
+        except Exception as e:
+            return {'ok': False, 'message': f'执行失败：{e}'}
+
+    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-11)
+    async def emby_toolbox_cmd(client, message):
+        cfg = _cfg(ctx)
+        if not cfg['enabled']:
+            return
+        text = (message.text or '').strip().lower()
+        if text not in ('/embytoolbox', '.embytoolbox', '/embycheck', '.embycheck'):
+            return
+        _auto_delete(ctx, message)
+        try:
+            if cfg['enable_episode_fix']:
+                mismatches, checked = _episode_collect(cfg)
+                summary = _episode_summary(mismatches, checked, cfg['max_output'])
+            else:
+                summary = '插件已启用，但剧集季集校验功能当前关闭。请在配置中开启相应功能或直接使用 action 按钮。'
+            _set_last_summary(ctx, summary)
+            try:
+                await message.edit(summary[:4000])
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                await message.edit(f'执行失败：{e}')
+            except Exception:
+                pass
+
+
+async def teardown(ctx):
+    ctx.log.info('[emby_toolbox] 插件已停用')
