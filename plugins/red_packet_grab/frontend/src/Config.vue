@@ -101,7 +101,7 @@ function timeText(ts) {
           <template v-if="group === 'main'">
             <h3>总开关</h3><section class="card">
               <label class="switch"><input v-model="cfg.enabled" type="checkbox"><span>启用自动抢红包</span></label>
-              <p class="tip">处理群内正文口令红包和验证码口令红包，不会响应自己发出的红包。</p>
+              <p class="tip">处理群内正文口令、图片财富密码和验证码口令红包，不会响应自己发出的红包。</p>
             </section>
           </template>
           <template v-else-if="group === 'scope'">
@@ -116,6 +116,8 @@ function timeText(ts) {
             <h3>口令识别</h3><section class="card">
               <div class="badge ok">支持正文直接口令</div>
               <p class="tip">识别“发送下方口令领取：”后的文字；新消息和后续编辑都会检查。</p>
+              <div class="badge ok">支持动态财富密码</div>
+              <p class="tip">自动 OCR“财富密码见图片”的红包；图片更新后可重新识别，红包领完后停止。</p>
               <label class="switch"><input v-model="cfg.ocr_enabled" type="checkbox"><span>启用 OCR 识别验证码</span></label>
               <div :class="['badge', status.ocr_available ? 'ok' : 'warn']">{{ status.ocr_available ? 'ddddocr 可用' : 'ddddocr 不可用，将使用复制兜底' }}</div>
               <label class="switch"><input v-model="cfg.copy_fallback" type="checkbox"><span>启用复制兜底</span></label>

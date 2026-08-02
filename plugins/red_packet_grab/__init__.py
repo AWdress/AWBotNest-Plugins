@@ -6,16 +6,22 @@
 # =============================================================================
 from __future__ import annotations
 
-from ._grab import Grabber, extract_plaintext_command, extract_text
+from ._grab import (
+    Grabber,
+    extract_plaintext_command,
+    extract_text,
+    is_rotating_password_packet,
+    packet_has_remaining,
+)
 from ._records import Records, parse_targets, parse_group_ids, parse_keywords, to_float
 from . import _ocr
 
 __plugin__ = {
-    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.2.0",
+    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.2.1",
     "author": "AWdress", "scope": "user", "default_enabled": False,
-    "description": "自动参与口令红包：支持正文直接给出口令的拼手气红包、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
+    "description": "自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.2.0 支持正文拼手气红包\n- 自动识别“发送下方口令领取”后的完整口令并立即参与\n- 同时监听新消息与编辑消息，避免后补口令时漏抢\n- 按账号、群组和红包消息去重，结束状态不会重复发送\n\nv1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.2.1 支持图片财富密码红包\n- 自动识别“财富密码见图片、发送财富密码即可领取”的拼手气红包\n- 监听红包图片编辑，前一次 OCR 未参与成功时会识别更新后的动态口令\n- 剩余数量为 0 时停止识别，避免红包结束后发送无效口令\n\nv1.2.0 支持正文拼手气红包\n- 自动识别“发送下方口令领取”后的完整口令并立即参与\n- 同时监听新消息与编辑消息，避免后补口令时漏抢\n- 按账号、群组和红包消息去重，结束状态不会重复发送\n\nv1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "render_mode": "vue",
 }
 
@@ -94,7 +100,14 @@ async def setup(ctx):
         if not cfg.get("enabled", False):
             return
         caption = extract_text(message)
-        if not caption or not _matched(caption):
+        rotating_password = is_rotating_password_packet(caption)
+        if not caption or (not rotating_password and not _matched(caption)):
+            return
+        if rotating_password and not packet_has_remaining(caption):
+            ctx.log.info(
+                "[自动抢红包] 图片财富密码红包已领完，跳过 chat=%s msg=%s",
+                message.chat.id, message.id,
+            )
             return
 
         sender_name = _sender_allowed(message, cfg)
@@ -110,9 +123,17 @@ async def setup(ctx):
                 min_len=_to_int(cfg.get("code_min_len", 4), 4),
                 max_len=_to_int(cfg.get("code_max_len", 8), 8),
                 ttl_secs=max(1, _to_int(cfg.get("activity_ttl_minutes", 30), 30)) * 60,
+                keep_for_retry=rotating_password,
             )
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动抢红包] 处理红包失败: %r", e)
+
+    if hasattr(ctx, "on_edited_message"):
+        ctx.on_edited_message(
+            ctx.filters.incoming & ctx.filters.group
+            & (ctx.filters.photo | ctx.filters.document), group=-10,
+            target="user",
+        )(on_packet)
 
     async def on_plaintext_packet(client, message):
         cfg = _effective_cfg(ctx)

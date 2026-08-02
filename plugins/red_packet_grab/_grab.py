@@ -43,6 +43,22 @@ def extract_plaintext_command(text: str) -> str:
     return ""
 
 
+def is_rotating_password_packet(text: str) -> bool:
+    """判断是否为口令会随领取次数变化的图片财富密码红包。"""
+    return bool(
+        text
+        and "拼手气红包" in text
+        and "财富密码" in text
+        and "发送财富密码即可领取" in text
+    )
+
+
+def packet_has_remaining(text: str) -> bool:
+    """红包明确给出剩余数量时，只允许仍有余额的消息进入 OCR。"""
+    matched = re.search(r"剩余\s*[：:]\s*(\d+)\s*/\s*(\d+)", text or "")
+    return matched is None or int(matched.group(1)) > 0
+
+
 def acct_name(client) -> str:
     me = getattr(client, "me", None)
     if not me:
@@ -114,7 +130,7 @@ class Grabber:
     async def handle_new_packet(
         self, client, message, sender_name: str, join_delay: float,
         ocr_enabled: bool, copy_enabled: bool, notify: bool,
-        min_len: int, max_len: int, ttl_secs: int,
+        min_len: int, max_len: int, ttl_secs: int, keep_for_retry: bool = False,
     ) -> None:
         group_id = message.chat.id
         packet_id = message.id
@@ -125,13 +141,22 @@ class Grabber:
         me = getattr(client, "me", None)
         acct_id = me.id if me else 0
         packet_key = f"{acct_id}:{group_id}:{packet_id}"
-        if self._records.already_handled(packet_key):
-            return
-        self._records.mark_handled(packet_key)
-
         self._sweep_expired()
-        pkt = _Packet(group_id, packet_id, sender_id, sender_name, ttl_secs)
-        self._active[(group_id, packet_id)] = pkt
+        active_key = (group_id, packet_id)
+        if self._records.already_handled(packet_key):
+            # 财富密码红包每被领取一次就会编辑原消息并更换图片。上次 OCR 没有
+            # 发出口令时允许对同一消息的新图片重试；已经参与过则保持去重。
+            pkt = self._active.get(active_key)
+            if not keep_for_retry or pkt is None or pkt.answered:
+                return
+            self._log.info(
+                "[自动抢红包] 红包图片已更新，重新 OCR chat=%s msg=%s",
+                group_id, packet_id,
+            )
+        else:
+            self._records.mark_handled(packet_key)
+            pkt = _Packet(group_id, packet_id, sender_id, sender_name, ttl_secs)
+            self._active[active_key] = pkt
 
         # 路径 1：OCR 识别
         code = ""
@@ -159,6 +184,11 @@ class Grabber:
             self._log.info(
                 "[自动抢红包] chat=%s msg=%s %s，转复制兜底（等他人口令被确认）",
                 group_id, packet_id, reason)
+        elif keep_for_retry:
+            self._log.info(
+                "[自动抢红包] chat=%s msg=%s %s，保留动态图片红包等待更新后重试",
+                group_id, packet_id, reason,
+            )
         else:
             self._log.info(
                 "[自动抢红包] chat=%s msg=%s %s 且复制兜底关闭，放弃",
