@@ -139,6 +139,34 @@ __plugin__ = {
             "show_if": {"enable_strm_mediainfo": True},
         },
 
+        "enable_auto_schedule": {
+            "type": "boolean", "default": False, "label": "启用定时自动执行",
+            "section": "定时执行", "cols": 4, "order": 60,
+            "help": "开启后会按配置的时间自动执行选中的功能。",
+        },
+        "schedule_cron": {
+            "type": "string", "default": "0 3 * * *", "label": "定时执行时间（Cron）",
+            "section": "定时执行", "order": 61,
+            "help": "例如：0 3 * * * 表示每天凌晨3点。",
+            "show_if": {"enable_auto_schedule": True},
+        },
+        "schedule_functions": {
+            "type": "multiselect", "default": [], "label": "定时执行功能",
+            "section": "定时执行", "order": 62,
+            "options": [
+                "episode_fix",
+                "delete_episode_genre",
+                "genre_mapper",
+                "season_renamer",
+                "country_scraper",
+                "alt_renamer",
+                "strm_mediainfo",
+                "damaged_check"
+            ],
+            "help": "选择需要定时自动执行的功能。",
+            "show_if": {"enable_auto_schedule": True},
+        },
+
         "test_connection": {
             "type": "action", "label": "测试连接", "action": "test_connection",
             "section": "操作", "order": 40,
@@ -238,6 +266,9 @@ def _cfg(ctx) -> Dict[str, Any]:
         'enable_alt_renamer': bool(c.get('enable_alt_renamer', False)),
         'enable_strm_mediainfo': bool(c.get('enable_strm_mediainfo', False)),
         'enable_damaged_check': bool(c.get('enable_damaged_check', False)),
+        'enable_auto_schedule': bool(c.get('enable_auto_schedule', False)),
+        'schedule_cron': str(c.get('schedule_cron', '0 3 * * *') or '0 3 * * *'),
+        'schedule_functions': list(c.get('schedule_functions', []) or []),
     }
 
 
@@ -463,14 +494,17 @@ def _episode_summary(mismatches: List[Dict[str, Any]], checked: int, max_output:
     return '\n'.join(lines)
 
 
-def _episode_fix(cfg: Dict[str, Any]) -> str:
+def _episode_fix(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     mismatches, checked = _episode_collect(cfg)
     if not mismatches:
         return f'共检查到 {checked} 个带 SxxExx 标记的文件，当前没有不匹配项。'
     ok_count = 0
     fail_count = 0
-    for row in mismatches:
+    total = len(mismatches)
+    for idx, row in enumerate(mismatches, 1):
+        if ctx:
+            ctx.log.info(f'[emby_toolbox] 修复进度 {idx}/{total}: {row["series"]}')
         try:
             item = _get_user_item(cfg, user_id, str(row['id']))
             item['ParentIndexNumber'] = row['file_season']
@@ -483,21 +517,30 @@ def _episode_fix(cfg: Dict[str, Any]) -> str:
                 ok_count += 1
             else:
                 fail_count += 1
-        except Exception:
+        except Exception as e:
+            if ctx:
+                ctx.log.error(f'[emby_toolbox] 修复失败 {row["series"]}: {e}')
             fail_count += 1
-    return f'扫描到 {len(mismatches)} 条不匹配，已尝试按文件名修复。成功 {ok_count} 条，失败 {fail_count} 条。'
+    result = f'扫描到 {len(mismatches)} 条不匹配，已尝试按文件名修复。成功 {ok_count} 条，失败 {fail_count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _delete_episode_genre(cfg: Dict[str, Any]) -> str:
+def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     count = 0
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始删除单集 Genre，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
         series_list = _get_lib_items(cfg, parent_id)
+        if ctx:
+            ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集')
         for serie in series_list:
             serie_id = serie['Id']
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
@@ -517,10 +560,13 @@ def _delete_episode_genre(cfg: Dict[str, Any]) -> str:
                             item['LockData'] = True
                         _update_item(cfg, item)
                         count += 1
-    return f'单集 Genre 清理完成，共更新 {count} 条。'
+    result = f'单集 Genre 清理完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _genre_mapper(cfg: Dict[str, Any]) -> str:
+def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -528,11 +574,15 @@ def _genre_mapper(cfg: Dict[str, Any]) -> str:
     remove_list = _parse_remove_list(cfg['genre_remove_list'])
     count = 0
     user_id = _resolve_user_id(cfg)
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始 Genre 映射，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
         items = _get_lib_items(cfg, parent_id)
+        if ctx:
+            ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(items)} 个条目')
         for item0 in items:
             item = _get_user_item(cfg, user_id, str(item0['Id']))
             raw_genres = item.get('Genres', [])
@@ -558,20 +608,27 @@ def _genre_mapper(cfg: Dict[str, Any]) -> str:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
-    return f'Genre 映射完成，共更新 {count} 条。'
+    result = f'Genre 映射完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _season_renamer(cfg: Dict[str, Any]) -> str:
+def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始季名刮削，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
         series_list = _get_lib_items(cfg, parent_id)
+        if ctx:
+            ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集')
         for serie in series_list:
             if serie.get('Type') == 'Movie':
                 continue
@@ -603,15 +660,20 @@ def _season_renamer(cfg: Dict[str, Any]) -> str:
                     full['LockData'] = True
                 _update_item(cfg, full)
                 count += 1
-    return f'季名刮削完成，共更新 {count} 条。'
+    result = f'季名刮削完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _country_scraper(cfg: Dict[str, Any]) -> str:
+def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始国家/语言 Tag 刮削，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -668,15 +730,20 @@ def _country_scraper(cfg: Dict[str, Any]) -> str:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
-    return f'国家/语言 Tag 更新完成，共更新 {count} 条。'
+    result = f'国家/语言 Tag 更新完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _alt_renamer(cfg: Dict[str, Any]) -> str:
+def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -728,16 +795,21 @@ def _alt_renamer(cfg: Dict[str, Any]) -> str:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
-    return f'别名写入完成，共更新 {count} 条。'
+    result = f'别名写入完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _strm_mediainfo(cfg: Dict[str, Any]) -> str:
+def _strm_mediainfo(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
     delay = cfg['strm_delay']
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始 STRM MediaInfo 刷新，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -768,16 +840,21 @@ def _strm_mediainfo(cfg: Dict[str, Any]) -> str:
                 if r.status_code == 200:
                     count += 1
                 time.sleep(delay)
-    return f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
+    result = f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] {result}')
+    return result
 
 
-def _damaged_check(cfg: Dict[str, Any]) -> str:
+def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     damaged = []
     total = 0
+    if ctx:
+        ctx.log.info(f'[emby_toolbox] 开始元数据缺失检查，媒体库: {libs}')
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -814,6 +891,63 @@ def _auto_delete(ctx, message):
 
 
 async def setup(ctx):
+    # 定时任务
+    if ctx.config.get('enable_auto_schedule', False):
+        schedule_cron = ctx.config.get('schedule_cron', '0 3 * * *')
+        schedule_funcs = ctx.config.get('schedule_functions', [])
+        
+        async def scheduled_task():
+            ctx.log.info('[emby_toolbox] 定时任务开始执行')
+            cfg = _cfg(ctx)
+            results = []
+            
+            for func_name in schedule_funcs:
+                try:
+                    ctx.log.info(f'[emby_toolbox] 执行定时任务: {func_name}')
+                    if func_name == 'episode_fix':
+                        result = _episode_fix(cfg, ctx)
+                    elif func_name == 'delete_episode_genre':
+                        result = _delete_episode_genre(cfg, ctx)
+                    elif func_name == 'genre_mapper':
+                        result = _genre_mapper(cfg, ctx)
+                    elif func_name == 'season_renamer':
+                        result = _season_renamer(cfg, ctx)
+                    elif func_name == 'country_scraper':
+                        result = _country_scraper(cfg, ctx)
+                    elif func_name == 'alt_renamer':
+                        result = _alt_renamer(cfg, ctx)
+                    elif func_name == 'strm_mediainfo':
+                        result = _strm_mediainfo(cfg, ctx)
+                    elif func_name == 'damaged_check':
+                        result = _damaged_check(cfg, ctx)
+                    else:
+                        result = f'未知功能: {func_name}'
+                    results.append(f'{func_name}: {result}')
+                    ctx.log.info(f'[emby_toolbox] {func_name} 完成: {result}')
+                except Exception as e:
+                    ctx.log.error(f'[emby_toolbox] {func_name} 失败: {e}')
+                    results.append(f'{func_name}: 失败 - {e}')
+            
+            summary = '\n'.join(results)
+            ctx.log.info(f'[emby_toolbox] 定时任务全部完成')
+            _set_last_summary(ctx, f'定时任务完成\n{summary}')
+            try:
+                await ctx.notify(f'[Emby工具箱] 定时任务完成\n{summary}', category='Emby工具箱')
+            except Exception:
+                pass
+        
+        try:
+            cron_parts = schedule_cron.split()
+            if len(cron_parts) == 5:
+                ctx.schedule(scheduled_task, 'cron', minute=int(cron_parts[0]) if cron_parts[0] != '*' else None,
+                            hour=int(cron_parts[1]) if cron_parts[1] != '*' else None,
+                            day=int(cron_parts[2]) if cron_parts[2] != '*' else None,
+                            month=int(cron_parts[3]) if cron_parts[3] != '*' else None,
+                            day_of_week=int(cron_parts[4]) if cron_parts[4] != '*' else None)
+                ctx.log.info(f'[emby_toolbox] 定时任务已启用: {schedule_cron}')
+        except Exception as e:
+            ctx.log.error(f'[emby_toolbox] 定时任务配置失败: {e}')
+
     @ctx.action('test_connection')
     async def action_test_connection():
         cfg = _cfg(ctx)
