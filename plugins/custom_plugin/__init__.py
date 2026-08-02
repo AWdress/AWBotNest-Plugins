@@ -5,15 +5,15 @@ import traceback
 
 
 __plugin__ = {
-    "name": "自定义代码",
+    "name": "插件开发调试",
     "id": "custom_plugin",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "scope": "both",
     "default_enabled": False,
-    "description": "在管理员配置页粘贴 Python 插件源码并直接运行，无需写入平台插件目录。适合临时、自用的小插件。",
+    "description": "在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg",
-    "changelog": "v1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
+    "changelog": "v1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
     "render_mode": "vue",
 }
 
@@ -27,7 +27,7 @@ async def setup(ctx):
     @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=10)
     async def hello(client, message):
         if (message.text or "").strip() == "/hello":
-            await message.reply("Hello from 自定义代码 👋")
+            await message.reply("Hello from 插件开发调试 👋")
 
 
 async def teardown(ctx):
