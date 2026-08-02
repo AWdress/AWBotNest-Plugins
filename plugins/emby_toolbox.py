@@ -21,7 +21,7 @@ import json
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -214,7 +214,7 @@ DEFAULT_COUNTRY = '其他国家'
 DEFAULT_LANGUAGE = '其他语种'
 
 
-def _cfg(ctx):
+def _cfg(ctx) -> Dict[str, Any]:
     c = ctx.config
     return {
         'enabled': bool(c.get('enabled', True)),
@@ -245,15 +245,15 @@ def _base_url(server: str) -> str:
     return server.rstrip('/')
 
 
-def _headers(api_key: str) -> dict[str, str]:
+def _headers(api_key: str) -> Dict[str, str]:
     return {'X-Emby-Token': api_key, 'Accept': 'application/json'}
 
 
-def _post_headers(api_key: str) -> dict[str, str]:
+def _post_headers(api_key: str) -> Dict[str, str]:
     return {'X-Emby-Token': api_key, 'Accept': 'application/json', 'Content-Type': 'application/json'}
 
 
-def _validate_basic(cfg: dict[str, Any], need_tmdb: bool = False) -> tuple[bool, str]:
+def _validate_basic(cfg: Dict[str, Any], need_tmdb: bool = False) -> Tuple[bool, str]:
     if not cfg['emby_server']:
         return False, '未配置 Emby 地址'
     if not cfg['api_key']:
@@ -263,7 +263,7 @@ def _validate_basic(cfg: dict[str, Any], need_tmdb: bool = False) -> tuple[bool,
     return True, 'ok'
 
 
-def _parse_libs(raw: str) -> list[str]:
+def _parse_libs(raw: str) -> List[str]:
     libs = []
     for part in str(raw or '').replace('\n', ',').split(','):
         part = part.strip()
@@ -272,54 +272,60 @@ def _parse_libs(raw: str) -> list[str]:
     return libs
 
 
-def _parse_genre_mapping(raw: str) -> dict[str, dict[str, Any]]:
+def _parse_genre_mapping(raw: str) -> Dict[str, Dict[str, Any]]:
     if not raw.strip():
         return {}
-    obj = json.loads(raw)
-    out = {}
-    for k, v in obj.items():
-        if isinstance(v, dict):
-            out[str(k).strip()] = v
-        else:
-            out[str(k).strip()] = {'Name': str(v).strip()}
-    return out
+    try:
+        obj = json.loads(raw)
+        out = {}
+        for k, v in obj.items():
+            if isinstance(v, dict):
+                out[str(k).strip()] = v
+            else:
+                out[str(k).strip()] = {'Name': str(v).strip()}
+        return out
+    except (json.JSONDecodeError, AttributeError, TypeError) as e:
+        raise ValueError(f'Genre 映射 JSON 格式错误：{e}')
 
 
-def _parse_remove_list(raw: str) -> list[str]:
+def _parse_remove_list(raw: str) -> List[str]:
     return [x.strip() for x in str(raw or '').splitlines() if x.strip()]
 
 
-def _get_first_user_id(cfg: dict[str, Any]) -> str:
-    url = f"{_base_url(cfg['emby_server'])}/emby/Users"
-    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    if isinstance(data, list) and data:
-        uid = data[0].get('Id')
-        if uid:
-            return str(uid)
-    raise RuntimeError('无法自动获取 Emby 用户 ID')
+def _get_first_user_id(cfg: Dict[str, Any]) -> str:
+    try:
+        url = f"{_base_url(cfg['emby_server'])}/emby/Users"
+        r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, list) and data:
+            uid = data[0].get('Id')
+            if uid:
+                return str(uid)
+        raise RuntimeError('无法自动获取 Emby 用户 ID')
+    except requests.RequestException as e:
+        raise RuntimeError(f'连接 Emby 失败：{e}')
 
 
-def _resolve_user_id(cfg: dict[str, Any]) -> str:
+def _resolve_user_id(cfg: Dict[str, Any]) -> str:
     return cfg['user_id'] or _get_first_user_id(cfg)
 
 
-def _get_user_item(cfg: dict[str, Any], user_id: str, item_id: str) -> dict[str, Any]:
+def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str, Any]:
     url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Items/{item_id}"
     r = requests.get(url, headers=_headers(cfg['api_key']), timeout=30)
     r.raise_for_status()
     return r.json()
 
 
-def _update_item(cfg: dict[str, Any], item: dict[str, Any]) -> None:
+def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     item_id = str(item['Id'])
     url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}?api_key={cfg['api_key']}"
     r = requests.post(url, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
     r.raise_for_status()
 
 
-def _refresh_item(cfg: dict[str, Any], item_id: str) -> None:
+def _refresh_item(cfg: Dict[str, Any], item_id: str) -> None:
     url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}/Refresh"
     params = {
         'api_key': cfg['api_key'],
@@ -333,7 +339,7 @@ def _refresh_item(cfg: dict[str, Any], item_id: str) -> None:
     r.raise_for_status()
 
 
-def _get_libraries(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+def _get_libraries(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
     user_id = _resolve_user_id(cfg)
     url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Views"
     r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
@@ -341,14 +347,14 @@ def _get_libraries(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     return r.json().get('Items', [])
 
 
-def _get_library_id(cfg: dict[str, Any], lib_name: str) -> str | None:
+def _get_library_id(cfg: Dict[str, Any], lib_name: str) -> Optional[str]:
     for item in _get_libraries(cfg):
         if item.get('Name') == lib_name:
             return str(item.get('Id'))
     return None
 
 
-def _get_lib_items(cfg: dict[str, Any], parent_id: str) -> list[dict[str, Any]]:
+def _get_lib_items(cfg: Dict[str, Any], parent_id: str) -> List[Dict[str, Any]]:
     url = f"{_base_url(cfg['emby_server'])}/emby/Users/{_resolve_user_id(cfg)}/Items"
     params = {
         'api_key': cfg['api_key'],
@@ -363,7 +369,7 @@ def _get_lib_items(cfg: dict[str, Any], parent_id: str) -> list[dict[str, Any]]:
     return r.json().get('Items', [])
 
 
-def _tmdb_fetch(cfg: dict[str, Any], tmdb_id: str, is_movie: bool) -> dict[str, Any] | None:
+def _tmdb_fetch(cfg: Dict[str, Any], tmdb_id: str, is_movie: bool) -> Optional[Dict[str, Any]]:
     media_type = 'movie' if is_movie else 'tv'
     url = f'https://api.themoviedb.org/3/{media_type}/{tmdb_id}'
     params = {
@@ -406,7 +412,7 @@ def _set_last_summary(ctx, summary: str):
         pass
 
 
-def _episode_collect(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+def _episode_collect(cfg: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], int]:
     url = f"{_base_url(cfg['emby_server'])}/emby/Items"
     params = {
         'api_key': cfg['api_key'],
@@ -443,7 +449,7 @@ def _episode_collect(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
     return mismatches, checked
 
 
-def _episode_summary(mismatches: list[dict[str, Any]], checked: int, max_output: int) -> str:
+def _episode_summary(mismatches: List[Dict[str, Any]], checked: int, max_output: int) -> str:
     lines = [f'共检查到 {checked} 个带 SxxExx 标记的文件。', f'发现不匹配 {len(mismatches)} 个。']
     if not mismatches:
         lines.append('🎉 所有带 SxxExx 标记的文件与 Emby 识别完全一致！')
@@ -457,7 +463,7 @@ def _episode_summary(mismatches: list[dict[str, Any]], checked: int, max_output:
     return '\n'.join(lines)
 
 
-def _episode_fix(cfg: dict[str, Any]) -> str:
+def _episode_fix(cfg: Dict[str, Any]) -> str:
     user_id = _resolve_user_id(cfg)
     mismatches, checked = _episode_collect(cfg)
     if not mismatches:
@@ -482,7 +488,7 @@ def _episode_fix(cfg: dict[str, Any]) -> str:
     return f'扫描到 {len(mismatches)} 条不匹配，已尝试按文件名修复。成功 {ok_count} 条，失败 {fail_count} 条。'
 
 
-def _delete_episode_genre(cfg: dict[str, Any]) -> str:
+def _delete_episode_genre(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -514,7 +520,7 @@ def _delete_episode_genre(cfg: dict[str, Any]) -> str:
     return f'单集 Genre 清理完成，共更新 {count} 条。'
 
 
-def _genre_mapper(cfg: dict[str, Any]) -> str:
+def _genre_mapper(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -555,7 +561,7 @@ def _genre_mapper(cfg: dict[str, Any]) -> str:
     return f'Genre 映射完成，共更新 {count} 条。'
 
 
-def _season_renamer(cfg: dict[str, Any]) -> str:
+def _season_renamer(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -600,7 +606,7 @@ def _season_renamer(cfg: dict[str, Any]) -> str:
     return f'季名刮削完成，共更新 {count} 条。'
 
 
-def _country_scraper(cfg: dict[str, Any]) -> str:
+def _country_scraper(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -665,7 +671,7 @@ def _country_scraper(cfg: dict[str, Any]) -> str:
     return f'国家/语言 Tag 更新完成，共更新 {count} 条。'
 
 
-def _alt_renamer(cfg: dict[str, Any]) -> str:
+def _alt_renamer(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -725,7 +731,7 @@ def _alt_renamer(cfg: dict[str, Any]) -> str:
     return f'别名写入完成，共更新 {count} 条。'
 
 
-def _strm_mediainfo(cfg: dict[str, Any]) -> str:
+def _strm_mediainfo(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
@@ -765,7 +771,7 @@ def _strm_mediainfo(cfg: dict[str, Any]) -> str:
     return f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
 
 
-def _damaged_check(cfg: dict[str, Any]) -> str:
+def _damaged_check(cfg: Dict[str, Any]) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
