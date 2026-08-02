@@ -25,6 +25,24 @@ def extract_text(message) -> str:
     return (getattr(message, "text", None) or getattr(message, "caption", None) or "").strip()
 
 
+def extract_plaintext_command(text: str) -> str:
+    """提取“发送下方口令领取”类拼手气红包正文中的口令。"""
+    if not text or "拼手气红包" not in text or "红包 ID" not in text:
+        return ""
+
+    marker = re.search(r"发送下方口令领取\s*[：:]?", text)
+    if marker is None:
+        return ""
+
+    tail = text[marker.end():]
+    for raw_line in tail.splitlines():
+        command = raw_line.strip()
+        if not command:
+            continue
+        return command[:256]
+    return ""
+
+
 def acct_name(client) -> str:
     me = getattr(client, "me", None)
     if not me:
@@ -65,6 +83,32 @@ class Grabber:
         self._active: dict[tuple[int, int], _Packet] = {}
         # key=(group_id, msg_id) -> 候选口令文本（他人发的、可能是正确口令）
         self._candidates: dict[tuple[int, int], str] = {}
+
+    async def handle_plaintext_packet(
+        self, client, message, sender_name: str, command: str,
+        join_delay: float, notify: bool, ttl_secs: int,
+    ) -> None:
+        """收到正文已直接给出口令的拼手气红包后立即参与。"""
+        group_id = message.chat.id
+        packet_id = message.id
+        fu = message.from_user
+        sender_id = fu.id if fu else 0
+        me = getattr(client, "me", None)
+        acct_id = me.id if me else 0
+        packet_key = f"{acct_id}:{group_id}:{packet_id}"
+        if self._records.already_handled(packet_key):
+            return
+        self._records.mark_handled(packet_key)
+
+        self._sweep_expired()
+        pkt = _Packet(group_id, packet_id, sender_id, sender_name, ttl_secs)
+        pkt.mode = "正文口令"
+        self._active[(group_id, packet_id)] = pkt
+        self._log.info(
+            "[自动抢红包] 识别到正文拼手气红包 chat=%s msg=%s，立即发送口令",
+            group_id, packet_id,
+        )
+        await self._send_answer(client, pkt, command, join_delay, notify)
 
     # —— 主入口：收到疑似验证码口令红包 ——
     async def handle_new_packet(

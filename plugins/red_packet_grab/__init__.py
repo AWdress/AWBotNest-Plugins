@@ -6,16 +6,16 @@
 # =============================================================================
 from __future__ import annotations
 
-from ._grab import Grabber, extract_text
+from ._grab import Grabber, extract_plaintext_command, extract_text
 from ._records import Records, parse_targets, parse_group_ids, parse_keywords, to_float
 from . import _ocr
 
 __plugin__ = {
-    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.1.2",
+    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.2.0",
     "author": "AWdress", "scope": "user", "default_enabled": False,
-    "description": "自动参与验证码口令红包：OCR 识别或监听中奖确认后复制正确口令兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
+    "description": "自动参与口令红包：支持正文直接给出口令的拼手气红包、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.2.0 支持正文拼手气红包\n- 自动识别“发送下方口令领取”后的完整口令并立即参与\n- 同时监听新消息与编辑消息，避免后补口令时漏抢\n- 按账号、群组和红包消息去重，结束状态不会重复发送\n\nv1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "render_mode": "vue",
 }
 
@@ -56,6 +56,20 @@ async def setup(ctx):
         kws = parse_keywords(_effective_cfg(ctx).get("trigger_keywords", "")) or ["验证码"]
         return any(k in caption for k in kws)
 
+    def _sender_allowed(message, cfg):
+        targets = parse_targets(cfg.get("target_senders", ""))
+        fu = message.from_user
+        if targets:
+            if not fu or fu.id not in targets:
+                return None
+            sender_name = targets.get(fu.id, str(fu.id))
+        else:
+            sender_name = (fu.username or fu.first_name) if fu else "未知"
+        groups = parse_group_ids(cfg.get("target_groups", ""))
+        if groups and message.chat.id not in groups:
+            return None
+        return sender_name
+
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):
         return {"items": _records.history() if _records else []}
@@ -83,17 +97,8 @@ async def setup(ctx):
         if not caption or not _matched(caption):
             return
 
-        targets = parse_targets(cfg.get("target_senders", ""))
-        fu = message.from_user
-        if targets:
-            if not fu or fu.id not in targets:
-                return
-            sender_name = targets.get(fu.id, str(fu.id))
-        else:
-            sender_name = (fu.username or fu.first_name) if fu else "未知"
-
-        groups = parse_group_ids(cfg.get("target_groups", ""))
-        if groups and message.chat.id not in groups:
+        sender_name = _sender_allowed(message, cfg)
+        if sender_name is None:
             return
         try:
             await _grabber.handle_new_packet(
@@ -108,6 +113,35 @@ async def setup(ctx):
             )
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动抢红包] 处理红包失败: %r", e)
+
+    async def on_plaintext_packet(client, message):
+        cfg = _effective_cfg(ctx)
+        if not cfg.get("enabled", False):
+            return
+        command = extract_plaintext_command(extract_text(message))
+        if not command:
+            return
+        sender_name = _sender_allowed(message, cfg)
+        if sender_name is None:
+            return
+        try:
+            await _grabber.handle_plaintext_packet(
+                client, message, sender_name=sender_name, command=command,
+                join_delay=to_float(cfg.get("join_delay", 2)),
+                notify=cfg.get("notify_owner", True),
+                ttl_secs=max(1, _to_int(cfg.get("activity_ttl_minutes", 30), 30)) * 60,
+            )
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[自动抢红包] 处理正文拼手气红包失败: %r", e)
+
+    ctx.on_message(
+        ctx.filters.incoming & ctx.filters.group & ctx.filters.text, group=-10,
+    )(on_plaintext_packet)
+    if hasattr(ctx, "on_edited_message"):
+        ctx.on_edited_message(
+            ctx.filters.incoming & ctx.filters.group & ctx.filters.text, group=-10,
+            target="user",
+        )(on_plaintext_packet)
 
     @ctx.on_message(ctx.filters.incoming & ctx.filters.group & ctx.filters.reply, group=-9)
     async def on_reply(client, message):

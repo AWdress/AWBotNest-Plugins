@@ -208,11 +208,11 @@
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.1.2",
+    "version": "1.2.0",
     "author": "AWdress",
-    "description": "用你的账号自动参与他人发的「验证码口令红包」。OCR 识别或监听中奖确认后复制正确口令兜底参与。可按发包人/群组限制范围。",
+    "description": "用你的账号自动参与口令红包。支持正文直接给出口令的拼手气红包、OCR 验证码识别及中奖确认复制兜底，可按发包人/群组限制范围。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.2.0 支持正文拼手气红包\n- 自动识别“发送下方口令领取”后的完整口令并立即参与\n- 同时监听新消息与编辑消息，避免后补口令时漏抢\n- 按账号、群组和红包消息去重，结束状态不会重复发送\n\nv1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/red_packet_grab/"
   },
   "auto_lottery": {

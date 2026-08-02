@@ -101,19 +101,21 @@ function timeText(ts) {
           <template v-if="group === 'main'">
             <h3>总开关</h3><section class="card">
               <label class="switch"><input v-model="cfg.enabled" type="checkbox"><span>启用自动抢红包</span></label>
-              <p class="tip">只处理别人发送到群里的验证码口令红包，不会响应自己发出的红包。</p>
+              <p class="tip">处理群内正文口令红包和验证码口令红包，不会响应自己发出的红包。</p>
             </section>
           </template>
           <template v-else-if="group === 'scope'">
             <h3>识别范围</h3><section class="card">
               <label class="row top"><span>触发关键词</span><textarea v-model="cfg.trigger_keywords" class="inp" rows="3" /></label>
-              <p class="tip indent">图片说明含任一关键词才尝试参与，逗号或换行分隔。</p>
+              <p class="tip indent">验证码图片说明含任一关键词才尝试参与；正文拼手气红包按固定格式自动识别。</p>
               <label class="row top"><span>发包人白名单</span><textarea v-model="cfg.target_senders" class="inp" rows="4" placeholder="一行一个：用户ID 备注；留空不限" /></label>
               <label class="row top"><span>群组白名单</span><textarea v-model="groupsText" class="inp" rows="4" placeholder="一行一个群ID；留空不限" /></label>
             </section>
           </template>
           <template v-else-if="group === 'recognize'">
             <h3>口令识别</h3><section class="card">
+              <div class="badge ok">支持正文直接口令</div>
+              <p class="tip">识别“发送下方口令领取：”后的文字；新消息和后续编辑都会检查。</p>
               <label class="switch"><input v-model="cfg.ocr_enabled" type="checkbox"><span>启用 OCR 识别验证码</span></label>
               <div :class="['badge', status.ocr_available ? 'ok' : 'warn']">{{ status.ocr_available ? 'ddddocr 可用' : 'ddddocr 不可用，将使用复制兜底' }}</div>
               <label class="switch"><input v-model="cfg.copy_fallback" type="checkbox"><span>启用复制兜底</span></label>
