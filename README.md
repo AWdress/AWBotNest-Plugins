@@ -330,6 +330,7 @@ async def setup(ctx):
 | 定时自动回复 | `custom_auto_reply` | 定时 | user | 每个会话单独设时间和内容（定点 / 间隔 / cron） |
 | 自动报时昵称 | `auto_changename` | 定时 | user | 定时把昵称改成当前时间，支持自定义模板 |
 | 自动换头像 | `auto_avatar` | 定时 / `.avataradd` 等 | user | 定时随机换头像，回复图片 `.avataradd` 入池，`.avatarlist/.avatarclear` 管理 |
+| 自定义代码 | `custom_plugin` | Vue 源码编辑器 | both | 在管理员配置页粘贴标准插件源码，保存后直接运行 `setup(ctx)`；仅适合已审查的自用代码 |
 
 ### PT 站 / 媒体
 
