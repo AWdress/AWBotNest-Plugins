@@ -121,7 +121,7 @@ function timeText(ts) {
               <label class="switch"><input v-model="cfg.ocr_enabled" type="checkbox"><span>启用 OCR 识别验证码</span></label>
               <div :class="['badge', status.ocr_available ? 'ok' : 'warn']">{{ status.ocr_available ? 'ddddocr 可用' : 'ddddocr 不可用，将使用复制兜底' }}</div>
               <label class="switch"><input v-model="cfg.copy_fallback" type="checkbox"><span>启用复制兜底</span></label>
-              <p class="tip">监听他人的中奖确认，复制已验证正确的口令再参与。</p>
+              <p class="tip">监听他人的中奖确认，支持独立发送或回复红包的口令；缓存漏记时会现场回查原消息。</p>
               <div class="grid"><label class="row"><span>最短位数</span><input v-model.number="cfg.code_min_len" class="inp sm" type="number" min="1" max="12"></label>
               <label class="row"><span>最长位数</span><input v-model.number="cfg.code_max_len" class="inp sm" type="number" min="1" max="30"></label></div>
             </section>

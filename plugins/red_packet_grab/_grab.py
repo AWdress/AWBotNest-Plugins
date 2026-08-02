@@ -97,8 +97,8 @@ class Grabber:
         self._records = records
         # key=(group_id, packet_msg_id)
         self._active: dict[tuple[int, int], _Packet] = {}
-        # key=(group_id, msg_id) -> 候选口令文本（他人发的、可能是正确口令）
-        self._candidates: dict[tuple[int, int], str] = {}
+        # key=(group_id, msg_id) -> (候选口令, 所回复的红包消息ID或0)
+        self._candidates: dict[tuple[int, int], tuple[str, int]] = {}
 
     async def handle_plaintext_packet(
         self, client, message, sender_name: str, command: str,
@@ -198,9 +198,6 @@ class Grabber:
     # —— 群内普通文本：缓存他人可能的口令（复制兜底用）——
     async def handle_group_text(self, client, message, min_len: int, max_len: int) -> None:
         group_id = message.chat.id
-        # 只缓存「非回复」的普通文本（参与用的口令是独立一条消息，不是回复）
-        if getattr(message, "reply_to_message_id", None):
-            return
         # 该群没有进行中的红包就不缓存
         if not any(g == group_id for (g, _p) in self._active):
             return
@@ -213,7 +210,13 @@ class Grabber:
         # 口令是字母+数字（去混淆字符集）；命令/含空格的不是口令
         if not re.fullmatch(r"[0-9A-Za-z]+", text):
             return
-        self._candidates[(group_id, message.id)] = text
+        reply_to_id = int(getattr(message, "reply_to_message_id", 0) or 0)
+        packet_hint = reply_to_id if (group_id, reply_to_id) in self._active else 0
+        self._candidates[(group_id, message.id)] = (text, packet_hint)
+        self._log.debug(
+            "[自动抢红包] 已缓存候选口令 chat=%s msg=%s packet_hint=%s code=%r",
+            group_id, message.id, packet_hint, text,
+        )
         # 控制缓存规模
         if len(self._candidates) > 500:
             for k in list(self._candidates)[:200]:
@@ -223,6 +226,7 @@ class Grabber:
     async def handle_reply(
         self, client, message, success_markers: list[str], transfer_prefix: str,
         join_delay: float, copy_enabled: bool, notify: bool,
+        min_len: int, max_len: int,
     ) -> None:
         group_id = message.chat.id
         reply_to_id = getattr(message, "reply_to_message_id", None)
@@ -254,13 +258,26 @@ class Grabber:
         # 路径 B：复制兜底 —— 回复的是他人某条候选口令，说明那条是正确口令
         if not copy_enabled:
             return
-        code = self._candidates.get((group_id, reply_to_id))
+        candidate = self._candidates.get((group_id, reply_to_id))
+        if candidate:
+            code, packet_hint = candidate
+        else:
+            code = await self._read_replied_candidate(client, message, min_len, max_len)
+            packet_hint = self._packet_hint_from_reply(message, group_id)
         if not code:
+            self._log.debug(
+                "[自动抢红包] 收到中奖确认但未取得被回复口令 chat=%s reply_to=%s",
+                group_id, reply_to_id,
+            )
             return
         confirmer = message.from_user
         confirmer_id = confirmer.id if confirmer else None
-        pkt = self._pick_unanswered(group_id, confirmer_id)
+        pkt = self._pick_unanswered(group_id, confirmer_id, packet_hint)
         if pkt is None:
+            self._log.debug(
+                "[自动抢红包] 已取得正确口令但没有匹配的待参与红包 chat=%s code=%r",
+                group_id, code,
+            )
             return
         pkt.mode = "复制"
         await self._send_answer(client, pkt, code, join_delay, notify)
@@ -300,17 +317,26 @@ class Grabber:
         for m in markers:
             if m and m in text:
                 return True
+        if any(m in text for m in ("领取成功", "领取了", "获得了", "获得", "到账")):
+            return True
         # 发放触发（如 `+100`）也是明确的中奖信号
         pfx = re.escape((transfer_prefix or "+").strip() or "+")
-        return bool(re.fullmatch(rf"{pfx}\s*\d+", text.strip()))
+        return bool(re.search(rf"(?:^|\s){pfx}\s*\d+(?:\s|$)", text.strip()))
 
-    def _pick_unanswered(self, group_id: int, confirmer_id) -> Optional[_Packet]:
+    def _pick_unanswered(
+        self, group_id: int, confirmer_id, packet_hint: int = 0,
+    ) -> Optional[_Packet]:
         """挑出该群一条尚未应答的红包用于复制兜底。
 
         确认中奖的回复来自发包人，故优先选「发包人 == 确认者」的那条，多条取最晚过期；
         没有任何发包人匹配时（如发送者信息缺失）退回最新一条兜底，避免把口令记到
         别的红包上、误标其它包已答而漏掉真正的包。
         """
+        if packet_hint:
+            hinted = self._active.get((group_id, packet_hint))
+            if hinted is not None and not hinted.answered:
+                return hinted
+
         matched = []
         fallback = None
         for (g, _p), pkt in self._active.items():
@@ -323,6 +349,39 @@ class Grabber:
         if matched:
             return max(matched, key=lambda p: p.expires_at)
         return fallback
+
+    def _candidate_text(self, message, min_len: int, max_len: int) -> str:
+        text = extract_text(message)
+        if (
+            not text
+            or not (min_len <= len(text) <= max_len)
+            or not re.fullmatch(r"[0-9A-Za-z]+", text)
+        ):
+            return ""
+        return text
+
+    def _packet_hint_from_reply(self, message, group_id: int) -> int:
+        replied = getattr(message, "reply_to_message", None)
+        parent_id = int(getattr(replied, "reply_to_message_id", 0) or 0) if replied else 0
+        return parent_id if (group_id, parent_id) in self._active else 0
+
+    async def _read_replied_candidate(
+        self, client, message, min_len: int, max_len: int,
+    ) -> str:
+        """缓存漏记时，直接从中奖确认所回复的消息读取口令。"""
+        replied = getattr(message, "reply_to_message", None)
+        code = self._candidate_text(replied, min_len, max_len) if replied else ""
+        if code:
+            return code
+        try:
+            replied = await client.get_messages(message.chat.id, message.reply_to_message_id)
+            return self._candidate_text(replied, min_len, max_len) if replied else ""
+        except Exception as exc:  # noqa: BLE001
+            self._log.debug(
+                "[自动抢红包] 回查被回复口令失败 chat=%s msg=%s: %r",
+                message.chat.id, message.reply_to_message_id, exc,
+            )
+            return ""
 
     def _sweep_expired(self) -> None:
         now = _time.monotonic()
