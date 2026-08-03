@@ -5,7 +5,7 @@ __plugin__ = {
     "name": "示例功能",
     "id": "my_feature",
     "version": "1.0.0",
-    "scope": "user",
+    "scope": "user",  # user | bot | both | standalone
     "author": "",
     "description": "最小可用插件模板",
     "changelog": "v1.0.0 初始版本\n- 提供基础命令回复",

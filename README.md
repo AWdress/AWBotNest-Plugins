@@ -39,7 +39,7 @@ __plugin__ = {
     "name": "我的功能",        # 必填：前端显示名
     "id": "my_feature",        # 必填：必须 = 文件名/目录名（去 .py）
     "version": "1.0.0",        # 必填：插件商店靠它判断有没有更新
-    "scope": "user",           # 必填：user(用户账号) | bot(机器人) | both
+    "scope": "user",           # 必填：user(用户账号) | bot(机器人) | both | standalone(独立运行)
     "author": "你",            # 可选
     "description": "干啥的",    # 可选
     "changelog": "v1.0.0 初始版本\n- 实现基础功能",  # 推荐与 manifest 同步维护
@@ -104,6 +104,8 @@ async def teardown(ctx):
 | 清理回调 | `ctx.add_cleanup(fn)` |
 
 `target`：`"user"` / `"bot"` / `"both"` / `"auto"`（按插件 scope 自动选择）。
+
+`scope=standalone` 在界面中显示为“独立运行”，用于不依赖 Telegram 用户账号或机器人的定时任务、Webhook、外部接口和浏览器自动化插件。它仍可使用配置、存储、平台 AI、通知和调度能力，但 `target="auto"` 不会挂载消息处理器。需要监听 Telegram 消息时，请使用 `user`、`bot` 或 `both`。
 
 **group 隔离（不会互相"吃消息"）**：Pyrogram 在同一 group 内只跑第一个匹配的 handler。平台给**每个插件分配独立的 group 区间**，所以不同插件即使都监听同类消息也各自都能收到。你写的 `group=` 是「**本插件内部**的相对优先级」（数值越小越先），平台自动平移到你的区间——不用关心别的插件用了什么 group。想"我处理了就别让后面的插件再处理"，在 handler 里 `raise ctx.StopPropagation`。
 
@@ -301,6 +303,7 @@ async def setup(ctx):
 
 - `path`：单文件以 `.py` 结尾，文件夹以 `/` 结尾。
 - `icon`（可选）：市场卡片图标 URL，留空回退平台 logo；与插件 `__plugin__["icon"]`（已安装卡片用）保持一致即可。
+- `scope`（推荐）：与插件 `__plugin__["scope"]` 保持一致，插件市场会显示“用户账号”“机器人”“双账号”或“独立运行”。
 - **改了插件代码 → 必须同步抬高 `version`**，否则插件商店识别不到更新、已安装的平台收不到推送。抬高版本推上来后，平台轮询会自动下载覆盖；**正在运行的插件实例会自动热重载使新代码生效**（未运行的只更新文件、不自动启用）。
 - 商店里的插件**只在用户点「安装」时落盘，且绝不自动启用**（安全铁律），需用户在平台手动开启。
 
@@ -341,9 +344,9 @@ async def setup(ctx):
 | U2送糖 | `u2_dmhy` | `/u2` `/u2s`（带 cookie） | user | 给 u2.dmhy.org 用户赠送 UCoin，单人/批量，自带冷却 |
 | 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
-| AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | bot | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
-| 自动订阅助手 | `auto_subscribe` | 定时 / Vue 配置界面 | user | 聚合豆瓣/Mikan新番/奈飞/猫眼榜单，按全局或每源过滤后自动订阅到 NextFind；自带 Vue 管理界面（自 MoviePilot 移植） |
-| GPT-GOD 自动签到 | `gptgod_checkin` | 定时 / 立即签到 | user | 使用平台托管浏览器登录 GPT-GOD，按网站原生动态校验流程每日领取签到积分 |
+| AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | standalone | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
+| 自动订阅助手 | `auto_subscribe` | 定时 / Vue 配置界面 | standalone | 聚合豆瓣/Mikan新番/奈飞/猫眼榜单，按全局或每源过滤后自动订阅到 NextFind；自带 Vue 管理界面（自 MoviePilot 移植） |
+| GPT-GOD 自动签到 | `gptgod_checkin` | 定时 / 立即签到 | standalone | 使用平台托管浏览器登录 GPT-GOD，按网站原生动态校验流程每日领取签到积分 |
 
 ### 群游戏（自建）
 

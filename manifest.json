@@ -1,11 +1,12 @@
 {
   "custom_plugin": {
     "name": "插件开发调试",
-    "version": "1.0.2",
+    "version": "1.0.3",
+    "scope": "both",
     "author": "AWdress",
     "description": "在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg",
-    "changelog": "v1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
+    "changelog": "v1.0.3 支持独立运行插件\n- 源码检查可以识别 standalone 范围\n- 独立运行插件不会自动挂载用户账号或机器人消息处理器\n\nv1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
     "path": "plugins/custom_plugin/"
   },
   "id": {
@@ -289,38 +290,42 @@
   },
   "awembypush": {
     "name": "AWEmbyPush",
-    "version": "1.5.7",
+    "version": "1.5.8",
+    "scope": "standalone",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
     "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
     "path": "plugins/awembypush/",
-    "changelog": "v1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留"
+    "changelog": "v1.5.8 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- Webhook 和原有通知功能保持不变\n\nv1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留"
   },
   "auto_subscribe": {
     "name": "自动订阅助手",
-    "version": "1.3.1",
+    "version": "1.3.2",
+    "scope": "standalone",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
+    "changelog": "v1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
     "path": "plugins/auto_subscribe/"
   },
   "awpulse": {
     "name": "AWPulse 色花堂助手",
-    "version": "1.1.3",
+    "version": "1.1.4",
+    "scope": "standalone",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png",
-    "changelog": "v1.1.3 修复 AI 回复无法提交\n- 修复 AI 生成回复后正则模块被局部变量遮蔽的问题\n- AI 回复通过审核后可以继续填写并提交到帖子\n\nv1.1.2 支持自定义 AI 回复拦截词\n- AI 设置新增自定义拦截词，可按换行或逗号分隔\n- 自定义词与内置审核规则合并，命中后自动降级为本地规则回复\n\nv1.1.1 加固 AI 回复发送前审核\n- 拦截“无法检索到相关内容”等能力声明、搜索失败和内容获取失败话术\n- AI 服务与最终发送路径执行双重校验，命中后按生成失败降级到本地规则回复\n\nv1.1.0 接入平台统一 AI\n- AI 回复、帖子类型识别和自动发帖辅助统一使用 ctx.ai\n- 删除插件自带接口类型、地址、密钥、模型、超时及测试连接配置\n- 保留回复发送前审核与本地规则降级\n\nv1.0.2 修复定时任务无反馈\n- 补全运行结果通知的默认配置，默认开启通知\n- 定时触发后立即记录日志，跳过原因同步写入运行状态\n- 运行状态页显示调度器返回的实际下次运行时间\n\nv1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
+    "changelog": "v1.1.4 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器自动化、平台 AI 和通知功能保持不变\n\nv1.1.3 修复 AI 回复无法提交\n- 修复 AI 生成回复后正则模块被局部变量遮蔽的问题\n- AI 回复通过审核后可以继续填写并提交到帖子\n\nv1.1.2 支持自定义 AI 回复拦截词\n- AI 设置新增自定义拦截词，可按换行或逗号分隔\n- 自定义词与内置审核规则合并，命中后自动降级为本地规则回复\n\nv1.1.1 加固 AI 回复发送前审核\n- 拦截“无法检索到相关内容”等能力声明、搜索失败和内容获取失败话术\n- AI 服务与最终发送路径执行双重校验，命中后按生成失败降级到本地规则回复\n\nv1.1.0 接入平台统一 AI\n- AI 回复、帖子类型识别和自动发帖辅助统一使用 ctx.ai\n- 删除插件自带接口类型、地址、密钥、模型、超时及测试连接配置\n- 保留回复发送前审核与本地规则降级\n\nv1.0.2 修复定时任务无反馈\n- 补全运行结果通知的默认配置，默认开启通知\n- 定时触发后立即记录日志，跳过原因同步写入运行状态\n- 运行状态页显示调度器返回的实际下次运行时间\n\nv1.0.1 增加 AI 回复发送前审核\n- 拦截拒答、免责声明、替代模板和超过50字的异常回复\n- 审核不通过时按生成失败降级到本地规则回复",
     "path": "plugins/awpulse/"
   },
   "gptgod_checkin": {
     "name": "GPT-GOD 自动签到",
-    "version": "1.1.1",
+    "version": "1.1.2",
+    "scope": "standalone",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
     "icon": "https://gptgod.online/favicon.ico",
-    "changelog": "v1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "path": "plugins/gptgod_checkin.py"
   },
   "awrelay": {

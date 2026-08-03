@@ -61,7 +61,7 @@ __plugin__ = {
     "name": "示例功能",
     "id": "my_feature",
     "version": "1.0.0",
-    "scope": "user",  # user | bot | both
+    "scope": "user",  # user | bot | both | standalone
     "author": "AWdress",
     "description": "功能说明",
     "icon": "",
@@ -87,6 +87,8 @@ Required metadata fields:
 - `id`
 - `version`
 - `scope`
+
+Choose `standalone` when the plugin does not depend on a Telegram user account or bot, such as scheduled jobs, webhooks, external APIs, or browser automation. A standalone plugin can still use configuration, storage, platform AI, notifications, and scheduling, but an `auto` Telegram handler target mounts to no account. Use `user`, `bot`, or `both` if the plugin listens for Telegram messages.
 
 Common optional fields:
 

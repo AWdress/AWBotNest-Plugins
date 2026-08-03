@@ -9,13 +9,13 @@ import traceback
 __plugin__ = {
     "name": "插件开发调试",
     "id": "custom_plugin",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "scope": "both",
     "default_enabled": False,
     "description": "在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg",
-    "changelog": "v1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
+    "changelog": "v1.0.3 支持独立运行插件\n- 源码检查可以识别 standalone 范围\n- 独立运行插件不会自动挂载用户账号或机器人消息处理器\n\nv1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
     "render_mode": "vue",
     "webhook": True,
 }
@@ -103,7 +103,7 @@ class _StagedContext:
 
     def __init__(self, real_ctx, source_scope: str = "user", custom_config: dict | None = None):
         self._real = real_ctx
-        self._source_scope = source_scope if source_scope in {"user", "bot", "both"} else "user"
+        self._source_scope = source_scope if source_scope in {"user", "bot", "both", "standalone"} else "user"
         self._custom_config = dict(custom_config or {})
         self._staged: list[tuple[str, tuple, dict, object]] = []
         self._cleanups: list[object] = []
@@ -207,8 +207,8 @@ class _StagedContext:
 def _source_scope(namespace: dict) -> str:
     meta = namespace.get("__plugin__")
     scope = str(meta.get("scope", "user")) if isinstance(meta, dict) else "user"
-    if scope not in {"user", "bot", "both"}:
-        raise ValueError("__plugin__.scope 只支持 user、bot 或 both")
+    if scope not in {"user", "bot", "both", "standalone"}:
+        raise ValueError("__plugin__.scope 只支持 user、bot、both 或 standalone")
     return scope
 
 
