@@ -38,15 +38,6 @@ __plugin__ = {
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
     "config_schema": {
-        "enabled": {
-            "type": "boolean", "default": True, "label": "启用插件",
-            "section": "基本开关", "cols": 6, "order": 1,
-        },
-        "auto_delete_command": {
-            "type": "boolean", "default": True, "label": "自动删除命令消息",
-            "section": "基本开关", "cols": 6, "order": 2,
-        },
-
         "enable_episode_fix": {
             "type": "boolean", "default": True, "label": "剧集季集校验/修复",
             "section": "功能开关", "cols": 3, "order": 10,
@@ -254,9 +245,7 @@ DEFAULT_LANGUAGE = '其他语种'
 def _cfg(ctx) -> Dict[str, Any]:
     c = ctx.config
     return {
-        'enabled': bool(c.get('enabled', True)),
         'emby_server': str(c.get('emby_server', '') or '').strip(),
-        'api_key': str(c.get('api_key', '') or '').strip(),
         'user_id': str(c.get('user_id', '') or '').strip(),
         'tmdb_key': str(c.get('tmdb_key', '') or '').strip(),
         'library_names': str(c.get('library_names', '') or ''),
