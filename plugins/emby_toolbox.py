@@ -28,12 +28,12 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
-    "scope": "user",
+    "changelog": "v1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "scope": "standalone",
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
     "config_schema": {
@@ -41,11 +41,6 @@ __plugin__ = {
             "type": "boolean", "default": True, "label": "启用插件",
             "section": "功能开关", "cols": 3, "order": 1,
         },
-        "auto_delete_command": {
-            "type": "boolean", "default": True, "label": "自动删除命令消息",
-            "section": "功能开关", "cols": 3, "order": 2,
-        },
-
         "enable_episode_fix": {
             "type": "boolean", "default": True, "label": "启用剧集季集校验/修复",
             "section": "功能开关", "cols": 4, "order": 10,
@@ -246,7 +241,6 @@ def _cfg(ctx) -> Dict[str, Any]:
     c = ctx.config
     return {
         'enabled': bool(c.get('enabled', True)),
-        'auto_delete_command': bool(c.get('auto_delete_command', True)),
         'emby_server': str(c.get('emby_server', '') or '').strip(),
         'api_key': str(c.get('api_key', '') or '').strip(),
         'user_id': str(c.get('user_id', '') or '').strip(),
@@ -878,18 +872,6 @@ def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
     return '\n'.join(lines)
 
 
-def _auto_delete(ctx, message):
-    if not ctx.config.get('auto_delete_command', True):
-        return
-    async def _run():
-        try:
-            await message.delete()
-        except Exception:
-            pass
-    import asyncio
-    asyncio.create_task(_run())
-
-
 async def setup(ctx):
     # 定时任务
     if ctx.config.get('enable_auto_schedule', False):
@@ -1081,33 +1063,6 @@ async def setup(ctx):
             return {'ok': True, 'message': summary}
         except Exception as e:
             return {'ok': False, 'message': f'执行失败：{e}'}
-
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-11)
-    async def emby_toolbox_cmd(client, message):
-        cfg = _cfg(ctx)
-        if not cfg['enabled']:
-            return
-        text = (message.text or '').strip().lower()
-        if text not in ('/embytoolbox', '.embytoolbox', '/embycheck', '.embycheck'):
-            return
-        _auto_delete(ctx, message)
-        try:
-            if cfg['enable_episode_fix']:
-                mismatches, checked = _episode_collect(cfg)
-                summary = _episode_summary(mismatches, checked, cfg['max_output'])
-            else:
-                summary = '插件已启用，但剧集季集校验功能当前关闭。请在配置中开启相应功能或直接使用 action 按钮。'
-            _set_last_summary(ctx, summary)
-            try:
-                await message.edit(summary[:4000])
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                await message.edit(f'执行失败：{e}')
-            except Exception:
-                pass
-
 
 async def teardown(ctx):
     ctx.log.info('[emby_toolbox] 插件已停用')
