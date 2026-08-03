@@ -40,39 +40,52 @@ __plugin__ = {
     "config_schema": {
         "enabled": {
             "type": "boolean", "default": True, "label": "启用插件",
-            "section": "功能开关", "cols": 3, "order": 1,
+            "section": "基本开关", "cols": 6, "order": 1,
         },
+        "auto_delete_command": {
+            "type": "boolean", "default": True, "label": "自动删除命令消息",
+            "section": "基本开关", "cols": 6, "order": 2,
+        },
+
         "enable_episode_fix": {
-            "type": "boolean", "default": True, "label": "启用剧集季集校验/修复",
-            "section": "功能开关", "cols": 4, "order": 10,
+            "type": "boolean", "default": True, "label": "剧集季集校验/修复",
+            "section": "功能开关", "cols": 3, "order": 10,
+            "help": "按文件名修正季集号",
         },
         "enable_delete_episode_genre": {
-            "type": "boolean", "default": False, "label": "启用删除单集 Genre",
-            "section": "功能开关", "cols": 4, "order": 11,
+            "type": "boolean", "default": False, "label": "删除单集 Genre",
+            "section": "功能开关", "cols": 3, "order": 11,
+            "help": "清理剧集单集的 Genre",
         },
         "enable_genre_mapper": {
-            "type": "boolean", "default": False, "label": "启用 Genre 映射",
-            "section": "功能开关", "cols": 4, "order": 12,
+            "type": "boolean", "default": False, "label": "Genre 映射",
+            "section": "功能开关", "cols": 3, "order": 12,
+            "help": "替换/删除指定 Genre",
         },
         "enable_season_renamer": {
-            "type": "boolean", "default": False, "label": "启用季名刮削",
-            "section": "功能开关", "cols": 4, "order": 13,
+            "type": "boolean", "default": False, "label": "季名刮削",
+            "section": "功能开关", "cols": 3, "order": 13,
+            "help": "从 TMDB 获取季名",
         },
         "enable_country_scraper": {
-            "type": "boolean", "default": False, "label": "启用国家/语言 Tag",
-            "section": "功能开关", "cols": 4, "order": 14,
+            "type": "boolean", "default": False, "label": "国家/语言标签",
+            "section": "功能开关", "cols": 3, "order": 14,
+            "help": "转换为标签",
         },
         "enable_alt_renamer": {
-            "type": "boolean", "default": False, "label": "启用别名写入 SortName",
-            "section": "功能开关", "cols": 4, "order": 15,
+            "type": "boolean", "default": False, "label": "别名写入",
+            "section": "功能开关", "cols": 3, "order": 15,
+            "help": "写入中文别名",
         },
         "enable_strm_mediainfo": {
-            "type": "boolean", "default": False, "label": "启用 STRM MediaInfo 刷新",
-            "section": "功能开关", "cols": 4, "order": 16,
+            "type": "boolean", "default": False, "label": "STRM 刷新",
+            "section": "功能开关", "cols": 3, "order": 16,
+            "help": "刷新媒体信息",
         },
         "enable_damaged_check": {
-            "type": "boolean", "default": False, "label": "启用元数据缺失检查",
-            "section": "功能开关", "cols": 4, "order": 17,
+            "type": "boolean", "default": False, "label": "元数据检查",
+            "section": "功能开关", "cols": 3, "order": 17,
+            "help": "检测缺失元数据",
         },
 
         "emby_server": {
