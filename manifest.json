@@ -348,11 +348,12 @@
   },
   "emby_toolbox": {
     "name": "Emby 工具箱",
-    "version": "1.1.1",
+    "version": "1.1.2",
+    "scope": "user",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "changelog": "v1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
     "path": "plugins/emby_toolbox.py"
   }
 }
