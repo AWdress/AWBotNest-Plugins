@@ -246,6 +246,7 @@ def _cfg(ctx) -> Dict[str, Any]:
     c = ctx.config
     return {
         'emby_server': str(c.get('emby_server', '') or '').strip(),
+        'api_key': str(c.get('api_key', '') or '').strip(),
         'user_id': str(c.get('user_id', '') or '').strip(),
         'tmdb_key': str(c.get('tmdb_key', '') or '').strip(),
         'library_names': str(c.get('library_names', '') or ''),
