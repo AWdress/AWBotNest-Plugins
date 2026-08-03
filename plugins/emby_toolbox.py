@@ -17,6 +17,7 @@
 # - 所有 Emby 写操作默认可选锁定数据，尽量减少后续被刮削覆盖。
 # =============================================================================
 
+import asyncio
 import json
 import os
 import re
@@ -28,11 +29,11 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "changelog": "v1.1.4 操作按钮改为后台运行\n- 点击扫描、修复、刮削等长时操作后立即返回，不再卡住配置页\n- 后台执行完成后更新状态摘要并写入插件日志\n- 同一时间只运行一个手动维护任务，防止重复点击并发修改 Emby\n\nv1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
     "scope": "standalone",
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
@@ -873,6 +874,49 @@ def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
 
 
 async def setup(ctx):
+    active_action_task = None
+
+    def _cancel_active_action():
+        nonlocal active_action_task
+        if active_action_task is not None and not active_action_task.done():
+            active_action_task.cancel()
+
+    ctx.add_cleanup(_cancel_active_action)
+
+    async def _start_action(label, worker, *, need_tmdb=False):
+        """校验配置后将耗时维护操作放入后台线程。"""
+        nonlocal active_action_task
+        if active_action_task is not None and not active_action_task.done():
+            return {'ok': False, 'message': '已有手动维护任务正在后台运行，请稍后再试。'}
+
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg, need_tmdb=need_tmdb)
+        if not ok:
+            return {'ok': False, 'message': msg}
+
+        async def _run():
+            nonlocal active_action_task
+            ctx.log.info('[emby_toolbox] 手动任务开始: %s', label)
+            try:
+                summary = await asyncio.to_thread(worker, cfg)
+                _set_last_summary(ctx, f'{label}\n{summary}')
+                ctx.log.info('[emby_toolbox] 手动任务完成: %s: %s', label, summary)
+            except asyncio.CancelledError:
+                ctx.log.info('[emby_toolbox] 手动任务已取消: %s', label)
+                raise
+            except Exception as exc:
+                summary = f'{label}失败：{exc}'
+                _set_last_summary(ctx, summary)
+                ctx.log.error('[emby_toolbox] %s', summary)
+            finally:
+                active_action_task = None
+
+        active_action_task = asyncio.create_task(_run(), name=f'emby_toolbox:{label}')
+        return {
+            'ok': True,
+            'message': f'已在后台开始“{label}”，可在状态摘要或插件日志查看结果。',
+        }
+
     # 定时任务
     if ctx.config.get('enable_auto_schedule', False):
         schedule_cron = ctx.config.get('schedule_cron', '0 3 * * *')
@@ -937,10 +981,12 @@ async def setup(ctx):
         if not ok:
             return {'ok': False, 'message': msg}
         try:
-            user_id = _resolve_user_id(cfg)
-            r = requests.get(f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}", headers=_headers(cfg['api_key']), params={'api_key': cfg['api_key']}, timeout=30)
-            r.raise_for_status()
-            summary = f'连接成功，用户 ID：{user_id}'
+            def _test():
+                user_id = _resolve_user_id(cfg)
+                r = requests.get(f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}", headers=_headers(cfg['api_key']), params={'api_key': cfg['api_key']}, timeout=30)
+                r.raise_for_status()
+                return f'连接成功，用户 ID：{user_id}'
+            summary = await asyncio.to_thread(_test)
             _set_last_summary(ctx, summary)
             return {'ok': True, 'message': summary}
         except Exception as e:
@@ -948,121 +994,42 @@ async def setup(ctx):
 
     @ctx.action('scan_episode_mismatch')
     async def action_scan_episode_mismatch():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
+        def _scan(cfg):
             mismatches, checked = _episode_collect(cfg)
-            summary = _episode_summary(mismatches, checked, cfg['max_output'])
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'扫描失败：{e}'}
+            return _episode_summary(mismatches, checked, cfg['max_output'])
+        return await _start_action('扫描剧集季集不匹配', _scan)
 
     @ctx.action('fix_episode_mismatch')
     async def action_fix_episode_mismatch():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _episode_fix(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'自动修复失败：{e}'}
+        return await _start_action('按文件名修复剧集季集', lambda cfg: _episode_fix(cfg, ctx))
 
     @ctx.action('run_delete_episode_genre')
     async def action_delete_episode_genre():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _delete_episode_genre(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('删除单集 Genre', lambda cfg: _delete_episode_genre(cfg, ctx))
 
     @ctx.action('run_genre_mapper')
     async def action_genre_mapper():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _genre_mapper(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行 Genre 映射', lambda cfg: _genre_mapper(cfg, ctx))
 
     @ctx.action('run_season_renamer')
     async def action_season_renamer():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg, need_tmdb=True)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _season_renamer(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行季名刮削', lambda cfg: _season_renamer(cfg, ctx), need_tmdb=True)
 
     @ctx.action('run_country_scraper')
     async def action_country_scraper():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg, need_tmdb=True)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _country_scraper(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行国家/语言 Tag', lambda cfg: _country_scraper(cfg, ctx), need_tmdb=True)
 
     @ctx.action('run_alt_renamer')
     async def action_alt_renamer():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg, need_tmdb=True)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _alt_renamer(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行别名写入', lambda cfg: _alt_renamer(cfg, ctx), need_tmdb=True)
 
     @ctx.action('run_strm_mediainfo')
     async def action_strm_mediainfo():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _strm_mediainfo(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行 STRM MediaInfo 刷新', lambda cfg: _strm_mediainfo(cfg, ctx))
 
     @ctx.action('run_damaged_check')
     async def action_damaged_check():
-        cfg = _cfg(ctx)
-        ok, msg = _validate_basic(cfg)
-        if not ok:
-            return {'ok': False, 'message': msg}
-        try:
-            summary = _damaged_check(cfg)
-            _set_last_summary(ctx, summary)
-            return {'ok': True, 'message': summary}
-        except Exception as e:
-            return {'ok': False, 'message': f'执行失败：{e}'}
+        return await _start_action('执行元数据缺失检查', lambda cfg: _damaged_check(cfg, ctx))
 
 async def teardown(ctx):
     ctx.log.info('[emby_toolbox] 插件已停用')
