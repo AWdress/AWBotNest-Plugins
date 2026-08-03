@@ -346,8 +346,10 @@ def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str,
 
 def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     item_id = str(item['Id'])
-    url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}?api_key={cfg['api_key']}"
-    r = requests.post(url, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+    base = _base_url(cfg['emby_server'])
+    url = f"{base}/emby/Items/{item_id}"
+    params = {'api_key': cfg['api_key']}
+    r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
     r.raise_for_status()
 
 
