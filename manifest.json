@@ -348,7 +348,7 @@
   },
   "emby_toolbox": {
     "name": "Emby 工具箱",
-    "version": "1.1.5",
+    "version": "1.2.0",
     "scope": "standalone",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
