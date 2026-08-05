@@ -12,11 +12,11 @@ import time
 __plugin__ = {
     "name": "消息转发",
     "id": "msg_forward",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型/关键词/发送者过滤、原生转发或复制搬运。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
-    "changelog": "v1.0.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.3 显示群组/频道名称\n- 转发日志同时显示来源和目标会话名称，保留 ID 便于排查\n- 配置保存后自动解析已填写的会话 ID，在设置页显示名称\n\nv1.0.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -29,6 +29,10 @@ __plugin__ = {
             "type": "boolean", "default": True, "label": "整组转发相册",
             "cols": 3, "order": 2, "section": "功能开关",
             "help": "相册（多图/多视频）整组一起转；关闭则每个文件单独转。",
+        },
+        "resolved_chat_names": {
+            "type": "info", "label": "已识别会话名称", "order": 9, "section": "规则",
+            "help": "保存配置后自动从账号会话列表解析名称；解析失败时保留会话 ID。",
         },
         "rules": {
             "type": "list", "default": [], "label": "转发规则", "item_label": "规则",
@@ -64,6 +68,8 @@ _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 
 def _split(raw) -> list[str]:
+    if isinstance(raw, (list, tuple, set)):
+        return [str(x).strip() for x in raw if str(x).strip()]
     return [x.strip() for x in str(raw or "").replace("，", ",").split(",") if x.strip()]
 
 
@@ -78,6 +84,69 @@ def _normalize(raw):
         return int(s)
     except ValueError:
         return None
+
+
+def _chat_label(chat_id, chat=None) -> str:
+    """Return a readable Telegram chat name, falling back to the ID."""
+    if chat is not None:
+        title = getattr(chat, "title", None)
+        if title:
+            return str(title)
+        first = getattr(chat, "first_name", None) or ""
+        last = getattr(chat, "last_name", None) or ""
+        name = " ".join(x for x in (first, last) if x).strip()
+        if name:
+            return name
+        username = getattr(chat, "username", None)
+        if username:
+            return f"@{username}"
+    return str(chat_id)
+
+
+async def _resolve_chat_label(client, chat_id, cache: dict) -> str:
+    key = str(chat_id)
+    if key in cache:
+        return cache[key]
+    try:
+        chat = await client.get_chat(chat_id)
+        label = _chat_label(chat_id, chat)
+    except Exception:  # noqa: BLE001
+        label = str(chat_id)
+    if label != str(chat_id):
+        cache[key] = label
+    return label
+
+
+async def _refresh_config_names(ctx, cache: dict) -> None:
+    """Resolve configured IDs once so the native settings form can show names."""
+    values = []
+    for rule in (ctx.config.get("rules") or []):
+        if not isinstance(rule, dict):
+            continue
+        for key in ("source", "targets"):
+            for raw in _split(rule.get(key)):
+                value = _normalize(raw)
+                if value is not None:
+                    values.append(value)
+    if not values:
+        return
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    if not apps:
+        return
+    labels = []
+    seen = set()
+    for value in values:
+        if str(value) in seen:
+            continue
+        seen.add(str(value))
+        label = str(value)
+        for client in apps:
+            label = await _resolve_chat_label(client, value, cache)
+            if label != str(value):
+                break
+        labels.append(f"{label} ({value})")
+    if labels:
+        ctx.update_config({"resolved_chat_names": ", ".join(labels)})
 
 
 def _has_media(message) -> bool:
@@ -162,7 +231,7 @@ async def _forward(client, message, tgt, copy, album, album_ids):
             await client.forward_messages(tgt, src_id, message.id)
 
 
-async def _process(client, cfg, rules, message, seen, ctx):
+async def _process(client, cfg, rules, message, seen, ctx, name_cache):
     gid = getattr(message, "media_group_id", None)
     album = bool(gid) and cfg.get("forward_album", True)
 
@@ -198,14 +267,26 @@ async def _process(client, cfg, rules, message, seen, ctx):
         for tgt in targets:
             try:
                 await _forward(client, message, tgt, copy, album, album_ids)
-                ctx.log.info("[消息转发] %s -> %s (%s)", message.chat.id, tgt,
+                source_name = _chat_label(message.chat.id, message.chat)
+                target_name = await _resolve_chat_label(client, tgt, name_cache)
+                ctx.log.info("[消息转发] %s (%s) -> %s (%s) (%s)",
+                             source_name, message.chat.id, target_name, tgt,
                              "copy" if copy else "fwd")
             except Exception as e:  # noqa: BLE001
-                ctx.log.warning("[消息转发] 转发失败 %s->%s: %r", message.chat.id, tgt, e)
+                source_name = _chat_label(message.chat.id, message.chat)
+                target_name = name_cache.get(str(tgt), str(tgt))
+                ctx.log.warning("[消息转发] 转发失败 %s (%s)->%s (%s): %r",
+                                source_name, message.chat.id, target_name, tgt, e)
 
 
 async def setup(ctx):
     seen: dict = {}  # media_group_id -> ts，防相册重复转
+    name_cache: dict = {}
+
+    try:
+        await _refresh_config_names(ctx, name_cache)
+    except Exception as e:  # noqa: BLE001
+        ctx.log.debug("[消息转发] 读取会话名称失败: %r", e)
 
     @ctx.on_message(ctx.filters.incoming, group=5)
     async def relay(client, message):
@@ -216,7 +297,7 @@ async def setup(ctx):
         if not rules:
             return
         try:
-            await _process(client, cfg, rules, message, seen, ctx)
+            await _process(client, cfg, rules, message, seen, ctx, name_cache)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[消息转发] 处理异常: %r", e)
 
