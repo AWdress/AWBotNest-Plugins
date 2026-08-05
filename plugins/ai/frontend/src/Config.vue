@@ -47,6 +47,7 @@ const group = ref('image')
 const loading = ref(true)
 const saving = ref(false)
 const cfg = reactive({ ...DEFAULTS })
+const chatNames = ref([])
 
 // 对话记忆
 const histories = ref([])
@@ -60,6 +61,7 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, DEFAULTS, saved || {})
+    await loadChatNames()
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
@@ -67,10 +69,18 @@ onMounted(async () => {
   }
 })
 
+async function loadChatNames() {
+  try {
+    const r = await props.host.callApi('/chat_names')
+    chatNames.value = r.items || []
+  } catch {}
+}
+
 async function save() {
   saving.value = true
   try {
     await props.host.saveConfig({ ...cfg })
+    await loadChatNames()
     props.host.toast.success('配置已保存')
   } catch (e) {
     props.host.toast.error('保存失败：' + (e.message || e))
@@ -194,6 +204,7 @@ function switchTab(t) {
               <label class="row switch"><input v-model="cfg.enable_group_chat" type="checkbox" /><span>群聊回复（群里 @你 或回复你的消息时对话）</span></label>
               <label v-if="cfg.enable_group_chat" class="row top"><span>生效群组</span>
                 <textarea v-model="cfg.group_chat_ids" class="inp" rows="2" placeholder="群ID逗号分隔，留空=所有群"></textarea></label>
+              <div v-if="chatNames.length" class="chat-names">已识别：<span v-for="item in chatNames" :key="item.id">{{ item.title }} ({{ item.id }})</span></div>
               <label class="row top"><span>人设</span>
                 <textarea v-model="cfg.system_prompt" class="inp" rows="8" placeholder="系统提示词"></textarea></label>
               <label class="row"><span>记忆轮数</span>
@@ -211,6 +222,7 @@ function switchTab(t) {
               <template v-if="cfg.enable_proactive">
                 <label class="row top"><span>搭话群组</span>
                   <textarea v-model="cfg.proactive_chat_ids" class="inp" rows="2" placeholder="群ID逗号分隔，必填"></textarea></label>
+                <div v-if="chatNames.length" class="chat-names">已识别：<span v-for="item in chatNames" :key="item.id">{{ item.title }} ({{ item.id }})</span></div>
                 <div class="grid">
                   <label class="row"><span>间隔最小</span><input v-model.number="cfg.proactive_min_minutes" class="inp sm" type="number" min="5" max="720" /><span class="hint">分钟</span></label>
                   <label class="row"><span>间隔最大</span><input v-model.number="cfg.proactive_max_minutes" class="inp sm" type="number" min="5" max="1440" /><span class="hint">分钟</span></label>
@@ -239,6 +251,7 @@ function switchTab(t) {
             <section class="card">
               <label class="row top"><span>会话白名单</span>
                 <textarea v-model="cfg.white_list_chats" class="inp" rows="2" placeholder="会话ID逗号分隔，留空=所有会话"></textarea></label>
+              <div v-if="chatNames.length" class="chat-names">已识别：<span v-for="item in chatNames" :key="item.id">{{ item.title }} ({{ item.id }})</span></div>
             </section>
           </template>
 
@@ -263,7 +276,7 @@ function switchTab(t) {
                     @click="openChat(h)">
               <div class="mem-h">
                 <span class="mem-type">{{ h.is_private ? '私聊' : '群' }}</span>
-                <span class="mem-id">{{ h.chat_id }}</span>
+                <span class="mem-id">{{ h.chat_title || h.chat_id }} ({{ h.chat_id }})</span>
               </div>
               <div class="mem-last">{{ h.last || '—' }}</div>
               <div class="mem-meta">{{ h.count }} 条 · <a class="lnk" @click.stop="clearChat(h)">清空</a></div>
@@ -311,6 +324,7 @@ function switchTab(t) {
 .row.switch span { min-width: 0; }
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
 .tip { margin: 0; font-size: 12px; color: var(--text-muted, #7a8291); line-height: 1.6; }
+.chat-names { margin: -4px 0 10px 82px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text-primary, #e8ebf0); }
 .inp { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 .inp.sm { flex: 0 0 auto; width: 90px; }
 textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }

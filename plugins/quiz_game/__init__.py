@@ -16,7 +16,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -75,6 +75,33 @@ def _valid_group(cfg, chat_id: int) -> bool:
         except (ValueError, TypeError):
             pass
     return True if not groups else chat_id in groups
+
+
+def _chat_name(chat, fallback) -> str:
+    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(fallback)
+
+
+async def _chat_name_items(ctx, raw) -> list[dict]:
+    values = []
+    for item in (raw if isinstance(raw, list) else _lines(raw)):
+        try:
+            value = int(item)
+        except (ValueError, TypeError):
+            continue
+        if value not in values:
+            values.append(value)
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    items = []
+    for value in values:
+        title = str(value)
+        for app in apps:
+            try:
+                title = _chat_name(await app.get_chat(value), value)
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        items.append({"id": value, "title": title})
+    return items
 
 
 async def _auto_del(message, delay: int = 30):
@@ -238,6 +265,10 @@ async def setup(ctx):
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):
         return {"history": list(_history)}
+
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx, _effective_cfg(ctx).get("valid_groups", ""))}
 
     @ctx.on_api("/update_config", methods=["POST"])
     async def _api_update_config(req):

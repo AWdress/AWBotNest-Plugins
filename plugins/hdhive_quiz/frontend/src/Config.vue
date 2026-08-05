@@ -13,6 +13,7 @@
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用自动答题</span></label>
           <label class="row"><span>发包 Bot ID</span><input v-model="cfg.bot_ids" class="inp" placeholder="留空=监听所有 bot，多个用逗号分隔" /></label>
           <label class="row"><span>监听群组 ID</span><input v-model="cfg.chat_ids" class="inp" placeholder="留空=监听所有群，多个用逗号分隔" /></label>
+          <div v-if="chatNames.length" class="chat-names"><span class="chat-label">已识别：</span><span v-for="item in chatNames" :key="item.id" class="chat-name">{{ item.title }} ({{ item.id }})</span></div>
           <label class="row"><span>回复格式</span><select v-model="cfg.reply_format" class="inp">
             <option value="content">选项原文（如：蜜蜂）</option>
             <option value="letter">选项字母（如：A）</option>
@@ -54,15 +55,16 @@
           <span class="muted">最近 {{ history.length }} 条</span>
         </div>
         <table class="tbl">
-          <thead><tr><th>时间</th><th>题目</th><th>答案</th><th>来源</th></tr></thead>
+          <thead><tr><th>时间</th><th>群组</th><th>题目</th><th>答案</th><th>来源</th></tr></thead>
           <tbody>
             <tr v-for="(h, i) in history" :key="i">
               <td class="muted">{{ h.time }}</td>
+              <td>{{ h.chat_title || h.chat_id || '-' }}</td>
               <td>{{ h.question }}</td>
               <td><b>{{ h.answer }}</b></td>
               <td><span :class="'src-' + h.source">{{ h.source === 'bank' ? '题库' : 'LLM' }}</span></td>
             </tr>
-            <tr v-if="!history.length"><td colspan="4" class="empty">暂无答题记录</td></tr>
+            <tr v-if="!history.length"><td colspan="5" class="empty">暂无答题记录</td></tr>
           </tbody>
         </table>
       </div>
@@ -85,11 +87,13 @@ const saving = ref(false)
 const status = ref({})
 const syncing = ref(false)
 const history = ref([])
+const chatNames = ref([])
 
 onMounted(() => {
   Object.assign(cfg.value, props.config || {})
   loadStatus()
   loadHistory()
+  loadChatNames()
   setInterval(loadStatus, 5000)
 })
 
@@ -97,6 +101,7 @@ async function save() {
   saving.value = true
   try {
     await props.api.post('/update_config', cfg.value)
+    await loadChatNames()
     saving.value = false
   } catch (e) {
     alert('保存失败：' + e.message)
@@ -130,6 +135,13 @@ async function loadHistory() {
     history.value = r.history || []
   } catch {}
 }
+
+async function loadChatNames() {
+  try {
+    const r = await props.api.get('/chat_names')
+    chatNames.value = r.items || []
+  } catch {}
+}
 </script>
 
 <style scoped>
@@ -147,6 +159,9 @@ async function loadHistory() {
 .inp, select.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
 .inp:disabled { opacity: 0.5; cursor: not-allowed; }
 .tip { font-size: 12px; color: var(--text-muted, #7a8291); margin: 4px 0 0 112px; line-height: 1.6; }
+.chat-names { margin: -4px 0 12px 112px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.chat-label { color: var(--text-muted, #7a8291); }
+.chat-name { color: var(--text-primary, #e8edf5); }
 .btn, .btn-primary, .btn-sm { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .btn-primary { background: var(--primary, #4a9eff); color: #fff; }
 .btn { background: var(--bg-card, #12141c); color: var(--text-primary, #e8edf5); border: 1px solid var(--border-light, #2a2e3a); margin-right: 8px; }

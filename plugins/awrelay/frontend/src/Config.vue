@@ -13,6 +13,7 @@
           <label class="row switch"><input v-model="cfg.enabled" type="checkbox" /><span>启用 AWRelay</span></label>
           <label class="row switch"><input v-model="cfg.startup_notify" type="checkbox" /><span>启动时在中转群发通知</span></label>
           <label class="row"><span>话题群组 ID</span><input v-model="cfg.group_id" class="inp" placeholder="超级群组 ID，如 -1001234567890" /></label>
+          <div v-if="status.group_title" class="chat-names">已识别：{{ status.group_title }} ({{ cfg.group_id || '-' }})</div>
           <label class="row"><span>管理员用户 ID</span><input v-model="cfg.admin_ids" class="inp" placeholder="留空允许群内成员，多个 ID 用逗号分隔" /></label>
         </div>
 
@@ -113,6 +114,7 @@ async function save() {
   saving.value = true
   try {
     await props.host.saveConfig({ ...cfg.value })
+    await loadStatus()
     props.host.toast.success('配置已保存')
   } catch (e) {
     props.host.toast.error('保存失败：' + (e.message || e))
@@ -157,6 +159,7 @@ async function toggleBan(topic) {
 .section h3 { font-size: 14px; color: var(--text-primary, #e8edf5); margin-bottom: 12px; }
 .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .row > span:first-child { min-width: 140px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
+.chat-names { margin: -4px 0 12px 152px; font-size: 12px; color: var(--text-primary, #e8edf5); }
 .row.switch { gap: 8px; }
 .row.switch span { min-width: auto; }
 .inp, textarea.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }

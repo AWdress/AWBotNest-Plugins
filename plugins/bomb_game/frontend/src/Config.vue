@@ -11,6 +11,7 @@
           <h3>群组设置</h3>
           <label class="row"><span>允许的群组</span><input v-model="cfg.valid_groups" class="inp" placeholder="留空=不限制，多个 ID 用逗号分隔" /></label>
           <label class="row"><span>临时停用的群</span><input v-model="cfg.monitor_disabled_groups" class="inp" placeholder="暂时禁止开启的群 ID" /></label>
+          <div v-if="chatNames.length" class="chat-names"><span class="chat-label">已识别：</span><span v-for="item in chatNames" :key="item.id" class="chat-name">{{ item.title }} ({{ item.id }})</span></div>
         </div>
 
         <div class="section">
@@ -88,21 +89,31 @@ const cfg = ref({
 const tab = ref('settings')
 const saving = ref(false)
 const games = ref([])
+const chatNames = ref([])
 
 onMounted(() => {
   Object.assign(cfg.value, props.config || {})
   loadGames()
+  loadChatNames()
 })
 
 async function save() {
   saving.value = true
   try {
     await props.api.post('/update_config', cfg.value)
+    await loadChatNames()
     saving.value = false
   } catch (e) {
     alert('保存失败：' + e.message)
     saving.value = false
   }
+}
+
+async function loadChatNames() {
+  try {
+    const r = await props.api.get('/chat_names')
+    chatNames.value = r.items || []
+  } catch {}
 }
 
 async function loadGames() {
@@ -127,6 +138,9 @@ async function loadGames() {
 .row.switch span { min-width: auto; }
 .row.indent { margin-left: 20px; }
 .row.indent > span:first-child { min-width: 120px; }
+.chat-names { margin: -4px 0 12px 152px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.chat-label { color: var(--text-muted, #7a8291); }
+.chat-name { color: var(--text-primary, #e8edf5); }
 .inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
 .btn, .btn-primary, .btn-sm { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .btn-primary { background: var(--primary, #4a9eff); color: #fff; }

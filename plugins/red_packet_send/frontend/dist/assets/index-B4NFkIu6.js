@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BCA2uNrN.js';
+import Config from './__federation_expose_Config-0ZoNfHoQ.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -43,48 +43,31 @@ true              &&(function polyfill() {
 const {createApp,h} = await importShared('vue');
 
 let store = {
-  auto_lottery_enabled: false, lottery_bot_id: '6461022460', auto_lottery_username: '',
-  auto_lottery_time: '', lottery_target_groups: [], custom_lottery_groups: [],
-  lottery_forward_enabled: false, lottery_forward_first_participant: false,
-  prize_list: '', only_listed_prizes: false, prize_case_sensitive: false,
-  trap_enabled: true, trap_case_sensitive: false, trap_enable_prize_pattern_check: true,
-  trap_enable_creator_blacklist: true, trap_enable_participant_check: true,
-  trap_max_participants: 1, trap_blacklist_creator_ids: '', trap_suspicious_keywords: '脚本,挂机,机器人',
-  lottery_wait_enabled: false, lottery_participate_wait_min: 25, lottery_participate_wait_max: 65,
-  lottery_thank_wait_min: 10, lottery_thank_wait_max: 45, lottery_heimu_wait_min: 20, lottery_heimu_wait_max: 40,
-  lottery_negative_wait_min: 10, lottery_negative_wait_max: 60, group_wait_overrides: '',
-  lottery_thank_message: false, thank_texts: '感谢{boss}大佬', username_reply_switch: false,
-  transfer_groups: [], lottery_heimu_message: false, heimu_texts: '黑幕',
-  lose_reply_switch: false, negative_texts: '怎么可能啊',
-  auto_prize_enabled: false, manual_prize_mode: false, prize_send_interval_enabled: true,
-  prize_send_interval_min: 2, prize_send_interval_max: 5, prize_send_blacklist: '',
-  notify_owner: true, notify_skips: false,
+  enabled: true, create_word: '创建红包', status_word: '红包状态', end_word: '结束红包',
+  code_length: 4, rotate_code: false,
+  max_amount: 0, max_count: 0, activity_timeout_minutes: 30, end_delete_delay: 10,
+  transfer_prefix: '+', congrats_text: '恭喜 {name} 抢到 {amount} 魔力！',
+  blacklist_ids: '',
 };
 
 const mockHost = {
-  pluginId: 'auto_lottery',
+  pluginId: 'red_packet_send',
   token: 'dev',
   async getConfig() { return { ...store } },
   async saveConfig(values) { store = { ...store, ...values }; console.log('[mock] save', store); },
   async callApi(path, opts = {}) {
     console.log('[mock] callApi', path, opts);
-    if (path.startsWith('/dialogs')) return {
+    if (path === '/activities') return {
       items: [
-        { id: -1001234567890, title: '某PT站抽奖群' },
-        { id: -1001234567891, title: '另一个抽奖群' },
+        { rp_id: 12, chat_id: -1001234567890, chat_title: '', total_amount: 500, packet_count: 10, remaining_count: 4, remaining_amount: 210, participants: 6, keyword: 'aB7k', status: '进行中', created: '2026-07-15 20:30' },
       ],
-    }
-    if (path === '/pending') return {
-      items: [
-        { lottery_id: 'abc12345-def6-7890', winners: 3, chat_title: '某PT站抽奖群', prize: '魔力', time: '2026-07-15 20:00' },
-      ],
-      count: 1,
     }
     if (path === '/history') return {
-      items: [{ lottery_id: 'xyz00000', total: 5, success: 5, failed: 0, time: '2026-07-15 18:00' }],
+      items: [
+        { rp_id: 11, chat_id: -1001234567890, chat_title: '示例红包群', total_amount: 300, packet_count: 5, participants: 5, distributed: 300, time: '2026-07-15 19:00' },
+      ],
     }
-    if (path === '/send') return { ok: true, message: '发奖完成：成功 3/3' }
-    if (path === '/clear') return { ok: true, cleared: 1 }
+    if (path === '/end') return { ok: true, message: '已结束' }
     return { ok: true }
   },
   toast: {

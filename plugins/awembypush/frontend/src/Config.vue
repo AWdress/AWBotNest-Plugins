@@ -49,6 +49,7 @@ const loading = ref(true)
 const saving = ref(false)
 const testing = ref(false)
 const cfg = reactive({ ...DEFAULTS })
+const tgChatName = ref('')
 
 const recent = ref([])
 const recentLoading = ref(false)
@@ -57,6 +58,7 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, DEFAULTS, saved || {})
+    await loadChatName()
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
@@ -68,12 +70,22 @@ async function save() {
   saving.value = true
   try {
     await props.host.saveConfig({ ...cfg })
+    await loadChatName()
     props.host.toast.success('配置已保存')
   } catch (e) {
     props.host.toast.error('保存失败：' + (e.message || e))
   } finally {
     saving.value = false
   }
+}
+
+async function loadChatName() {
+  tgChatName.value = ''
+  if (!cfg.tg_bot_token || !cfg.tg_chat_id) return
+  try {
+    const r = await props.host.callApi('/chat_name')
+    if (r.ok && r.title) tgChatName.value = `${r.title} (${r.id})`
+  } catch (_) { /* 名称解析失败时继续保留原 Chat ID */ }
 }
 
 async function testPush() {
@@ -166,6 +178,7 @@ function switchTab(t) {
           <template v-else-if="group === 'tg'">
             <h3 class="det-title">Telegram</h3>
             <section class="card">
+              <div v-if="tgChatName" class="chat-names">已识别：{{ tgChatName }}</div>
               <label class="row"><span>Bot Token</span><input v-model="cfg.tg_bot_token" class="inp" type="password" placeholder="@BotFather 获取，可填平台机器人 token" /></label>
               <label class="row"><span>Chat ID</span><input v-model="cfg.tg_chat_id" class="inp" placeholder="目标用户或群组 ID" /></label>
               <label class="row"><span>API Host</span><input v-model="cfg.tg_api_host" class="inp" placeholder="留空=官方；自建反代可改" /></label>
@@ -270,6 +283,7 @@ function switchTab(t) {
 
 .pane { display: flex; flex-direction: column; gap: 14px; }
 .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 10px; background: var(--bg-elevated, #1a1d27); border: 1px solid var(--border-light, #2a2e3a); }
+.chat-names { padding: 8px 10px; border-left: 3px solid var(--accent, #6ea8fe); color: var(--text-secondary, #b9c0cc); font-size: 13px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 20px; }
 .row { display: flex; align-items: center; gap: 10px; }
 .row.top { align-items: flex-start; }

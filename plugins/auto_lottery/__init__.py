@@ -43,7 +43,7 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -590,6 +590,21 @@ async def setup(ctx):
         items = []
         seen = set()
         apps = list(getattr(ctx, "user_apps", None) or [])
+        configured = set(_all_lottery_groups(ctx.config))
+        configured.update(parse_groups(ctx.config.get("transfer_groups", "")))
+        configured.update(parse_group_wait_overrides(
+            ctx.config.get("group_wait_overrides", "")
+        ))
+        for chat_id in configured:
+            for client in apps:
+                try:
+                    chat = await client.get_chat(chat_id)
+                    title = getattr(chat, "title", "") or str(chat_id)
+                    items.append({"id": chat_id, "title": title})
+                    seen.add(chat_id)
+                    break
+                except Exception:  # noqa: BLE001
+                    continue
         for client in apps:
             try:
                 async for d in client.get_dialogs():

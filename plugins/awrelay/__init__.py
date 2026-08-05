@@ -14,7 +14,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyPara
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.2.8",
+    "version": "1.2.9",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -464,8 +464,16 @@ async def setup(ctx):
     async def api_status(req):
         cfg = _cfg(ctx)
         topics = _topics(ctx)
+        target_id = _target_id(cfg)
+        group_title = str(target_id or "-")
+        if target_id and ctx.bot.connected:
+            try:
+                chat = await ctx.bot.raw.get_chat(target_id)
+                group_title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or group_title
+            except Exception:  # noqa: BLE001
+                pass
         return {"bot_running": bool(cfg["enabled"]), "bot_status": "运行中" if cfg["enabled"] else "已停止",
-                "group_title": str(_target_id(cfg) or "-"),
+                "group_title": group_title, "group_id": target_id,
                 "active_users": len(topics),
                 "total_topics": len(topics), "banned_users": len(_ids(ctx, "banned_users"))}
 

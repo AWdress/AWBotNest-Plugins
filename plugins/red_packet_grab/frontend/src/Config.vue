@@ -29,6 +29,7 @@ const saving = ref(false)
 const historyLoading = ref(false)
 const clearing = ref(false)
 const history = ref([])
+const chatNames = ref([])
 const status = ref({ ocr_available: false, active_count: 0 })
 const groupsText = computed({
   get: () => Array.isArray(cfg.target_groups) ? cfg.target_groups.join('\n') : String(cfg.target_groups || ''),
@@ -39,6 +40,7 @@ onMounted(async () => {
   try {
     Object.assign(cfg, DEFAULTS, await props.host.getConfig() || {})
     status.value = await props.host.callApi('/status')
+    await loadChatNames()
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally { loading.value = false }
@@ -48,6 +50,7 @@ async function save() {
   saving.value = true
   try {
     await props.host.saveConfig({ ...cfg })
+    await loadChatNames()
     props.host.toast.success('配置已保存')
   } catch (e) { props.host.toast.error('保存失败：' + (e.message || e)) }
   finally { saving.value = false }
@@ -64,6 +67,7 @@ async function loadHistory() {
     ])
     history.value = h.items || []
     status.value = s
+    await loadChatNames()
   } catch (e) { props.host.toast.error('读取记录失败：' + (e.message || e)) }
   finally { historyLoading.value = false }
 }
@@ -80,6 +84,18 @@ async function clearHistory() {
 function timeText(ts) {
   if (!ts) return '—'
   return new Date(Number(ts) * 1000).toLocaleString()
+}
+
+async function loadChatNames() {
+  try {
+    const r = await props.host.callApi('/chat_names')
+    chatNames.value = r.items || []
+  } catch {}
+}
+
+function nameOf(id) {
+  const item = chatNames.value.find(x => String(x.id) === String(id))
+  return item ? item.title : String(id)
 }
 </script>
 
@@ -110,6 +126,7 @@ function timeText(ts) {
               <p class="tip indent">验证码图片说明含任一关键词才尝试参与；正文拼手气红包按固定格式自动识别。</p>
               <label class="row top"><span>发包人白名单</span><textarea v-model="cfg.target_senders" class="inp" rows="4" placeholder="一行一个：用户ID 备注；留空不限" /></label>
               <label class="row top"><span>群组白名单</span><textarea v-model="groupsText" class="inp" rows="4" placeholder="一行一个群ID；留空不限" /></label>
+              <div v-if="chatNames.length" class="chat-names"><span class="chat-label">已识别：</span><span v-for="item in chatNames" :key="item.id" class="chat-name">{{ item.title }} ({{ item.id }})</span></div>
             </section>
           </template>
           <template v-else-if="group === 'recognize'">
@@ -146,8 +163,8 @@ function timeText(ts) {
       <div v-show="tab === 'history'" class="pane">
         <div class="summary"><div><b>{{ status.active_count || 0 }}</b><span>监听中</span></div><div><b>{{ history.length }}</b><span>中奖记录</span></div><div><b>{{ status.ocr_available ? '可用' : '不可用' }}</b><span>OCR</span></div></div>
         <div class="toolbar"><span class="muted">仅成功确认中奖后写入记录</span><span class="grow"/><button class="btn" @click="loadHistory">刷新</button><button class="btn danger" :disabled="clearing || !history.length" @click="clearHistory">清空</button></div>
-        <div class="table-wrap"><table><thead><tr><th>时间</th><th>群组ID</th><th>发包人</th><th>口令</th><th>方式</th><th>结果</th></tr></thead>
-          <tbody><tr v-for="(item, i) in history" :key="i"><td>{{ timeText(item.ts) }}</td><td>{{ item.group_id }}</td><td>{{ item.sender || '—' }}</td><td class="code">{{ item.code || '—' }}</td><td><span class="badge ok">{{ item.mode || '—' }}</span></td><td class="success">{{ item.ok ? '成功' : '失败' }}</td></tr>
+        <div class="table-wrap"><table><thead><tr><th>时间</th><th>群组</th><th>发包人</th><th>口令</th><th>方式</th><th>结果</th></tr></thead>
+          <tbody><tr v-for="(item, i) in history" :key="i"><td>{{ timeText(item.ts) }}</td><td>{{ nameOf(item.group_id) }} ({{ item.group_id }})</td><td>{{ item.sender || '—' }}</td><td class="code">{{ item.code || '—' }}</td><td><span class="badge ok">{{ item.mode || '—' }}</span></td><td class="success">{{ item.ok ? '成功' : '失败' }}</td></tr>
           <tr v-if="!historyLoading && !history.length"><td colspan="6" class="empty">暂无抢包记录</td></tr><tr v-if="historyLoading"><td colspan="6" class="empty">加载中…</td></tr></tbody></table></div>
       </div>
     </template>

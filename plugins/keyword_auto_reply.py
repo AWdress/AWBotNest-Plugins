@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -266,7 +266,9 @@ async def setup(ctx):
                     chat_id, _render(reply, message), reply_to_message_id=message.id
                 )
                 _schedule_delete(sent, delete_after)
-                ctx.log.info("[关键词回复] 命中 '%s' | 群组 %s", keyword, chat_id)
+                chat_name = getattr(message.chat, "title", None) or str(chat_id)
+                ctx.log.info("[关键词回复] 命中 '%s' | 群组 %s (%s)",
+                             keyword, chat_name, chat_id)
                 break  # 一条消息只回第一个命中的规则
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[关键词回复] 处理消息出错: %r", e)

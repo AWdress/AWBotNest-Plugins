@@ -205,7 +205,7 @@ function switchTab(t) {
               <tbody>
                 <tr v-for="(h, i) in history" :key="i">
                   <td class="mono">#{{ h.rp_id }}</td>
-                  <td class="muted">{{ h.chat_id }}</td>
+                  <td>{{ h.chat_title || h.chat_id }} <span class="muted">({{ h.chat_id }})</span></td>
                   <td>{{ h.total_amount }}</td>
                   <td>{{ h.packet_count }}</td>
                   <td>{{ h.participants }}</td>

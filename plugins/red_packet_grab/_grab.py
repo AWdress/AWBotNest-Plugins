@@ -99,6 +99,16 @@ class Grabber:
         self._active: dict[tuple[int, int], _Packet] = {}
         # key=(group_id, msg_id) -> (候选口令, 所回复的红包消息ID或0)
         self._candidates: dict[tuple[int, int], tuple[str, int]] = {}
+        self._chat_names: dict[int, str] = {}
+
+    def _remember_chat(self, chat) -> str:
+        group_id = chat.id
+        title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(group_id)
+        self._chat_names[group_id] = title
+        return f"{title} ({group_id})"
+
+    def _chat_label(self, group_id: int) -> str:
+        return f"{self._chat_names.get(group_id, group_id)} ({group_id})"
 
     async def handle_plaintext_packet(
         self, client, message, sender_name: str, command: str,
@@ -106,6 +116,7 @@ class Grabber:
     ) -> None:
         """收到正文已直接给出口令的拼手气红包后立即参与。"""
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         packet_id = message.id
         fu = message.from_user
         sender_id = fu.id if fu else 0
@@ -121,8 +132,8 @@ class Grabber:
         pkt.mode = "正文口令"
         self._active[(group_id, packet_id)] = pkt
         self._log.info(
-            "[自动抢红包] 识别到正文拼手气红包 chat=%s msg=%s，立即发送口令",
-            group_id, packet_id,
+            "[自动抢红包] 识别到正文拼手气红包 %s msg=%s，立即发送口令",
+            chat_label, packet_id,
         )
         await self._send_answer(client, pkt, command, join_delay, notify)
 
@@ -133,6 +144,7 @@ class Grabber:
         min_len: int, max_len: int, ttl_secs: int, keep_for_retry: bool = False,
     ) -> None:
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         packet_id = message.id
         fu = message.from_user
         sender_id = fu.id if fu else 0
@@ -150,8 +162,8 @@ class Grabber:
             if not keep_for_retry or pkt is None or pkt.answered:
                 return
             self._log.info(
-                "[自动抢红包] 红包图片已更新，重新 OCR chat=%s msg=%s",
-                group_id, packet_id,
+                "[自动抢红包] 红包图片已更新，重新 OCR %s msg=%s",
+                chat_label, packet_id,
             )
         else:
             self._records.mark_handled(packet_key)
@@ -182,22 +194,23 @@ class Grabber:
         reason = "OCR 关闭" if not ocr_enabled else "OCR 不可用/识别失败"
         if copy_enabled:
             self._log.info(
-                "[自动抢红包] chat=%s msg=%s %s，转复制兜底（等他人口令被确认）",
-                group_id, packet_id, reason)
+                "[自动抢红包] %s msg=%s %s，转复制兜底（等他人口令被确认）",
+                chat_label, packet_id, reason)
         elif keep_for_retry:
             self._log.info(
-                "[自动抢红包] chat=%s msg=%s %s，保留动态图片红包等待更新后重试",
-                group_id, packet_id, reason,
+                "[自动抢红包] %s msg=%s %s，保留动态图片红包等待更新后重试",
+                chat_label, packet_id, reason,
             )
         else:
             self._log.info(
-                "[自动抢红包] chat=%s msg=%s %s 且复制兜底关闭，放弃",
-                group_id, packet_id, reason)
+                "[自动抢红包] %s msg=%s %s 且复制兜底关闭，放弃",
+                chat_label, packet_id, reason)
             self._active.pop((group_id, packet_id), None)
 
     # —— 群内普通文本：缓存他人可能的口令（复制兜底用）——
     async def handle_group_text(self, client, message, min_len: int, max_len: int) -> None:
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         # 该群没有进行中的红包就不缓存
         if not any(g == group_id for (g, _p) in self._active):
             return
@@ -214,8 +227,8 @@ class Grabber:
         packet_hint = reply_to_id if (group_id, reply_to_id) in self._active else 0
         self._candidates[(group_id, message.id)] = (text, packet_hint)
         self._log.debug(
-            "[自动抢红包] 已缓存候选口令 chat=%s msg=%s packet_hint=%s code=%r",
-            group_id, message.id, packet_hint, text,
+            "[自动抢红包] 已缓存候选口令 %s msg=%s packet_hint=%s code=%r",
+            chat_label, message.id, packet_hint, text,
         )
         # 控制缓存规模
         if len(self._candidates) > 500:
@@ -229,6 +242,7 @@ class Grabber:
         min_len: int, max_len: int,
     ) -> None:
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         reply_to_id = getattr(message, "reply_to_message_id", None)
         if not reply_to_id:
             return
@@ -241,10 +255,11 @@ class Grabber:
         # 路径 A：回复的是「我们发出的口令」→ 确认我方中奖
         for key, pkt in list(self._active.items()):
             if pkt.our_sent_id and reply_to_id == pkt.our_sent_id:
-                self._log.info("[自动抢红包] 口令确认中奖 chat=%s 口令=%r 模式=%s",
-                               group_id, pkt.our_code, pkt.mode)
+                self._log.info("[自动抢红包] 口令确认中奖 %s 口令=%r 模式=%s",
+                               chat_label, pkt.our_code, pkt.mode)
                 self._records.add_history({
                     "group_id": group_id, "sender": pkt.sender_name,
+                    "group_title": self._chat_names.get(group_id, str(group_id)),
                     "code": pkt.our_code, "mode": pkt.mode, "ok": True,
                 })
                 if notify:
@@ -266,8 +281,8 @@ class Grabber:
             packet_hint = self._packet_hint_from_reply(message, group_id)
         if not code:
             self._log.debug(
-                "[自动抢红包] 收到中奖确认但未取得被回复口令 chat=%s reply_to=%s",
-                group_id, reply_to_id,
+                "[自动抢红包] 收到中奖确认但未取得被回复口令 %s reply_to=%s",
+                chat_label, reply_to_id,
             )
             return
         confirmer = message.from_user
@@ -275,8 +290,8 @@ class Grabber:
         pkt = self._pick_unanswered(group_id, confirmer_id, packet_hint)
         if pkt is None:
             self._log.debug(
-                "[自动抢红包] 已取得正确口令但没有匹配的待参与红包 chat=%s code=%r",
-                group_id, code,
+                "[自动抢红包] 已取得正确口令但没有匹配的待参与红包 %s code=%r",
+                chat_label, code,
             )
             return
         pkt.mode = "复制"
@@ -302,8 +317,8 @@ class Grabber:
             pkt.answered = False  # 允许后续复制兜底再试
             return
 
-        self._log.info("[自动抢红包] 已发口令 chat=%s packet=%s 口令=%r 模式=%s",
-                       pkt.group_id, pkt.packet_id, code, pkt.mode)
+        self._log.info("[自动抢红包] 已发口令 %s packet=%s 口令=%r 模式=%s",
+                       self._chat_label(pkt.group_id), pkt.packet_id, code, pkt.mode)
         if notify:
             await self._safe_notify(
                 f"自动抢红包-已发口令\n发包人: {pkt.sender_name}\n"
@@ -378,8 +393,8 @@ class Grabber:
             return self._candidate_text(replied, min_len, max_len) if replied else ""
         except Exception as exc:  # noqa: BLE001
             self._log.debug(
-                "[自动抢红包] 回查被回复口令失败 chat=%s msg=%s: %r",
-                message.chat.id, message.reply_to_message_id, exc,
+                "[自动抢红包] 回查被回复口令失败 %s msg=%s: %r",
+                self._remember_chat(message.chat), message.reply_to_message_id, exc,
             )
             return ""
 
@@ -425,6 +440,7 @@ class Grabber:
     def clear(self) -> None:
         self._active.clear()
         self._candidates.clear()
+        self._chat_names.clear()
 
     def active_count(self) -> int:
         self._sweep_expired()

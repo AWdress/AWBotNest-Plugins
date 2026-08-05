@@ -30,7 +30,7 @@ from ._quiz import (
 __plugin__ = {
     "name": "影巢答题红包",
     "id": "hdhive_quiz",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -80,6 +80,27 @@ def _parse_ids(raw: str) -> set[int]:
             except ValueError:
                 pass
     return ids
+
+
+def _chat_name(chat, fallback) -> str:
+    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(fallback)
+
+
+async def _chat_name_items(ctx, raw) -> list[dict]:
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    if not apps:
+        return [{"id": value, "title": str(value)} for value in sorted(_parse_ids(raw))]
+    items = []
+    for value in sorted(_parse_ids(raw)):
+        title = str(value)
+        for app in apps:
+            try:
+                title = _chat_name(await app.get_chat(value), value)
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        items.append({"id": value, "title": title})
+    return items
 
 
 def _prune_answered() -> None:
@@ -215,6 +236,10 @@ async def setup(ctx):
     async def _api_history(req):
         return {"history": list(_history)}
 
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx, _effective_cfg(ctx).get("chat_ids", ""))}
+
     @ctx.on_api("/update_config", methods=["POST"])
     async def _api_update_config(req):
         body = await req.json()
@@ -279,6 +304,8 @@ async def setup(ctx):
             ctx.log.info("[影巢答题] 已作答(%s): %s → %s", source, parsed["question"][:30], reply_text)
             _history.append({
                 "time": datetime.now().strftime("%H:%M:%S"),
+                "chat_id": message.chat.id,
+                "chat_title": _chat_name(message.chat, message.chat.id),
                 "question": parsed["question"][:50],
                 "answer": reply_text,
                 "source": "bank" if source == "题库" else "llm",

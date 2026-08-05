@@ -34,7 +34,7 @@ import requests
 __plugin__ = {
     "name": "AWEmbyPush",
     "id": "awembypush",
-    "version": "1.5.8",
+    "version": "1.5.9",
     "scope": "standalone",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
@@ -66,6 +66,15 @@ def _truncate(text: str, limit: int) -> str:
     if not text:
         return ""
     return text[:limit] + "..." if len(text) > limit else text
+
+
+def _telegram_chat_title(chat: dict, fallback) -> str:
+    return (
+        chat.get("title")
+        or chat.get("first_name")
+        or (f"@{chat['username']}" if chat.get("username") else None)
+        or str(fallback)
+    )
 
 
 GENRE_MAP = {
@@ -845,7 +854,15 @@ class AWEmbyPush:
                 return
             result = resp.json()
             if result.get("ok"):
-                self.ctx.log.info(f"AWEmbyPush Telegram 发送成功：{media['item_name']}")
+                chat = (result.get("result") or {}).get("chat") or {}
+                title = _telegram_chat_title(chat, chat_id)
+                try:
+                    self.ctx.kv.set("tg_chat_target", {"id": str(chat_id), "title": title})
+                except Exception:  # noqa: BLE001
+                    pass
+                self.ctx.log.info(
+                    f"AWEmbyPush Telegram 发送成功 -> {title} ({chat_id})：{media['item_name']}"
+                )
             else:
                 self.ctx.log.error(f"AWEmbyPush Telegram 发送失败：{result}")
         except Exception as e:
@@ -1034,6 +1051,38 @@ async def setup(ctx):
     async def _api_recent(req):
         cards = pusher._load_cards()
         return {"items": list(reversed(cards))}
+
+    @ctx.on_api("/chat_name", methods=["GET"])
+    async def _api_chat_name(req):
+        """使用已配置的 Bot Token 解析 Chat ID，不改变原文本输入。"""
+        c = ctx.config
+        token = str(c.get("tg_bot_token") or "").strip()
+        chat_id = str(c.get("tg_chat_id") or "").strip()
+        if not token or not chat_id:
+            return {"id": chat_id, "title": "", "ok": False}
+
+        def _resolve():
+            pusher._load_config()
+            resp = requests.get(
+                f"{pusher._effective_tg_api_host}/bot{token}/getChat",
+                params={"chat_id": chat_id}, timeout=15,
+            )
+            data = resp.json() if resp.content else {}
+            if resp.status_code != 200 or not data.get("ok"):
+                return {"id": chat_id, "title": "", "ok": False}
+            title = _telegram_chat_title(data.get("result") or {}, chat_id)
+            try:
+                ctx.kv.set("tg_chat_target", {"id": chat_id, "title": title})
+            except Exception:  # noqa: BLE001
+                pass
+            ctx.log.info("AWEmbyPush Telegram 目标已识别：%s (%s)", title, chat_id)
+            return {"id": chat_id, "title": title, "ok": True}
+
+        try:
+            return await asyncio.to_thread(_resolve)
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("AWEmbyPush Telegram 目标识别失败 Chat ID=%s: %r", chat_id, exc)
+            return {"id": chat_id, "title": "", "ok": False}
 
     @ctx.on_api("/clear", methods=["POST"])
     async def _api_clear(req):

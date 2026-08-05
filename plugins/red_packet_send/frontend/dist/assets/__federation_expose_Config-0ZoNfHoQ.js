@@ -490,7 +490,10 @@ return (_ctx, _cache) => {
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value, (h, i) => {
                               return (_openBlock(), _createElementBlock("tr", { key: i }, [
                                 _createElementVNode("td", _hoisted_43, "#" + _toDisplayString(h.rp_id), 1),
-                                _createElementVNode("td", _hoisted_44, _toDisplayString(h.chat_id), 1),
+                                _createElementVNode("td", null, [
+                                  _createTextVNode(_toDisplayString(h.chat_title || h.chat_id) + " ", 1),
+                                  _createElementVNode("span", _hoisted_44, "(" + _toDisplayString(h.chat_id) + ")", 1)
+                                ]),
                                 _createElementVNode("td", null, _toDisplayString(h.total_amount), 1),
                                 _createElementVNode("td", null, _toDisplayString(h.packet_count), 1),
                                 _createElementVNode("td", null, _toDisplayString(h.participants), 1),
@@ -512,6 +515,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c19ca658"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-fb98139e"]]);
 
 export { Config as default };

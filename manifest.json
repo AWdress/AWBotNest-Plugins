@@ -47,7 +47,7 @@
   },
   "keyword_auto_reply": {
     "name": "关键词自动回复",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -56,7 +56,7 @@
   },
   "custom_auto_reply": {
     "name": "定时自动回复",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -110,7 +110,7 @@
   },
   "ai": {
     "name": "AI 助手",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
@@ -128,7 +128,7 @@
   },
   "hdhive_quiz": {
     "name": "影巢答题红包",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
@@ -137,7 +137,7 @@
   },
   "trans115search": {
     "name": "115搜索结果转发",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
@@ -146,7 +146,7 @@
   },
   "movie_monitor_115": {
     "name": "115频道监控",
-    "version": "1.0.14",
+    "version": "1.0.15",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
@@ -164,7 +164,7 @@
   },
   "quiz_game": {
     "name": "趣味答题",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -173,7 +173,7 @@
   },
   "bomb_game": {
     "name": "数字炸弹",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
@@ -191,7 +191,7 @@
   },
   "hdsky_redpacket": {
     "name": "拼手气红包(HDSKY)",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "监控天空(HDSKY)群拼手气红包，自动点击「抢红包」按钮。可选 /red 占位发言应对「限最近发言人」。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
@@ -209,7 +209,7 @@
   },
   "yingchao_redpacket": {
     "name": "影巢口令红包（测试）",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
@@ -218,7 +218,7 @@
   },
   "red_packet_grab": {
     "name": "自动抢红包",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "author": "AWdress",
     "description": "用你的账号自动参与口令红包。支持正文直接口令、动态图片财富密码、OCR 验证码识别及中奖确认复制兜底，可按发包人/群组限制范围。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
@@ -236,7 +236,7 @@
   },
   "human_lottery": {
     "name": "幸运抽奖",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "description": "用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg",
@@ -272,7 +272,7 @@
   },
   "red_packet_send": {
     "name": "发红包",
-    "version": "1.0.11",
+    "version": "1.0.13",
     "author": "AWdress",
     "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
@@ -290,7 +290,7 @@
   },
   "awembypush": {
     "name": "AWEmbyPush",
-    "version": "1.5.8",
+    "version": "1.5.9",
     "scope": "standalone",
     "author": "AWdress",
     "description": "监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 Vue 配置界面 + 最近推送/测试推送。",
@@ -330,7 +330,7 @@
   },
   "awrelay": {
     "name": "AWRelay",
-    "version": "1.2.8",
+    "version": "1.2.9",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",

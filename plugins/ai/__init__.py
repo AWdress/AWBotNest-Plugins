@@ -25,7 +25,7 @@ from ._engine import generate, generate_image, classify_error
 __plugin__ = {
     "name": "AI 助手",
     "id": "ai",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "author": "AWdress",
     "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
@@ -79,6 +79,7 @@ _PROACTIVE_SYSTEM = (
 
 # 主动搭话候选消息缓冲：chat_id -> deque[{msg_id,user_id,name,text,ts}]
 _recent: dict[int, deque] = {}
+_chat_names: dict[int, str] = {}
 _RECENT_MAX = 50          # 每群最多缓存多少条
 _RECENT_TTL = 3600        # 只从最近 1 小时内的消息里挑，避免回复陈旧消息
 
@@ -104,6 +105,35 @@ def _parse_ids(raw) -> list[int]:
         except ValueError:
             pass
     return out
+
+
+def _chat_name(chat, fallback) -> str:
+    return (getattr(chat, "title", None) or getattr(chat, "first_name", None)
+            or (f"@{chat.username}" if getattr(chat, "username", None) else None)
+            or str(fallback))
+
+
+async def _chat_name_items(ctx) -> list[dict]:
+    cfg = dict(ctx.config or {})
+    values = []
+    for key in ("group_chat_ids", "proactive_chat_ids", "white_list_chats"):
+        for value in _parse_ids(cfg.get(key, "")):
+            if value not in values:
+                values.append(value)
+    values.extend(x for x in _chat_names if x not in values)
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    items = []
+    for value in values:
+        title = _chat_names.get(value, str(value))
+        for app in apps:
+            try:
+                title = _chat_name(await app.get_chat(value), value)
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        _chat_names[value] = title
+        items.append({"id": value, "title": title})
+    return items
 
 
 def _to_int(v, default: int) -> int:
@@ -184,6 +214,7 @@ async def setup(ctx):
             return
 
         chat_id = message.chat.id
+        _chat_names[chat_id] = _chat_name(message.chat, chat_id)
         if not _whitelist_ok(chat_id, cfg.get("white_list_chats", "")):
             return
 
@@ -334,6 +365,7 @@ async def setup(ctx):
         pids = _parse_ids(cfg.get("proactive_chat_ids", ""))
         if not pids or message.chat.id not in pids:
             return
+        _chat_names[message.chat.id] = _chat_name(message.chat, message.chat.id)
         fu = message.from_user
         if not fu or fu.is_self or fu.is_bot:
             return
@@ -393,9 +425,11 @@ async def setup(ctx):
             try:
                 await client.send_message(chat_id, opener, reply_to_message_id=target["msg_id"])
             except Exception as e:  # noqa: BLE001
-                ctx.log.warning("[AI] 主动搭话发送失败 group=%s: %r", chat_id, e)
+                ctx.log.warning("[AI] 主动搭话发送失败 group=%s (%s): %r",
+                                _chat_names.get(chat_id, str(chat_id)), chat_id, e)
                 return
-            ctx.log.info("[AI] 主动搭话 group=%s 回复 msg=%s", chat_id, target["msg_id"])
+            ctx.log.info("[AI] 主动搭话 group=%s (%s) 回复 msg=%s",
+                         _chat_names.get(chat_id, str(chat_id)), chat_id, target["msg_id"])
 
             # 把这轮开场写进历史，群友回复后续聊时有上下文
             max_hist = int(cfg.get("max_history", 10) or 0)
@@ -451,7 +485,8 @@ async def setup(ctx):
                     last = str(m["content"])
                     break
             items.append({
-                "chat_id": chat_id, "is_private": chat_id > 0,
+                "chat_id": chat_id, "chat_title": _chat_names.get(chat_id, str(chat_id)),
+                "is_private": chat_id > 0,
                 "count": len(hist), "last": last[:60],
             })
         items.sort(key=lambda x: x["count"], reverse=True)
@@ -465,6 +500,10 @@ async def setup(ctx):
             except Exception:  # noqa: BLE001
                 proactive_next = ""
         return {"items": items, "proactive_next": proactive_next}
+
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx)}
 
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):

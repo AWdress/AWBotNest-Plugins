@@ -19,7 +19,7 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.14",
+    "version": "1.0.15",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
@@ -61,6 +61,26 @@ _GETMEDIA_TTL = 30
 
 def _effective_cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+def _chat_name(chat, fallback) -> str:
+    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(fallback)
+
+
+async def _chat_name_items(ctx) -> list[dict]:
+    values = _monitor_ids(_effective_cfg(ctx))
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    items = []
+    for value in values:
+        title = str(value)
+        for app in apps:
+            try:
+                title = _chat_name(await app.get_chat(value), value)
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        items.append({"id": value, "title": title})
+    return items
 
 
 def _fmt_getmedia(result, title, year, limit=8) -> str:
@@ -236,19 +256,19 @@ async def _process(client, cfg, message, ctx):
 
     if not tmdb_id:
         ctx.log.info("[115监控] 未识别 TMDB: %s", text[:50])
-        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": None, "action": "跳过"})
+        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": None, "action": "跳过"})
         return
 
     allowed = cfg.get("media_types", ["movie", "tv"])
     if media_type and media_type not in allowed:
         ctx.log.info("[115监控] 跳过类型 %s: %d", media_type, tmdb_id)
-        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
         return
 
     if media_type == "tv" and cfg.get("only_complete_series", False):
         if not _COMPLETE_PATTERN.search(text):
             ctx.log.info("[115监控] 剧集未完结，跳过: %d", tmdb_id)
-            _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+            _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
             return
 
     if not cfg.get("skip_emby_check", False):
@@ -259,7 +279,7 @@ async def _process(client, cfg, message, ctx):
                 has = await emby_has_tmdb_id(emby_url, emby_key, tmdb_id, media_type)
                 if has:
                     ctx.log.info("[115监控] Emby 已有 %d，跳过", tmdb_id)
-                    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+                    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
                     return
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[115监控] Emby 查询失败: %r", e)
@@ -267,7 +287,7 @@ async def _process(client, cfg, message, ctx):
     label = cfg.get("forward_label", "115 网盘")
     await _send_links(client, cfg, links, label, ctx)
     ctx.log.info("[115监控] 已转发 TMDB %d: %s", tmdb_id, text[:30])
-    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "title": text[:30], "tmdb_id": tmdb_id, "action": "转发"})
+    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "转发"})
 
 
 async def _cmd_getmedia(client, message, ctx):
@@ -376,6 +396,10 @@ async def setup(ctx):
     @ctx.on_api("/logs", methods=["GET"])
     async def _api_logs(req):
         return {"logs": list(_logs)}
+
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx)}
 
     @ctx.on_api("/update_config", methods=["POST"])
     async def _api_update_config(req):

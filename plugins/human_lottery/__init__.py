@@ -15,7 +15,7 @@ from pyrogram.enums import ParseMode
 __plugin__ = {
     "name": "幸运抽奖",
     "id": "human_lottery",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -265,8 +265,9 @@ class LotteryManager:
             self.tasks[key] = asyncio.create_task(self._wait_and_draw(key))
             self.tasks[key].add_done_callback(lambda _task, k=key: self.tasks.pop(k, None))
         self.ctx.log.info(
-            "群 %s 创建抽奖 #%s：%s，%s 人，模式=%s，关键词=%s",
-            message.chat.id, lottery_id, params["prize"], params["winners"],
+            "群 %s (%s) 创建抽奖 #%s：%s，%s 人，模式=%s，关键词=%s",
+            activity["chat_title"], message.chat.id,
+            lottery_id, params["prize"], params["winners"],
             params["draw_mode"], params["keyword"],
         )
         return True

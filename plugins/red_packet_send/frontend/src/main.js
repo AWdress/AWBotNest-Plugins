@@ -24,7 +24,7 @@ const mockHost = {
     }
     if (path === '/history') return {
       items: [
-        { rp_id: 11, chat_id: -1001234567890, total_amount: 300, packet_count: 5, participants: 5, distributed: 300, time: '2026-07-15 19:00' },
+        { rp_id: 11, chat_id: -1001234567890, chat_title: '示例红包群', total_amount: 300, packet_count: 5, participants: 5, distributed: 300, time: '2026-07-15 19:00' },
       ],
     }
     if (path === '/end') return { ok: true, message: '已结束' }

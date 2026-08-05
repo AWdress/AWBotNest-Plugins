@@ -97,6 +97,15 @@ def acct_id(client) -> int:
     return me.id if me else id(client)
 
 
+def chat_name(chat, fallback) -> str:
+    return (
+        getattr(chat, "title", None)
+        or getattr(chat, "first_name", None)
+        or (f"@{chat.username}" if getattr(chat, "username", None) else None)
+        or str(fallback)
+    )
+
+
 def is_create_command(
     text: str,
     create_word: str,
@@ -246,6 +255,7 @@ class ActivityManager:
         activity = {
             "client": client,
             "chat_id": chat_id,
+            "chat_title": chat_name(message.chat, chat_id),
             "rp_id": rp_id,
             "creator_id": user_id,
             "creator_name": username,
@@ -314,8 +324,8 @@ class ActivityManager:
             activity["captcha_msg_id"] = sent_msg.id
 
         self.ctx.log.info(
-            "[发红包] 群 %s 创建活动 #%s：%s魔力/%s个，验证码=%s",
-            chat_id, rp_id, total_amount, packet_count, code,
+            "[发红包] 群 %s (%s) 创建活动 #%s：%s魔力/%s个，验证码=%s",
+            activity["chat_title"], chat_id, rp_id, total_amount, packet_count, code,
         )
         return True
 
@@ -381,7 +391,10 @@ class ActivityManager:
                 await asyncio.sleep(timeout_secs)
                 activity = self.active.get(key)
                 if activity and activity["status"] == "进行中":
-                    self.ctx.log.warning("[发红包] 群 %s 活动超时，自动结束", chat_id)
+                    self.ctx.log.warning(
+                        "[发红包] 群 %s (%s) 活动超时，自动结束",
+                        activity.get("chat_title") or chat_id, chat_id,
+                    )
                     await self.end_activity(client, chat_id)
             except asyncio.CancelledError:
                 pass
@@ -551,8 +564,9 @@ class ActivityManager:
                 _track(asyncio.create_task(_batch_delete()))
 
             self.ctx.log.info(
-                "[发红包] 群 %s 活动结束，参与 %s 人，发放 %s 魔力",
-                chat_id, len(participants), int(round(activity["distributed_amount"])),
+                "[发红包] 群 %s (%s) 活动结束，参与 %s 人，发放 %s 魔力",
+                activity.get("chat_title") or chat_id, chat_id,
+                len(participants), int(round(activity["distributed_amount"])),
             )
             self._append_history(activity)
         except Exception as e:  # noqa: BLE001
@@ -644,6 +658,7 @@ class ActivityManager:
             hist.append({
                 "rp_id": activity.get("rp_id", 0),
                 "chat_id": activity.get("chat_id"),
+                "chat_title": activity.get("chat_title", "") or "",
                 "total_amount": int(round(activity.get("total_amount", 0))),
                 "packet_count": activity.get("packet_count", 0),
                 "participants": len(activity.get("participants", [])),

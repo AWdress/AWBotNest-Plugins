@@ -20,7 +20,7 @@ from ._snatch import find_snatch_button, is_lucky_packet
 __plugin__ = {
     "name": "拼手气红包(HDSKY)",
     "id": "hdsky_redpacket",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -28,6 +28,9 @@ __plugin__ = {
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
     "changelog": "v1.0.5 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "config_schema": {
+        "resolved_chat_names": {
+            "type": "info", "label": "已识别群组名称", "order": 9, "section": "参数配置",
+        },
         "button_enabled": {
             "type": "boolean", "default": False, "label": "启用拼手气红包",
             "cols": 3, "order": 1, "section": "功能开关",
@@ -78,6 +81,27 @@ def _prune_clicked() -> None:
         _clicked.pop(k, None)
 
 
+def _chat_name(chat, fallback) -> str:
+    return getattr(chat, "title", None) or getattr(chat, "first_name", None) or str(fallback)
+
+
+async def _update_config_names(ctx) -> None:
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    if not apps:
+        return
+    groups = parse_groups(ctx.config.get("button_groups", ""))
+    labels = []
+    for value in groups:
+        try:
+            chat = await apps[0].get_chat(value)
+            name = _chat_name(chat, value)
+        except Exception:  # noqa: BLE001
+            name = str(value)
+        labels.append(f"{name} ({value})")
+    if labels:
+        ctx.update_config({"resolved_chat_names": "，".join(labels)})
+
+
 def _click_once(client, message) -> bool:
     """点击去重：返回 True 表示首次（可点击），False 表示已点过。"""
     me = getattr(client, "me", None)
@@ -92,6 +116,7 @@ def _click_once(client, message) -> bool:
 
 async def setup(ctx):
     records = Records(ctx.kv, ctx.log)
+    await _update_config_names(ctx)
 
     # ───────── /red 占位发言 ─────────
     @ctx.on_message(ctx.filters.group & ctx.filters.regex(r"^/red(@[\w]+)?(\s|$)"), group=-10)
@@ -106,7 +131,8 @@ async def setup(ctx):
             pre = cfg.get("button_pre_send_text", ".") or "."
             m = await client.send_message(message.chat.id, pre)
             await m.delete()
-            ctx.log.debug("[拼手气红包] /red 占位发言 chat=%s", message.chat.id)
+            ctx.log.debug("[拼手气红包] /red 占位发言 %s (%s)",
+                          _chat_name(message.chat, message.chat.id), message.chat.id)
         except Exception as e:  # noqa: BLE001
             ctx.log.debug("[拼手气红包] /red 占位失败: %r", e)
 
@@ -137,14 +163,18 @@ async def setup(ctx):
         try:
             result = await message.click(x=col, y=row, timeout=10)
             rtext = getattr(result, "text", None) or getattr(result, "message", None) or str(result)
-            ctx.log.info("[拼手气红包] 已点击 chat=%s msg=%s 结果=%s", message.chat.id, message.id, rtext)
-            records.add_history({"type": "拼手气红包", "group_id": message.chat.id, "result": str(rtext), "ok": True})
+            chat_name = _chat_name(message.chat, message.chat.id)
+            ctx.log.info("[拼手气红包] 已点击 %s (%s) msg=%s 结果=%s",
+                         chat_name, message.chat.id, message.id, rtext)
+            records.add_history({"type": "拼手气红包", "group_id": message.chat.id,
+                                 "group_title": chat_name, "result": str(rtext), "ok": True})
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
                     f"拼手气红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{rtext}\n\n{getattr(message,'link','')}",
                     level="success")
         except Exception as e:  # noqa: BLE001
-            ctx.log.error("[拼手气红包] 点击失败 chat=%s msg=%s: %r", message.chat.id, message.id, e)
+            ctx.log.error("[拼手气红包] 点击失败 %s (%s) msg=%s: %r",
+                          _chat_name(message.chat, message.chat.id), message.chat.id, message.id, e)
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
                     f"拼手气红包-点击失败\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{e}",

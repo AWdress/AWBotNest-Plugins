@@ -8,11 +8,11 @@
 __plugin__ = {
     "name": "定时自动回复",
     "id": "custom_auto_reply",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "description": "到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.11 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.12 显示会话名称\n- 保存 UID 后在设置顶部显示群组/频道名称\n- 注册、发送和通知日志显示名称并保留 UID\n\nv1.0.11 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -24,6 +24,9 @@ __plugin__ = {
         },
 
         # —— 必填：发给谁、发什么（逐条添加）——
+        "resolved_chat_names": {
+            "type": "info", "label": "已识别会话名称", "section": "发送内容", "order": 9,
+        },
         "target_chat_id": {
             "type": "list", "default": [], "label": "定时规则", "item_label": "规则",
             "section": "发送内容", "order": 10,
@@ -95,6 +98,34 @@ def _normalize_chat_id(raw):
         return int(s)
     except ValueError:
         return None
+
+
+def _chat_name(chat, fallback) -> str:
+    return (getattr(chat, "title", None) or getattr(chat, "first_name", None)
+            or (f"@{chat.username}" if getattr(chat, "username", None) else None)
+            or str(fallback))
+
+
+async def _resolve_name(client, target) -> str:
+    try:
+        return _chat_name(await client.get_chat(target), target)
+    except Exception:  # noqa: BLE001
+        return str(target)
+
+
+async def _update_config_names(ctx) -> None:
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    if not apps:
+        return
+    values = []
+    for item in (ctx.config.get("target_chat_id") or []):
+        if isinstance(item, dict):
+            value = _normalize_chat_id(item.get("chat"))
+            if value is not None and value not in values:
+                values.append(value)
+    labels = [f"{await _resolve_name(apps[0], value)} ({value})" for value in values]
+    if labels:
+        ctx.update_config({"resolved_chat_names": "，".join(labels)})
 
 
 def _parse_timespec(raw):
@@ -250,14 +281,18 @@ def _make_action(ctx, target, message_text):
 
             try:
                 sent = await app.send_message(target, message_text)
-                ctx.log.info("[定时回复] [%s] → %s 发送成功 msg=%s", acct, target, sent.id)
+                target_name = await _resolve_name(app, target)
+                ctx.log.info("[定时回复] [%s] → %s (%s) 发送成功 msg=%s",
+                             acct, target_name, target, sent.id)
             except Exception as send_err:  # noqa: BLE001
-                ctx.log.error("[定时回复] [%s] → %s 发送失败: %r", acct, target, send_err)
+                target_name = await _resolve_name(app, target)
+                ctx.log.error("[定时回复] [%s] → %s (%s) 发送失败: %r",
+                              acct, target_name, target, send_err)
                 if notify_owner:
                     # 级别/插件名/账号名由平台统一格式化，这里只给业务内容
                     try:
                         await ctx.notify(
-                            f"定时回复失败\n目标：{target}\n错误：{send_err}",
+                            f"定时回复失败\n目标：{target_name} ({target})\n错误：{send_err}",
                             level="error", category="定时回复", account=app,
                         )
                     except Exception:
@@ -269,7 +304,7 @@ def _make_action(ctx, target, message_text):
                 preview = message_text[:100] + ("..." if len(message_text) > 100 else "")
                 try:
                     await ctx.notify(
-                        f"定时回复已发送\n目标：{target}\n内容：\n{preview}\n{link}",
+                        f"定时回复已发送\n目标：{target_name} ({target})\n内容：\n{preview}\n{link}",
                         level="success", category="定时回复", account=app,
                         disable_web_page_preview=True,
                     )
@@ -318,6 +353,7 @@ def _schedule_rule(ctx, action, timespec, job_id):
 
 async def setup(ctx):
     cfg = ctx.config
+    await _update_config_names(ctx)
     default_msg = (cfg.get("message") or "").strip()
     plan = _parse_plan(cfg.get("target_chat_id"), default_msg)
     if not plan:
@@ -336,7 +372,9 @@ async def setup(ctx):
             ctx.log.error("[定时回复] 第 %d 条（→ %s）时间无效，已跳过", idx, target)
             continue
         registered += 1
-        ctx.log.info("[定时回复] 已注册 #%d：%s → %s", idx, desc, target)
+        apps = list(getattr(ctx, "user_apps", None) or [])
+        target_name = await _resolve_name(apps[0], target) if apps else str(target)
+        ctx.log.info("[定时回复] 已注册 #%d：%s → %s (%s)", idx, desc, target_name, target)
 
     ctx.log.info("[定时回复] 共注册 %d 条规则", registered)
 

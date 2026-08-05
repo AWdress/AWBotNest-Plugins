@@ -138,6 +138,20 @@ class TokenSnatcher:
         self._ocr_sent: dict[tuple[int, int], _OcrSent] = {}
         # key=(group_id, reply_msg_id) -> (keyword, orig_packet_id)
         self._reply_cache: dict[tuple[int, int], tuple[str, int]] = {}
+        self._chat_names: dict[int, str] = {}
+
+    def _remember_chat(self, chat) -> str:
+        group_id = chat.id
+        title = (
+            getattr(chat, "title", None)
+            or getattr(chat, "first_name", None)
+            or str(group_id)
+        )
+        self._chat_names[group_id] = title
+        return f"{title} ({group_id})"
+
+    def _chat_label(self, group_id: int) -> str:
+        return f"{self._chat_names.get(group_id, group_id)} ({group_id})"
 
     # —— 主入口：收到目标用户的口令红包 ——
     async def handle_new_packet(
@@ -147,6 +161,7 @@ class TokenSnatcher:
     ) -> None:
         self._prune_expired()
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         packet_id = message.id
         caption = extract_text(message)
 
@@ -161,7 +176,7 @@ class TokenSnatcher:
         # 陷阱检测（对 caption）
         if is_trap_keyword(caption, trap_enabled, custom_keywords, self._log) and caption:
             # caption 命中陷阱仅记录，不影响后续（口令在图里，caption 一般是说明）
-            self._log.info("[影巢口令] caption 含可疑词，谨慎处理 chat=%s msg=%s", group_id, packet_id)
+            self._log.info("[影巢口令] caption 含可疑词，谨慎处理 %s msg=%s", chat_label, packet_id)
 
         # OCR 模式：尝试下载图片识别
         keyword = ""
@@ -174,7 +189,7 @@ class TokenSnatcher:
             # OCR 关闭 / 不可用 / 识别失败 → 进入等待复制模式
             reason = "OCR 关闭" if not ocr_enabled else ("OCR 不可用" if not _ocr.ocr_available() else "OCR 识别失败")
             self._pending_copy[(group_id, packet_id)] = _PendingCopy(packet_id, group_id, sender_name, join_delay)
-            self._log.info("[影巢口令] 进入等待复制 chat=%s msg=%s 原因=%s", group_id, packet_id, reason)
+            self._log.info("[影巢口令] 进入等待复制 %s msg=%s 原因=%s", chat_label, packet_id, reason)
             return
 
         # OCR 识别成功 → 陷阱检测口令本身
@@ -203,7 +218,7 @@ class TokenSnatcher:
         entry = _OcrSent(packet_id, group_id, keyword, sent_id, sender_name)
         self._ocr_sent[(group_id, sent_id)] = entry
         entry.timeout_task = asyncio.create_task(self._ocr_timeout(group_id, sent_id))
-        self._log.info("[影巢口令] 已发OCR口令 chat=%s msg=%s sent=%s 口令=%r", group_id, packet_id, sent_id, keyword)
+        self._log.info("[影巢口令] 已发OCR口令 %s msg=%s sent=%s 口令=%r", chat_label, packet_id, sent_id, keyword)
         if notify:
             await self._safe_notify(
                 f"影巢口令红包-已发OCR口令\n发包人: {sender_name}\n口令: {keyword}\n{getattr(message,'link','')}",
@@ -214,6 +229,7 @@ class TokenSnatcher:
     async def handle_reply(self, client, message, notify: bool) -> None:
         self._prune_expired()
         group_id = message.chat.id
+        chat_label = self._remember_chat(message.chat)
         reply_to_id = getattr(message, "reply_to_message_id", None)
         if not reply_to_id:
             return
@@ -237,8 +253,8 @@ class TokenSnatcher:
             return
         if (group_id, reply_to_id) in self._pending_copy and text:
             self._reply_cache[(group_id, message.id)] = (text, reply_to_id)
-            self._log.info("[影巢口令] 缓存口令 chat=%s reply=%s packet=%s 口令=%r",
-                           group_id, message.id, reply_to_id, text)
+            self._log.info("[影巢口令] 缓存口令 %s reply=%s packet=%s 口令=%r",
+                           chat_label, message.id, reply_to_id, text)
 
     async def _handle_failure(self, group_id, reply_to_id, notify, client) -> None:
         entry = self._ocr_sent.pop((group_id, reply_to_id), None)
@@ -246,7 +262,7 @@ class TokenSnatcher:
             return
         if entry.timeout_task:
             entry.timeout_task.cancel()
-        self._log.info("[影巢口令] OCR口令被判错 chat=%s 口令=%r", group_id, entry.keyword)
+        self._log.info("[影巢口令] OCR口令被判错 %s 口令=%r", self._chat_label(group_id), entry.keyword)
         # 失败后退回等待复制模式
         self._pending_copy[(group_id, entry.packet_id)] = _PendingCopy(
             entry.packet_id, group_id, entry.sender_name, 0.0
@@ -263,9 +279,10 @@ class TokenSnatcher:
         if ocr_entry is not None:
             if ocr_entry.timeout_task:
                 ocr_entry.timeout_task.cancel()
-            self._log.info("[影巢口令] OCR口令确认成功 chat=%s 口令=%r", group_id, ocr_entry.keyword)
+            self._log.info("[影巢口令] OCR口令确认成功 %s 口令=%r", self._chat_label(group_id), ocr_entry.keyword)
             self._records.add_history({
                 "type": "口令红包", "mode": "OCR", "group_id": group_id,
+                "group_title": self._chat_names.get(group_id, str(group_id)),
                 "sender": ocr_entry.sender_name, "keyword": ocr_entry.keyword, "ok": True,
             })
             if notify:
@@ -310,10 +327,11 @@ class TokenSnatcher:
             self._log.error("[影巢口令] 复制口令发送失败: %r", e)
             ok = False
 
-        self._log.info("[影巢口令] 复制模式发送 chat=%s packet=%s 口令=%r ok=%s",
-                       group_id, orig_packet_id, keyword, ok)
+        self._log.info("[影巢口令] 复制模式发送 %s packet=%s 口令=%r ok=%s",
+                       self._chat_label(group_id), orig_packet_id, keyword, ok)
         self._records.add_history({
             "type": "口令红包", "mode": "复制", "group_id": group_id,
+            "group_title": self._chat_names.get(group_id, str(group_id)),
             "sender": pending.sender_name, "keyword": keyword, "ok": ok,
         })
         if notify and ok:
@@ -346,8 +364,8 @@ class TokenSnatcher:
         await asyncio.sleep(_OCR_TIMEOUT)
         removed = self._ocr_sent.pop((group_id, sent_id), None)
         if removed is not None:
-            self._log.info("[影巢口令] OCR等待确认超时 chat=%s sent=%s 口令=%r",
-                           group_id, sent_id, removed.keyword)
+            self._log.info("[影巢口令] OCR等待确认超时 %s sent=%s 口令=%r",
+                           self._chat_label(group_id), sent_id, removed.keyword)
 
     async def _download_image(self, client, message) -> bytes:
         media = getattr(message, "photo", None)

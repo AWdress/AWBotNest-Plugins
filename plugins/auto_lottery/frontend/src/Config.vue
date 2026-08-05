@@ -49,6 +49,14 @@ const loading = ref(true)
 const saving = ref(false)
 const cfg = reactive({ ...DEFAULTS })
 const dialogs = ref([])
+const overrideChatNames = computed(() => {
+  const ids = String(cfg.group_wait_overrides || '').split(/\r?\n/)
+    .map(line => Number(line.split('|')[0]?.trim())).filter(Boolean)
+  return [...new Set(ids)].map(id => {
+    const chat = dialogs.value.find(item => Number(item.id) === id)
+    return { id, title: chat?.title || String(id) }
+  })
+})
 
 // 待发奖
 const pending = ref([])
@@ -246,6 +254,7 @@ function switchTab(t) {
                 </div>
                 <label class="row top"><span>按群专属等待</span>
                   <textarea v-model="cfg.group_wait_overrides" class="inp" rows="2" placeholder="每行 群组ID|最小秒|最大秒&#10;例：-1001234567890|30|90"></textarea></label>
+                <div v-if="overrideChatNames.length" class="chat-names">已识别：<span v-for="item in overrideChatNames" :key="item.id">{{ item.title }} ({{ item.id }})</span></div>
               </template>
             </section>
           </template>
@@ -380,6 +389,7 @@ function switchTab(t) {
 .row.switch span { min-width: 0; }
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
 .tip { margin: 0; font-size: 12px; color: var(--text-muted, #7a8291); line-height: 1.6; }
+.chat-names { margin: -4px 0 8px 102px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text-primary, #e8ebf0); }
 .inp { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 .inp.sm { flex: 0 0 auto; width: 90px; }
 textarea.inp { resize: vertical; font-family: inherit; line-height: 1.5; }

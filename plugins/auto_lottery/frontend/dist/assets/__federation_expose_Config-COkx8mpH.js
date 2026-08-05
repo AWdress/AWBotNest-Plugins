@@ -145,7 +145,7 @@ return (_ctx, _cache) => {
 };
 const ChatPicker = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-842d5258"]]);
 
-const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,toDisplayString:_toDisplayString,vModelCheckbox:_vModelCheckbox,withDirectives:_withDirectives,vModelText:_vModelText,createVNode:_createVNode,vShow:_vShow,createTextVNode:_createTextVNode,normalizeStyle:_normalizeStyle} = await importShared('vue');
+const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,toDisplayString:_toDisplayString,vModelCheckbox:_vModelCheckbox,withDirectives:_withDirectives,vModelText:_vModelText,createVNode:_createVNode,createTextVNode:_createTextVNode,vShow:_vShow,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "al" };
@@ -206,77 +206,81 @@ const _hoisted_40 = { class: "row" };
 const _hoisted_41 = { class: "row" };
 const _hoisted_42 = { class: "row" };
 const _hoisted_43 = { class: "row top" };
-const _hoisted_44 = { class: "card" };
-const _hoisted_45 = { class: "row switch" };
-const _hoisted_46 = {
+const _hoisted_44 = {
+  key: 0,
+  class: "chat-names"
+};
+const _hoisted_45 = { class: "card" };
+const _hoisted_46 = { class: "row switch" };
+const _hoisted_47 = {
   key: 0,
   class: "row top"
 };
-const _hoisted_47 = { class: "row switch" };
-const _hoisted_48 = {
+const _hoisted_48 = { class: "row switch" };
+const _hoisted_49 = {
   key: 1,
   class: "fld"
 };
-const _hoisted_49 = { class: "row switch" };
-const _hoisted_50 = {
+const _hoisted_50 = { class: "row switch" };
+const _hoisted_51 = {
   key: 2,
   class: "row top"
 };
-const _hoisted_51 = { class: "card" };
-const _hoisted_52 = { class: "row switch" };
-const _hoisted_53 = {
+const _hoisted_52 = { class: "card" };
+const _hoisted_53 = { class: "row switch" };
+const _hoisted_54 = {
   key: 0,
   class: "row top"
 };
-const _hoisted_54 = { class: "card" };
-const _hoisted_55 = { class: "row switch" };
+const _hoisted_55 = { class: "card" };
 const _hoisted_56 = { class: "row switch" };
 const _hoisted_57 = { class: "row switch" };
-const _hoisted_58 = {
+const _hoisted_58 = { class: "row switch" };
+const _hoisted_59 = {
   key: 0,
   class: "grid"
 };
-const _hoisted_59 = { class: "row" };
 const _hoisted_60 = { class: "row" };
-const _hoisted_61 = { class: "row top" };
-const _hoisted_62 = { class: "card" };
-const _hoisted_63 = { class: "row switch" };
-const _hoisted_64 = {
+const _hoisted_61 = { class: "row" };
+const _hoisted_62 = { class: "row top" };
+const _hoisted_63 = { class: "card" };
+const _hoisted_64 = { class: "row switch" };
+const _hoisted_65 = {
   key: 0,
   class: "row switch"
 };
-const _hoisted_65 = { class: "savebar" };
-const _hoisted_66 = ["disabled"];
-const _hoisted_67 = { class: "pane" };
-const _hoisted_68 = { class: "toolbar" };
-const _hoisted_69 = { class: "muted" };
-const _hoisted_70 = ["disabled"];
+const _hoisted_66 = { class: "savebar" };
+const _hoisted_67 = ["disabled"];
+const _hoisted_68 = { class: "pane" };
+const _hoisted_69 = { class: "toolbar" };
+const _hoisted_70 = { class: "muted" };
 const _hoisted_71 = ["disabled"];
-const _hoisted_72 = {
+const _hoisted_72 = ["disabled"];
+const _hoisted_73 = {
   key: 0,
   class: "muted"
 };
-const _hoisted_73 = {
+const _hoisted_74 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_74 = {
+const _hoisted_75 = {
   key: 1,
   class: "tbl"
 };
-const _hoisted_75 = { class: "mono" };
-const _hoisted_76 = { class: "muted" };
+const _hoisted_76 = { class: "mono" };
 const _hoisted_77 = { class: "muted" };
-const _hoisted_78 = ["disabled", "onClick"];
-const _hoisted_79 = {
+const _hoisted_78 = { class: "muted" };
+const _hoisted_79 = ["disabled", "onClick"];
+const _hoisted_80 = {
   key: 2,
   class: "hist"
 };
-const _hoisted_80 = { class: "hist-h" };
-const _hoisted_81 = { class: "tbl" };
-const _hoisted_82 = { class: "mono" };
-const _hoisted_83 = { style: {"color":"#6ee7a8"} };
-const _hoisted_84 = { class: "muted" };
+const _hoisted_81 = { class: "hist-h" };
+const _hoisted_82 = { class: "tbl" };
+const _hoisted_83 = { class: "mono" };
+const _hoisted_84 = { style: {"color":"#6ee7a8"} };
+const _hoisted_85 = { class: "muted" };
 
 const {ref,reactive,onMounted,computed} = await importShared('vue');
 
@@ -333,6 +337,14 @@ const loading = ref(true);
 const saving = ref(false);
 const cfg = reactive({ ...DEFAULTS });
 const dialogs = ref([]);
+const overrideChatNames = computed(() => {
+  const ids = String(cfg.group_wait_overrides || '').split(/\r?\n/)
+    .map(line => Number(line.split('|')[0]?.trim())).filter(Boolean);
+  return [...new Set(ids)].map(id => {
+    const chat = dialogs.value.find(item => Number(item.id) === id);
+    return { id, title: chat?.title || String(id) }
+  })
+});
 
 // 待发奖
 const pending = ref([]);
@@ -684,7 +696,7 @@ return (_ctx, _cache) => {
                         ], 64))
                       : (group.value === 'wait')
                         ? (_openBlock(), _createElementBlock(_Fragment, { key: 4 }, [
-                            _cache[90] || (_cache[90] = _createElementVNode("h3", { class: "det-title" }, "抽奖等待时间", -1)),
+                            _cache[91] || (_cache[91] = _createElementVNode("h3", { class: "det-title" }, "抽奖等待时间", -1)),
                             _createElementVNode("section", _hoisted_32, [
                               _createElementVNode("label", _hoisted_33, [
                                 _withDirectives(_createElementVNode("input", {
@@ -837,27 +849,37 @@ return (_ctx, _cache) => {
                                       }, null, 512), [
                                         [_vModelText, cfg.group_wait_overrides]
                                       ])
-                                    ])
+                                    ]),
+                                    (overrideChatNames.value.length)
+                                      ? (_openBlock(), _createElementBlock("div", _hoisted_44, [
+                                          _cache[90] || (_cache[90] = _createTextVNode("已识别：", -1)),
+                                          (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(overrideChatNames.value, (item) => {
+                                            return (_openBlock(), _createElementBlock("span", {
+                                              key: item.id
+                                            }, _toDisplayString(item.title) + " (" + _toDisplayString(item.id) + ")", 1))
+                                          }), 128))
+                                        ]))
+                                      : _createCommentVNode("", true)
                                   ], 64))
                                 : _createCommentVNode("", true)
                             ])
                           ], 64))
                         : (group.value === 'react')
                           ? (_openBlock(), _createElementBlock(_Fragment, { key: 5 }, [
-                              _cache[97] || (_cache[97] = _createElementVNode("h3", { class: "det-title" }, "中奖回应", -1)),
-                              _createElementVNode("section", _hoisted_44, [
-                                _createElementVNode("label", _hoisted_45, [
+                              _cache[98] || (_cache[98] = _createElementVNode("h3", { class: "det-title" }, "中奖回应", -1)),
+                              _createElementVNode("section", _hoisted_45, [
+                                _createElementVNode("label", _hoisted_46, [
                                   _withDirectives(_createElementVNode("input", {
                                     "onUpdate:modelValue": _cache[30] || (_cache[30] = $event => ((cfg.lottery_thank_message) = $event)),
                                     type: "checkbox"
                                   }, null, 512), [
                                     [_vModelCheckbox, cfg.lottery_thank_message]
                                   ]),
-                                  _cache[91] || (_cache[91] = _createElementVNode("span", null, "中奖后发感谢消息", -1))
+                                  _cache[92] || (_cache[92] = _createElementVNode("span", null, "中奖后发感谢消息", -1))
                                 ]),
                                 (cfg.lottery_thank_message)
-                                  ? (_openBlock(), _createElementBlock("label", _hoisted_46, [
-                                      _cache[92] || (_cache[92] = _createElementVNode("span", null, "感谢文案", -1)),
+                                  ? (_openBlock(), _createElementBlock("label", _hoisted_47, [
+                                      _cache[93] || (_cache[93] = _createElementVNode("span", null, "感谢文案", -1)),
                                       _withDirectives(_createElementVNode("textarea", {
                                         "onUpdate:modelValue": _cache[31] || (_cache[31] = $event => ((cfg.thank_texts) = $event)),
                                         class: "inp",
@@ -868,18 +890,18 @@ return (_ctx, _cache) => {
                                       ])
                                     ]))
                                   : _createCommentVNode("", true),
-                                _createElementVNode("label", _hoisted_47, [
+                                _createElementVNode("label", _hoisted_48, [
                                   _withDirectives(_createElementVNode("input", {
                                     "onUpdate:modelValue": _cache[32] || (_cache[32] = $event => ((cfg.username_reply_switch) = $event)),
                                     type: "checkbox"
                                   }, null, 512), [
                                     [_vModelCheckbox, cfg.username_reply_switch]
                                   ]),
-                                  _cache[93] || (_cache[93] = _createElementVNode("span", null, "中奖回复用户名（无转账功能的群，需填上方 PT用户名）", -1))
+                                  _cache[94] || (_cache[94] = _createElementVNode("span", null, "中奖回复用户名（无转账功能的群，需填上方 PT用户名）", -1))
                                 ]),
                                 (cfg.username_reply_switch)
-                                  ? (_openBlock(), _createElementBlock("div", _hoisted_48, [
-                                      _cache[94] || (_cache[94] = _createElementVNode("span", { class: "lbl" }, "转账群组（免回用户名）", -1)),
+                                  ? (_openBlock(), _createElementBlock("div", _hoisted_49, [
+                                      _cache[95] || (_cache[95] = _createElementVNode("span", { class: "lbl" }, "转账群组（免回用户名）", -1)),
                                       _createVNode(ChatPicker, {
                                         modelValue: cfg.transfer_groups,
                                         "onUpdate:modelValue": _cache[33] || (_cache[33] = $event => ((cfg.transfer_groups) = $event)),
@@ -887,18 +909,18 @@ return (_ctx, _cache) => {
                                       }, null, 8, ["modelValue", "dialogs"])
                                     ]))
                                   : _createCommentVNode("", true),
-                                _createElementVNode("label", _hoisted_49, [
+                                _createElementVNode("label", _hoisted_50, [
                                   _withDirectives(_createElementVNode("input", {
                                     "onUpdate:modelValue": _cache[34] || (_cache[34] = $event => ((cfg.lottery_heimu_message) = $event)),
                                     type: "checkbox"
                                   }, null, 512), [
                                     [_vModelCheckbox, cfg.lottery_heimu_message]
                                   ]),
-                                  _cache[95] || (_cache[95] = _createElementVNode("span", null, "未中奖发黑幕消息", -1))
+                                  _cache[96] || (_cache[96] = _createElementVNode("span", null, "未中奖发黑幕消息", -1))
                                 ]),
                                 (cfg.lottery_heimu_message)
-                                  ? (_openBlock(), _createElementBlock("label", _hoisted_50, [
-                                      _cache[96] || (_cache[96] = _createElementVNode("span", null, "黑幕文案", -1)),
+                                  ? (_openBlock(), _createElementBlock("label", _hoisted_51, [
+                                      _cache[97] || (_cache[97] = _createElementVNode("span", null, "黑幕文案", -1)),
                                       _withDirectives(_createElementVNode("textarea", {
                                         "onUpdate:modelValue": _cache[35] || (_cache[35] = $event => ((cfg.heimu_texts) = $event)),
                                         class: "inp",
@@ -913,20 +935,20 @@ return (_ctx, _cache) => {
                             ], 64))
                           : (group.value === 'negative')
                             ? (_openBlock(), _createElementBlock(_Fragment, { key: 6 }, [
-                                _cache[100] || (_cache[100] = _createElementVNode("h3", { class: "det-title" }, "负面回复（被质疑是机器人）", -1)),
-                                _createElementVNode("section", _hoisted_51, [
-                                  _createElementVNode("label", _hoisted_52, [
+                                _cache[101] || (_cache[101] = _createElementVNode("h3", { class: "det-title" }, "负面回复（被质疑是机器人）", -1)),
+                                _createElementVNode("section", _hoisted_52, [
+                                  _createElementVNode("label", _hoisted_53, [
                                     _withDirectives(_createElementVNode("input", {
                                       "onUpdate:modelValue": _cache[36] || (_cache[36] = $event => ((cfg.lose_reply_switch) = $event)),
                                       type: "checkbox"
                                     }, null, 512), [
                                       [_vModelCheckbox, cfg.lose_reply_switch]
                                     ]),
-                                    _cache[98] || (_cache[98] = _createElementVNode("span", null, "负面回复开关（有人回你说机器人/脚本等时随机反驳）", -1))
+                                    _cache[99] || (_cache[99] = _createElementVNode("span", null, "负面回复开关（有人回你说机器人/脚本等时随机反驳）", -1))
                                   ]),
                                   (cfg.lose_reply_switch)
-                                    ? (_openBlock(), _createElementBlock("label", _hoisted_53, [
-                                        _cache[99] || (_cache[99] = _createElementVNode("span", null, "反驳文案", -1)),
+                                    ? (_openBlock(), _createElementBlock("label", _hoisted_54, [
+                                        _cache[100] || (_cache[100] = _createElementVNode("span", null, "反驳文案", -1)),
                                         _withDirectives(_createElementVNode("textarea", {
                                           "onUpdate:modelValue": _cache[37] || (_cache[37] = $event => ((cfg.negative_texts) = $event)),
                                           class: "inp",
@@ -941,41 +963,41 @@ return (_ctx, _cache) => {
                               ], 64))
                             : (group.value === 'send')
                               ? (_openBlock(), _createElementBlock(_Fragment, { key: 7 }, [
-                                  _cache[109] || (_cache[109] = _createElementVNode("h3", { class: "det-title" }, "自动发奖", -1)),
-                                  _createElementVNode("section", _hoisted_54, [
-                                    _createElementVNode("label", _hoisted_55, [
+                                  _cache[110] || (_cache[110] = _createElementVNode("h3", { class: "det-title" }, "自动发奖", -1)),
+                                  _createElementVNode("section", _hoisted_55, [
+                                    _createElementVNode("label", _hoisted_56, [
                                       _withDirectives(_createElementVNode("input", {
                                         "onUpdate:modelValue": _cache[38] || (_cache[38] = $event => ((cfg.auto_prize_enabled) = $event)),
                                         type: "checkbox"
                                       }, null, 512), [
                                         [_vModelCheckbox, cfg.auto_prize_enabled]
                                       ]),
-                                      _cache[101] || (_cache[101] = _createElementVNode("span", null, "自动发奖功能总开关（开启才记录自己发起的抽奖中奖者）", -1))
+                                      _cache[102] || (_cache[102] = _createElementVNode("span", null, "自动发奖功能总开关（开启才记录自己发起的抽奖中奖者）", -1))
                                     ]),
                                     (cfg.auto_prize_enabled)
                                       ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
-                                          _createElementVNode("label", _hoisted_56, [
+                                          _createElementVNode("label", _hoisted_57, [
                                             _withDirectives(_createElementVNode("input", {
                                               "onUpdate:modelValue": _cache[39] || (_cache[39] = $event => ((cfg.manual_prize_mode) = $event)),
                                               type: "checkbox"
                                             }, null, 512), [
                                               [_vModelCheckbox, cfg.manual_prize_mode]
                                             ]),
-                                            _cache[102] || (_cache[102] = _createElementVNode("span", null, "手动发奖模式（只记录，用「待发奖」页或 .sendprize 发）", -1))
+                                            _cache[103] || (_cache[103] = _createElementVNode("span", null, "手动发奖模式（只记录，用「待发奖」页或 .sendprize 发）", -1))
                                           ]),
-                                          _createElementVNode("label", _hoisted_57, [
+                                          _createElementVNode("label", _hoisted_58, [
                                             _withDirectives(_createElementVNode("input", {
                                               "onUpdate:modelValue": _cache[40] || (_cache[40] = $event => ((cfg.prize_send_interval_enabled) = $event)),
                                               type: "checkbox"
                                             }, null, 512), [
                                               [_vModelCheckbox, cfg.prize_send_interval_enabled]
                                             ]),
-                                            _cache[103] || (_cache[103] = _createElementVNode("span", null, "发奖间隔（每次发奖后随机等待，建议开启）", -1))
+                                            _cache[104] || (_cache[104] = _createElementVNode("span", null, "发奖间隔（每次发奖后随机等待，建议开启）", -1))
                                           ]),
                                           (cfg.prize_send_interval_enabled)
-                                            ? (_openBlock(), _createElementBlock("div", _hoisted_58, [
-                                                _createElementVNode("label", _hoisted_59, [
-                                                  _cache[104] || (_cache[104] = _createElementVNode("span", null, "间隔(最小)", -1)),
+                                            ? (_openBlock(), _createElementBlock("div", _hoisted_59, [
+                                                _createElementVNode("label", _hoisted_60, [
+                                                  _cache[105] || (_cache[105] = _createElementVNode("span", null, "间隔(最小)", -1)),
                                                   _withDirectives(_createElementVNode("input", {
                                                     "onUpdate:modelValue": _cache[41] || (_cache[41] = $event => ((cfg.prize_send_interval_min) = $event)),
                                                     class: "inp sm",
@@ -988,10 +1010,10 @@ return (_ctx, _cache) => {
                                                       { number: true }
                                                     ]
                                                   ]),
-                                                  _cache[105] || (_cache[105] = _createElementVNode("span", { class: "hint" }, "秒", -1))
+                                                  _cache[106] || (_cache[106] = _createElementVNode("span", { class: "hint" }, "秒", -1))
                                                 ]),
-                                                _createElementVNode("label", _hoisted_60, [
-                                                  _cache[106] || (_cache[106] = _createElementVNode("span", null, "间隔(最大)", -1)),
+                                                _createElementVNode("label", _hoisted_61, [
+                                                  _cache[107] || (_cache[107] = _createElementVNode("span", null, "间隔(最大)", -1)),
                                                   _withDirectives(_createElementVNode("input", {
                                                     "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((cfg.prize_send_interval_max) = $event)),
                                                     class: "inp sm",
@@ -1004,12 +1026,12 @@ return (_ctx, _cache) => {
                                                       { number: true }
                                                     ]
                                                   ]),
-                                                  _cache[107] || (_cache[107] = _createElementVNode("span", { class: "hint" }, "秒", -1))
+                                                  _cache[108] || (_cache[108] = _createElementVNode("span", { class: "hint" }, "秒", -1))
                                                 ])
                                               ]))
                                             : _createCommentVNode("", true),
-                                          _createElementVNode("label", _hoisted_61, [
-                                            _cache[108] || (_cache[108] = _createElementVNode("span", null, "发奖黑名单", -1)),
+                                          _createElementVNode("label", _hoisted_62, [
+                                            _cache[109] || (_cache[109] = _createElementVNode("span", null, "发奖黑名单", -1)),
                                             _withDirectives(_createElementVNode("textarea", {
                                               "onUpdate:modelValue": _cache[43] || (_cache[43] = $event => ((cfg.prize_send_blacklist) = $event)),
                                               class: "inp",
@@ -1025,46 +1047,46 @@ return (_ctx, _cache) => {
                                 ], 64))
                               : (group.value === 'notify')
                                 ? (_openBlock(), _createElementBlock(_Fragment, { key: 8 }, [
-                                    _cache[112] || (_cache[112] = _createElementVNode("h3", { class: "det-title" }, "通知", -1)),
-                                    _createElementVNode("section", _hoisted_62, [
-                                      _createElementVNode("label", _hoisted_63, [
+                                    _cache[113] || (_cache[113] = _createElementVNode("h3", { class: "det-title" }, "通知", -1)),
+                                    _createElementVNode("section", _hoisted_63, [
+                                      _createElementVNode("label", _hoisted_64, [
                                         _withDirectives(_createElementVNode("input", {
                                           "onUpdate:modelValue": _cache[44] || (_cache[44] = $event => ((cfg.notify_owner) = $event)),
                                           type: "checkbox"
                                         }, null, 512), [
                                           [_vModelCheckbox, cfg.notify_owner]
                                         ]),
-                                        _cache[110] || (_cache[110] = _createElementVNode("span", null, "关键事件通知我（参与成功/中奖/发奖完成）", -1))
+                                        _cache[111] || (_cache[111] = _createElementVNode("span", null, "关键事件通知我（参与成功/中奖/发奖完成）", -1))
                                       ]),
                                       (cfg.notify_owner)
-                                        ? (_openBlock(), _createElementBlock("label", _hoisted_64, [
+                                        ? (_openBlock(), _createElementBlock("label", _hoisted_65, [
                                             _withDirectives(_createElementVNode("input", {
                                               "onUpdate:modelValue": _cache[45] || (_cache[45] = $event => ((cfg.notify_skips) = $event)),
                                               type: "checkbox"
                                             }, null, 512), [
                                               [_vModelCheckbox, cfg.notify_skips]
                                             ]),
-                                            _cache[111] || (_cache[111] = _createElementVNode("span", null, "通知跳过原因（奖品不符/陷阱/不在时间段等，较吵）", -1))
+                                            _cache[112] || (_cache[112] = _createElementVNode("span", null, "通知跳过原因（奖品不符/陷阱/不在时间段等，较吵）", -1))
                                           ]))
                                         : _createCommentVNode("", true)
                                     ])
                                   ], 64))
                                 : _createCommentVNode("", true),
-              _createElementVNode("div", _hoisted_65, [
+              _createElementVNode("div", _hoisted_66, [
                 _createElementVNode("button", {
                   class: "btn primary lg",
                   disabled: saving.value,
                   onClick: save
-                }, _toDisplayString(saving.value ? '保存中…' : '保存配置'), 9, _hoisted_66)
+                }, _toDisplayString(saving.value ? '保存中…' : '保存配置'), 9, _hoisted_67)
               ])
             ])
           ], 512), [
             [_vShow, tab.value === 'settings']
           ]),
-          _withDirectives(_createElementVNode("div", _hoisted_67, [
-            _createElementVNode("div", _hoisted_68, [
-              _createElementVNode("span", _hoisted_69, "待发奖 " + _toDisplayString(pending.value.length) + " 个", 1),
-              _cache[113] || (_cache[113] = _createElementVNode("span", { class: "grow" }, null, -1)),
+          _withDirectives(_createElementVNode("div", _hoisted_68, [
+            _createElementVNode("div", _hoisted_69, [
+              _createElementVNode("span", _hoisted_70, "待发奖 " + _toDisplayString(pending.value.length) + " 个", 1),
+              _cache[114] || (_cache[114] = _createElementVNode("span", { class: "grow" }, null, -1)),
               _createElementVNode("button", {
                 class: "btn",
                 onClick: loadPending
@@ -1073,24 +1095,24 @@ return (_ctx, _cache) => {
                 class: "btn primary",
                 disabled: !pending.value.length || sending.value,
                 onClick: sendAll
-              }, _toDisplayString(sending.value === 'all' ? '发奖中…' : '全部发奖'), 9, _hoisted_70),
+              }, _toDisplayString(sending.value === 'all' ? '发奖中…' : '全部发奖'), 9, _hoisted_71),
               _createElementVNode("button", {
                 class: "btn danger",
                 disabled: !pending.value.length,
                 onClick: clearPending
-              }, "清空", 8, _hoisted_71)
+              }, "清空", 8, _hoisted_72)
             ]),
             (pendingLoading.value)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_72, "加载中…"))
+              ? (_openBlock(), _createElementBlock("div", _hoisted_73, "加载中…"))
               : (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
                   (!pending.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_73, [...(_cache[114] || (_cache[114] = [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_74, [...(_cache[115] || (_cache[115] = [
                         _createTextVNode("暂无待发奖", -1),
                         _createElementVNode("br", null, null, -1),
                         _createElementVNode("span", { class: "muted" }, "开启「自动发奖」并用「手动发奖模式」后，自己发起的抽奖中奖者会记录在这里", -1)
                       ]))]))
-                    : (_openBlock(), _createElementBlock("table", _hoisted_74, [
-                        _cache[115] || (_cache[115] = _createElementVNode("thead", null, [
+                    : (_openBlock(), _createElementBlock("table", _hoisted_75, [
+                        _cache[116] || (_cache[116] = _createElementVNode("thead", null, [
                           _createElementVNode("tr", null, [
                             _createElementVNode("th", null, "抽奖ID"),
                             _createElementVNode("th", null, "群"),
@@ -1105,27 +1127,27 @@ return (_ctx, _cache) => {
                             return (_openBlock(), _createElementBlock("tr", {
                               key: p.lottery_id
                             }, [
-                              _createElementVNode("td", _hoisted_75, "#" + _toDisplayString(p.lottery_id.slice(0, 8)), 1),
+                              _createElementVNode("td", _hoisted_76, "#" + _toDisplayString(p.lottery_id.slice(0, 8)), 1),
                               _createElementVNode("td", null, _toDisplayString(p.chat_title || '—'), 1),
-                              _createElementVNode("td", _hoisted_76, _toDisplayString(p.prize || '—'), 1),
+                              _createElementVNode("td", _hoisted_77, _toDisplayString(p.prize || '—'), 1),
                               _createElementVNode("td", null, _toDisplayString(p.winners), 1),
-                              _createElementVNode("td", _hoisted_77, _toDisplayString(p.time || '—'), 1),
+                              _createElementVNode("td", _hoisted_78, _toDisplayString(p.time || '—'), 1),
                               _createElementVNode("td", null, [
                                 _createElementVNode("button", {
                                   class: "btn xs",
                                   disabled: sending.value,
                                   onClick: $event => (sendOne(p))
-                                }, _toDisplayString(sending.value === p.lottery_id ? '发奖中…' : '发奖'), 9, _hoisted_78)
+                                }, _toDisplayString(sending.value === p.lottery_id ? '发奖中…' : '发奖'), 9, _hoisted_79)
                               ])
                             ]))
                           }), 128))
                         ])
                       ])),
                   (prizeHistory.value.length)
-                    ? (_openBlock(), _createElementBlock("div", _hoisted_79, [
-                        _createElementVNode("div", _hoisted_80, "发奖历史（最近 " + _toDisplayString(prizeHistory.value.length) + " 条）", 1),
-                        _createElementVNode("table", _hoisted_81, [
-                          _cache[116] || (_cache[116] = _createElementVNode("thead", null, [
+                    ? (_openBlock(), _createElementBlock("div", _hoisted_80, [
+                        _createElementVNode("div", _hoisted_81, "发奖历史（最近 " + _toDisplayString(prizeHistory.value.length) + " 条）", 1),
+                        _createElementVNode("table", _hoisted_82, [
+                          _cache[117] || (_cache[117] = _createElementVNode("thead", null, [
                             _createElementVNode("tr", null, [
                               _createElementVNode("th", null, "抽奖ID"),
                               _createElementVNode("th", null, "中奖"),
@@ -1137,13 +1159,13 @@ return (_ctx, _cache) => {
                           _createElementVNode("tbody", null, [
                             (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(prizeHistory.value, (h, i) => {
                               return (_openBlock(), _createElementBlock("tr", { key: i }, [
-                                _createElementVNode("td", _hoisted_82, "#" + _toDisplayString(String(h.lottery_id || '').slice(0, 8)), 1),
+                                _createElementVNode("td", _hoisted_83, "#" + _toDisplayString(String(h.lottery_id || '').slice(0, 8)), 1),
                                 _createElementVNode("td", null, _toDisplayString(h.total), 1),
-                                _createElementVNode("td", _hoisted_83, _toDisplayString(h.success), 1),
+                                _createElementVNode("td", _hoisted_84, _toDisplayString(h.success), 1),
                                 _createElementVNode("td", {
                                   style: _normalizeStyle({ color: h.failed ? '#ff6b6b' : '' })
                                 }, _toDisplayString(h.failed), 5),
-                                _createElementVNode("td", _hoisted_84, _toDisplayString(h.time || '—'), 1)
+                                _createElementVNode("td", _hoisted_85, _toDisplayString(h.time || '—'), 1)
                               ]))
                             }), 128))
                           ])
@@ -1160,6 +1182,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ef6efaa7"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ce1ad083"]]);
 
 export { Config as default };

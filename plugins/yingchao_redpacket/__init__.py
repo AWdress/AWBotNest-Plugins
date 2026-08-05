@@ -21,7 +21,7 @@ from ._snatch import TokenSnatcher, extract_text
 __plugin__ = {
     "name": "影巢口令红包（测试）",
     "id": "yingchao_redpacket",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,

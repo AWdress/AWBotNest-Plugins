@@ -23,20 +23,20 @@
 from __future__ import annotations
 
 from ._activity import (
-    ActivityManager, cancel_all_tasks, is_create_command, to_int, delete_message,
+    ActivityManager, cancel_all_tasks, chat_name, is_create_command, to_int, delete_message,
 )
 
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
-    "changelog": "v1.0.11 修复红包金额\n- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n- 总额不足以每个红包至少 1 魔力时拒绝创建\n\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.12 显示群组名称\n- 红包监控和历史记录显示群组名称并保留 UID\n- 创建、超时和结算日志显示群组名称\n\nv1.0.11 修复红包金额\n- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n- 总额不足以每个红包至少 1 魔力时拒绝创建\n\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -51,6 +51,25 @@ DEFAULTS = {
 
 # 活动管理器（setup 时创建）
 _manager: ActivityManager | None = None
+
+
+async def _fill_chat_titles(ctx, items: list[dict]) -> list[dict]:
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    if not apps:
+        return items
+    cache = {}
+    for item in items:
+        chat_id = item.get("chat_id")
+        if chat_id is None or item.get("chat_title"):
+            continue
+        if chat_id not in cache:
+            try:
+                chat = await apps[0].get_chat(chat_id)
+                cache[chat_id] = chat_name(chat, chat_id)
+            except Exception:  # noqa: BLE001
+                cache[chat_id] = str(chat_id)
+        item["chat_title"] = cache[chat_id]
+    return items
 
 
 async def setup(ctx):
@@ -115,11 +134,13 @@ async def setup(ctx):
     # ───────── 前端(Config.vue)用的后端接口 ─────────
     @ctx.on_api("/activities", methods=["GET"])
     async def _api_activities(req):
-        return {"items": _manager.snapshot() if _manager else []}
+        items = _manager.snapshot() if _manager else []
+        return {"items": await _fill_chat_titles(ctx, items)}
 
     @ctx.on_api("/history", methods=["GET"])
     async def _api_history(req):
-        return {"items": _manager.history() if _manager else []}
+        items = _manager.history() if _manager else []
+        return {"items": await _fill_chat_titles(ctx, items)}
 
     @ctx.on_api("/end", methods=["POST"])
     async def _api_end(req):

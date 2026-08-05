@@ -17,7 +17,7 @@ from ._records import Records, parse_targets, parse_group_ids, parse_keywords, t
 from . import _ocr
 
 __plugin__ = {
-    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.2.2",
+    "name": "自动抢红包", "id": "red_packet_grab", "version": "1.2.3",
     "author": "AWdress", "scope": "user", "default_enabled": False,
     "description": "自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
@@ -41,6 +41,26 @@ _records: Records | None = None
 
 def _effective_cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+async def _chat_name_items(ctx) -> list[dict]:
+    values = list(parse_group_ids(_effective_cfg(ctx).get("target_groups", "")))
+    if _records:
+        values.extend(item.get("group_id") for item in _records.history() if item.get("group_id") is not None)
+    values = list(dict.fromkeys(values))
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    items = []
+    for value in values:
+        title = str(value)
+        for app in apps:
+            try:
+                chat = await app.get_chat(value)
+                title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or title
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        items.append({"id": value, "title": title})
+    return items
 
 
 def _to_int(val, default: int) -> int:
@@ -80,6 +100,10 @@ async def setup(ctx):
     async def _api_history(req):
         return {"items": _records.history() if _records else []}
 
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx)}
+
     @ctx.on_api("/history/clear", methods=["POST"])
     async def _api_history_clear(req):
         if _records:
@@ -105,7 +129,8 @@ async def setup(ctx):
             return
         if rotating_password and not packet_has_remaining(caption):
             ctx.log.info(
-                "[自动抢红包] 图片财富密码红包已领完，跳过 chat=%s msg=%s",
+                "[自动抢红包] 图片财富密码红包已领完，跳过 %s (%s) msg=%s",
+                getattr(message.chat, "title", None) or message.chat.id,
                 message.chat.id, message.id,
             )
             return

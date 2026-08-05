@@ -22,7 +22,7 @@ from ._game import NumberBombGame
 __plugin__ = {
     "name": "数字炸弹",
     "id": "bomb_game",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
@@ -63,6 +63,28 @@ def _effective_cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
 
 
+async def _chat_name_items(ctx) -> list[dict]:
+    cfg = _effective_cfg(ctx)
+    values = []
+    for key in ("valid_groups", "monitor_disabled_groups", "no_delete_groups"):
+        for value in parse_groups(cfg.get(key, "")):
+            if value not in values:
+                values.append(value)
+    apps = list(getattr(ctx, "user_apps", None) or [])
+    items = []
+    for value in values:
+        title = str(value)
+        for app in apps:
+            try:
+                chat = await app.get_chat(value)
+                title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or title
+                break
+            except Exception:  # noqa: BLE001
+                continue
+        items.append({"id": value, "title": title})
+    return items
+
+
 async def setup(ctx):
     # 状态管理器与游戏引擎都依赖 ctx，必须在 setup 内构造（不能在模块级）
     state_mgr = GameStateManager(ctx)
@@ -73,6 +95,10 @@ async def setup(ctx):
     @ctx.on_api("/games", methods=["GET"])
     async def _api_games(req):
         return {"games": list(_game_history)}
+
+    @ctx.on_api("/chat_names", methods=["GET"])
+    async def _api_chat_names(req):
+        return {"items": await _chat_name_items(ctx)}
 
     @ctx.on_api("/update_config", methods=["POST"])
     async def _api_update_config(req):

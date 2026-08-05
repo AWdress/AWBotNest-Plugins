@@ -11,6 +11,7 @@
         <div class="section">
           <h3>监控范围</h3>
           <label class="row"><span>监控频道/群组</span><input v-model="cfg.monitor_ids" class="inp" placeholder="留空=监控所有会话，多个 ID 用逗号分隔" /></label>
+          <div v-if="chatNames.length" class="chat-names"><span class="chat-label">已识别：</span><span v-for="item in chatNames" :key="item.id" class="chat-name">{{ item.title }} ({{ item.id }})</span></div>
           <div class="fld">
             <span class="lbl">转存类型</span>
             <div class="chips">
@@ -66,15 +67,16 @@
           <span class="muted">最近 {{ logs.length }} 条</span>
         </div>
         <table class="tbl">
-          <thead><tr><th>时间</th><th>标题</th><th>TMDB ID</th><th>操作</th></tr></thead>
+          <thead><tr><th>时间</th><th>频道/群组</th><th>标题</th><th>TMDB ID</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="(log, i) in logs" :key="i">
               <td class="muted">{{ log.time }}</td>
+              <td>{{ log.chat_title || log.chat_id || '-' }}</td>
               <td>{{ log.title }}</td>
               <td><span class="tmdb-id">{{ log.tmdb_id || '-' }}</span></td>
               <td><span :class="'action-' + log.action">{{ log.action }}</span></td>
             </tr>
-            <tr v-if="!logs.length"><td colspan="4" class="empty">暂无处理记录</td></tr>
+            <tr v-if="!logs.length"><td colspan="5" class="empty">暂无处理记录</td></tr>
           </tbody>
         </table>
       </div>
@@ -99,6 +101,7 @@ const status = ref({})
 const testing = ref(false)
 const testResult = ref(null)
 const logs = ref([])
+const chatNames = ref([])
 
 const mediaTypes = computed({
   get: () => Array.isArray(cfg.value.media_types) ? cfg.value.media_types : [],
@@ -115,17 +118,26 @@ onMounted(() => {
   Object.assign(cfg.value, props.config || {})
   loadStatus()
   loadLogs()
+  loadChatNames()
 })
 
 async function save() {
   saving.value = true
   try {
     await props.api.post('/update_config', cfg.value)
+    await loadChatNames()
     saving.value = false
   } catch (e) {
     alert('保存失败：' + e.message)
     saving.value = false
   }
+}
+
+async function loadChatNames() {
+  try {
+    const r = await props.api.get('/chat_names')
+    chatNames.value = r.items || []
+  } catch {}
 }
 
 async function loadStatus() {
@@ -167,6 +179,9 @@ async function loadLogs() {
 .section h3 { font-size: 14px; color: var(--text-primary, #e8edf5); margin-bottom: 12px; }
 .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .row > span:first-child { min-width: 120px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
+.chat-names { margin: -4px 0 12px 132px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.chat-label { color: var(--text-muted, #7a8291); }
+.chat-name { color: var(--text-primary, #e8edf5); }
 .row.switch { gap: 8px; }
 .row.switch span { min-width: auto; }
 .inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
