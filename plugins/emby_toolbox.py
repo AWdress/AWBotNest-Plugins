@@ -29,7 +29,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
@@ -408,22 +408,26 @@ def _tmdb_fetch(cfg: Dict[str, Any], tmdb_id: str, is_movie: bool) -> Optional[D
         'language': 'zh-CN',
         'append_to_response': 'alternative_titles',
     }
-    r = requests.get(url, params=params, timeout=30)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        # 再取繁中备选
+        if not is_movie:
+            try:
+                r2 = requests.get(url, params={'api_key': cfg['tmdb_key'], 'language': 'zh-TW'}, timeout=10)
+                if r2.status_code == 200:
+                    d2 = r2.json()
+                    name = (d2.get('name') or '').strip()
+                    if name and name != data.get('name'):
+                        data['hant_trans'] = [name]
+            except Exception:
+                pass
+        return data
+    except (requests.RequestException, requests.Timeout, ConnectionError) as e:
+        # 网络错误静默返回 None，由调用方处理
         return None
-    data = r.json()
-    # 再取繁中备选
-    if not is_movie:
-        try:
-            r2 = requests.get(url, params={'api_key': cfg['tmdb_key'], 'language': 'zh-TW'}, timeout=30)
-            if r2.status_code == 200:
-                d2 = r2.json()
-                name = (d2.get('name') or '').strip()
-                if name and name != data.get('name'):
-                    data['hant_trans'] = [name]
-        except Exception:
-            pass
-    return data
 
 
 def _invalid_alt_name(name: str) -> bool:
@@ -742,6 +746,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    skip_tmdb = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
     for lib in libs:
@@ -756,6 +761,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             is_movie = item0.get('Type') == 'Movie'
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
             if not tmdb:
+                skip_tmdb += 1
                 continue
             titles = tmdb.get('alternative_titles', {})
             raw_alt = titles.get('titles' if is_movie else 'results', []) or []
@@ -796,6 +802,8 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             _update_item(cfg, item)
             count += 1
     result = f'别名写入完成，共更新 {count} 条。'
+    if skip_tmdb > 0:
+        result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
