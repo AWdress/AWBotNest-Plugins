@@ -314,7 +314,7 @@ return (_ctx, _cache) => {
                                   "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.image_size) = $event)),
                                   class: "inp"
                                 }, [...(_cache[20] || (_cache[20] = [
-                                  _createStaticVNode("<option value=\"1024x1024\" data-v-47fc3c04>1024 × 1024</option><option value=\"1536x1024\" data-v-47fc3c04>1536 × 1024（横图）</option><option value=\"1024x1536\" data-v-47fc3c04>1024 × 1536（竖图）</option><option value=\"1792x1024\" data-v-47fc3c04>1792 × 1024（DALL·E 3 横图）</option><option value=\"1024x1792\" data-v-47fc3c04>1024 × 1792（DALL·E 3 竖图）</option>", 5)
+                                  _createStaticVNode("<option value=\"1024x1024\" data-v-f3a1efe5>1024 × 1024</option><option value=\"1536x1024\" data-v-f3a1efe5>1536 × 1024（横图）</option><option value=\"1024x1536\" data-v-f3a1efe5>1024 × 1536（竖图）</option><option value=\"1792x1024\" data-v-f3a1efe5>1792 × 1024（DALL·E 3 横图）</option><option value=\"1024x1792\" data-v-f3a1efe5>1024 × 1792（DALL·E 3 竖图）</option>", 5)
                                 ]))], 512), [
                                   [_vModelSelect, cfg.image_size]
                                 ])
@@ -325,7 +325,7 @@ return (_ctx, _cache) => {
                                   "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.image_quality) = $event)),
                                   class: "inp"
                                 }, [...(_cache[22] || (_cache[22] = [
-                                  _createStaticVNode("<option value=\"auto\" data-v-47fc3c04>自动</option><option value=\"low\" data-v-47fc3c04>低</option><option value=\"medium\" data-v-47fc3c04>中</option><option value=\"high\" data-v-47fc3c04>高</option><option value=\"standard\" data-v-47fc3c04>标准（DALL·E）</option><option value=\"hd\" data-v-47fc3c04>高清（DALL·E）</option>", 6)
+                                  _createStaticVNode("<option value=\"auto\" data-v-f3a1efe5>自动</option><option value=\"low\" data-v-f3a1efe5>低</option><option value=\"medium\" data-v-f3a1efe5>中</option><option value=\"high\" data-v-f3a1efe5>高</option><option value=\"standard\" data-v-f3a1efe5>标准（DALL·E）</option><option value=\"hd\" data-v-f3a1efe5>高清（DALL·E）</option>", 6)
                                 ]))], 512), [
                                   [_vModelSelect, cfg.image_quality]
                                 ])
@@ -644,6 +644,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-47fc3c04"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f3a1efe5"]]);
 
 export { Config as default };

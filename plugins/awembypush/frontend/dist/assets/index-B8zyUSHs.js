@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BF2lhK7u.js';
+import Config from './__federation_expose_Config-BA3TEx89.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -39,48 +39,37 @@ true              &&(function polyfill() {
   }
 }());
 
-// 本地预览入口（npm run dev）：用「模拟 host」把 Config.vue 跑起来，不启动平台也能调界面。
-// 真正运行时由平台注入真实 host。
+// 本地预览入口（npm run dev）：模拟 host 跑 Config.vue。真正运行时由平台注入真实 host。
 const {createApp,h} = await importShared('vue');
 
 let store = {
-  enable_image_generation: true,
-  image_size: '1024x1024', image_quality: 'auto',
-  enable_private_chat: true, enable_group_chat: true, group_chat_ids: '',
-  system_prompt: '# Role\n你是一个相处了很久的普通网友。',
-  max_history: 10,
-  enable_proactive: false, proactive_chat_ids: '',
-  proactive_min_minutes: 60, proactive_max_minutes: 180,
-  enable_explain_command: true, enable_explain_prompt: false,
-  explain_prompt: '需要解释的消息内容：{content}',
-  white_list_chats: '',
+  enable_tmdb: true, tmdb_api_key: '', tmdb_api_domain: 'api.themoviedb.org',
+  tmdb_image_domain: 'image.tmdb.org', emby_server_url: '',
+  dedup_window: 60, episode_cache_timeout: 30,
+  enable_watch_link: false, watch_link_type: 'server', link_redirect_prefix: '',
+  tg_bot_token: '', tg_chat_id: '', tg_api_host: '',
+  wx_corp_id: '', wx_corp_secret: '', wx_agent_id: '', wx_user_id: '@all',
+  wx_msg_type: 'news_notice', wx_proxy_url: '', wx_no_proxy: true,
+  bark_server: 'https://api.day.app', bark_keys: '',
+  enable_custom_template: false, tg_template: '', wx_title_template: '',
+  wx_body_template: '', bark_title_template: '', bark_body_template: '',
 };
 
 const mockHost = {
-  pluginId: 'ai',
+  pluginId: 'awembypush',
   token: 'dev',
   async getConfig() { return { ...store } },
   async saveConfig(values) { store = { ...store, ...values }; console.log('[mock] save', store); },
   async callApi(path, opts = {}) {
     console.log('[mock] callApi', path, opts);
-    if (path === '/test') return { ok: true, message: '连接正常', model: 'gpt-3.5-turbo' }
-    if (path === '/histories') return {
+    if (path === '/recent') return {
       items: [
-        { chat_id: 12345678, is_private: true, count: 6, last: '你今天怎么样' },
-        { chat_id: -1001234567890, is_private: false, count: 4, last: '哈哈哈' },
-      ],
-      proactive_next: '2026-07-15 21:30:00',
-    }
-    if (path === '/history') return {
-      chat_id: 12345678,
-      messages: [
-        { role: 'user', content: '在吗' },
-        { role: 'assistant', content: '在的👀' },
-        { role: 'user', content: '你今天怎么样' },
-        { role: 'assistant', content: '还行，摸鱼中😂' },
+        { time: '07-15 20:30', item_name: '沙丘2', item_type: 'MOV', episode_text: '', channels: 'Telegram / Bark', image_url: '' },
+        { time: '07-15 19:10', item_name: '某剧', item_type: 'TV', episode_text: '第1季：第3集', channels: 'Telegram', image_url: '' },
       ],
     }
-    if (path === '/history/clear') return { ok: true }
+    if (path === '/test') return { ok: true, message: '已向 Telegram / Bark 发送测试通知' }
+    if (path === '/clear') return { ok: true }
     return { ok: true }
   },
   toast: {
