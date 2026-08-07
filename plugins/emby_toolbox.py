@@ -29,7 +29,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
@@ -624,6 +624,7 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    skip_tmdb = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始季名刮削，媒体库: {libs}')
     for lib in libs:
@@ -641,6 +642,8 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 continue
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=False)
             if not tmdb or 'seasons' not in tmdb:
+                if not tmdb:
+                    skip_tmdb += 1
                 continue
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
             seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': serie['Id'], 'fields': 'Name,IndexNumber,LockedFields'}, timeout=60).json().get('Items', [])
@@ -665,6 +668,8 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 _update_item(cfg, full)
                 count += 1
     result = f'季名刮削完成，共更新 {count} 条。'
+    if skip_tmdb > 0:
+        result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
@@ -676,6 +681,7 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
         raise RuntimeError('未配置媒体库名称列表')
     user_id = _resolve_user_id(cfg)
     count = 0
+    skip_tmdb = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始国家/语言 Tag 刮削，媒体库: {libs}')
     for lib in libs:
@@ -690,6 +696,7 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             is_movie = item0.get('Type') == 'Movie'
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
             if not tmdb:
+                skip_tmdb += 1
                 continue
             prod = tmdb.get('production_countries', []) or []
             langs = tmdb.get('spoken_languages', []) or []
@@ -735,6 +742,8 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             _update_item(cfg, item)
             count += 1
     result = f'国家/语言 Tag 更新完成，共更新 {count} 条。'
+    if skip_tmdb > 0:
+        result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
