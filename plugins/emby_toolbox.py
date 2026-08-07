@@ -29,7 +29,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
@@ -352,8 +352,18 @@ def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     base = _base_url(cfg['emby_server'])
     url = f"{base}/emby/Items/{item_id}"
     params = {'api_key': cfg['api_key']}
-    r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
-    r.raise_for_status()
+    try:
+        r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+        r.raise_for_status()
+    except requests.HTTPError as e:
+        if '404' in str(e):
+            # 某些条目需要通过用户路径更新
+            user_id = _resolve_user_id(cfg)
+            url = f"{base}/emby/Users/{user_id}/Items/{item_id}"
+            r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+            r.raise_for_status()
+        else:
+            raise
 
 
 def _refresh_item(cfg: Dict[str, Any], item_id: str) -> None:
