@@ -29,7 +29,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.2.3",
+    "version": "1.3.0",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
@@ -165,6 +165,12 @@ __plugin__ = {
             ],
             "help": "选择需要定时自动执行的功能。",
             "show_if": {"enable_auto_schedule": True},
+        },
+
+        "run_all_scheduled": {
+            "type": "action", "label": "🚀 立即执行所有定时功能", "action": "run_all_scheduled",
+            "section": "操作", "order": 202,
+            "help": "立即执行所有在定时任务中选中的功能",
         },
 
         "test_connection": {
@@ -654,6 +660,8 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             if not tmdb or 'seasons' not in tmdb:
                 if not tmdb:
                     skip_tmdb += 1
+                    if ctx:
+                        ctx.log.warning(f'[emby_toolbox] 季名刮削跳过 {serie.get("Name", "未知")}: TMDB 不可达')
                 continue
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
             seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': serie['Id'], 'fields': 'Name,IndexNumber,LockedFields'}, timeout=60).json().get('Items', [])
@@ -677,6 +685,8 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                     full['LockData'] = True
                 _update_item(cfg, full)
                 count += 1
+                if ctx:
+                    ctx.log.info(f'[emby_toolbox] 季名刮削更新: {serie.get("Name", "未知")} S{season_num} -> {new_name}')
     result = f'季名刮削完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
@@ -707,6 +717,8 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
             if not tmdb:
                 skip_tmdb += 1
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 国家/语言标签跳过 {item0.get("Name", "未知")}: TMDB 不可达')
                 continue
             prod = tmdb.get('production_countries', []) or []
             langs = tmdb.get('spoken_languages', []) or []
@@ -751,6 +763,8 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
+            if ctx:
+                ctx.log.info(f'[emby_toolbox] 国家/语言标签更新: {item0.get("Name", "未知")} +{len(new_tags)} 标签')
     result = f'国家/语言 Tag 更新完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
@@ -781,6 +795,8 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
             if not tmdb:
                 skip_tmdb += 1
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 别名写入跳过 {item0.get("Name", "未知")}: TMDB 不可达')
                 continue
             titles = tmdb.get('alternative_titles', {})
             raw_alt = titles.get('titles' if is_movie else 'results', []) or []
@@ -810,6 +826,8 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             sort_all = splitr.join(res)
             if not changed or sort_all == old_sort:
                 continue
+            if ctx:
+                ctx.log.info(f'[emby_toolbox] 别名写入更新: {item0.get("Name", "未知")} -> {sort_all[:60]}...')
             item['SortName'] = sort_all
             item['ForcedSortName'] = sort_all
             lf = item.get('LockedFields') or []
@@ -1006,6 +1024,49 @@ async def setup(ctx):
                 ctx.log.info(f'[emby_toolbox] 定时任务已启用: {schedule_cron}')
         except Exception as e:
             ctx.log.error(f'[emby_toolbox] 定时任务配置失败: {e}')
+
+    @ctx.action('run_all_scheduled')
+    async def action_run_all_scheduled():
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        
+        schedule_funcs = cfg.get('schedule_functions', [])
+        if not schedule_funcs:
+            return {'ok': False, 'message': '未配置定时执行功能'}
+        
+        ctx.log.info('[emby_toolbox] 手动执行所有定时功能')
+        results = []
+        for func_name in schedule_funcs:
+            try:
+                ctx.log.info(f'[emby_toolbox] 执行: {func_name}')
+                if func_name == 'episode_fix':
+                    result = _episode_fix(cfg, ctx)
+                elif func_name == 'delete_episode_genre':
+                    result = _delete_episode_genre(cfg, ctx)
+                elif func_name == 'genre_mapper':
+                    result = _genre_mapper(cfg, ctx)
+                elif func_name == 'season_renamer':
+                    result = _season_renamer(cfg, ctx)
+                elif func_name == 'country_scraper':
+                    result = _country_scraper(cfg, ctx)
+                elif func_name == 'alt_renamer':
+                    result = _alt_renamer(cfg, ctx)
+                elif func_name == 'strm_mediainfo':
+                    result = _strm_mediainfo(cfg, ctx)
+                elif func_name == 'damaged_check':
+                    result = _damaged_check(cfg, ctx)
+                else:
+                    result = f'未知功能: {func_name}'
+                results.append(f'{func_name}: {result}')
+            except Exception as e:
+                ctx.log.error(f'[emby_toolbox] {func_name} 失败: {e}')
+                results.append(f'{func_name}: 失败 - {e}')
+        
+        summary = '\n'.join(results)
+        _set_last_summary(ctx, summary)
+        return {'ok': True, 'message': summary}
 
     @ctx.action('test_connection')
     async def action_test_connection():
