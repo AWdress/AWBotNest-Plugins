@@ -60,7 +60,10 @@ const {ref,onMounted} = await importShared('vue');
 
 const _sfc_main = {
   __name: 'Config',
-  props: { api: Object, config: Object },
+  props: {
+  pluginId: { type: String, required: true },
+  host: { type: Object, required: true },
+},
   setup(__props) {
 
 const props = __props;
@@ -76,36 +79,44 @@ const saving = ref(false);
 const history = ref([]);
 const chatNames = ref([]);
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {});
-  loadHistory();
-  loadChatNames();
+onMounted(async () => {
+  try {
+    Object.assign(cfg.value, await props.host.getConfig() || {});
+  } catch (e) {
+    props.host.toast.error('读取配置失败：' + (e.message || e));
+  }
+  await Promise.all([loadHistory(), loadChatNames()]);
 });
 
 async function save() {
   saving.value = true;
   try {
-    await props.api.post('/update_config', cfg.value);
+    await props.host.saveConfig({ ...cfg.value });
     await loadChatNames();
-    saving.value = false;
+    props.host.toast.success('配置已保存');
   } catch (e) {
-    alert('保存失败：' + e.message);
+    props.host.toast.error('保存失败：' + (e.message || e));
+  } finally {
     saving.value = false;
   }
 }
 
 async function loadHistory() {
   try {
-    const r = await props.api.get('/history');
+    const r = await props.host.callApi('/history');
     history.value = r.history || [];
-  } catch {}
+  } catch (e) {
+    props.host.toast.error('读取答题记录失败：' + (e.message || e));
+  }
 }
 
 async function loadChatNames() {
   try {
-    const r = await props.api.get('/chat_names');
+    const r = await props.host.callApi('/chat_names');
     chatNames.value = r.items || [];
-  } catch {}
+  } catch (e) {
+    props.host.toast.error('读取群组名称失败：' + (e.message || e));
+  }
 }
 
 return (_ctx, _cache) => {
@@ -332,6 +343,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4d71657d"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-eb32992c"]]);
 
 export { Config as default };

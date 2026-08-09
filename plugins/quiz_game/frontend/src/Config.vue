@@ -75,7 +75,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
-const props = defineProps({ api: Object, config: Object })
+const props = defineProps({
+  pluginId: { type: String, required: true },
+  host: { type: Object, required: true },
+})
 const cfg = ref({
   valid_groups: '', source: 'ai',
   ai_api_key: '', ai_base_url: '', ai_model: 'gpt-4o-mini',
@@ -88,36 +91,44 @@ const saving = ref(false)
 const history = ref([])
 const chatNames = ref([])
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {})
-  loadHistory()
-  loadChatNames()
+onMounted(async () => {
+  try {
+    Object.assign(cfg.value, await props.host.getConfig() || {})
+  } catch (e) {
+    props.host.toast.error('读取配置失败：' + (e.message || e))
+  }
+  await Promise.all([loadHistory(), loadChatNames()])
 })
 
 async function save() {
   saving.value = true
   try {
-    await props.api.post('/update_config', cfg.value)
+    await props.host.saveConfig({ ...cfg.value })
     await loadChatNames()
-    saving.value = false
+    props.host.toast.success('配置已保存')
   } catch (e) {
-    alert('保存失败：' + e.message)
+    props.host.toast.error('保存失败：' + (e.message || e))
+  } finally {
     saving.value = false
   }
 }
 
 async function loadHistory() {
   try {
-    const r = await props.api.get('/history')
+    const r = await props.host.callApi('/history')
     history.value = r.history || []
-  } catch {}
+  } catch (e) {
+    props.host.toast.error('读取答题记录失败：' + (e.message || e))
+  }
 }
 
 async function loadChatNames() {
   try {
-    const r = await props.api.get('/chat_names')
+    const r = await props.host.callApi('/chat_names')
     chatNames.value = r.items || []
-  } catch {}
+  } catch (e) {
+    props.host.toast.error('读取群组名称失败：' + (e.message || e))
+  }
 }
 </script>
 
