@@ -16,7 +16,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -26,6 +26,15 @@ __plugin__ = {
     "render_mode": "vue",
     "requirements": ["openai>=1.0"],
 }
+
+__plugin__["changelog"] = (
+    "v1.0.11 优化答题交互与消息清理\n"
+    "- 开启命令会原地显示题目生成状态，生成完成后直接变为首题\n"
+    "- 每题答对后自动删除旧题，手动结束会清理本场全部答题消息\n"
+    "- 防止题目生成期间重复开局，并完善超时、结束与卸载清理\n"
+    "- 配置页新增命令和玩法说明\n\n"
+    + __plugin__["changelog"]
+)
 
 # ── 配置默认值 ──
 DEFAULTS = {
@@ -45,6 +54,8 @@ DEFAULTS = {
 
 # ── 运行态 ──
 _active: dict = {}
+_starting: set = set()
+_cancelled_starts: set = set()
 _busy_hints: set = set()
 _name_cache: dict = {}
 _tasks: set = set()
@@ -112,6 +123,23 @@ async def _auto_del(message, delay: int = 30):
         pass
 
 
+async def _delete_message(message):
+    if not message:
+        return
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+async def _edit_message(message, text):
+    try:
+        await message.edit(text)
+        return True
+    except Exception:
+        return False
+
+
 async def setup(ctx):
     async def _send_temp(client, chat_id, text, delay=30):
         msg = await client.send_message(chat_id, text)
@@ -134,23 +162,34 @@ async def setup(ctx):
             await asyncio.sleep(timeout)
             if chat_id in _active:
                 ans = _active[chat_id]["a"]
-                await _send_temp(client, chat_id, f"时间到！正确答案是：{ans}\n活动已结束")
                 await _stop(client, chat_id)
+                await _send_temp(
+                    client,
+                    chat_id,
+                    f"⌛ 答题时间到\n\n正确答案：{ans}\n本场答题已结束，相关消息已清理。",
+                )
         return _track(asyncio.create_task(_runner()))
 
     async def _send_next_question(client, chat_id, timeout):
         state = _active[chat_id]
-        text = (f"趣味答题 · 第 {state['round']}/{state['total_rounds']} 轮\n"
-                f"{state['q']}\n\n请在 {timeout} 秒内直接发送答案")
+        text = (
+            f"┌ 趣味答题 · {state['round']}/{state['total_rounds']}\n"
+            f"│ 限时 {timeout} 秒\n"
+            f"└ {state['q']}\n\n"
+            "直接发送答案，最先答对者获奖。"
+        )
         try:
             msg = await client.send_message(chat_id, text)
-            state["q_msgs"].append(msg)
+            state["question_msg"] = msg
+            state["messages"].append(msg)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[答题] 发题失败: %r", e)
+            await _stop(client, chat_id)
+            await _send_temp(client, chat_id, "题目发送失败，本场答题已结束。")
             return
         state["task"] = _schedule_timeout(client, chat_id, timeout)
 
-    async def _start(client, chat_id, message):
+    async def _start_legacy(client, chat_id, message):
         cfg = _effective_cfg(ctx)
         if chat_id in _active:
             if chat_id not in _busy_hints:
@@ -185,7 +224,7 @@ async def setup(ctx):
             return
         _active[chat_id]["task"] = _schedule_timeout(client, chat_id, timeout)
 
-    async def _stop(client, chat_id):
+    async def _stop_legacy(client, chat_id):
         if chat_id not in _active:
             return
         state = _active[chat_id]
@@ -193,6 +232,84 @@ async def setup(ctx):
             state["task"].cancel()
         _active.pop(chat_id, None)
         _busy_hints.discard(chat_id)
+
+    async def _start(client, chat_id, message):
+        cfg = _effective_cfg(ctx)
+        if chat_id in _starting:
+            await _edit_message(message, "⏳ 题目正在生成中\n\n请勿重复启动，稍候即可开始答题。")
+            _track(asyncio.create_task(_auto_del(message, 5)))
+            return
+        if chat_id in _active:
+            await _edit_message(message, "⚠️ 当前已有答题正在进行\n\n如需结束，请发送：结束答题")
+            _track(asyncio.create_task(_auto_del(message, 5)))
+            return
+
+        _starting.add(chat_id)
+        timeout = int(cfg.get("timeout", 60) or 60)
+        reward = int(cfg.get("base_reward", 500) or 500)
+        rounds = 5
+        await _edit_message(message, f"⏳ 趣味答题正在启动\n\n正在生成 {rounds} 道题目，请稍候…")
+        try:
+            pool = await _fetch_pool(cfg, rounds)
+            if chat_id in _cancelled_starts:
+                await _delete_message(message)
+                return
+            if len(pool) < rounds:
+                await _edit_message(message, "❌ 题目生成失败\n\n请检查出题源配置后重新发送“开启答题”。")
+                _track(asyncio.create_task(_auto_del(message, 8)))
+                return
+
+            first = pool[0]
+            _active[chat_id] = {
+                "q": first["q"], "a": first["a"], "aliases": first.get("aliases", []),
+                "round": 1, "total_rounds": rounds, "scores": {}, "task": None,
+                "answering": False, "question_pool": pool, "next_idx": 1,
+                "messages": [message], "question_msg": message,
+                "last_winner_id": 0, "streak_count": 0,
+            }
+            _name_cache.setdefault(chat_id, {})
+            text = (
+                f"┌ 趣味答题 · 1/{rounds}\n"
+                f"│ 奖励 {reward} 魔力 · 限时 {timeout} 秒\n"
+                f"└ {first['q']}\n\n"
+                "直接发送答案，最先答对者获奖。"
+            )
+            if not await _edit_message(message, text):
+                msg = await client.send_message(chat_id, text)
+                _active[chat_id]["question_msg"] = msg
+                _active[chat_id]["messages"].append(msg)
+                await _delete_message(message)
+            _active[chat_id]["task"] = _schedule_timeout(client, chat_id, timeout)
+        except Exception as e:  # noqa: BLE001
+            ctx.log.error("[答题] 启动失败: %r", e)
+            _active.pop(chat_id, None)
+            await _edit_message(message, "❌ 答题启动失败\n\n请稍后重新发送“开启答题”。")
+            _track(asyncio.create_task(_auto_del(message, 8)))
+        finally:
+            _starting.discard(chat_id)
+            _cancelled_starts.discard(chat_id)
+
+    async def _stop(client, chat_id):
+        state = _active.pop(chat_id, None)
+        if not state:
+            if chat_id in _starting:
+                _cancelled_starts.add(chat_id)
+                return True
+            _starting.discard(chat_id)
+            return False
+        task = state.get("task")
+        if task and task is not asyncio.current_task():
+            task.cancel()
+        seen = set()
+        for msg in state.get("messages", []):
+            marker = getattr(msg, "id", None) or id(msg)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            await _delete_message(msg)
+        _busy_hints.discard(chat_id)
+        _starting.discard(chat_id)
+        return True
 
     async def _handle_answer(client, message):
         cfg = _effective_cfg(ctx)
@@ -204,6 +321,9 @@ async def setup(ctx):
             return
         if not getattr(message, "from_user", None):
             return
+
+        # 统一纳入本场清理；没有群管理权限时删除失败会被安全忽略。
+        state["messages"].append(message)
 
         text = (message.text or "").strip().lower()
         correct = state["a"].strip().lower()
@@ -234,7 +354,9 @@ async def setup(ctx):
         state["scores"][user_id] = state["scores"].get(user_id, 0) + reward
 
         try:
-            await message.reply(f"+{reward}", quote=True)
+            reward_msg = await message.reply(f"+{reward}", quote=True)
+            if reward_msg:
+                state["messages"].append(reward_msg)
         except Exception:  # noqa: BLE001
             pass
 
@@ -247,9 +369,16 @@ async def setup(ctx):
             "reward": reward,
         })
 
+        await _delete_message(state.get("question_msg"))
+        state["question_msg"] = None
+
         if state["round"] >= state["total_rounds"]:
-            await _send_temp(client, chat_id, f"✅ {user_name} 答对！\n游戏结束")
             await _stop(client, chat_id)
+            await _send_temp(
+                client,
+                chat_id,
+                f"🏁 趣味答题结束\n\n最后一题由 {user_name} 答对，本场消息已清理。",
+            )
             return
 
         state["round"] += 1
@@ -261,6 +390,7 @@ async def setup(ctx):
         state["answering"] = False
 
         timeout = int(cfg.get("timeout", 60) or 60)
+        await _send_temp(client, chat_id, f"✅ {user_name} 答对，获得 {reward} 魔力\n正在发送下一题…", 4)
         await _send_next_question(client, chat_id, timeout)
 
     # ───────── Vue 模式后端 API ─────────
@@ -293,8 +423,14 @@ async def setup(ctx):
         if text in ["结束答题", "停止答题"]:
             if not is_outgoing:
                 return
-            await _stop(client, chat_id)
-            await _send_temp(client, chat_id, "答题活动已结束")
+            stopped = await _stop(client, chat_id)
+            notice = (
+                "✅ 趣味答题已结束\n\n本场题目与奖励消息已清理。"
+                if stopped else
+                "ℹ️ 当前没有正在进行的答题。"
+            )
+            await _edit_message(message, notice)
+            _track(asyncio.create_task(_auto_del(message, 5)))
             return
 
         # 开局账号只负责发起/结束，不参与自己的答题。
@@ -307,3 +443,10 @@ async def teardown(ctx):
     for task in list(_tasks):
         task.cancel()
     _tasks.clear()
+    for state in list(_active.values()):
+        for message in state.get("messages", []):
+            await _delete_message(message)
+    _active.clear()
+    _starting.clear()
+    _cancelled_starts.clear()
+    _busy_hints.clear()

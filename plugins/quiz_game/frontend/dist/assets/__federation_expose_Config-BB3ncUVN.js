@@ -8,7 +8,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,vModelText:_vModelText,withDirectives:_withDirectives,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createCommentVNode:_createCommentVNode,vModelSelect:_vModelSelect,vModelCheckbox:_vModelCheckbox} = await importShared('vue');
+const {normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,vModelText:_vModelText,withDirectives:_withDirectives,renderList:_renderList,Fragment:_Fragment,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createCommentVNode:_createCommentVNode,vModelSelect:_vModelSelect,vModelCheckbox:_vModelCheckbox,createStaticVNode:_createStaticVNode} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "quiz-game-config" };
@@ -134,6 +134,7 @@ return (_ctx, _cache) => {
     _createElementVNode("div", _hoisted_3, [
       (tab.value === 'settings')
         ? (_openBlock(), _createElementBlock("div", _hoisted_4, [
+            _cache[26] || (_cache[26] = _createStaticVNode("<section class=\"section command-guide\" aria-labelledby=\"command-guide-title\" data-v-cf0959e3><div class=\"guide-heading\" data-v-cf0959e3><div data-v-cf0959e3><h3 id=\"command-guide-title\" data-v-cf0959e3>命令与玩法</h3><p data-v-cf0959e3>命令仅由插件绑定的本人账号发送，群友只需直接发送答案。</p></div><span class=\"guide-badge\" data-v-cf0959e3>本人命令</span></div><div class=\"command-list\" data-v-cf0959e3><div class=\"command-item\" data-v-cf0959e3><code data-v-cf0959e3>开启答题</code><span data-v-cf0959e3>生成 5 道题并开始游戏，也支持“开始答题”。</span></div><div class=\"command-item\" data-v-cf0959e3><code data-v-cf0959e3>结束答题</code><span data-v-cf0959e3>立即结束本场，并清理题目、奖励等答题消息。</span></div></div><p class=\"guide-note\" data-v-cf0959e3>每题由最先答对的群友获奖；答对后旧题会自动删除，再发送下一题。本人账号发送的答案不会参与抢答。</p></section>", 1)),
             _createElementVNode("div", _hoisted_5, [
               _cache[13] || (_cache[13] = _createElementVNode("h3", null, "群组设置", -1)),
               _createElementVNode("label", _hoisted_6, [
@@ -303,7 +304,7 @@ return (_ctx, _cache) => {
               _createElementVNode("span", _hoisted_23, "最近 " + _toDisplayString(history.value.length) + " 条", 1)
             ]),
             _createElementVNode("table", _hoisted_24, [
-              _cache[27] || (_cache[27] = _createElementVNode("thead", null, [
+              _cache[28] || (_cache[28] = _createElementVNode("thead", null, [
                 _createElementVNode("tr", null, [
                   _createElementVNode("th", null, "时间"),
                   _createElementVNode("th", null, "群组"),
@@ -327,7 +328,7 @@ return (_ctx, _cache) => {
                   ]))
                 }), 128)),
                 (!history.value.length)
-                  ? (_openBlock(), _createElementBlock("tr", _hoisted_27, [...(_cache[26] || (_cache[26] = [
+                  ? (_openBlock(), _createElementBlock("tr", _hoisted_27, [...(_cache[27] || (_cache[27] = [
                       _createElementVNode("td", {
                         colspan: "6",
                         class: "empty"
@@ -343,6 +344,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-eb32992c"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cf0959e3"]]);
 
 export { Config as default };

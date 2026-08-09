@@ -7,6 +7,27 @@
 
     <div class="tab-content">
       <div v-if="tab === 'settings'" class="settings">
+        <section class="section command-guide" aria-labelledby="command-guide-title">
+          <div class="guide-heading">
+            <div>
+              <h3 id="command-guide-title">命令与玩法</h3>
+              <p>命令仅由插件绑定的本人账号发送，群友只需直接发送答案。</p>
+            </div>
+            <span class="guide-badge">本人命令</span>
+          </div>
+          <div class="command-list">
+            <div class="command-item">
+              <code>开启答题</code>
+              <span>生成 5 道题并开始游戏，也支持“开始答题”。</span>
+            </div>
+            <div class="command-item">
+              <code>结束答题</code>
+              <span>立即结束本场，并清理题目、奖励等答题消息。</span>
+            </div>
+          </div>
+          <p class="guide-note">每题由最先答对的群友获奖；答对后旧题会自动删除，再发送下一题。本人账号发送的答案不会参与抢答。</p>
+        </section>
+
         <div class="section">
           <h3>群组设置</h3>
           <label class="row"><span>允许的群组</span><input v-model="cfg.valid_groups" class="inp" placeholder="留空=不限制，多个 ID 用逗号分隔" /></label>
@@ -140,6 +161,14 @@ async function loadChatNames() {
 .tab-content { padding: 16px 0; }
 .section { margin-bottom: 24px; }
 .section h3 { font-size: 14px; color: var(--text-primary, #e8edf5); margin-bottom: 12px; }
+.command-guide { padding: 16px; border: 1px solid var(--border-light, #2a2e3a); border-radius: 10px; background: var(--bg-card, #12141c); }
+.guide-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.guide-heading h3 { margin: 0 0 5px; font-size: 15px; }
+.guide-heading p, .guide-note { margin: 0; color: var(--text-muted, #7a8291); font-size: 12px; line-height: 1.65; }
+.guide-badge { flex: none; padding: 4px 9px; border: 1px solid rgba(74, 158, 255, 0.32); border-radius: 999px; background: rgba(74, 158, 255, 0.1); color: var(--primary, #4a9eff); font-size: 11px; }
+.command-list { margin: 14px 0 10px; border-top: 1px solid var(--border-light, #2a2e3a); }
+.command-item { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border-light, #2a2e3a); color: var(--text-secondary, #b9c0cc); font-size: 13px; }
+.command-item code { width: fit-content; padding: 4px 8px; border-radius: 5px; background: rgba(74, 158, 255, 0.1); color: var(--text-primary, #e8edf5); font-family: inherit; font-weight: 600; }
 .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .row > span:first-child { min-width: 130px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
 .row.switch { gap: 8px; }
@@ -163,4 +192,11 @@ async function loadChatNames() {
 .tbl td.muted { color: var(--text-muted, #7a8291); font-size: 12px; }
 .tbl td.empty { text-align: center; color: var(--text-muted, #7a8291); padding: 40px; }
 .tbl td.gold { color: #ffd700; font-weight: bold; }
+@media (max-width: 640px) {
+  .guide-heading { align-items: flex-start; }
+  .command-item { grid-template-columns: 1fr; gap: 6px; }
+  .row { align-items: flex-start; flex-direction: column; }
+  .row > span:first-child { min-width: 0; }
+  .chat-names { margin-left: 0; }
+}
 </style>
