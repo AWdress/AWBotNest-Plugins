@@ -29,7 +29,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
@@ -665,7 +665,11 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 continue
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
             seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': serie['Id'], 'fields': 'Name,IndexNumber,LockedFields'}, timeout=60).json().get('Items', [])
-            for season in seasons:
+            # 提前过滤：只处理未锁定的季
+            unlocked_seasons = [s for s in seasons if 'Name' not in (s.get('LockedFields') or [])]
+            if not unlocked_seasons:
+                continue
+            for season in unlocked_seasons:
                 idx = season.get('IndexNumber')
                 if idx is None:
                     continue
@@ -673,7 +677,8 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 if not tmdb_season:
                     continue
                 new_name = (tmdb_season.get('name') or '').strip()
-                if not new_name or new_name == (season.get('Name') or '').strip():
+                current_name = (season.get('Name') or '').strip()
+                if not new_name or new_name == current_name:
                     continue
                 full = _get_user_item(cfg, user_id, str(season['Id']))
                 full['Name'] = new_name
@@ -686,7 +691,7 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 _update_item(cfg, full)
                 count += 1
                 if ctx:
-                    ctx.log.info(f'[emby_toolbox] 季名刮削更新: {serie.get("Name", "未知")} S{season_num} -> {new_name}')
+                    ctx.log.info(f'[emby_toolbox] 季名刮削更新: {serie.get("Name", "未知")} S{idx} -> {new_name}')
     result = f'季名刮削完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
@@ -780,8 +785,13 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     count = 0
     skip_tmdb = 0
+    skip_unchanged = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
+    
+    # 批量获取条目以减少 API 调用
+    import time
+    request_count = 0
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -825,6 +835,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                     changed = True
             sort_all = splitr.join(res)
             if not changed or sort_all == old_sort:
+                skip_unchanged += 1
                 continue
             if ctx:
                 ctx.log.info(f'[emby_toolbox] 别名写入更新: {item0.get("Name", "未知")} -> {sort_all[:60]}...')
@@ -841,6 +852,8 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     result = f'别名写入完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
+    if skip_unchanged > 0:
+        result += f'（跳过 {skip_unchanged} 条已是最新）'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
