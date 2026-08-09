@@ -16,11 +16,11 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
-    "changelog": "v1.0.7 前端移除自带 API 配置字段\n- 移除 AI 出题源的 ai_api_key/ai_base_url/ai_model 配置界面\n\nv1.0.6 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 ai_api_key/ai_base_url/ai_model\n\nv1.0.5 接入平台统一 AI 能力\n- AI 出题优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置或天行数据\n\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.9 限制开局与答题消息来源\\n- 只有插件所用的本人账号发送‘开启答题’或‘开始答题’才会开局\\n- 结束命令同样只接受本人账号发送\\n- 答案只接收其他群友的入站消息，开局账号不会参与抢答\\n\\nv1.0.7 前端移除自带 API 配置字段\n- 移除 AI 出题源的 ai_api_key/ai_base_url/ai_model 配置界面\n\nv1.0.6 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 ai_api_key/ai_base_url/ai_model\n\nv1.0.5 接入平台统一 AI 能力\n- AI 出题优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置或天行数据\n\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -202,6 +202,8 @@ async def setup(ctx):
         state = _active[chat_id]
         if state.get("answering"):
             return
+        if not getattr(message, "from_user", None):
+            return
 
         text = (message.text or "").strip().lower()
         correct = state["a"].strip().lower()
@@ -286,16 +288,24 @@ async def setup(ctx):
             return
 
         text = (message.text or "").strip()
+        is_outgoing = bool(getattr(message, "outgoing", False))
 
         if text in ["开启答题", "开始答题"]:
+            if not is_outgoing:
+                return
             await _start(client, chat_id, message)
             return
 
         if text in ["结束答题", "停止答题"]:
+            if not is_outgoing:
+                return
             await _stop(client, chat_id)
             await _send_temp(client, chat_id, "答题活动已结束")
             return
 
+        # 开局账号只负责发起/结束，不参与自己的答题。
+        if is_outgoing:
+            return
         await _handle_answer(client, message)
 
 
