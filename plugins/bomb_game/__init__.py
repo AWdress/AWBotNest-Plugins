@@ -22,11 +22,11 @@ from ._game import NumberBombGame
 __plugin__ = {
     "name": "数字炸弹",
     "id": "bomb_game",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "author": "AWdress",
     "description": "群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
-    "changelog": "v1.0.4 修复核心接线错误\n- 修复处理函数调用了不存在的旧版 API 导致插件无法运行\n- 按真实游戏引擎接口重接开局/参与/猜数字/转账确认\n- 转账确认改为失败安全：无法唯一定位参与者时跳过，绝不错记金额\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
+    "changelog": "v1.0.6 修复 Vue 配置保存\n- 配置读取和保存迁移到新版平台 host 接口\n- 群组名称和游戏记录改用 host.callApi 读取\n- 重新构建并发布前端产物\n\nv1.0.4 修复核心接线错误\n- 修复处理函数调用了不存在的旧版 API 导致插件无法运行\n- 按真实游戏引擎接口重接开局/参与/猜数字/转账确认\n- 转账确认改为失败安全：无法唯一定位参与者时跳过，绝不错记金额\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
     "scope": "both",
     "default_enabled": False,
     "render_mode": "vue",
@@ -99,12 +99,6 @@ async def setup(ctx):
     @ctx.on_api("/chat_names", methods=["GET"])
     async def _api_chat_names(req):
         return {"items": await _chat_name_items(ctx)}
-
-    @ctx.on_api("/update_config", methods=["POST"])
-    async def _api_update_config(req):
-        body = req.json or {}
-        ctx.update_config(body)
-        return {"ok": True}
 
     async def _handle_transfer_confirm(client, message, chat_id, amount):
         """转账 bot 确认 → 定位待确认参与者并确认参与。

@@ -30,14 +30,14 @@ from ._quiz import (
 __plugin__ = {
     "name": "影巢答题红包",
     "id": "hdhive_quiz",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
-    "changelog": "v1.0.6 前端移除自带 API 配置字段\n- 移除大模型兜底的 llm_api_key/llm_base_url/llm_model 配置界面\n- 移除测试大模型功能\n\nv1.0.5 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 llm_api_key/llm_base_url/llm_model\n\nv1.0.4 接入平台统一 AI 能力\n- 大模型兜底优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n\nv1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.8 修复 Vue 配置与管理接口\n- 保存配置改用 host.saveConfig，修复 undefined.post 错误\n- 状态、题库同步、答题记录和群组名称改用 host.callApi\n- 配置页关闭时清理状态轮询定时器\n\nv1.0.6 前端移除自带 API 配置字段\n- 移除大模型兜底的 llm_api_key/llm_base_url/llm_model 配置界面\n- 移除测试大模型功能\n\nv1.0.5 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 llm_api_key/llm_base_url/llm_model\n\nv1.0.4 接入平台统一 AI 能力\n- 大模型兜底优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n\nv1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "requirements": ["openai>=1.0"],
 }
 
@@ -239,12 +239,6 @@ async def setup(ctx):
     @ctx.on_api("/chat_names", methods=["GET"])
     async def _api_chat_names(req):
         return {"items": await _chat_name_items(ctx, _effective_cfg(ctx).get("chat_ids", ""))}
-
-    @ctx.on_api("/update_config", methods=["POST"])
-    async def _api_update_config(req):
-        body = await req.json()
-        ctx.update_config(body)
-        return {"ok": True}
 
     # ───────── 手动刷新题库命令 .hqsync ─────────
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-12)

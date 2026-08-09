@@ -19,11 +19,11 @@ from ._tmdb import TmdbApi, emby_has_tmdb_id, get_emby_tmdb_ids
 __plugin__ = {
     "name": "115频道监控",
     "id": "movie_monitor_115",
-    "version": "1.0.15",
+    "version": "1.0.16",
     "author": "AWdress",
     "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
-    "changelog": "v1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.16 修复 Vue 配置与测试接口\n- 配置读取和保存迁移到新版平台 host 接口\n- 状态、日志、群组名称和连接测试改用 host.callApi\n- 保留旧配置的监控开关兼容性\n\nv1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
@@ -400,14 +400,6 @@ async def setup(ctx):
     @ctx.on_api("/chat_names", methods=["GET"])
     async def _api_chat_names(req):
         return {"items": await _chat_name_items(ctx)}
-
-    @ctx.on_api("/update_config", methods=["POST"])
-    async def _api_update_config(req):
-        body = req.json or {}
-        # shareswitch 从 enabled 推导
-        body["shareswitch"] = body.get("shareswitch", True)
-        ctx.update_config(body)
-        return {"ok": True}
 
     # ───────── 监听 115 分享消息 ─────────
     @ctx.on_message(ctx.filters.text | ctx.filters.caption, group=7)

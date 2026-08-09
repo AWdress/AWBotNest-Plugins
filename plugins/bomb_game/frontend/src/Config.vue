@@ -78,7 +78,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
-const props = defineProps({ api: Object, config: Object })
+const props = defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
 const cfg = ref({
   valid_groups: '', monitor_disabled_groups: '', entry_fee: 888, pool_ratio: 50, wait_time: 30,
   default_min: 1, default_max: 100, enable_range_shrink: true,
@@ -91,34 +91,35 @@ const saving = ref(false)
 const games = ref([])
 const chatNames = ref([])
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {})
-  loadGames()
-  loadChatNames()
+onMounted(async () => {
+  try { Object.assign(cfg.value, await props.host.getConfig() || {}) }
+  catch (e) { props.host.toast.error('读取配置失败：' + (e.message || e)) }
+  await Promise.all([loadGames(), loadChatNames()])
 })
 
 async function save() {
   saving.value = true
   try {
-    await props.api.post('/update_config', cfg.value)
+    await props.host.saveConfig({ ...cfg.value })
     await loadChatNames()
-    saving.value = false
+    props.host.toast.success('配置已保存')
   } catch (e) {
-    alert('保存失败：' + e.message)
+    props.host.toast.error('保存失败：' + (e.message || e))
+  } finally {
     saving.value = false
   }
 }
 
 async function loadChatNames() {
   try {
-    const r = await props.api.get('/chat_names')
+    const r = await props.host.callApi('/chat_names')
     chatNames.value = r.items || []
   } catch {}
 }
 
 async function loadGames() {
   try {
-    const r = await props.api.get('/games')
+    const r = await props.host.callApi('/games')
     games.value = r.games || []
   } catch {}
 }

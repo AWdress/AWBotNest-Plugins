@@ -54,13 +54,13 @@ const _hoisted_28 = { class: "tbl" };
 const _hoisted_29 = { class: "muted" };
 const _hoisted_30 = { key: 0 };
 
-const {ref,onMounted} = await importShared('vue');
+const {ref,onMounted,onUnmounted} = await importShared('vue');
 
 
 
 const _sfc_main = {
   __name: 'Config',
-  props: { api: Object, config: Object },
+  props: { pluginId: { type: String, required: true }, host: { type: Object, required: true } },
   setup(__props) {
 
 const props = __props;
@@ -77,29 +77,31 @@ const syncing = ref(false);
 const history = ref([]);
 const chatNames = ref([]);
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {});
-  loadStatus();
-  loadHistory();
-  loadChatNames();
-  setInterval(loadStatus, 5000);
+let statusTimer;
+onMounted(async () => {
+  try { Object.assign(cfg.value, await props.host.getConfig() || {}); }
+  catch (e) { props.host.toast.error('读取配置失败：' + (e.message || e)); }
+  await Promise.all([loadStatus(), loadHistory(), loadChatNames()]);
+  statusTimer = setInterval(loadStatus, 5000);
 });
+onUnmounted(() => clearInterval(statusTimer));
 
 async function save() {
   saving.value = true;
   try {
-    await props.api.post('/update_config', cfg.value);
+    await props.host.saveConfig({ ...cfg.value });
     await loadChatNames();
-    saving.value = false;
+    props.host.toast.success('配置已保存');
   } catch (e) {
-    alert('保存失败：' + e.message);
+    props.host.toast.error('保存失败：' + (e.message || e));
+  } finally {
     saving.value = false;
   }
 }
 
 async function loadStatus() {
   try {
-    const r = await props.api.get('/status');
+    const r = await props.host.callApi('/status');
     status.value = r;
   } catch {}
 }
@@ -107,11 +109,11 @@ async function loadStatus() {
 async function syncBank() {
   syncing.value = true;
   try {
-    const r = await props.api.post('/sync');
-    alert(r.message || '同步完成');
-    loadStatus();
+    const r = await props.host.callApi('/sync', { method: 'POST' });
+    props.host.toast.success(r.message || '同步完成');
+    await loadStatus();
   } catch (e) {
-    alert('同步失败：' + e.message);
+    props.host.toast.error('同步失败：' + (e.message || e));
   } finally {
     syncing.value = false;
   }
@@ -119,14 +121,14 @@ async function syncBank() {
 
 async function loadHistory() {
   try {
-    const r = await props.api.get('/history');
+    const r = await props.host.callApi('/history');
     history.value = r.history || [];
   } catch {}
 }
 
 async function loadChatNames() {
   try {
-    const r = await props.api.get('/chat_names');
+    const r = await props.host.callApi('/chat_names');
     chatNames.value = r.items || [];
   } catch {}
 }
@@ -351,6 +353,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-b07295d2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c2c5bf15"]]);
 
 export { Config as default };

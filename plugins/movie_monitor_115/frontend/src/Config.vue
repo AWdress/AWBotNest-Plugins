@@ -87,7 +87,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 
-const props = defineProps({ api: Object, config: Object })
+const props = defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
 const cfg = ref({
   monitor_ids: '', media_types: ['movie', 'tv'], only_complete_series: false,
   tmdb_api_key: '', tmdb_language: 'zh-CN',
@@ -114,35 +114,36 @@ function toggleMedia(type) {
   if (i >= 0) arr.splice(i, 1); else arr.push(type)
 }
 
-onMounted(() => {
-  Object.assign(cfg.value, props.config || {})
-  loadStatus()
-  loadLogs()
-  loadChatNames()
+onMounted(async () => {
+  try { Object.assign(cfg.value, await props.host.getConfig() || {}) }
+  catch (e) { props.host.toast.error('读取配置失败：' + (e.message || e)) }
+  await Promise.all([loadStatus(), loadLogs(), loadChatNames()])
 })
 
 async function save() {
   saving.value = true
   try {
-    await props.api.post('/update_config', cfg.value)
+    // 保留旧版运行开关的兼容值；插件整体启停由平台卡片管理。
+    await props.host.saveConfig({ ...cfg.value, shareswitch: true })
     await loadChatNames()
-    saving.value = false
+    props.host.toast.success('配置已保存')
   } catch (e) {
-    alert('保存失败：' + e.message)
+    props.host.toast.error('保存失败：' + (e.message || e))
+  } finally {
     saving.value = false
   }
 }
 
 async function loadChatNames() {
   try {
-    const r = await props.api.get('/chat_names')
+    const r = await props.host.callApi('/chat_names')
     chatNames.value = r.items || []
   } catch {}
 }
 
 async function loadStatus() {
   try {
-    const r = await props.api.get('/status')
+    const r = await props.host.callApi('/status')
     status.value = r
   } catch {}
 }
@@ -151,7 +152,7 @@ async function testServices() {
   testing.value = true
   testResult.value = null
   try {
-    const r = await props.api.post('/test')
+    const r = await props.host.callApi('/test', { method: 'POST' })
     testResult.value = r
     loadStatus()
   } catch (e) {
@@ -163,7 +164,7 @@ async function testServices() {
 
 async function loadLogs() {
   try {
-    const r = await props.api.get('/logs')
+    const r = await props.host.callApi('/logs')
     logs.value = r.logs || []
   } catch {}
 }
