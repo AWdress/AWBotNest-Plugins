@@ -44,14 +44,14 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.24",
+    "version": "1.0.25",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
-    "changelog": "v1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -504,10 +504,16 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         except Exception as e:
             ctx.log.debug("ctx.notify 失败: %s", e)
 
-    # 群内致谢（可选）—— 按「该站点自己的开关」判断，缺省继承全局 notification
+    # 群内致谢与排行榜是两个独立开关：任意一个开启都应进入发送流程。
     notif_on = site.notification if site.notification is not None \
         else bool(ctx.config.get("notification", False))
-    if not notif_on:
+    if direction == "in":
+        lb_on = site.leaderboard if site.leaderboard is not None \
+            else bool(ctx.config.get("leaderboard_in", False))
+    else:
+        lb_on = site.payleaderboard if site.payleaderboard is not None \
+            else bool(ctx.config.get("leaderboard_out", False))
+    if not notif_on and not lb_on:
         return
 
     # 延迟（对应原项目 wait_time）
@@ -522,34 +528,35 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     if forced > 0:
         await asyncio.sleep(forced)
 
-    text = lb.render_user_summary(stat, site.bonus_name, direction,
-                                  user_name, amount, user_id)
+    text = ""
+    if notif_on:
+        text = lb.render_user_summary(stat, site.bonus_name, direction,
+                                      user_name, amount, user_id)
 
-    # 排行榜开关：转入看 leaderboard（缺省继承 leaderboard_in），
-    #             转出看 payleaderboard（缺省继承 leaderboard_out）。
-    if direction == "in":
-        lb_on = site.leaderboard if site.leaderboard is not None \
-            else bool(ctx.config.get("leaderboard_in", False))
-    else:
-        lb_on = site.payleaderboard if site.payleaderboard is not None \
-            else bool(ctx.config.get("leaderboard_out", False))
     entries = []
     if lb_on:
         entries = store.leaderboard(site.site_name, direction, rank_size_fn())
+    # 只开排行榜但当前没有榜单数据时，不发送空消息。
+    if not text and not entries:
+        return
 
     owner_name = client.me.first_name if client.me else ""
     chat_id = message.chat.id
     sent = None
-    output_mode = ctx.config.get("rank_output", "text")
+    output_mode = str(ctx.config.get("rank_output", "text") or "text").strip().lower()
     want_image = output_mode == "image"
     try:
         if entries and want_image:
             img = lb.render_image(entries, site.site_name, site.bonus_name,
                                   direction, owner_name, ctx.data_dir)
             if img:
-                cap = text + lb.render_extra(owner_name, direction, len(entries))
+                caption_parts = []
+                if text:
+                    caption_parts.append(text)
+                caption_parts.append(lb.render_extra(owner_name, direction, len(entries)).strip())
                 try:
-                    sent = await _send_reply(client, chat_id, target, photo=img, caption=cap)
+                    sent = await _send_reply(client, chat_id, target, photo=img,
+                                             caption="\n".join(caption_parts))
                 except Exception as photo_err:  # noqa: BLE001 - 发图失败回退文本
                     ctx.log.warning("[排行榜] 发图失败，回退文本: %r", photo_err)
                 finally:
@@ -563,13 +570,18 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
                 ctx.log.warning("[排行榜] 出图未生成（imgkit=%s pil=%s），回退文本",
                                 lb._imgkit_available(), lb._pil_available())
         if sent is None:
+            parts = []
+            if text:
+                parts.append(text)
             if entries:
                 table = lb.render_text_fallback(entries, owner_name, direction,
                                                 site.bonus_name)
-                text = f"{text}\n<blockquote>{table}</blockquote>"
-            sent = await _send_reply(client, chat_id, target, text=text)
+                parts.append(f"<blockquote>{table}</blockquote>")
+            if not parts:
+                return
+            sent = await _send_reply(client, chat_id, target, text="\n".join(parts))
     except Exception as e:
-        ctx.log.warning("发送致谢消息失败: %s", e)
+        ctx.log.warning("发送致谢/排行榜消息失败: %r", e)
         return
 
     # 15 秒后自删
