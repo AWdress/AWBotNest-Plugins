@@ -16,7 +16,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.11",
+    "version": "1.0.10",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -155,7 +155,9 @@ async def setup(ctx):
                 if q:
                     pool.append(q)
             return pool
-        return await fetch_from_ai(ctx, rounds, "中等", ctx.log)
+        # AI 出题：传入历史题目用于去重
+        recent_questions = [item.get("q", "") for item in _history if item.get("q")]
+        return await fetch_from_ai(ctx, rounds, "中等", ctx.log, recent_questions)
 
     def _schedule_timeout(client, chat_id, timeout):
         async def _runner():

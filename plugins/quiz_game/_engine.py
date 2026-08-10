@@ -47,7 +47,7 @@ def parse_multi_qa(resp_text: str, expected: int) -> list[dict]:
     return result
 
 
-async def fetch_from_ai(ctx, rounds: int, difficulty: str, log) -> list[dict]:
+async def fetch_from_ai(ctx, rounds: int, difficulty: str, log, recent_questions=None) -> list[dict]:
     """用平台统一 AI 批量出题。"""
     prompt = (
         f"请出 {rounds} 道中文趣味答题，难度：{difficulty}。\n"
@@ -55,6 +55,11 @@ async def fetch_from_ai(ctx, rounds: int, difficulty: str, log) -> list[dict]:
         "每道题输出两行：第一行 题目: ...，第二行 答案: ...\n"
         "不同题目之间用空行分隔，不要编号，不要额外解释。"
     )
+    
+    # 添加去重：传入最近题目列表
+    if recent_questions:
+        recent_list = "\n".join([f"- {q}" for q in recent_questions[-20:]])  # 最近 20 道
+        prompt += f"\n\n【重要】请避免重复以下已出过的题目：\n{recent_list}"
 
     try:
         text = await ctx.ai.chat(prompt=prompt, temperature=0.9)
