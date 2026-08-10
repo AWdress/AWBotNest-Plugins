@@ -328,6 +328,16 @@
     "changelog": "v1.1.3 增加签到失败自动重试\n- 每个账号失败后独立重试，不影响其他账号继续签到\n- 支持配置重试次数和间隔，默认失败后再尝试 2 次\n- 区分账号密码错误等不可重试问题，并优化浏览器运行时缺失提示\n\nv1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "path": "plugins/gptgod_checkin.py"
   },
+  "awblackjack": {
+    "name": "AWBlackJack",
+    "version": "1.0.0",
+    "scope": "standalone",
+    "author": "AWdress",
+    "description": "SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png",
+    "changelog": "v1.0.0 初始迁移\n- 完整迁移 AWBlackJack 单账号挂机、自动抓牌、对战和平局协助逻辑\n- 保留 MQTT 跨实例状态同步，每个插件实例仅运行一个站点账号\n- 配置、日志、运行目录与生命周期接入 AWBotNest 平台\n- 支持连接测试、后台重启、崩溃自动拉起和平台错误通知",
+    "path": "plugins/awblackjack/"
+  },
   "awrelay": {
     "name": "AWRelay",
     "version": "1.2.9",
