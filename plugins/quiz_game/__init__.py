@@ -8,6 +8,7 @@
 # =============================================================================
 
 import asyncio
+import unicodedata
 from collections import deque
 from datetime import datetime
 
@@ -28,6 +29,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.0.12 修复 AI 重复出题\n"
+    "- 对 AI 返回结果执行代码级硬去重，不再只依赖提示词\n"
+    "- 忽略题目中的空格、标点、全角半角及大小写差异后再比较\n"
+    "- 单批题目不足时自动补题，最近 100 道已生成题目不会再次采用\n\n"
     "v1.0.11 优化答题交互与消息清理\n"
     "- 开启命令会原地显示题目生成状态，生成完成后直接变为首题\n"
     "- 每题答对后自动删除旧题，手动结束会清理本场全部答题消息\n"
@@ -60,6 +65,31 @@ _busy_hints: set = set()
 _name_cache: dict = {}
 _tasks: set = set()
 _history = deque(maxlen=100)
+_recent_questions = deque(maxlen=100)
+
+
+def _question_key(value) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    math_symbols = "+-×÷*/=<>"
+    return "".join(char for char in normalized if char.isalnum() or char in math_symbols)
+
+
+def _dedupe_questions(items, excluded=()) -> list[dict]:
+    seen = set()
+    for item in excluded:
+        key = _question_key(item)
+        if key:
+            seen.add(key)
+    result = []
+    for item in items or []:
+        question = str((item or {}).get("q", "")).strip()
+        answer = str((item or {}).get("a", "")).strip()
+        key = _question_key(question)
+        if not key or not answer or key in seen:
+            continue
+        seen.add(key)
+        result.append({**item, "q": question, "a": answer})
+    return result
 
 
 def _effective_cfg(ctx) -> dict:
@@ -148,16 +178,35 @@ async def setup(ctx):
 
     async def _fetch_pool(cfg, rounds):
         source = cfg.get("source", "ai")
+        excluded = list(_recent_questions)
+        if not excluded:
+            excluded = [item.get("question", "") for item in _history if item.get("question")]
+        pool = []
         if source == "tianapi":
-            pool = []
-            for _ in range(rounds):
+            for _ in range(rounds * 3):
                 q = await fetch_from_tianapi(cfg.get("tianapi_key", ""), ctx.log)
                 if q:
-                    pool.append(q)
-            return pool
-        # AI 出题：传入历史题目用于去重
-        recent_questions = [item.get("q", "") for item in _history if item.get("q")]
-        return await fetch_from_ai(ctx, rounds, "中等", ctx.log, recent_questions)
+                    pool = _dedupe_questions([*pool, q], excluded)
+                if len(pool) >= rounds:
+                    break
+            return pool[:rounds]
+
+        # 提示词负责减少重复，代码过滤负责保证重复题绝不进入本轮。
+        for _ in range(3):
+            recent_questions = [*excluded, *(item["q"] for item in pool)]
+            batch = await fetch_from_ai(
+                ctx,
+                rounds,
+                "中等",
+                ctx.log,
+                recent_questions,
+            )
+            pool = _dedupe_questions([*pool, *batch], excluded)
+            if len(pool) >= rounds:
+                break
+        if len(pool) < rounds:
+            ctx.log.warning("[答题] AI 去重后题目不足：需要 %s 道，获得 %s 道", rounds, len(pool))
+        return pool[:rounds]
 
     def _schedule_timeout(client, chat_id, timeout):
         async def _runner():
@@ -260,6 +309,8 @@ async def setup(ctx):
                 await _edit_message(message, "❌ 题目生成失败\n\n请检查出题源配置后重新发送“开启答题”。")
                 _track(asyncio.create_task(_auto_del(message, 8)))
                 return
+
+            _recent_questions.extend(item["q"] for item in pool)
 
             first = pool[0]
             _active[chat_id] = {
@@ -365,7 +416,7 @@ async def setup(ctx):
         _history.append({
             "time": datetime.now().strftime("%H:%M:%S"),
             "group": message.chat.title or str(chat_id),
-            "question": state["q"][:50],
+            "question": state["q"],
             "answer": state["a"],
             "player": user_name,
             "reward": reward,

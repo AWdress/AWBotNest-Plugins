@@ -56,10 +56,14 @@ async def fetch_from_ai(ctx, rounds: int, difficulty: str, log, recent_questions
         "不同题目之间用空行分隔，不要编号，不要额外解释。"
     )
     
-    # 添加去重：传入最近题目列表
+    # 提示模型主动避开近期题目；调用方仍会执行代码级硬去重。
     if recent_questions:
-        recent_list = "\n".join([f"- {q}" for q in recent_questions[-20:]])  # 最近 20 道
-        prompt += f"\n\n【重要】请避免重复以下已出过的题目：\n{recent_list}"
+        recent_list = "\n".join(f"- {q}" for q in recent_questions[-50:])
+        prompt += (
+            "\n\n【去重要求】不得重复或改写下列已出过的题目；"
+            "本批题目之间也不得重复：\n"
+            f"{recent_list}"
+        )
 
     try:
         text = await ctx.ai.chat(prompt=prompt, temperature=0.9)
