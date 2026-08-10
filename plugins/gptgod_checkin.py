@@ -11,7 +11,7 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.2",
+    "version": "1.1.3",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
     "changelog": "v1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
@@ -26,6 +26,11 @@ __plugin__ = {
         "notify": {
             "type": "boolean", "default": True, "label": "推送签到结果",
             "section": "功能开关", "cols": 4, "order": 2,
+        },
+        "auto_retry": {
+            "type": "boolean", "default": True, "label": "失败后自动重试",
+            "help": "仅重试浏览器启动、网络、页面加载和网站临时异常；明确的账号密码错误不会重试。",
+            "section": "功能开关", "cols": 4, "order": 3,
         },
         "accounts": {
             "type": "list", "default": [], "label": "签到账号", "item_label": "账号",
@@ -50,6 +55,18 @@ __plugin__ = {
             "type": "slider", "default": 5, "label": "签到分钟",
             "min": 0, "max": 59, "step": 1, "section": "定时", "cols": 6, "order": 21,
         },
+        "retry_count": {
+            "type": "slider", "default": 2, "label": "失败重试次数",
+            "min": 0, "max": 5, "step": 1,
+            "help": "单个账号首次失败后最多再次尝试的次数。",
+            "section": "重试", "cols": 6, "order": 24,
+        },
+        "retry_interval": {
+            "type": "slider", "default": 20, "label": "重试间隔（秒）",
+            "min": 5, "max": 300, "step": 5,
+            "help": "两次尝试之间的等待时间，建议至少 20 秒，避免网站限流。",
+            "section": "重试", "cols": 6, "order": 25,
+        },
         "run_now": {
             "type": "action", "label": "立即签到", "action": "run_now",
             "section": "操作", "cols": 6, "order": 30,
@@ -64,6 +81,14 @@ __plugin__ = {
         },
     },
 }
+
+__plugin__["changelog"] = (
+    "v1.1.3 增加签到失败自动重试\n"
+    "- 每个账号失败后独立重试，不影响其他账号继续签到\n"
+    "- 支持配置重试次数和间隔，默认失败后再尝试 2 次\n"
+    "- 区分账号密码错误等不可重试问题，并优化浏览器运行时缺失提示\n\n"
+    + __plugin__["changelog"]
+)
 
 LOGIN_URL = "https://gptgod.online/login"
 WELFARE_URL = "https://gptgod.online/token/welfare"
@@ -524,6 +549,23 @@ def _configured_accounts(config: dict) -> list[dict]:
     return accounts
 
 
+def _retryable_error(exc: Exception) -> bool:
+    message = str(exc or "")
+    permanent_markers = (
+        "邮箱或密码错误", "密码错误", "账号不存在",
+        "账户不存在", "账号已禁用", "账户已禁用",
+    )
+    return not any(marker in message for marker in permanent_markers)
+
+
+def _friendly_error(exc: Exception) -> str:
+    message = str(exc or "未知错误")
+    lowered = message.casefold()
+    if "executable doesn't exist" in lowered or "headless_shell" in lowered:
+        return "平台托管浏览器运行文件不存在，请更新或重建容器的浏览器运行时"
+    return message
+
+
 async def _run(ctx, source: str) -> dict:
     global _run_lock
     if _run_lock is None:
@@ -570,26 +612,65 @@ async def _run(ctx, source: str) -> dict:
                         ctx.log.error("[签到流程][%s] 浏览器步骤失败：%s", masked, exc)
                         raise
 
-                try:
-                    browser_result = await ctx.browser.run(
-                        LOGIN_URL, browser_action,
-                        cookies=cached_cookie or None,
-                        headless=True, timeout=240,
+                auto_retry = bool(ctx.config.get("auto_retry", True))
+                retry_count = _bounded_int(ctx.config.get("retry_count"), 2, 0, 5) if auto_retry else 0
+                retry_interval = _bounded_int(ctx.config.get("retry_interval"), 20, 5, 300)
+                max_attempts = retry_count + 1
+                item = None
+
+                for attempt in range(1, max_attempts + 1):
+                    ctx.log.info(
+                        "[签到流程][%s] 开始第 %s/%s 次尝试",
+                        masked, attempt, max_attempts,
                     )
-                    session_cookie = str((browser_result or {}).get("session_cookie") or "")
-                    if session_cookie:
-                        sessions[account_key] = session_cookie
-                        ctx.log.info("[签到流程][%s] 已更新独立会话缓存", masked)
-                    status = str((browser_result or {}).get("status") or "")
-                    item = {
-                        "ok": status in ("success", "already"),
-                        "already": status == "already",
-                        "message": str((browser_result or {}).get("message") or "签到完成"),
-                    }
-                    ctx.log.info("[签到流程][%s] 完成，结果=%s", masked, status or "未知")
-                except Exception as exc:  # noqa: BLE001 - 继续处理下一个账号
-                    item = {"ok": False, "message": f"账号 {masked} 签到失败：{exc}"}
-                    ctx.log.error("[签到流程][%s] 签到失败：%r", masked, exc)
+                    try:
+                        browser_result = await ctx.browser.run(
+                            LOGIN_URL, browser_action,
+                            cookies=cached_cookie or None,
+                            headless=True, timeout=240,
+                        )
+                        session_cookie = str((browser_result or {}).get("session_cookie") or "")
+                        if session_cookie:
+                            sessions[account_key] = session_cookie
+                            ctx.log.info("[签到流程][%s] 已更新独立会话缓存", masked)
+                        status = str((browser_result or {}).get("status") or "")
+                        if status not in ("success", "already"):
+                            raise RuntimeError(
+                                str((browser_result or {}).get("message") or "签到结果未确认")
+                            )
+                        message = str((browser_result or {}).get("message") or "签到完成")
+                        if attempt > 1:
+                            message = f"{message}（第 {attempt} 次尝试成功）"
+                        item = {
+                            "ok": True,
+                            "already": status == "already",
+                            "message": message,
+                            "attempts": attempt,
+                        }
+                        ctx.log.info(
+                            "[签到流程][%s] 完成，结果=%s，尝试=%s",
+                            masked, status, attempt,
+                        )
+                        break
+                    except Exception as exc:  # noqa: BLE001 - 按配置重试或继续下一个账号
+                        can_retry = attempt < max_attempts and _retryable_error(exc)
+                        if can_retry:
+                            ctx.log.warning(
+                                "[签到流程][%s] 第 %s/%s 次尝试失败：%s；%s 秒后重试",
+                                masked, attempt, max_attempts, _friendly_error(exc), retry_interval,
+                            )
+                            await asyncio.sleep(retry_interval)
+                            continue
+                        item = {
+                            "ok": False,
+                            "message": f"账号 {masked} 签到失败：{_friendly_error(exc)}",
+                            "attempts": attempt,
+                        }
+                        ctx.log.error(
+                            "[签到流程][%s] 签到失败，已尝试 %s 次：%r",
+                            masked, attempt, exc,
+                        )
+                        break
                 account_results.append(item)
 
             ctx.kv.set(SESSION_KEY, sessions)
