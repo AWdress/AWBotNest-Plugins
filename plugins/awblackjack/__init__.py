@@ -17,14 +17,14 @@ import aiomqtt
 __plugin__ = {
     "name": "AWBlackJack",
     "id": "awblackjack",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png",
     "scope": "standalone",
     "default_enabled": False,
     "requirements": ["aiomqtt>=2.0", "aiohttp>=3.9", "beautifulsoup4>=4.12", "lxml>=5.0"],
-    "changelog": "v1.0.0 初始迁移\n- 完整迁移 AWBlackJack 单账号挂机、自动抓牌、对战和平局协助逻辑\n- 保留 MQTT 跨实例状态同步，每个插件实例仅运行一个站点账号\n- 配置、日志、运行目录与生命周期接入 AWBotNest 平台\n- 支持连接测试、后台重启、崩溃自动拉起和平台错误通知",
+    "changelog": "v1.0.1 完整性审查与稳定性修复\n- 修复跨零点挂机时段永远不生效\n- 切换站点账号时不再恢复上一账号的等待局和队友状态\n- 工作任务异常时限速重连，避免空转与日志刷屏\n- 加强 MQTT 地址、端口和数值配置校验\n- 停止进程时等待日志读取任务完整回收\n\nv1.0.0 初始迁移\n- 完整迁移 AWBlackJack 单账号挂机、自动抓牌、对战和平局协助逻辑\n- 保留 MQTT 跨实例状态同步，每个插件实例仅运行一个站点账号\n- 配置、日志、运行目录与生命周期接入 AWBotNest 平台\n- 支持连接测试、后台重启、崩溃自动拉起和平台错误通知",
     "config_schema": {
         "enabled": {
             "type": "boolean", "default": False, "label": "启用自动挂机",
@@ -174,22 +174,37 @@ def _bounded_int(value, default, low, high):
         return default
 
 
+def _bounded_float(value, default, low, high):
+    try:
+        return max(low, min(high, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _toml_string(value) -> str:
     return json.dumps(str(value or ""), ensure_ascii=False)
 
 
-def _number_list(value, allowed=None) -> list[int]:
-    result = []
-    for raw in re.split(r"[,，\s]+", str(value or "")):
-        if not raw:
+def _multi_bonus_settings(amount_value, point_value, default: int) -> tuple[list[int], list[int]]:
+    valid_amounts = {100, 1000, 10000, 100000}
+    raw_amounts = re.split(r"[,，\s]+", str(amount_value or ""))
+    raw_points = re.split(r"[,，\s]+", str(point_value or ""))
+    amounts = []
+    points = []
+    for index, raw_amount in enumerate(raw_amounts):
+        try:
+            amount = int(raw_amount)
+        except (TypeError, ValueError):
+            continue
+        if amount not in valid_amounts:
             continue
         try:
-            number = int(raw)
-        except ValueError:
-            continue
-        if allowed is None or number in allowed:
-            result.append(number)
-    return result
+            point = int(raw_points[index])
+        except (IndexError, TypeError, ValueError):
+            point = default
+        amounts.append(amount)
+        points.append(point if 12 <= point <= 21 else default)
+    return amounts, points
 
 
 def _time_ranges(value) -> list[list[str]]:
@@ -225,8 +240,13 @@ def _toml_array(value) -> str:
 
 def _render_config(cfg: dict) -> str:
     valid_amounts = {100, 1000, 10000, 100000}
-    multi_bonus = _number_list(cfg.get("multi_bonus"), valid_amounts)
-    multi_points = _number_list(cfg.get("multi_remain_points"))
+    remain_point = _bounded_int(cfg.get("remain_point"), 18, 12, 21)
+    multi_bonus, multi_points = _multi_bonus_settings(
+        cfg.get("multi_bonus"), cfg.get("multi_remain_points"), remain_point
+    )
+    bonus = _bounded_int(cfg.get("bonus"), 10000, 100, 100000)
+    if bonus not in valid_amounts:
+        bonus = 10000
     nickname = str(cfg.get("nickname") or f"队友{cfg.get('my_id') or ''}")
     lines = [
         "[BASIC]",
@@ -250,15 +270,15 @@ def _render_config(cfg: dict) -> str:
         f"FRIENDS_COUNT = {_bounded_int(cfg.get('friends_count'), 2, 1, 20)}",
         "",
         "[GAME.AFK]",
-        f"BONUS = {_bounded_int(cfg.get('bonus'), 10000, 100, 100000)}",
-        f"REMAIN_POINT = {_bounded_int(cfg.get('remain_point'), 18, 12, 21)}",
+        f"BONUS = {bonus}",
+        f"REMAIN_POINT = {remain_point}",
         f"TIME = {_toml_array(_time_ranges(cfg.get('time_ranges')))}",
         f"MULTI_BONUS_ENABLED = {'true' if cfg.get('multi_bonus_enabled') else 'false'}",
         f"MULTI_BONUS = {_toml_array(multi_bonus)}",
         f"MULTI_BONUS_REMAIN_POINT = {_toml_array(multi_points)}",
         "",
         "[GAME.ACTIVE]",
-        f"WIN_RATE_MIN = {max(0.0, min(1.0, float(cfg.get('win_rate_min') or 0)))}",
+        f"WIN_RATE_MIN = {_bounded_float(cfg.get('win_rate_min'), 0.0, 0.0, 1.0)}",
         f"BATTLE_AMOUNTS = {_toml_array(_battle_amounts(cfg.get('battle_amounts')))}",
         f"WIN_RATE_APPLY_IN_TIME = {'true' if cfg.get('win_rate_apply_in_time') else 'false'}",
         f"ENABLED = {'true' if cfg.get('active_enabled') else 'false'}",
@@ -275,8 +295,18 @@ def _mqtt_address(raw: str) -> tuple[str, int]:
         raise ValueError("未配置 MQTT 地址")
     if ":" in value:
         host, port = value.rsplit(":", 1)
-        return host.strip(), int(port)
-    return value, 1883
+        host = host.strip()
+        try:
+            port_number = int(port)
+        except ValueError as exc:
+            raise ValueError("MQTT 端口必须是数字") from exc
+    else:
+        host, port_number = value, 1883
+    if not host:
+        raise ValueError("MQTT 主机地址不能为空")
+    if not 1 <= port_number <= 65535:
+        raise ValueError("MQTT 端口必须在 1-65535 之间")
+    return host, port_number
 
 
 def _validate_config(cfg: dict) -> list[str]:
@@ -289,8 +319,11 @@ def _validate_config(cfg: dict) -> list[str]:
         _mqtt_address(cfg.get("mqtt_host"))
     except Exception as exc:
         errors.append(str(exc))
-    if not _time_ranges(cfg.get("time_ranges")) and not cfg.get("active_enabled"):
-        errors.append("至少填写一个有效挂机时间段，或启用主动对战模式")
+    active_outside_schedule = bool(cfg.get("active_enabled")) and _bounded_float(
+        cfg.get("win_rate_min"), 0.0, 0.0, 1.0
+    ) > 0
+    if not _time_ranges(cfg.get("time_ranges")) and not active_outside_schedule:
+        errors.append("至少填写一个有效挂机时间段；无时段时需启用主动对战并设置大于 0 的最低胜率")
     return errors
 
 
@@ -319,8 +352,11 @@ async def _stop_worker(ctx):
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-    for task in list(_reader_tasks):
+    reader_tasks = list(_reader_tasks)
+    for task in reader_tasks:
         task.cancel()
+    if reader_tasks:
+        await asyncio.gather(*reader_tasks, return_exceptions=True)
     _reader_tasks.clear()
 
 

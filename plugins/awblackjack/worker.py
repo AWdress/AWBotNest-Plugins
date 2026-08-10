@@ -183,8 +183,10 @@ def load_runtime_state():
         persisted_my_id = payload.get("my_id")
         if persisted_my_id and persisted_my_id != MYID:
             logger.warning(
-                f"本地临时状态中的 my_id={persisted_my_id} 与当前配置 MYID={MYID} 不一致，按当前配置继续"
+                f"本地临时状态中的 my_id={persisted_my_id} 与当前配置 MYID={MYID} 不一致，"
+                "忽略旧账号状态"
             )
+            return
 
         persisted_friend_states = payload.get("friend_states", {})
         persisted_gameids = payload.get("active_friend_gameids", [])
@@ -1557,7 +1559,9 @@ def is_within_time_ranges(time_ranges):
     for start_str, end_str in time_ranges:
         start = time_class.fromisoformat(start_str)
         end = time_class.fromisoformat(end_str)
-        if start <= now <= end:
+        if start <= end and start <= now <= end:
+            return True
+        if start > end and (now >= start or now <= end):
             return True
     return False
 
@@ -1664,6 +1668,7 @@ async def main():
             await asyncio.sleep(interval)
         except Exception as e:
             logger.error(e, exc_info=True)
+            await asyncio.sleep(interval)
         finally:
             # 确保本轮所有任务都已取消
             for task in active_tasks:
