@@ -18,14 +18,14 @@
           <div class="command-list">
             <div class="command-item">
               <code>开启答题</code>
-              <span>生成 5 道题并开始游戏，也支持“开始答题”。</span>
+              <span>按下方设置的题目数量生成题目并开始，也支持“开始答题”。</span>
             </div>
             <div class="command-item">
               <code>结束答题</code>
               <span>立即结束本场，并清理题目、奖励等答题消息。</span>
             </div>
           </div>
-          <p class="guide-note">每题由最先答对的群友获奖；答对后旧题会自动删除，再发送下一题。本人账号发送的答案不会参与抢答。</p>
+          <p class="guide-note">最先答对的群友获奖，答错会收到短暂提示；单题超时会公布答案并继续下一题。完成全部题目或由本人发送结束命令后，系统会清理本场消息。</p>
         </section>
 
         <div class="section">
@@ -62,6 +62,7 @@
 
         <div class="section">
           <h3>答题规则</h3>
+          <label class="row"><span>每场题目数量</span><input v-model.number="cfg.question_count" type="number" class="inp" min="1" max="20" /></label>
           <label class="row"><span>答题超时(秒)</span><input v-model.number="cfg.timeout" type="number" class="inp" min="10" /></label>
           <label class="row"><span>自动删除延迟(秒)</span><input v-model.number="cfg.auto_delete_delay" type="number" class="inp" min="0" /></label>
         </div>
@@ -105,7 +106,7 @@ const cfg = ref({
   ai_api_key: '', ai_base_url: '', ai_model: 'gpt-4o-mini',
   tianapi_key: '',
   base_reward: 500, streak_enabled: true, streak_multiplier: 1.5, max_streak: 5,
-  timeout: 60, auto_delete_delay: 30,
+  question_count: 5, timeout: 60, auto_delete_delay: 30,
 })
 const tab = ref('settings')
 const saving = ref(false)

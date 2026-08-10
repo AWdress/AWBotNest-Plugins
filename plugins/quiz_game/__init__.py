@@ -17,7 +17,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.12",
+    "version": "1.0.13",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -29,6 +29,11 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.0.13 连续答题与交互提示\n"
+    "- 单题无人答对时公布正确答案并自动进入下一题，不再提前结束整场\n"
+    "- 配置页新增每场题目数量，支持 1 至 20 题\n"
+    "- 答错时引用原消息提示并自动删除，题目与启动文案重新排版\n"
+    "- 加固答对与超时并发处理，避免同一题重复结算\n\n"
     "v1.0.12 修复 AI 重复出题\n"
     "- 对 AI 返回结果执行代码级硬去重，不再只依赖提示词\n"
     "- 忽略题目中的空格、标点、全角半角及大小写差异后再比较\n"
@@ -54,6 +59,7 @@ DEFAULTS = {
     "streak_multiplier": 1.5,
     "max_streak": 5,
     "timeout": 60,
+    "question_count": 5,
     "auto_delete_delay": 30,
 }
 
@@ -208,27 +214,66 @@ async def setup(ctx):
             ctx.log.warning("[答题] AI 去重后题目不足：需要 %s 道，获得 %s 道", rounds, len(pool))
         return pool[:rounds]
 
+    def _question_text(state, timeout, reward):
+        return (
+            "🎯 趣味答题\n"
+            f"第 {state['round']} / {state['total_rounds']} 题\n\n"
+            "🧩 题目\n"
+            f"{state['q']}\n\n"
+            f"⏱ 作答时间：{timeout} 秒\n"
+            f"🎁 本题奖励：{reward} 魔力\n"
+            "💬 直接发送答案，最先答对者获奖"
+        )
+
+    async def _advance_question(client, chat_id, timeout):
+        state = _active.get(chat_id)
+        if not state:
+            return False
+        if state["round"] >= state["total_rounds"]:
+            return False
+        state["round"] += 1
+        next_q = state["question_pool"][state["next_idx"]]
+        state["next_idx"] += 1
+        state["q"] = next_q["q"]
+        state["a"] = next_q["a"]
+        state["aliases"] = next_q.get("aliases", [])
+        state["answering"] = False
+        await _send_next_question(client, chat_id, timeout)
+        return True
+
     def _schedule_timeout(client, chat_id, timeout):
         async def _runner():
             await asyncio.sleep(timeout)
-            if chat_id in _active:
-                ans = _active[chat_id]["a"]
+            state = _active.get(chat_id)
+            if not state or state.get("answering"):
+                return
+            state["answering"] = True
+            answer = state["a"]
+            await _delete_message(state.get("question_msg"))
+            state["question_msg"] = None
+            if state["round"] >= state["total_rounds"]:
                 await _stop(client, chat_id)
                 await _send_temp(
                     client,
                     chat_id,
-                    f"⌛ 答题时间到\n\n正确答案：{ans}\n本场答题已结束，相关消息已清理。",
+                    f"🏁 本场答题结束\n\n最后一题无人答对\n✅ 正确答案：{answer}\n\n题目已全部完成，本场消息已清理。",
                 )
+                return
+            await _send_temp(
+                client,
+                chat_id,
+                f"⌛ 本题时间到\n\n本题无人答对\n✅ 正确答案：{answer}\n\n下一题即将开始…",
+                8,
+            )
+            await asyncio.sleep(3)
+            if chat_id in _active:
+                await _advance_question(client, chat_id, timeout)
         return _track(asyncio.create_task(_runner()))
 
     async def _send_next_question(client, chat_id, timeout):
         state = _active[chat_id]
-        text = (
-            f"┌ 趣味答题 · {state['round']}/{state['total_rounds']}\n"
-            f"│ 限时 {timeout} 秒\n"
-            f"└ {state['q']}\n\n"
-            "直接发送答案，最先答对者获奖。"
-        )
+        reward = int(_effective_cfg(ctx).get("base_reward", 500) or 500)
+        text = _question_text(state, timeout, reward)
         try:
             msg = await client.send_message(chat_id, text)
             state["question_msg"] = msg
@@ -298,8 +343,13 @@ async def setup(ctx):
         _starting.add(chat_id)
         timeout = int(cfg.get("timeout", 60) or 60)
         reward = int(cfg.get("base_reward", 500) or 500)
-        rounds = 5
-        await _edit_message(message, f"⏳ 趣味答题正在启动\n\n正在生成 {rounds} 道题目，请稍候…")
+        rounds = max(1, min(20, int(cfg.get("question_count", 5) or 5)))
+        await _edit_message(
+            message,
+            "🎯 趣味答题 · 准备中\n\n"
+            f"正在为本场生成 {rounds} 道题目\n"
+            "题库会自动避开近期重复内容，请稍候…",
+        )
         try:
             pool = await _fetch_pool(cfg, rounds)
             if chat_id in _cancelled_starts:
@@ -321,12 +371,7 @@ async def setup(ctx):
                 "last_winner_id": 0, "streak_count": 0,
             }
             _name_cache.setdefault(chat_id, {})
-            text = (
-                f"┌ 趣味答题 · 1/{rounds}\n"
-                f"│ 奖励 {reward} 魔力 · 限时 {timeout} 秒\n"
-                f"└ {first['q']}\n\n"
-                "直接发送答案，最先答对者获奖。"
-            )
+            text = _question_text(_active[chat_id], timeout, reward)
             if not await _edit_message(message, text):
                 msg = await client.send_message(chat_id, text)
                 _active[chat_id]["question_msg"] = msg
@@ -375,14 +420,24 @@ async def setup(ctx):
         if not getattr(message, "from_user", None):
             return
 
+        text = (message.text or "").strip().lower()
+        if not text:
+            return
+
         # 统一纳入本场清理；没有群管理权限时删除失败会被安全忽略。
         state["messages"].append(message)
 
-        text = (message.text or "").strip().lower()
         correct = state["a"].strip().lower()
         aliases = [x.strip().lower() for x in state.get("aliases", [])]
 
         if text not in [correct, *aliases]:
+            try:
+                hint = await message.reply("❌ 答案不对，再想一想～", quote=True)
+                if hint:
+                    state["messages"].append(hint)
+                    _track(asyncio.create_task(_auto_del(hint, 4)))
+            except Exception:  # noqa: BLE001
+                await _send_temp(client, chat_id, "❌ 答案不对，再想一想～", 4)
             return
 
         state["answering"] = True
@@ -434,17 +489,9 @@ async def setup(ctx):
             )
             return
 
-        state["round"] += 1
-        next_q = state["question_pool"][state["next_idx"]]
-        state["next_idx"] += 1
-        state["q"] = next_q["q"]
-        state["a"] = next_q["a"]
-        state["aliases"] = next_q.get("aliases", [])
-        state["answering"] = False
-
         timeout = int(cfg.get("timeout", 60) or 60)
         await _send_temp(client, chat_id, f"✅ {user_name} 答对，获得 {reward} 魔力\n正在发送下一题…", 4)
-        await _send_next_question(client, chat_id, timeout)
+        await _advance_question(client, chat_id, timeout)
 
     # ───────── Vue 模式后端 API ─────────
     @ctx.on_api("/history", methods=["GET"])
