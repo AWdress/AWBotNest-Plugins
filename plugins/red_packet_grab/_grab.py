@@ -26,8 +26,20 @@ def extract_text(message) -> str:
 
 
 def extract_plaintext_command(text: str) -> str:
-    """提取“发送下方口令领取”类拼手气红包正文中的口令。"""
-    if not text or "拼手气红包" not in text or "红包 ID" not in text:
+    """提取正文拼手气红包中的固定口令或动态财富密码。"""
+    if not text or "拼手气红包" not in text:
+        return ""
+
+    # 新格式直接把动态密码放在正文中；领取后机器人会编辑原消息并更新此行。
+    # 用整行匹配，避免误取后面的“财富密码被领一次会随机变动”提示。
+    if "发送财富密码即可领取" in text and packet_has_remaining(text):
+        password = re.search(r"(?m)^\s*财富密码\s*[：:]\s*(.+?)\s*$", text)
+        if password is not None:
+            command = password.group(1).strip()
+            if command and command not in {"见图片", "请看图片"}:
+                return command[:256]
+
+    if "红包 ID" not in text:
         return ""
 
     marker = re.search(r"发送下方口令领取\s*[：:]?", text)

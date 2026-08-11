@@ -1,6 +1,6 @@
 {
   "name": "@awbotnest-plugins/red_packet_grab-config",
-  "version": "1.2.2",
+  "version": "1.2.4",
   "private": true,
   "type": "module",
   "scripts": {
