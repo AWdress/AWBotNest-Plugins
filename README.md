@@ -91,6 +91,7 @@ async def teardown(ctx):
 | 用户发送 | `await ctx.user.send(chat_id, text)` |
 | 全部用户账号 | `ctx.user_apps`（多账号场景；未连接时发送代理抛 `RuntimeError`，可先判 `ctx.bot/user.connected`） |
 | 通知平台主人 | `await ctx.notify(text, level=, category=, account=)`（平台自动加插件名/级别图标/账号名并投递；别自己拼格式或用 `ctx.bot.send`） |
+| 结构化表格通知 | `await ctx.notify_table(headers, rows, caption=, align=)`（原生表格 + 非会员/非 Telegram 渠道自动降级） |
 | 主人 ID | `ctx.owner_id`（平台主人 Telegram 数字 ID，无主账号为 0） |
 | 配置 | `ctx.config["字段名"]`（每次读取都是前端最新值） |
 | 写回配置 | `ctx.update_config({"key": val})`（局部合并写回本插件配置，**不触发重载**；用于持久化运行状态或把状态回填到 `info` 字段供前端展示） |
@@ -129,6 +130,26 @@ await ctx.user.send_rich(chat_id, "# 标题\n\n正文", format="markdown")
 - 功能必须依赖原生富文本时，先调用 `supports_native_rich()` 检测，并自行提供清晰的文本回退。
 - `send_rich_draft()` 用于临时流式富文本草稿，仅 Bot 和 Telegram Premium 用户账号可用。
 - 目标账号未连接时会抛出 `RuntimeError`；可先检查 `ctx.bot.connected` / `ctx.user.connected`。
+
+#### 结构化通知表格
+
+插件向管理员发送排行榜、多账号结果或任务统计时，优先使用平台表格通知：
+
+```python
+await ctx.notify_table(
+    ["账号", "状态", "积分"],
+    [["账号一", "成功", 37298], ["账号二", "失败", 1260]],
+    caption="签到结果",
+    level="success",
+    category="每日签到",
+    align=["left", "center", "right"],
+)
+```
+
+- 默认带边框和隔行底色，支持每列对齐。
+- Telegram Bot 和 Premium 用户账号显示原生表格；普通用户账号、企业微信和 Bark 由平台自动转为分组文本。
+- 通知场景不要自行判断 Premium，也不要自行用 Bot 重做通知路由。
+- 需要更复杂的通知时，可用 `ctx.notify(html, format="rich")`；平台会过滤不安全或不支持的标签。
 
 ### 4. config_schema（插件配置）
 

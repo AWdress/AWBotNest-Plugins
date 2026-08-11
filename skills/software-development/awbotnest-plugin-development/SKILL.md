@@ -109,7 +109,7 @@ Use:
 - handlers: `ctx.on_message`, `ctx.on_edited_message`, `ctx.on_callback`, `ctx.on_webhook`
 - filters: `ctx.filters.*`; combine with `&`, `|`, and `~`
 - messaging: `ctx.bot`, `ctx.user`, `ctx.user_apps`
-- admin notifications: `ctx.notify`
+- admin notifications: `ctx.notify`, `ctx.notify_table`
 - config: `ctx.config`
 - storage: `ctx.kv`, `ctx.data_dir`
 - logging: `ctx.log`
@@ -239,6 +239,27 @@ Example:
 ```python
 await ctx.notify("任务失败", level="error", category="备份", account=client)
 ```
+
+For rankings, multi-account results, and other row/column summaries, prefer
+`ctx.notify_table(...)`:
+
+```python
+await ctx.notify_table(
+    ["Account", "Status", "Points"],
+    [["A", "OK", 100], ["B", "Failed", 0]],
+    caption="Daily check-in",
+    level="success",
+    category="Check-in",
+    align=["left", "center", "right"],
+)
+```
+
+The platform renders native tables for Telegram bots and Premium user accounts,
+and automatically converts them into readable grouped text for regular user accounts,
+WeCom, and Bark. Do not add plugin-side Premium checks for notification tables.
+
+Use `ctx.notify(content, format="rich")` only when a structured notification cannot
+be expressed with `notify_table`. Rich notification HTML is sanitized by the platform.
 
 ## Storage rules
 

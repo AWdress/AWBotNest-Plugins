@@ -42,14 +42,14 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png",
-    "changelog": "v1.0.7 修复抽奖次数校验\n- 修复转盘抽奖未校验次数为正整数，非法次数现在会提示并拦截\n\nv1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.8 接入平台结构化通知表格\n- 灵石转账排行榜改用 ctx.notify_table()\n- Telegram Bot 与 Premium 账号显示原生边框斑马纹表格\n- 普通账号、企业微信和 Bark 由平台自动回退分组文本\n\nv1.0.7 修复抽奖次数校验\n- 修复转盘抽奖未校验次数为正整数，非法次数现在会提示并拦截\n\nv1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -870,13 +870,21 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
     if lb_on:
         entries = _build_leaderboard(raw, direction, _LEADERBOARD_SIZE)
         if entries:
-            lines = [f"个人{table_title}总榜 TOP{len(entries)}："]
-            medals = ["No.1", "No.2", "No.3"]
+            medals = ["🥇", "🥈", "🥉"]
+            rows = []
             for i, e in enumerate(entries):
-                medal = medals[i] if i < 3 else f"{i + 1}."
-                lines.append(f"{medal} {e['name']} {e['total']:,.0f}（{e['count']}次）")
-            # 正文与榜单之间空一行分隔
-            body += "\n\n" + "\n".join(lines)
+                medal = medals[i] if i < 3 else f"{i + 1}"
+                rows.append([medal, e["name"], e["count"], f'{e["total"]:,.0f} 灵石'])
+            await ctx.notify_table(
+                ["排名", "用户", "次数", "累计"],
+                rows,
+                caption=f"{body}\n个人{table_title}总榜 TOP{len(entries)}",
+                level="info",
+                category="转账",
+                account=client,
+                align=["center", "left", "center", "right"],
+            )
+            return
 
     await ctx.notify(body, level="info", category="转账", account=client)
 
