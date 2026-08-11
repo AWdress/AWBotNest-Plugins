@@ -33,49 +33,61 @@ const _hoisted_13 = ["checked", "onChange"];
 const _hoisted_14 = { class: "card" };
 const _hoisted_15 = { class: "row" };
 const _hoisted_16 = ["value"];
-const _hoisted_17 = { class: "row" };
-const _hoisted_18 = { class: "row" };
-const _hoisted_19 = { class: "card" };
-const _hoisted_20 = { class: "grid" };
+const _hoisted_17 = {
+  key: 0,
+  class: "tip"
+};
+const _hoisted_18 = {
+  key: 1,
+  class: "tip"
+};
+const _hoisted_19 = {
+  key: 2,
+  class: "tip"
+};
+const _hoisted_20 = { class: "row" };
 const _hoisted_21 = { class: "row" };
-const _hoisted_22 = { class: "row" };
-const _hoisted_23 = { class: "card" };
+const _hoisted_22 = { class: "card" };
+const _hoisted_23 = { class: "grid" };
 const _hoisted_24 = { class: "row" };
-const _hoisted_25 = ["value"];
-const _hoisted_26 = { class: "row switch" };
-const _hoisted_27 = { class: "savebar" };
-const _hoisted_28 = ["disabled"];
-const _hoisted_29 = { class: "pane" };
-const _hoisted_30 = { class: "toolbar" };
-const _hoisted_31 = {
+const _hoisted_25 = { class: "row" };
+const _hoisted_26 = { class: "card" };
+const _hoisted_27 = { class: "row" };
+const _hoisted_28 = ["value"];
+const _hoisted_29 = { class: "row switch" };
+const _hoisted_30 = { class: "savebar" };
+const _hoisted_31 = ["disabled"];
+const _hoisted_32 = { class: "pane" };
+const _hoisted_33 = { class: "toolbar" };
+const _hoisted_34 = {
   key: 0,
   value: ""
 };
-const _hoisted_32 = ["value"];
-const _hoisted_33 = { class: "seg" };
-const _hoisted_34 = ["disabled"];
-const _hoisted_35 = {
+const _hoisted_35 = ["value"];
+const _hoisted_36 = { class: "seg" };
+const _hoisted_37 = ["disabled"];
+const _hoisted_38 = {
   key: 0,
   class: "muted"
 };
-const _hoisted_36 = {
+const _hoisted_39 = {
   key: 1,
   class: "empty"
 };
-const _hoisted_37 = {
+const _hoisted_40 = {
   key: 2,
   class: "tbl"
 };
-const _hoisted_38 = { class: "rank" };
-const _hoisted_39 = { class: "muted" };
-const _hoisted_40 = {
+const _hoisted_41 = { class: "rank" };
+const _hoisted_42 = { class: "muted" };
+const _hoisted_43 = {
   key: 3,
   class: "hist"
 };
-const _hoisted_41 = { class: "hist-h" };
-const _hoisted_42 = { class: "tbl" };
-const _hoisted_43 = { class: "muted" };
-const _hoisted_44 = { class: "muted" };
+const _hoisted_44 = { class: "hist-h" };
+const _hoisted_45 = { class: "tbl" };
+const _hoisted_46 = { class: "muted" };
+const _hoisted_47 = { class: "muted" };
 
 const {ref,reactive,onMounted,computed} = await importShared('vue');
 
@@ -110,6 +122,7 @@ const TOGGLES = [
 ];
 const RANK_OUTPUTS = [
   { v: 'image', l: '图片（默认）' },
+  { v: 'rich_table', l: '富文本表格（Premium）' },
   { v: 'text', l: '文本' },
 ];
 const SSD_MODES = [{ v: 'off', l: '关闭' }, { v: 'once', l: '单次确认' }, { v: '5min', l: '5分钟确认' }];
@@ -301,7 +314,7 @@ return (_ctx, _cache) => {
                   ], 64))
                 : (group.value === 'rank')
                   ? (_openBlock(), _createElementBlock(_Fragment, { key: 1 }, [
-                      _cache[20] || (_cache[20] = _createElementVNode("h3", { class: "det-title" }, "排行榜", -1)),
+                      _cache[19] || (_cache[19] = _createElementVNode("h3", { class: "det-title" }, "排行榜", -1)),
                       _createElementVNode("section", _hoisted_14, [
                         _createElementVNode("label", _hoisted_15, [
                           _cache[15] || (_cache[15] = _createElementVNode("span", null, "输出形式", -1)),
@@ -319,8 +332,12 @@ return (_ctx, _cache) => {
                             [_vModelSelect, cfg.rank_output]
                           ])
                         ]),
-                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "图片生成或发送失败时会自动回退为文本排行榜。", -1)),
-                        _createElementVNode("label", _hoisted_17, [
+                        (cfg.rank_output === 'rich_table')
+                          ? (_openBlock(), _createElementBlock("p", _hoisted_17, "富文本表格仅 Telegram Premium 会员账号可用；当前账号不支持或发送失败时，会自动回退为文本排行榜。"))
+                          : (cfg.rank_output === 'image')
+                            ? (_openBlock(), _createElementBlock("p", _hoisted_18, "图片生成或发送失败时会自动回退为文本排行榜。"))
+                            : (_openBlock(), _createElementBlock("p", _hoisted_19, "文本模式兼容所有账号。")),
+                        _createElementVNode("label", _hoisted_20, [
                           _cache[16] || (_cache[16] = _createElementVNode("span", null, "排行榜人数", -1)),
                           _withDirectives(_createElementVNode("input", {
                             "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.rank_size) = $event)),
@@ -337,7 +354,7 @@ return (_ctx, _cache) => {
                             ]
                           ])
                         ]),
-                        _createElementVNode("label", _hoisted_18, [
+                        _createElementVNode("label", _hoisted_21, [
                           _cache[17] || (_cache[17] = _createElementVNode("span", null, "命令词", -1)),
                           _withDirectives(_createElementVNode("input", {
                             "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.rank_command) = $event)),
@@ -346,17 +363,17 @@ return (_ctx, _cache) => {
                             [_vModelText, cfg.rank_command]
                           ])
                         ]),
-                        _cache[19] || (_cache[19] = _createElementVNode("p", { class: "tip" }, "在任意聊天发「.命令词 [站点] [in/out]」拉排行榜，如 .转账排行 hdsky in。", -1))
+                        _cache[18] || (_cache[18] = _createElementVNode("p", { class: "tip" }, "在任意聊天发「.命令词 [站点] [in/out]」拉排行榜，如 .转账排行 hdsky in。", -1))
                       ])
                     ], 64))
                   : (group.value === 'delay')
                     ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
-                        _cache[26] || (_cache[26] = _createElementVNode("h3", { class: "det-title" }, "致谢延迟", -1)),
-                        _createElementVNode("section", _hoisted_19, [
-                          _cache[25] || (_cache[25] = _createElementVNode("p", { class: "tip" }, "记录到转账后等待若干秒再发致谢，模拟人工（0=不等）。", -1)),
-                          _createElementVNode("div", _hoisted_20, [
-                            _createElementVNode("label", _hoisted_21, [
-                              _cache[21] || (_cache[21] = _createElementVNode("span", null, "最小", -1)),
+                        _cache[25] || (_cache[25] = _createElementVNode("h3", { class: "det-title" }, "致谢延迟", -1)),
+                        _createElementVNode("section", _hoisted_22, [
+                          _cache[24] || (_cache[24] = _createElementVNode("p", { class: "tip" }, "记录到转账后等待若干秒再发致谢，模拟人工（0=不等）。", -1)),
+                          _createElementVNode("div", _hoisted_23, [
+                            _createElementVNode("label", _hoisted_24, [
+                              _cache[20] || (_cache[20] = _createElementVNode("span", null, "最小", -1)),
                               _withDirectives(_createElementVNode("input", {
                                 "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((cfg.notify_delay_min) = $event)),
                                 class: "inp sm",
@@ -371,10 +388,10 @@ return (_ctx, _cache) => {
                                   { number: true }
                                 ]
                               ]),
-                              _cache[22] || (_cache[22] = _createElementVNode("span", { class: "hint" }, "秒", -1))
+                              _cache[21] || (_cache[21] = _createElementVNode("span", { class: "hint" }, "秒", -1))
                             ]),
-                            _createElementVNode("label", _hoisted_22, [
-                              _cache[23] || (_cache[23] = _createElementVNode("span", null, "最大", -1)),
+                            _createElementVNode("label", _hoisted_25, [
+                              _cache[22] || (_cache[22] = _createElementVNode("span", null, "最大", -1)),
                               _withDirectives(_createElementVNode("input", {
                                 "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.notify_delay_max) = $event)),
                                 class: "inp sm",
@@ -389,17 +406,17 @@ return (_ctx, _cache) => {
                                   { number: true }
                                 ]
                               ]),
-                              _cache[24] || (_cache[24] = _createElementVNode("span", { class: "hint" }, "秒", -1))
+                              _cache[23] || (_cache[23] = _createElementVNode("span", { class: "hint" }, "秒", -1))
                             ])
                           ])
                         ])
                       ], 64))
                     : (group.value === 'adv')
                       ? (_openBlock(), _createElementBlock(_Fragment, { key: 3 }, [
-                          _cache[30] || (_cache[30] = _createElementVNode("h3", { class: "det-title" }, "进阶", -1)),
-                          _createElementVNode("section", _hoisted_23, [
-                            _createElementVNode("label", _hoisted_24, [
-                              _cache[27] || (_cache[27] = _createElementVNode("span", null, "SSD 大额自动确认", -1)),
+                          _cache[29] || (_cache[29] = _createElementVNode("h3", { class: "det-title" }, "进阶", -1)),
+                          _createElementVNode("section", _hoisted_26, [
+                            _createElementVNode("label", _hoisted_27, [
+                              _cache[26] || (_cache[26] = _createElementVNode("span", null, "SSD 大额自动确认", -1)),
                               _withDirectives(_createElementVNode("select", {
                                 "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.ssd_click_mode) = $event)),
                                 class: "inp"
@@ -408,56 +425,56 @@ return (_ctx, _cache) => {
                                   return _createElementVNode("option", {
                                     key: o.v,
                                     value: o.v
-                                  }, _toDisplayString(o.l), 9, _hoisted_25)
+                                  }, _toDisplayString(o.l), 9, _hoisted_28)
                                 }), 64))
                               ], 512), [
                                 [_vModelSelect, cfg.ssd_click_mode]
                               ])
                             ]),
-                            _cache[29] || (_cache[29] = _createElementVNode("p", { class: "tip" }, "SpringSunday 大额转账时 bot 会要你点确认按钮，开启后自动点。", -1)),
-                            _createElementVNode("label", _hoisted_26, [
+                            _cache[28] || (_cache[28] = _createElementVNode("p", { class: "tip" }, "SpringSunday 大额转账时 bot 会要你点确认按钮，开启后自动点。", -1)),
+                            _createElementVNode("label", _hoisted_29, [
                               _withDirectives(_createElementVNode("input", {
                                 "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((cfg.owner_notify) = $event)),
                                 type: "checkbox"
                               }, null, 512), [
                                 [_vModelCheckbox, cfg.owner_notify]
                               ]),
-                              _cache[28] || (_cache[28] = _createElementVNode("span", null, "每笔转账推送给平台主人", -1))
+                              _cache[27] || (_cache[27] = _createElementVNode("span", null, "每笔转账推送给平台主人", -1))
                             ])
                           ])
                         ], 64))
                       : _createCommentVNode("", true),
-              _createElementVNode("div", _hoisted_27, [
+              _createElementVNode("div", _hoisted_30, [
                 _createElementVNode("button", {
                   class: "btn primary lg",
                   disabled: saving.value,
                   onClick: save
-                }, _toDisplayString(saving.value ? '保存中…' : '保存配置'), 9, _hoisted_28)
+                }, _toDisplayString(saving.value ? '保存中…' : '保存配置'), 9, _hoisted_31)
               ])
             ])
           ], 512), [
             [_vShow, tab.value === 'settings']
           ]),
-          _withDirectives(_createElementVNode("div", _hoisted_29, [
-            _createElementVNode("div", _hoisted_30, [
+          _withDirectives(_createElementVNode("div", _hoisted_32, [
+            _createElementVNode("div", _hoisted_33, [
               _withDirectives(_createElementVNode("select", {
                 "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((lbSite).value = $event)),
                 class: "inp sm2",
                 onChange: loadLeaderboard
               }, [
                 (!sites.value.length)
-                  ? (_openBlock(), _createElementBlock("option", _hoisted_31, "（无数据）"))
+                  ? (_openBlock(), _createElementBlock("option", _hoisted_34, "（无数据）"))
                   : _createCommentVNode("", true),
                 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(sites.value, (s) => {
                   return (_openBlock(), _createElementBlock("option", {
                     key: s.name,
                     value: s.name
-                  }, _toDisplayString(s.name) + _toDisplayString(s.has_data ? '' : '（空）'), 9, _hoisted_32))
+                  }, _toDisplayString(s.name) + _toDisplayString(s.has_data ? '' : '（空）'), 9, _hoisted_35))
                 }), 128))
               ], 544), [
                 [_vModelSelect, lbSite.value]
               ]),
-              _createElementVNode("div", _hoisted_33, [
+              _createElementVNode("div", _hoisted_36, [
                 _createElementVNode("button", {
                   class: _normalizeClass(['segbtn', { on: lbDir.value === 'in' }]),
                   onClick: _cache[10] || (_cache[10] = $event => {lbDir.value = 'in'; loadLeaderboard();})
@@ -467,7 +484,7 @@ return (_ctx, _cache) => {
                   onClick: _cache[11] || (_cache[11] = $event => {lbDir.value = 'out'; loadLeaderboard();})
                 }, "赏赐榜(转出)", 2)
               ]),
-              _cache[31] || (_cache[31] = _createElementVNode("span", { class: "grow" }, null, -1)),
+              _cache[30] || (_cache[30] = _createElementVNode("span", { class: "grow" }, null, -1)),
               _createElementVNode("button", {
                 class: "btn",
                 onClick: loadSites
@@ -476,19 +493,19 @@ return (_ctx, _cache) => {
                 class: "btn danger",
                 disabled: !lbSite.value,
                 onClick: resetSite
-              }, "清空该站", 8, _hoisted_34)
+              }, "清空该站", 8, _hoisted_37)
             ]),
             (lbLoading.value)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_35, "加载中…"))
+              ? (_openBlock(), _createElementBlock("div", _hoisted_38, "加载中…"))
               : (!lbRows.value.length)
-                ? (_openBlock(), _createElementBlock("div", _hoisted_36, "该站点暂无" + _toDisplayString(lbDir.value === 'in' ? '转入' : '转出') + "数据", 1))
-                : (_openBlock(), _createElementBlock("table", _hoisted_37, [
+                ? (_openBlock(), _createElementBlock("div", _hoisted_39, "该站点暂无" + _toDisplayString(lbDir.value === 'in' ? '转入' : '转出') + "数据", 1))
+                : (_openBlock(), _createElementBlock("table", _hoisted_40, [
                     _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
-                        _cache[32] || (_cache[32] = _createElementVNode("th", null, "名次", -1)),
-                        _cache[33] || (_cache[33] = _createElementVNode("th", null, "用户", -1)),
+                        _cache[31] || (_cache[31] = _createElementVNode("th", null, "名次", -1)),
+                        _cache[32] || (_cache[32] = _createElementVNode("th", null, "用户", -1)),
                         _createElementVNode("th", null, "累计" + _toDisplayString(bonusOf.value), 1),
-                        _cache[34] || (_cache[34] = _createElementVNode("th", null, "笔数", -1))
+                        _cache[33] || (_cache[33] = _createElementVNode("th", null, "笔数", -1))
                       ])
                     ]),
                     _createElementVNode("tbody", null, [
@@ -496,19 +513,19 @@ return (_ctx, _cache) => {
                         return (_openBlock(), _createElementBlock("tr", {
                           key: r.rank
                         }, [
-                          _createElementVNode("td", _hoisted_38, _toDisplayString(r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : r.rank), 1),
+                          _createElementVNode("td", _hoisted_41, _toDisplayString(r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : r.rank), 1),
                           _createElementVNode("td", null, _toDisplayString(r.user_name), 1),
                           _createElementVNode("td", null, _toDisplayString(r.total), 1),
-                          _createElementVNode("td", _hoisted_39, _toDisplayString(r.count), 1)
+                          _createElementVNode("td", _hoisted_42, _toDisplayString(r.count), 1)
                         ]))
                       }), 128))
                     ])
                   ])),
             (recent.value.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_40, [
-                  _createElementVNode("div", _hoisted_41, "最近流水（" + _toDisplayString(recent.value.length) + " 条）", 1),
-                  _createElementVNode("table", _hoisted_42, [
-                    _cache[35] || (_cache[35] = _createElementVNode("thead", null, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_43, [
+                  _createElementVNode("div", _hoisted_44, "最近流水（" + _toDisplayString(recent.value.length) + " 条）", 1),
+                  _createElementVNode("table", _hoisted_45, [
+                    _cache[34] || (_cache[34] = _createElementVNode("thead", null, [
                       _createElementVNode("tr", null, [
                         _createElementVNode("th", null, "站点"),
                         _createElementVNode("th", null, "方向"),
@@ -520,7 +537,7 @@ return (_ctx, _cache) => {
                     _createElementVNode("tbody", null, [
                       (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(recent.value, (r, i) => {
                         return (_openBlock(), _createElementBlock("tr", { key: i }, [
-                          _createElementVNode("td", _hoisted_43, _toDisplayString(r.site), 1),
+                          _createElementVNode("td", _hoisted_46, _toDisplayString(r.site), 1),
                           _createElementVNode("td", null, [
                             _createElementVNode("span", {
                               style: _normalizeStyle({ color: r.direction === 'in' ? '#6ee7a8' : '#6ea8fe' })
@@ -528,7 +545,7 @@ return (_ctx, _cache) => {
                           ]),
                           _createElementVNode("td", null, _toDisplayString(r.user_name), 1),
                           _createElementVNode("td", null, _toDisplayString(r.amount), 1),
-                          _createElementVNode("td", _hoisted_44, _toDisplayString(fmtTime(r.ts)), 1)
+                          _createElementVNode("td", _hoisted_47, _toDisplayString(fmtTime(r.ts)), 1)
                         ]))
                       }), 128))
                     ])
@@ -544,6 +561,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-97343612"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bfb9b76d"]]);
 
 export { Config as default };

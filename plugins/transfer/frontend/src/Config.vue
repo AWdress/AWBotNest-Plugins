@@ -25,6 +25,7 @@ const TOGGLES = [
 ]
 const RANK_OUTPUTS = [
   { v: 'image', l: '图片（默认）' },
+  { v: 'rich_table', l: '富文本表格（Premium）' },
   { v: 'text', l: '文本' },
 ]
 const SSD_MODES = [{ v: 'off', l: '关闭' }, { v: 'once', l: '单次确认' }, { v: '5min', l: '5分钟确认' }]
@@ -196,7 +197,9 @@ function switchTab(t) {
             <section class="card">
               <label class="row"><span>输出形式</span>
                 <select v-model="cfg.rank_output" class="inp"><option v-for="o in RANK_OUTPUTS" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-              <p class="tip">图片生成或发送失败时会自动回退为文本排行榜。</p>
+              <p v-if="cfg.rank_output === 'rich_table'" class="tip">富文本表格仅 Telegram Premium 会员账号可用；当前账号不支持或发送失败时，会自动回退为文本排行榜。</p>
+              <p v-else-if="cfg.rank_output === 'image'" class="tip">图片生成或发送失败时会自动回退为文本排行榜。</p>
+              <p v-else class="tip">文本模式兼容所有账号。</p>
               <label class="row"><span>排行榜人数</span><input v-model.number="cfg.rank_size" class="inp sm" type="number" min="3" max="30" /></label>
               <label class="row"><span>命令词</span><input v-model="cfg.rank_command" class="inp" /></label>
               <p class="tip">在任意聊天发「.命令词 [站点] [in/out]」拉排行榜，如 .转账排行 hdsky in。</p>

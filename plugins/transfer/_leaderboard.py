@@ -138,6 +138,28 @@ def render_text(entries: list[dict], site_name: str, bonus_name: str,
     return "\n".join(lines)
 
 
+def render_rich_table(entries: list[dict], site_name: str, bonus_name: str,
+                      direction: str, owner_name: str = "") -> str:
+    """Kurigram Premium 富文本表格。不支持时由调用方回退文本榜。"""
+    title_word = "打赏" if direction == "in" else "赏赐"
+    owner_prefix = f"{_html_escape(owner_name)} · " if owner_name else ""
+    heading = f"📊 {owner_prefix}{_html_escape(site_name)} {title_word}总榜 TOP{len(entries)}"
+    rows = ["<tr><th>排名</th><th>用户</th><th>次数</th><th>累计</th></tr>"]
+    medals = ["🥇", "🥈", "🥉"]
+    for entry in entries:
+        rank = int(entry.get("rank") or len(rows))
+        rank_text = medals[rank - 1] if 1 <= rank <= 3 else str(rank)
+        user = _user_link(entry.get("user_id"), entry.get("user_name"))
+        count = int(entry.get("count") or 0)
+        total = _fmt_amount(entry.get("total") or 0)
+        amount_text = f"{total} {_html_escape(bonus_name)}".strip()
+        rows.append(
+            f"<tr><td>{rank_text}</td><td>{user}</td>"
+            f"<td>{count}</td><td><b>{amount_text}</b></td></tr>"
+        )
+    return f"<h2>{heading}</h2>\n<table>{''.join(rows)}</table>"
+
+
 # ─── 出图能力探测 ─────────────────────────────────────────────────────────────
 def _imgkit_available() -> bool:
     try:
