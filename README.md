@@ -90,7 +90,7 @@ async def teardown(ctx):
 | 指定 Bot | `ctx.get_bot(bot_id)`（高级：取某个 Bot 的发送代理，不传/不存在回退默认 Bot） |
 | 用户发送 | `await ctx.user.send(chat_id, text)` |
 | 全部用户账号 | `ctx.user_apps`（多账号场景；未连接时发送代理抛 `RuntimeError`，可先判 `ctx.bot/user.connected`） |
-| 通知平台主人 | `await ctx.notify(text, level=, category=, account=)`（平台自动加插件名/级别图标/账号名并投递；别自己拼格式或用 `ctx.bot.send`） |
+| 通知平台主人 | `await ctx.notify(text_or_data, level=, category=, account=)`（支持文本、`dict`、`list[dict]`；平台自动加插件名/级别图标/账号名并投递） |
 | 结构化表格通知 | `await ctx.notify_table(headers, rows, caption=, align=)`（原生表格 + 非会员/非 Telegram 渠道自动降级） |
 | 主人 ID | `ctx.owner_id`（平台主人 Telegram 数字 ID，无主账号为 0） |
 | 配置 | `ctx.config["字段名"]`（每次读取都是前端最新值） |
@@ -133,7 +133,17 @@ await ctx.user.send_rich(chat_id, "# 标题\n\n正文", format="markdown")
 
 #### 结构化通知表格
 
-插件向管理员发送排行榜、多账号结果或任务统计时，优先使用平台表格通知：
+已有字典或记录列表时，直接交给 `ctx.notify()`，平台会自动推断表头：
+
+```python
+await ctx.notify({"账号": "user@example.com", "结果": "签到成功"})
+await ctx.notify([
+    {"账号": "user-a", "结果": "成功", "积分": 120},
+    {"账号": "user-b", "结果": "失败", "积分": 0},
+])
+```
+
+需要固定表头、标题或列对齐时，再使用 `ctx.notify_table()`：
 
 ```python
 await ctx.notify_table(
@@ -148,6 +158,7 @@ await ctx.notify_table(
 
 - 默认带边框和隔行底色，支持每列对齐。
 - Telegram Bot 和 Premium 用户账号显示原生表格；普通用户账号、企业微信和 Bark 由平台自动转为分组文本。
+- 旧插件里的多账号结果、多个 `[项目] 结果` 或重复“字段：内容”明细，平台也会尝试自动识别为表格；识别不可靠时保持普通正文。
 - 通知场景不要自行判断 Premium，也不要自行用 Bot 重做通知路由。
 - 需要更复杂的通知时，可用 `ctx.notify(html, format="rich")`；平台会过滤不安全或不支持的标签。
 

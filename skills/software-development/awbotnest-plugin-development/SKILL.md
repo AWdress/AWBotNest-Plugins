@@ -110,6 +110,8 @@ Use:
 - filters: `ctx.filters.*`; combine with `&`, `|`, and `~`
 - messaging: `ctx.bot`, `ctx.user`, `ctx.user_apps`
 - admin notifications: `ctx.notify`, `ctx.notify_table`
+- browser and synced cookies: `ctx.browser`, `ctx.cookies`
+- platform AI: `ctx.ai`
 - config: `ctx.config`
 - storage: `ctx.kv`, `ctx.data_dir`
 - logging: `ctx.log`
@@ -125,19 +127,13 @@ Do not:
 - use `@Client.on_message`
 - use `print`
 
-## AI-related plugin work
+## Platform AI and cookies
 
-`PLUGIN_GUIDE.md` and `_TEMPLATE.py` do not currently define a dedicated AI-plugin chapter. So for AI-related plugin work, treat the plugin guide as the base contract, then inspect the current repository implementations before deciding architecture.
+The plugin guide officially defines both capabilities:
 
-Practical rule:
-
-- Do not present AI-related patterns as plugin-spec hard law unless they are actually written in the plugin guide/template.
-- If the current repo already uses shared/platform AI capability in existing plugins, treat that as a **current repo practice**, not as a replacement for the plugin contract itself.
-- For AI plugins, explicitly distinguish between:
-  - what the plugin guide guarantees
-  - what the current repo happens to implement today
-
-This avoids turning repository drift or transitional implementation details into fake “official plugin spec”.
+- Use `ctx.ai` for text, vision, and image generation. Do not store API keys or create a separate OpenAI client. Check `ctx.ai.is_available(...)`, and use model aliases returned by `ctx.ai.available_models(...)` when a plugin exposes model choice.
+- Declare `cookie_domains` in the literal plugin metadata before reading synchronized cookies through `ctx.cookies`. Never store CookieCloud credentials or enumerate undeclared domains. Use `request_sync(domain)` when a required cookie is missing.
+- Use `ctx.browser` for JavaScript rendering and interactive browser work; do not bundle or install a browser runtime from plugin code.
 
 ## Handler rules
 
@@ -240,6 +236,17 @@ Example:
 await ctx.notify("任务失败", level="error", category="备份", account=client)
 ```
 
+When result data already exists as a mapping or list of mappings, pass it directly and let
+the platform infer table headers:
+
+```python
+await ctx.notify({"Account": "A", "Status": "OK"})
+await ctx.notify([
+    {"Account": "A", "Status": "OK", "Points": 100},
+    {"Account": "B", "Status": "Failed", "Points": 0},
+])
+```
+
 For rankings, multi-account results, and other row/column summaries, prefer
 `ctx.notify_table(...)`:
 
@@ -257,6 +264,9 @@ await ctx.notify_table(
 The platform renders native tables for Telegram bots and Premium user accounts,
 and automatically converts them into readable grouped text for regular user accounts,
 WeCom, and Bark. Do not add plugin-side Premium checks for notification tables.
+Legacy multi-account summaries, repeated `[item] result` lines, and repeated
+`field: value` details may be auto-detected by the platform; keep plain text when it is
+narrative rather than tabular.
 
 Use `ctx.notify(content, format="rich")` only when a structured notification cannot
 be expressed with `notify_table`. Rich notification HTML is sanitized by the platform.
