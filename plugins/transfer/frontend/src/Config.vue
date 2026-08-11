@@ -197,7 +197,7 @@ function switchTab(t) {
             <section class="card">
               <label class="row"><span>输出形式</span>
                 <select v-model="cfg.rank_output" class="inp"><option v-for="o in RANK_OUTPUTS" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-              <p v-if="cfg.rank_output === 'rich_table'" class="tip">需要 Telegram Premium 会员与平台 Rich Message 接口同时支持。当前 Kurigram 用户账号接口不支持时，会自动回退为正常文本排行榜。</p>
+              <p v-if="cfg.rank_output === 'rich_table'" class="tip">仅 Telegram Premium 会员账号可使用原生富文本表格；普通账号或发送失败时，会自动回退为正常文本排行榜。</p>
               <p v-else-if="cfg.rank_output === 'image'" class="tip">图片生成或发送失败时会自动回退为文本排行榜。</p>
               <p v-else class="tip">文本模式兼容所有账号。</p>
               <label class="row"><span>排行榜人数</span><input v-model.number="cfg.rank_size" class="inp sm" type="number" min="3" max="30" /></label>
