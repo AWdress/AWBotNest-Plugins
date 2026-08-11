@@ -85,6 +85,8 @@ async def teardown(ctx):
 | 注册回调 | `@ctx.on_callback(filter, group=0, target="auto")` |
 | 中断传播 | `raise ctx.StopPropagation`（在 handler 内主动阻止后续插件再处理这条消息，谨慎用） |
 | Bot 发送 | `await ctx.bot.send(chat_id, text)` / `ctx.bot.send_photo(...)`（`ctx.bot` = 平台为本插件分配的 Bot，未分配=默认 Bot） |
+| Rich Message | `await ctx.bot.send_rich(chat_id, content)` / `await ctx.user.send_rich(...)`（HTML 或 Markdown） |
+| Rich 能力检测 | `await ctx.bot.supports_native_rich()` / `await ctx.user.supports_native_rich()` |
 | 指定 Bot | `ctx.get_bot(bot_id)`（高级：取某个 Bot 的发送代理，不传/不存在回退默认 Bot） |
 | 用户发送 | `await ctx.user.send(chat_id, text)` |
 | 全部用户账号 | `ctx.user_apps`（多账号场景；未连接时发送代理抛 `RuntimeError`，可先判 `ctx.bot/user.connected`） |
@@ -112,6 +114,21 @@ async def teardown(ctx):
 **多账号下的账号范围**：`scope=user`/`both` 的插件默认挂到**所有**已连接用户账号；用户可在插件卡片「账号」按钮里选择只应用到部分账号（空=全部），改动后自动重挂。
 
 **多 Bot 下的 Bot 选择（对插件透明）**：平台可配置多个 Bot，并在「系统设置 → 通知」为每个插件指定用哪个 Bot（默认=默认 Bot）。这对插件是**透明**的——`ctx.bot`、`ctx.notify`、`scope=bot`/`both` 的 handler 都会自动走平台为本插件分配的 Bot。插件作者**不选择**也不感知 Bot，照常写 `ctx.bot.send(...)` / `ctx.notify(...)` 即可。
+
+#### Rich Message
+
+平台统一通过发送代理提供原生富文本，插件不应直接调用 Kurigram/Pyrogram 底层方法：
+
+```python
+await ctx.bot.send_rich(chat_id, "<h1>标题</h1><p>正文</p>")
+await ctx.user.send_rich(chat_id, "# 标题\n\n正文", format="markdown")
+```
+
+- `format` 支持 `"html"`（默认）和 `"markdown"`。
+- Bot 和 Telegram Premium 用户账号使用原生 Rich Message；普通用户账号由平台自动降级为兼容消息。
+- 功能必须依赖原生富文本时，先调用 `supports_native_rich()` 检测，并自行提供清晰的文本回退。
+- `send_rich_draft()` 用于临时流式富文本草稿，仅 Bot 和 Telegram Premium 用户账号可用。
+- 目标账号未连接时会抛出 `RuntimeError`；可先检查 `ctx.bot.connected` / `ctx.user.connected`。
 
 ### 4. config_schema（插件配置）
 
