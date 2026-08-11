@@ -333,7 +333,7 @@ return (_ctx, _cache) => {
                           ])
                         ]),
                         (cfg.rank_output === 'rich_table')
-                          ? (_openBlock(), _createElementBlock("p", _hoisted_17, "富文本表格仅 Telegram Premium 会员账号可用；当前账号不支持或发送失败时，会自动回退为文本排行榜。"))
+                          ? (_openBlock(), _createElementBlock("p", _hoisted_17, "需要 Telegram Premium 会员与平台 Rich Message 接口同时支持。当前 Kurigram 用户账号接口不支持时，会自动回退为正常文本排行榜。"))
                           : (cfg.rank_output === 'image')
                             ? (_openBlock(), _createElementBlock("p", _hoisted_18, "图片生成或发送失败时会自动回退为文本排行榜。"))
                             : (_openBlock(), _createElementBlock("p", _hoisted_19, "文本模式兼容所有账号。")),
@@ -561,6 +561,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-bfb9b76d"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-95b4161c"]]);
 
 export { Config as default };

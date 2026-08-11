@@ -44,14 +44,14 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.26",
+    "version": "1.0.27",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
-    "changelog": "v1.0.26 新增 Premium 富文本表格\n- 排行榜输出新增 Kurigram HTML 富文本表格模式\n- 自动致谢榜与排行榜命令均支持表格输出\n- 表格发送失败时自动回退文本榜\n- 配置页明确标注仅 Telegram Premium 会员可用\n\nv1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v1.0.27 修复富文本表格被静默降级\n- 不再把 Rich Message HTML 误发到普通消息接口\n- 当前 Kurigram 未提供用户账号 Rich Message 接口时直接回退正常文本榜\n- 配置页补充 Premium 与平台能力要求\n\nv1.0.26 新增 Premium 富文本表格\n- 排行榜输出新增 Kurigram HTML 富文本表格模式\n- 自动致谢榜与排行榜命令均支持表格输出\n- 表格发送失败时自动回退文本榜\n- 配置页明确标注仅 Telegram Premium 会员可用\n\nv1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -578,7 +578,7 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
                 entries, site.site_name, site.bonus_name, direction, owner_name
             ))
             try:
-                sent = await _send_reply(client, chat_id, target, text="\n".join(rich_parts))
+                sent = await _send_rich_reply(client, chat_id, target, "\n".join(rich_parts))
             except Exception as rich_err:  # noqa: BLE001 - Premium 能力不可用时回退
                 ctx.log.warning("[排行榜] Premium 富文本表格发送失败，回退文本: %r", rich_err)
         if sent is None:
@@ -610,6 +610,22 @@ async def _send_reply(client, chat_id, target, text=None, photo=None, caption=No
     if target is not None:
         return await target.reply(text)
     return await client.send_message(chat_id, text)
+
+
+async def _send_rich_reply(client, chat_id, target, html_text):
+    """Send a real Rich Message; ordinary HTML messages cannot render tables."""
+    if target is not None:
+        reply_rich = getattr(target, "reply_rich_message", None)
+        if callable(reply_rich):
+            return await reply_rich(html=html_text)
+    send_rich = getattr(client, "send_rich_message", None)
+    if callable(send_rich):
+        kwargs = {"html": html_text}
+        target_id = getattr(target, "id", None) if target is not None else None
+        if target_id:
+            kwargs["reply_to_message_id"] = target_id
+        return await send_rich(chat_id, **kwargs)
+    raise RuntimeError("当前 Kurigram 未提供用户账号 Rich Message 发送接口")
 
 
 # ─── 排行榜命令 ──────────────────────────────────────────────────────────────
@@ -665,7 +681,10 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
     rich_out = "\n\n".join(rich_blocks) if output_mode == "rich_table" else ""
     if rich_out:
         try:
-            await message.edit_text(rich_out)
+            edit_rich = getattr(message, "edit_rich_message", None)
+            if not callable(edit_rich):
+                raise RuntimeError("当前 Kurigram 未提供用户账号 Rich Message 编辑接口")
+            await edit_rich(html=rich_out)
             return
         except Exception as rich_err:  # noqa: BLE001 - Premium 能力不可用时回退
             ctx.log.warning("[排行榜命令] Premium 富文本表格发送失败，回退文本: %r", rich_err)
