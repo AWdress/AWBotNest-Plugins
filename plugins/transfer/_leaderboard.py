@@ -144,20 +144,27 @@ def render_rich_table(entries: list[dict], site_name: str, bonus_name: str,
     title_word = "打赏" if direction == "in" else "赏赐"
     owner_prefix = f"{_html_escape(owner_name)} · " if owner_name else ""
     heading = f"📊 {owner_prefix}{_html_escape(site_name)} {title_word}总榜 TOP{len(entries)}"
-    rows = ["<tr><th>排名</th><th>用户</th><th>次数</th><th>累计</th></tr>"]
+    rows = [
+        '<tr><th align="center">排名</th><th align="left">用户</th>'
+        '<th align="center">次数</th><th align="right">累计</th></tr>'
+    ]
     medals = ["🥇", "🥈", "🥉"]
     for entry in entries:
         rank = int(entry.get("rank") or len(rows))
         rank_text = medals[rank - 1] if 1 <= rank <= 3 else str(rank)
         user = _user_link(entry.get("user_id"), entry.get("user_name"))
+        if 1 <= rank <= 3:
+            user = f"<b>{user}</b>"
         count = int(entry.get("count") or 0)
         total = _fmt_amount(entry.get("total") or 0)
         amount_text = f"{total} {_html_escape(bonus_name)}".strip()
         rows.append(
-            f"<tr><td>{rank_text}</td><td>{user}</td>"
-            f"<td>{count}</td><td><b>{amount_text}</b></td></tr>"
+            f'<tr><td align="center"><b>{rank_text}</b></td>'
+            f'<td align="left">{user}</td>'
+            f'<td align="center">{count}</td>'
+            f'<td align="right"><b>{amount_text}</b></td></tr>'
         )
-    return f"<h2>{heading}</h2>\n<table>{''.join(rows)}</table>"
+    return f'<h2>{heading}</h2>\n<table bordered striped>{"".join(rows)}</table>'
 
 
 # ─── 出图能力探测 ─────────────────────────────────────────────────────────────
