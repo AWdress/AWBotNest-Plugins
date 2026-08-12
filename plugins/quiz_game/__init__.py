@@ -8,6 +8,7 @@
 # =============================================================================
 
 import asyncio
+import random
 import unicodedata
 from collections import deque
 from datetime import datetime
@@ -18,7 +19,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.14",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -30,6 +31,11 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.1.0 增加赛况与 AI 图文题\n"
+    "- 每道题顶部显示本场已答对玩家昵称和累计奖励\n"
+    "- 显示当前连胜玩家、连胜次数及下一题可得加成\n"
+    "- AI 出题可按比例生成配图，失败时自动回退纯文字题\n"
+    "- 修正连胜奖励指数，第二次连胜从一档倍率开始计算\n\n"
     "v1.0.14 持久化题库并加强近似去重\n"
     "- 已生成题目写入插件 KV，重载和容器重启后仍会过滤\n"
     "- 已用题库由最近 100 道扩大到 500 道\n"
@@ -65,6 +71,8 @@ DEFAULTS = {
     "max_streak": 5,
     "timeout": 60,
     "question_count": 5,
+    "ai_image_enabled": False,
+    "ai_image_ratio": 30,
     "auto_delete_delay": 30,
 }
 
@@ -243,10 +251,36 @@ async def setup(ctx):
             ctx.log.warning("[答题] AI 去重后题目不足：需要 %s 道，获得 %s 道", rounds, len(pool))
         return pool[:rounds]
 
+    def _score_text(state):
+        scores = state.get("scores", {})
+        if not scores:
+            return "🏅 已答对玩家：暂无"
+        names = _name_cache.get(state["chat_id"], {})
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        shown = [f"{str(names.get(uid, str(uid)))[:18]} {score}魔力" for uid, score in ranked[:8]]
+        if len(ranked) > 8:
+            shown.append(f"另有 {len(ranked) - 8} 人")
+        return "🏅 已答对玩家：" + " · ".join(shown)
+
+    def _streak_text(state, cfg, base_reward):
+        if not cfg.get("streak_enabled") or not state.get("last_winner_id"):
+            return "🔥 连胜加成：等待首位答对玩家"
+        uid = state["last_winner_id"]
+        name = _name_cache.get(state["chat_id"], {}).get(uid, str(uid))
+        current = max(1, int(state.get("streak_count", 1)))
+        max_streak = max(1, int(cfg.get("max_streak", 5) or 5))
+        next_streak = min(current + 1, max_streak)
+        multiplier = max(1.0, float(cfg.get("streak_multiplier", 1.5) or 1.5))
+        next_reward = int(base_reward * (multiplier ** (next_streak - 1)))
+        return f"🔥 当前连胜：{name} ×{current}｜再答对可得 {next_reward} 魔力"
+
     def _question_text(state, timeout, reward):
+        cfg = _effective_cfg(ctx)
         return (
             "🎯 趣味答题\n"
             f"第 {state['round']} / {state['total_rounds']} 题\n\n"
+            f"{_score_text(state)}\n"
+            f"{_streak_text(state, cfg, reward)}\n\n"
             "🧩 题目\n"
             f"{state['q']}\n\n"
             f"⏱ 作答时间：{timeout} 秒\n"
@@ -266,6 +300,7 @@ async def setup(ctx):
         state["q"] = next_q["q"]
         state["a"] = next_q["a"]
         state["aliases"] = next_q.get("aliases", [])
+        state["image_path"] = next_q.get("image_path")
         state["answering"] = False
         await _send_next_question(client, chat_id, timeout)
         return True
@@ -304,7 +339,16 @@ async def setup(ctx):
         reward = int(_effective_cfg(ctx).get("base_reward", 500) or 500)
         text = _question_text(state, timeout, reward)
         try:
-            msg = await client.send_message(chat_id, text)
+            image_path = state.get("image_path")
+            if image_path:
+                try:
+                    msg = await client.send_photo(chat_id, image_path, caption=text)
+                except Exception as exc:  # noqa: BLE001
+                    ctx.log.warning("[答题] 配图发送失败，回退纯文字题：%r", exc)
+                    state["image_path"] = None
+                    msg = await client.send_message(chat_id, text)
+            else:
+                msg = await client.send_message(chat_id, text)
             state["question_msg"] = msg
             state["messages"].append(msg)
         except Exception as e:  # noqa: BLE001
@@ -334,6 +378,7 @@ async def setup(ctx):
         first = pool[0]
         _active[chat_id] = {
             "q": first["q"], "a": first["a"], "aliases": first.get("aliases", []),
+            "image_path": first.get("image_path"), "chat_id": chat_id,
             "round": 1, "total_rounds": rounds, "scores": {}, "task": None,
             "answering": False, "question_pool": pool, "next_idx": 1, "q_msgs": [],
             "last_winner_id": 0, "streak_count": 0,
@@ -389,12 +434,33 @@ async def setup(ctx):
                 _track(asyncio.create_task(_auto_del(message, 8)))
                 return
 
+            if (
+                cfg.get("source", "ai") == "ai"
+                and cfg.get("ai_image_enabled", False)
+                and ctx.ai.is_available("image")
+            ):
+                ratio = max(0, min(100, int(cfg.get("ai_image_ratio", 30) or 0)))
+                for item in pool:
+                    if random.randint(1, 100) > ratio:
+                        continue
+                    try:
+                        prompt = (
+                            "为中文趣味答题制作一张清晰、有趣、适合 Telegram 展示的方形插画。"
+                            "不得出现任何文字、字母、数字，不得直接画出或暗示答案，只提供题目氛围和视觉线索。\n"
+                            f"题目：{item['q']}\n答案（仅用于避免泄露）：{item['a']}"
+                        )
+                        image_path = await ctx.ai.generate_image(prompt, size="1024x1024")
+                        item["image_path"] = str(image_path)
+                    except Exception as exc:  # noqa: BLE001
+                        ctx.log.warning("[答题] AI 配图生成失败，回退纯文字题：%r", exc)
+
             _recent_questions.extend(item["q"] for item in pool)
             ctx.kv.set(_QUESTION_HISTORY_KEY, list(_recent_questions))
 
             first = pool[0]
             _active[chat_id] = {
                 "q": first["q"], "a": first["a"], "aliases": first.get("aliases", []),
+                "image_path": first.get("image_path"), "chat_id": chat_id,
                 "round": 1, "total_rounds": rounds, "scores": {}, "task": None,
                 "answering": False, "question_pool": pool, "next_idx": 1,
                 "messages": [message], "question_msg": message,
@@ -402,7 +468,17 @@ async def setup(ctx):
             }
             _name_cache.setdefault(chat_id, {})
             text = _question_text(_active[chat_id], timeout, reward)
-            if not await _edit_message(message, text):
+            if first.get("image_path"):
+                try:
+                    msg = await client.send_photo(chat_id, first["image_path"], caption=text)
+                except Exception as exc:  # noqa: BLE001
+                    ctx.log.warning("[答题] 首题配图发送失败，回退纯文字题：%r", exc)
+                    _active[chat_id]["image_path"] = None
+                    msg = await client.send_message(chat_id, text)
+                _active[chat_id]["question_msg"] = msg
+                _active[chat_id]["messages"].append(msg)
+                await _delete_message(message)
+            elif not await _edit_message(message, text):
                 msg = await client.send_message(chat_id, text)
                 _active[chat_id]["question_msg"] = msg
                 _active[chat_id]["messages"].append(msg)
@@ -484,7 +560,7 @@ async def setup(ctx):
             multiplier = float(cfg.get("streak_multiplier", 1.5))
             max_streak = int(cfg.get("max_streak", 5))
             streak = min(state["streak_count"], max_streak)
-            reward = int(reward * (multiplier ** streak))
+            reward = int(reward * (multiplier ** (streak - 1)))
         else:
             state["streak_count"] = 1
             state["last_winner_id"] = user_id

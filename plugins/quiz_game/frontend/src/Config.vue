@@ -43,6 +43,9 @@
 
           <template v-if="cfg.source === 'ai'">
             <p class="tip">使用平台统一 AI 服务（在「系统设置→AI 服务」配置）。</p>
+            <label class="row switch"><input v-model="cfg.ai_image_enabled" type="checkbox" /><span>启用 AI 图文题</span></label>
+            <label v-if="cfg.ai_image_enabled" class="row indent"><span>配图题比例</span><div class="range-control"><input v-model.number="cfg.ai_image_ratio" type="range" min="0" max="100" step="10" /><output>{{ cfg.ai_image_ratio }}%</output></div></label>
+            <p v-if="cfg.ai_image_enabled" class="tip indent-tip">仅为部分题目生成无文字配图；平台生图不可用或生成失败时自动使用纯文字题。</p>
           </template>
 
           <template v-if="cfg.source === 'tianapi'">
@@ -107,6 +110,7 @@ const cfg = ref({
   tianapi_key: '',
   base_reward: 500, streak_enabled: true, streak_multiplier: 1.5, max_streak: 5,
   question_count: 5, timeout: 60, auto_delete_delay: 30,
+  ai_image_enabled: false, ai_image_ratio: 30,
 })
 const tab = ref('settings')
 const saving = ref(false)
@@ -180,6 +184,11 @@ async function loadChatNames() {
 .chat-label { color: var(--text-muted, #7a8291); }
 .chat-name { color: var(--text-primary, #e8edf0); }
 .inp, select.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
+.tip { margin: -3px 0 12px 142px; color: var(--text-muted, #7a8291); font-size: 12px; line-height: 1.6; }
+.indent-tip { margin-left: 162px; }
+.range-control { flex: 1; display: grid; grid-template-columns: minmax(160px, 1fr) 52px; align-items: center; gap: 12px; min-width: 0; }
+.range-control input { width: 100%; accent-color: var(--primary, #4a9eff); }
+.range-control output { color: var(--text-primary, #e8edf5); font-variant-numeric: tabular-nums; text-align: right; }
 .btn, .btn-primary, .btn-sm { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
 .btn-primary { background: var(--primary, #4a9eff); color: #fff; }
 .btn { background: var(--bg-card, #12141c); color: var(--text-primary, #e8edf5); border: 1px solid var(--border-light, #2a2e3a); margin-right: 8px; }
@@ -199,5 +208,7 @@ async function loadChatNames() {
   .row { align-items: flex-start; flex-direction: column; }
   .row > span:first-child { min-width: 0; }
   .chat-names { margin-left: 0; }
+  .tip, .indent-tip { margin-left: 0; }
+  .range-control { width: 100%; }
 }
 </style>
