@@ -11,13 +11,14 @@ import asyncio
 import unicodedata
 from collections import deque
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from ._engine import fetch_from_ai, fetch_from_tianapi
 
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -29,6 +30,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.0.14 持久化题库并加强近似去重\n"
+    "- 已生成题目写入插件 KV，重载和容器重启后仍会过滤\n"
+    "- 已用题库由最近 100 道扩大到 500 道\n"
+    "- 除完全相同外，改写措辞和高度相似题目也会被拦截并继续补题\n\n"
     "v1.0.13 连续答题与交互提示\n"
     "- 单题无人答对时公布正确答案并自动进入下一题，不再提前结束整场\n"
     "- 配置页新增每场题目数量，支持 1 至 20 题\n"
@@ -71,13 +76,29 @@ _busy_hints: set = set()
 _name_cache: dict = {}
 _tasks: set = set()
 _history = deque(maxlen=100)
-_recent_questions = deque(maxlen=100)
+_recent_questions = deque(maxlen=500)
+_QUESTION_HISTORY_KEY = "used_questions_v2"
+_SIMILARITY_THRESHOLD = 0.80
 
 
 def _question_key(value) -> str:
     normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
     math_symbols = "+-×÷*/=<>"
     return "".join(char for char in normalized if char.isalnum() or char in math_symbols)
+
+
+def _is_similar_question(key: str, seen_keys) -> bool:
+    """拦截完全重复、包含式改写和高度相似题目。"""
+    for old_key in seen_keys:
+        if key == old_key:
+            return True
+        shorter, longer = sorted((key, old_key), key=len)
+        if len(shorter) >= 8 and shorter in longer and len(shorter) / len(longer) >= 0.72:
+            return True
+        if min(len(key), len(old_key)) >= 6:
+            if SequenceMatcher(None, key, old_key, autojunk=False).ratio() >= _SIMILARITY_THRESHOLD:
+                return True
+    return False
 
 
 def _dedupe_questions(items, excluded=()) -> list[dict]:
@@ -91,7 +112,7 @@ def _dedupe_questions(items, excluded=()) -> list[dict]:
         question = str((item or {}).get("q", "")).strip()
         answer = str((item or {}).get("a", "")).strip()
         key = _question_key(question)
-        if not key or not answer or key in seen:
+        if not key or not answer or _is_similar_question(key, seen):
             continue
         seen.add(key)
         result.append({**item, "q": question, "a": answer})
@@ -177,6 +198,14 @@ async def _edit_message(message, text):
 
 
 async def setup(ctx):
+    _recent_questions.clear()
+    saved_questions = ctx.kv.get(_QUESTION_HISTORY_KEY) or []
+    if isinstance(saved_questions, list):
+        _recent_questions.extend(
+            str(item).strip() for item in saved_questions if str(item).strip()
+        )
+    ctx.log.info("[答题] 已加载持久化去重题库：%s 道", len(_recent_questions))
+
     async def _send_temp(client, chat_id, text, delay=30):
         msg = await client.send_message(chat_id, text)
         _track(asyncio.create_task(_auto_del(msg, delay)))
@@ -361,6 +390,7 @@ async def setup(ctx):
                 return
 
             _recent_questions.extend(item["q"] for item in pool)
+            ctx.kv.set(_QUESTION_HISTORY_KEY, list(_recent_questions))
 
             first = pool[0]
             _active[chat_id] = {

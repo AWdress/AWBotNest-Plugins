@@ -1,6 +1,6 @@
 {
   "name": "@awbotnest-plugins/quiz_game-config",
-  "version": "1.0.4",
+  "version": "1.0.14",
   "private": true,
   "type": "module",
   "scripts": {
