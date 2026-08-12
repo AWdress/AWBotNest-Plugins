@@ -13,13 +13,14 @@ import unicodedata
 from collections import deque
 from datetime import datetime
 from difflib import SequenceMatcher
+from pathlib import Path
 
 from ._engine import fetch_from_ai, fetch_from_tianapi
 
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -31,6 +32,11 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.1.1 修正看图猜答案与题目封面\n"
+    "- 图文题改为仅凭 AI 图片猜答案，不再显示原文字题干\n"
+    "- 普通文字题统一使用趣味答题封面图发送\n"
+    "- 图文题只显示题目线索图，不重复叠加固定封面\n"
+    "- 生图或图片发送失败时回退为封面文字题\n\n"
     "v1.1.0 增加赛况与 AI 图文题\n"
     "- 每道题顶部显示本场已答对玩家昵称和累计奖励\n"
     "- 显示当前连胜玩家、连胜次数及下一题可得加成\n"
@@ -87,6 +93,7 @@ _history = deque(maxlen=100)
 _recent_questions = deque(maxlen=500)
 _QUESTION_HISTORY_KEY = "used_questions_v2"
 _SIMILARITY_THRESHOLD = 0.80
+_QUIZ_COVER = str(Path(__file__).with_name("quiz_cover.png"))
 
 
 def _question_key(value) -> str:
@@ -276,13 +283,18 @@ async def setup(ctx):
 
     def _question_text(state, timeout, reward):
         cfg = _effective_cfg(ctx)
+        question = (
+            "观察图片中的线索，猜出正确答案。"
+            if state.get("image_quiz")
+            else state["q"]
+        )
         return (
             "🎯 趣味答题\n"
             f"第 {state['round']} / {state['total_rounds']} 题\n\n"
             f"{_score_text(state)}\n"
             f"{_streak_text(state, cfg, reward)}\n\n"
             "🧩 题目\n"
-            f"{state['q']}\n\n"
+            f"{question}\n\n"
             f"⏱ 作答时间：{timeout} 秒\n"
             f"🎁 本题奖励：{reward} 魔力\n"
             "💬 直接发送答案，最先答对者获奖"
@@ -301,6 +313,7 @@ async def setup(ctx):
         state["a"] = next_q["a"]
         state["aliases"] = next_q.get("aliases", [])
         state["image_path"] = next_q.get("image_path")
+        state["image_quiz"] = bool(next_q.get("image_path"))
         state["answering"] = False
         await _send_next_question(client, chat_id, timeout)
         return True
@@ -344,11 +357,13 @@ async def setup(ctx):
                 try:
                     msg = await client.send_photo(chat_id, image_path, caption=text)
                 except Exception as exc:  # noqa: BLE001
-                    ctx.log.warning("[答题] 配图发送失败，回退纯文字题：%r", exc)
+                    ctx.log.warning("[答题] 看图题发送失败，回退封面文字题：%r", exc)
                     state["image_path"] = None
-                    msg = await client.send_message(chat_id, text)
+                    state["image_quiz"] = False
+                    text = _question_text(state, timeout, reward)
+                    msg = await client.send_photo(chat_id, _QUIZ_COVER, caption=text)
             else:
-                msg = await client.send_message(chat_id, text)
+                msg = await client.send_photo(chat_id, _QUIZ_COVER, caption=text)
             state["question_msg"] = msg
             state["messages"].append(msg)
         except Exception as e:  # noqa: BLE001
@@ -445,9 +460,12 @@ async def setup(ctx):
                         continue
                     try:
                         prompt = (
-                            "为中文趣味答题制作一张清晰、有趣、适合 Telegram 展示的方形插画。"
-                            "不得出现任何文字、字母、数字，不得直接画出或暗示答案，只提供题目氛围和视觉线索。\n"
-                            f"题目：{item['q']}\n答案（仅用于避免泄露）：{item['a']}"
+                            "制作一张中文看图猜答案题的方形图片。画面必须通过多个具体物体、动作、"
+                            "数量、方位或组合关系提供足够线索，使玩家能仅凭图片猜出答案。"
+                            "不得出现任何文字、字母、数字、拼音、字幕、水印或直接写出答案。"
+                            "画面清晰、主体突出、适合 Telegram 手机端观看。\n"
+                            f"目标答案：{item['a']}\n"
+                            f"原题语义（仅供构造线索，不显示给玩家）：{item['q']}"
                         )
                         image_path = await ctx.ai.generate_image(prompt, size="1024x1024")
                         item["image_path"] = str(image_path)
@@ -461,6 +479,7 @@ async def setup(ctx):
             _active[chat_id] = {
                 "q": first["q"], "a": first["a"], "aliases": first.get("aliases", []),
                 "image_path": first.get("image_path"), "chat_id": chat_id,
+                "image_quiz": bool(first.get("image_path")),
                 "round": 1, "total_rounds": rounds, "scores": {}, "task": None,
                 "answering": False, "question_pool": pool, "next_idx": 1,
                 "messages": [message], "question_msg": message,
@@ -472,14 +491,16 @@ async def setup(ctx):
                 try:
                     msg = await client.send_photo(chat_id, first["image_path"], caption=text)
                 except Exception as exc:  # noqa: BLE001
-                    ctx.log.warning("[答题] 首题配图发送失败，回退纯文字题：%r", exc)
+                    ctx.log.warning("[答题] 首道看图题发送失败，回退封面文字题：%r", exc)
                     _active[chat_id]["image_path"] = None
-                    msg = await client.send_message(chat_id, text)
+                    _active[chat_id]["image_quiz"] = False
+                    text = _question_text(_active[chat_id], timeout, reward)
+                    msg = await client.send_photo(chat_id, _QUIZ_COVER, caption=text)
                 _active[chat_id]["question_msg"] = msg
                 _active[chat_id]["messages"].append(msg)
                 await _delete_message(message)
-            elif not await _edit_message(message, text):
-                msg = await client.send_message(chat_id, text)
+            else:
+                msg = await client.send_photo(chat_id, _QUIZ_COVER, caption=text)
                 _active[chat_id]["question_msg"] = msg
                 _active[chat_id]["messages"].append(msg)
                 await _delete_message(message)
