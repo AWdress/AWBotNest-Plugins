@@ -103,12 +103,15 @@ async def teardown(ctx):
 | 文件目录 | `ctx.data_dir`（`Path`，每插件独享可写目录，存图片/素材等实际文件） |
 | 日志 | `ctx.log.info/debug/warning/error` |
 | 定时任务 | `ctx.schedule(fn, "interval", seconds=60)` / `(fn, "cron", hour=3, id="名称")` |
+| 定时任务进度 | `ctx.report_progress(percent, "当前步骤")`（仅在正在执行的定时任务内有效；正常结束后平台自动补为 100%） |
 | Webhook | `@ctx.on_webhook`（需 `__plugin__` 声明 `"webhook": True`；入站 `…/api/v1/plugin/<id>/webhook?apikey=<密钥>`，apikey 用平台统一的 Webhook 密钥，处理器收 `WebhookRequest`，返回 dict/str/None） |
 | 清理回调 | `ctx.add_cleanup(fn)` |
 
 `target`：`"user"` / `"bot"` / `"both"` / `"auto"`（按插件 scope 自动选择）。
 
 `scope=standalone` 在界面中显示为“独立运行”，用于不依赖 Telegram 用户账号或机器人的定时任务、Webhook、外部接口和浏览器自动化插件。它仍可使用配置、存储、平台 AI、通知和调度能力，但 `target="auto"` 不会挂载消息处理器。需要监听 Telegram 消息时，请使用 `user`、`bot` 或 `both`。
+
+插件可以在模块顶层提供可选的 `self_check(ctx)`（同步或异步），返回一个含 `ok` 的字典或字典列表。平台会把它并入插件自检；实现必须只读、快速（平台最多等待 15 秒），不能在自检中签到、发消息或修改数据。未提供 `self_check` 的插件仍会接受平台的文件、加载、账号和定时任务基础检查。
 
 **group 隔离（不会互相"吃消息"）**：Pyrogram 在同一 group 内只跑第一个匹配的 handler。平台给**每个插件分配独立的 group 区间**，所以不同插件即使都监听同类消息也各自都能收到。你写的 `group=` 是「**本插件内部**的相对优先级」（数值越小越先），平台自动平移到你的区间——不用关心别的插件用了什么 group。想"我处理了就别让后面的插件再处理"，在 handler 里 `raise ctx.StopPropagation`。
 

@@ -291,7 +291,30 @@ ctx.schedule(tick, "cron", hour=3, minute=0)
 ctx.schedule(daily_report, "cron", hour=9, id="每日早报")
 ```
 
+Long-running scheduled jobs should report meaningful milestones when practical:
+
+```python
+async def daily_report():
+    ctx.report_progress(10, "正在读取数据")
+    # ...
+    ctx.report_progress(70, "正在发送通知")
+```
+
+`ctx.report_progress(...)` only affects the currently executing scheduled job. It
+returns `False` outside that context, and a normally completed job is finalized by
+the platform as 100% / `执行完成`.
+
 Be careful when generating cron expressions from config. Validate minute/hour ranges.
+
+## Optional business self-check
+
+Expose a top-level `self_check(ctx)` when the plugin can cheaply verify important
+business prerequisites that platform-level checks cannot know about. It may be sync
+or async and returns one dictionary, or a list of dictionaries, each containing
+`ok` (normally also `id`, `name`, and `detail`). Keep it read-only and fast: the
+platform timeout is 15 seconds. Never sign in, trigger a check-in, send messages, or
+mutate plugin data from a self-check. This hook is optional; do not add a meaningless
+always-success check merely for coverage.
 
 ## Dependencies
 
@@ -355,6 +378,8 @@ Before finishing plugin work:
 - [ ] no `print`
 - [ ] config comes from `config_schema` / `ctx.config`
 - [ ] runtime state uses `ctx.kv` / `ctx.data_dir`
+- [ ] long scheduled work reports useful progress where practical
+- [ ] business `self_check(ctx)`, when present, is read-only and finishes within 15 seconds
 - [ ] dependencies are declared, not self-installed
 - [ ] Vue plugins have aligned defaults and shipped `frontend/dist`
 - [ ] AI-related behaviour is described as current repo practice unless the plugin guide/template explicitly defines it
