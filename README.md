@@ -386,6 +386,24 @@ async def setup(ctx):
 | 自动报时昵称 | `auto_changename` | 定时 | user | 定时把昵称改成当前时间，支持自定义模板 |
 | 自动换头像 | `auto_avatar` | 定时 / `.avataradd` 等 | user | 定时随机换头像，回复图片 `.avataradd` 入池，`.avatarlist/.avatarclear` 管理 |
 | 插件开发调试 | `custom_plugin` | Vue 源码编辑器 | both | 在管理员配置页编辑、检查并运行单文件插件源码，显示运行状态和错误堆栈；仅适合已审查的代码 |
+| Webhook 通知桥 | `webhook_bridge` | 外部 HTTP Webhook | standalone | 把 NAS、下载器、监控和 CI 等外部事件统一转成平台通知，支持字段提取、模板、去重、限流和敏感字段过滤 |
+
+#### Webhook 通知桥使用
+
+1. 在「系统设置 → 通知 → 平台 Webhook」生成密钥。
+2. 从插件市场安装并启用 `webhook_bridge`。
+3. 打开插件配置，复制平台显示的专属 Webhook 地址。
+4. 将 NAS、下载器、Uptime Kuma、Alertmanager 或 CI 的回调地址设为该地址。
+
+最小请求示例：
+
+```bash
+curl -X POST 'https://你的平台/api/v1/plugin/webhook_bridge/webhook?apikey=平台密钥' \
+  -H 'Content-Type: application/json' \
+  -d '{"source":"下载器","title":"任务完成","message":"example.mkv 已下载","level":"success"}'
+```
+
+插件接受 GET、JSON、表单和纯文本请求。字段名不同的服务可在插件配置中调整标题、正文、来源和级别字段；无法提取正文时会安全过滤敏感字段后转发完整结构化数据。
 
 ### PT 站 / 媒体
 
