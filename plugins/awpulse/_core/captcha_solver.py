@@ -684,8 +684,10 @@ class CaptchaSolver:
             if not boxes:
                 return False
 
-            hint = self._extract_click_hint(page)
-            words = self._normalize_words(hint)
+            words = self._extract_click_words(page)
+            if not words:
+                logging.warning("点选验证码未识别出提示文字，放弃本轮以等待新题")
+                return False
 
             bg_img = Image.open(BytesIO(bg_bytes))
             candidates = []
@@ -700,18 +702,32 @@ class CaptchaSolver:
                 cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
                 candidates.append((cx, cy, text))
 
-            # 按提示词匹配顺序点击
+            # 按提示文字的顺序点击。每个目标必须匹配成功；缺一个就放弃本轮，
+            # 不能像旧逻辑那样把所有检测框依次点一遍，否则会白白消耗验证码次数。
             selected = []
-            if words:
-                for w in words:
-                    for cx, cy, t in candidates:
-                        if w in t and (cx, cy) not in selected:
-                            selected.append((cx, cy))
+            for word in words:
+                matched = None
+                # 优先精确匹配，再接受 OCR 返回的短字符串中包含目标字。
+                for exact_only in (True, False):
+                    for cx, cy, text in candidates:
+                        if (cx, cy) in selected:
+                            continue
+                        normalized = self._normalize_candidate_text(text)
+                        if not normalized:
+                            continue
+                        ok = normalized == word if exact_only else word in normalized
+                        if ok:
+                            matched = (cx, cy)
                             break
-            if not selected:
-                selected = [(cx, cy) for cx, cy, t in candidates if t and len(t) <= 4]
-            if not selected:
-                return False
+                    if matched:
+                        break
+                if not matched:
+                    logging.warning(
+                        "点选验证码目标“%s”未匹配，候选=%s",
+                        word, [self._normalize_candidate_text(item[2]) for item in candidates],
+                    )
+                    return False
+                selected.append(matched)
 
             # 转换为屏幕坐标并点击
             scale_x = bg_box['width'] / bg_img.width
@@ -734,17 +750,61 @@ class CaptchaSolver:
 
     def _extract_click_hint(self, page):
         hint = self._get_visible_text(page, [
-            'div.gc-tips', 'div.gc-head', 'div.gc-body',
-            'div.gc-header', 'div.gc-word', 'div.gc-info',
+            'div.gc-word', 'div.gc-header', 'div.gc-tips',
+            'div.gc-head', 'div.gc-info',
         ])
         return re.sub(r'\s+', ' ', hint).strip() if hint else ''
+
+    def _extract_click_words(self, page):
+        """读取点选顺序：优先 DOM 文本，取不到时 OCR 提示小图。"""
+        words = self._normalize_words(self._extract_click_hint(page))
+        if words:
+            return words
+
+        for selector in (
+            'div.gc-word img', 'div.gc-word',
+            'div.gc-header img', 'img.gc-thumb',
+        ):
+            try:
+                locator = page.locator(selector).first
+                if locator.count() == 0 or not locator.is_visible(timeout=300):
+                    continue
+                image_bytes = locator.screenshot()
+                if not image_bytes:
+                    continue
+                recognized = self._ocr.classification(image_bytes).strip()
+                words = self._normalize_words(recognized)
+                if words:
+                    logging.info("点选验证码提示识别：%s", " ".join(words))
+                    return words
+            except Exception as exc:
+                logging.debug("读取点选验证码提示图失败（%s）: %s", selector, exc)
+        return []
 
     def _normalize_words(self, hint):
         if not hint:
             return []
-        text = hint.replace('请选择', ' ').replace('点击', ' ').replace('Tap', ' ').replace('Please', ' ')
-        text = re.sub(r'[：:，,。\s]+', ' ', text)
-        return [w for w in text.split() if len(w) >= 1]
+        text = str(hint)
+        # go-captcha 常见提示为“请依次点击春花秋月”，目标汉字之间不一定有空格。
+        # 先移除指令用语，再把连续中文拆成单字，保留原始点击顺序。
+        text = re.sub(
+            r'(?i)please|tap|click|请选择|请依次|依次|按照顺序|按顺序|顺序|点击|选出|完成|验证|文字|字符|下图|图中|请',
+            ' ', text,
+        )
+        tokens = re.findall(r'[\u3400-\u9fff]|[A-Za-z0-9]+', text)
+        words = []
+        for token in tokens:
+            if re.fullmatch(r'[\u3400-\u9fff]', token):
+                words.append(token)
+            else:
+                # 英文/数字点选也按单字符顺序处理；验证码目标通常是单个字形。
+                words.extend(list(token.casefold()))
+        return words
+
+    @staticmethod
+    def _normalize_candidate_text(text):
+        chars = re.findall(r'[\u3400-\u9fffA-Za-z0-9]', str(text or ''))
+        return ''.join(chars).casefold()
 
     # ------------------------------------------------------------------
     # 旋转验证码 —— 内/外圈环带相关性最大化
