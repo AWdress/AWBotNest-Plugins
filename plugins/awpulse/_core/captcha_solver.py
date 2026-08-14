@@ -8,6 +8,7 @@
 """
 
 import math
+import logging
 import random
 import re
 import time
@@ -100,6 +101,66 @@ class CaptchaSolver:
     def __init__(self, config=None):
         self.config = config or {}
         self._ocr = None
+        self._verification_watch = None
+
+    @staticmethod
+    def _classify_verification_response(response):
+        """Return True/False for decisive captcha responses, otherwise None."""
+        try:
+            url = str(getattr(response, 'url', '') or '').lower()
+            resource_type = str(getattr(response.request, 'resource_type', '') or '').lower()
+            if resource_type not in {'xhr', 'fetch'}:
+                return None
+            text = str(response.text() or '')[:8000]
+        except Exception:
+            return None
+        lowered = text.casefold()
+        relevant = any(token in url for token in ('captcha', 'verify', 'validate', 'dd_sign', 'go-captcha'))
+        relevant = relevant or any(token in lowered for token in (
+            'captcha', '验证码', '验证成功', '验证失败', '校验成功', '校验失败', '签到成功',
+        ))
+        if not relevant:
+            return None
+        failure_markers = (
+            '验证失败', '校验失败', '验证码错误', '验证码失败', '请重试', '再试一次',
+            '"success":false', '"success": false', '"code":-1', '"code": -1',
+        )
+        if any(marker in lowered for marker in failure_markers):
+            return False
+        success_markers = (
+            '验证成功', '校验成功', '签到成功', '"success":true', '"success": true',
+            '"code":0', '"code": 0', '"status":"success"', '"status": "success"',
+        )
+        if any(marker in lowered for marker in success_markers):
+            return True
+        return None
+
+    def _start_verification_watch(self, page):
+        watch = {'results': []}
+
+        def _on_response(response):
+            result = self._classify_verification_response(response)
+            if result is not None:
+                watch['results'].append(result)
+                logging.info("验证码服务端结果：%s", "通过" if result else "未通过")
+
+        try:
+            page.on('response', _on_response)
+            watch['callback'] = _on_response
+        except Exception:
+            watch['callback'] = None
+        self._verification_watch = watch
+        return watch
+
+    def _stop_verification_watch(self, page, watch):
+        callback = watch.get('callback') if watch else None
+        if callback:
+            try:
+                page.remove_listener('response', callback)
+            except Exception:
+                pass
+        if self._verification_watch is watch:
+            self._verification_watch = None
 
     def _init_ddddocr(self):
         if self._ocr is not None:
@@ -175,12 +236,15 @@ class CaptchaSolver:
     def solve_slider_captcha(self, page):
         if not self.is_available():
             return False
+        watch = self._start_verification_watch(page)
         try:
             if page.locator('div.gc-tile').count() > 0:
                 return self._solve_drag_tile(page)
             return self._solve_slider_handle(page)
         except Exception:
             return False
+        finally:
+            self._stop_verification_watch(page, watch)
 
     def _solve_drag_tile(self, page):
         cap = self._capture_slider_images(page)
@@ -223,6 +287,9 @@ class CaptchaSolver:
         required = 5  # 连续 5 次 (>= 1.5s) 都不可见才算真消失
 
         while time.time() < deadline:
+            results = (self._verification_watch or {}).get('results', [])
+            if False in results:
+                return False
             try:
                 wrapper = page.locator('div.gc-wrapper')
                 if wrapper.count() == 0:
@@ -237,13 +304,15 @@ class CaptchaSolver:
                         # wrapper 又出现了, 说明只是被重置成新一题, 不是真通过
                         return False
                     consecutive_gone += 1
-                if consecutive_gone >= required:
+                if consecutive_gone >= required and True in results:
                     return True
             except Exception:
                 consecutive_gone += 1
-                if consecutive_gone >= required:
+                if consecutive_gone >= required and True in results:
                     return True
             time.sleep(0.3)
+        # 没拿到明确的服务端成功响应时返回 False。调用方会重新检测验证码是否仍可见，
+        # 并最终以签到页状态为准，避免把弹窗短暂消失误报成通过。
         return False
 
     def _capture_slider_images(self, page):
@@ -476,6 +545,7 @@ class CaptchaSolver:
     def solve_icon_click_captcha(self, page):
         if not self.is_available():
             return False
+        watch = self._start_verification_watch(page)
         try:
             bg_loc = page.locator('img.gc-picture').first
             if bg_loc.count() == 0:
@@ -548,6 +618,8 @@ class CaptchaSolver:
             return self._wait_captcha_closed(page)
         except Exception:
             return False
+        finally:
+            self._stop_verification_watch(page, watch)
 
     def _split_header_icons(self, header_bytes):
         """提示图横向均分: 检测非空白列, 按等距切成 N 个图标"""
@@ -595,6 +667,7 @@ class CaptchaSolver:
     def solve_click_captcha(self, page):
         if not self.is_available():
             return False
+        watch = self._start_verification_watch(page)
         try:
             # 只对 gc-picture 区域做检测, 避免 header/footer 干扰
             bg_loc = page.locator('img.gc-picture').first
@@ -656,6 +729,8 @@ class CaptchaSolver:
             return self._wait_captcha_closed(page)
         except Exception:
             return False
+        finally:
+            self._stop_verification_watch(page, watch)
 
     def _extract_click_hint(self, page):
         hint = self._get_visible_text(page, [
@@ -678,6 +753,7 @@ class CaptchaSolver:
     def solve_rotate_captcha(self, page):
         if not self.is_available():
             return False
+        watch = self._start_verification_watch(page)
         try:
             outer_bytes = self._capture_element_bytes(page, 'div.gc-rotate-picture img, div.gc-rotate-picture, img.gc-picture')
             inner_bytes = self._capture_element_bytes(page, 'div.gc-rotate-thumb img, div.gc-rotate-thumb, img.gc-thumb')
@@ -695,6 +771,8 @@ class CaptchaSolver:
             return self._wait_captcha_closed(page)
         except Exception:
             return False
+        finally:
+            self._stop_verification_watch(page, watch)
 
     def _extract_rotation_angle_from_text(self, page):
         raw = self._get_visible_text(page, [

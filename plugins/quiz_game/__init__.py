@@ -20,7 +20,7 @@ from ._engine import fetch_from_ai, fetch_from_tianapi
 __plugin__ = {
     "name": "趣味答题",
     "id": "quiz_game",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "description": "群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
@@ -32,6 +32,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v1.1.2 增加答题黑名单\n"
+    "- 支持按用户数字 ID 或 @username 配置黑名单，逗号和换行均可分隔\n"
+    "- 黑名单用户的答案会被静默忽略，不计分、不提示且不会触发奖励\n\n"
     "v1.1.1 修正看图猜答案与题目封面\n"
     "- 图文题改为仅凭 AI 图片猜答案，不再显示原文字题干\n"
     "- 普通文字题统一使用趣味答题封面图发送\n"
@@ -66,6 +69,7 @@ __plugin__["changelog"] = (
 # ── 配置默认值 ──
 DEFAULTS = {
     "valid_groups": "",
+    "blacklist_users": "",
     "source": "ai",
     "ai_api_key": "",
     "ai_base_url": "",
@@ -146,6 +150,26 @@ def _track(task):
 
 def _lines(raw) -> list[str]:
     return [x.strip() for x in str(raw or "").splitlines() if x.strip()]
+
+
+def _blacklist_tokens(raw) -> set[str]:
+    values = raw if isinstance(raw, list) else str(raw or "").replace("，", ",").split(",")
+    tokens = set()
+    for value in values:
+        for item in str(value or "").splitlines():
+            token = item.strip().casefold().lstrip("@")
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def _is_blacklisted(cfg, user) -> bool:
+    tokens = _blacklist_tokens(cfg.get("blacklist_users", ""))
+    if not tokens or not user:
+        return False
+    user_id = str(getattr(user, "id", "") or "")
+    username = str(getattr(user, "username", "") or "").strip().casefold().lstrip("@")
+    return bool((user_id and user_id in tokens) or (username and username in tokens))
 
 
 def _valid_group(cfg, chat_id: int) -> bool:
@@ -545,6 +569,13 @@ async def setup(ctx):
         if state.get("answering"):
             return
         if not getattr(message, "from_user", None):
+            return
+        if _is_blacklisted(cfg, message.from_user):
+            ctx.log.info(
+                "[答题] 忽略黑名单用户答案：user_id=%s username=%s",
+                getattr(message.from_user, "id", ""),
+                getattr(message.from_user, "username", "") or "",
+            )
             return
 
         text = (message.text or "").strip().lower()

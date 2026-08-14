@@ -32,6 +32,8 @@
           <h3>群组设置</h3>
           <label class="row"><span>允许的群组</span><input v-model="cfg.valid_groups" class="inp" placeholder="留空=不限制，多个 ID 用逗号分隔" /></label>
           <div v-if="chatNames.length" class="chat-names"><span class="chat-label">已识别：</span><span v-for="item in chatNames" :key="item.id" class="chat-name">{{ item.title }} ({{ item.id }})</span></div>
+          <label class="row row-top"><span>答题黑名单</span><textarea v-model="cfg.blacklist_users" class="inp textarea" rows="4" placeholder="用户 ID 或 @username，支持逗号或换行分隔" /></label>
+          <p class="tip">黑名单用户的答案将被静默忽略，不提示、不计分，也不会发放奖励。</p>
         </div>
 
         <div class="section">
@@ -105,7 +107,7 @@ const props = defineProps({
   host: { type: Object, required: true },
 })
 const cfg = ref({
-  valid_groups: '', source: 'ai',
+  valid_groups: '', blacklist_users: '', source: 'ai',
   ai_api_key: '', ai_base_url: '', ai_model: 'gpt-4o-mini',
   tianapi_key: '',
   base_reward: 500, streak_enabled: true, streak_multiplier: 1.5, max_streak: 5,
@@ -177,6 +179,7 @@ async function loadChatNames() {
 .row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .row > span:first-child { min-width: 130px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
 .row.switch { gap: 8px; }
+.row.row-top { align-items: flex-start; }
 .row.switch span { min-width: auto; }
 .row.indent { margin-left: 20px; }
 .row.indent > span:first-child { min-width: 110px; }
@@ -184,6 +187,7 @@ async function loadChatNames() {
 .chat-label { color: var(--text-muted, #7a8291); }
 .chat-name { color: var(--text-primary, #e8edf0); }
 .inp, select.inp { flex: 1; padding: 8px 12px; background: var(--bg-input, #1a1d26); border: 1px solid var(--border-light, #2a2e3a); border-radius: 6px; color: var(--text-primary, #e8edf5); font-size: 13px; }
+.textarea { resize: vertical; min-height: 88px; font-family: inherit; line-height: 1.55; }
 .tip { margin: -3px 0 12px 142px; color: var(--text-muted, #7a8291); font-size: 12px; line-height: 1.6; }
 .indent-tip { margin-left: 162px; }
 .range-control { flex: 1; display: grid; grid-template-columns: minmax(160px, 1fr) 52px; align-items: center; gap: 12px; min-width: 0; }

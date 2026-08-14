@@ -196,6 +196,10 @@ class CheckinMixin:
                             success = self.captcha_solver.solve_slider_captcha(self.page)
                             
                             if not success:
+                                if self.captcha_solver.detect_captcha_type(self.page) == 'none':
+                                    logging.info("验证码窗口已关闭，等待签到页确认服务端结果...")
+                                    captcha_solved = True
+                                    break
                                 logging.info("滑块验证码识别失败，等待页面自动刷新后重新检测...")
                                 continue
                         else:
@@ -212,6 +216,10 @@ class CheckinMixin:
                             success = self.captcha_solver.solve_slider_captcha(self.page)
                             
                             if not success:
+                                if self.captcha_solver.detect_captcha_type(self.page) == 'none':
+                                    logging.info("验证码窗口已关闭，等待签到页确认服务端结果...")
+                                    captcha_solved = True
+                                    break
                                 logging.info("拖动拼图块验证码识别失败，等待页面自动刷新后重新检测...")
                                 continue
                         else:
@@ -227,6 +235,10 @@ class CheckinMixin:
                             success = self.captcha_solver.solve_click_captcha(self.page)
 
                             if not success:
+                                if self.captcha_solver.detect_captcha_type(self.page) == 'none':
+                                    logging.info("验证码窗口已关闭，等待签到页确认服务端结果...")
+                                    captcha_solved = True
+                                    break
                                 logging.info("点选验证码识别失败，等待页面自动刷新后重新检测...")
                                 continue
                         else:
@@ -242,6 +254,10 @@ class CheckinMixin:
                             success = self.captcha_solver.solve_icon_click_captcha(self.page)
 
                             if not success:
+                                if self.captcha_solver.detect_captcha_type(self.page) == 'none':
+                                    logging.info("验证码窗口已关闭，等待签到页确认服务端结果...")
+                                    captcha_solved = True
+                                    break
                                 logging.info("图标点选验证码识别失败，等待页面自动刷新后重新检测...")
                                 continue
                         else:
@@ -257,6 +273,10 @@ class CheckinMixin:
                             success = self.captcha_solver.solve_rotate_captcha(self.page)
                             
                             if not success:
+                                if self.captcha_solver.detect_captcha_type(self.page) == 'none':
+                                    logging.info("验证码窗口已关闭，等待签到页确认服务端结果...")
+                                    captcha_solved = True
+                                    break
                                 logging.info("旋转验证码识别失败，等待页面自动刷新后重新检测...")
                                 continue
                         else:
