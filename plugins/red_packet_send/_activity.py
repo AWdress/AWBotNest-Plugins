@@ -432,11 +432,20 @@ class ActivityManager:
             activity = self.active.get(key)
             if not activity or activity["status"] != "进行中":
                 return False
-            if any(p["user_id"] == user_id for p in activity["participants"]):
-                return False
-
             # 验证码匹配（不区分大小写、去首尾空白）
             if activity["keyword"].strip().lower() != text.strip().lower():
+                return False
+
+            # 仅在用户再次发送当前有效参与口令时提示，避免已参与用户的普通聊天
+            # 被误判为重复参与。提示短暂保留后自动删除，防止群内堆积。
+            if any(p["user_id"] == user_id for p in activity["participants"]):
+                notice = await client.send_message(
+                    chat_id,
+                    "⚠️ 重复参与无效，你已经领取过这个红包了。",
+                    reply_to_message_id=message.id,
+                )
+                if notice:
+                    _track(asyncio.create_task(_auto_delete(notice, 8)))
                 return False
 
             amount = allocate_amount(activity)
