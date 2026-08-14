@@ -122,6 +122,7 @@ class PlaywrightAutoBot(BrowserMixin, AuthMixin, CheckinMixin, ReplyMixin):
     # PLACEHOLDER_RUN_AUTO_TASKS
 
     def run_auto_tasks(self):
+        all_ok = True
         try:
             self.stats.check_and_reset_daily()
             today_stats = self.stats.get_today_stats()
@@ -189,7 +190,10 @@ class PlaywrightAutoBot(BrowserMixin, AuthMixin, CheckinMixin, ReplyMixin):
                     logging.info("=" * 60)
                     logging.info("开始签到..." if not test_checkin else "[签到测试] 开始测试签到功能")
                     logging.info("=" * 60)
-                    self.daily_checkin(test_mode=test_checkin)
+                    checkin_ok = self.daily_checkin(test_mode=test_checkin)
+                    if not checkin_ok:
+                        all_ok = False
+                        logging.error("本轮签到未完成")
 
             if should_run_post:
                 if test_post:
@@ -218,10 +222,12 @@ class PlaywrightAutoBot(BrowserMixin, AuthMixin, CheckinMixin, ReplyMixin):
             logging.info("=" * 60)
             logging.info("测试完成" if is_test_mode else "自动化任务完成")
             logging.info("=" * 60)
+            return all_ok
         except Exception as e:
             logging.error(f"自动化任务失败: {e}")
             import traceback
             logging.debug(traceback.format_exc())
+            return False
 
     def run(self):
         try:
@@ -256,8 +262,7 @@ class PlaywrightAutoBot(BrowserMixin, AuthMixin, CheckinMixin, ReplyMixin):
 
             logging.info("登录成功，等待 5-10 秒...")
             time.sleep(random.randint(5, 10))
-            self.run_auto_tasks()
-            return True
+            return bool(self.run_auto_tasks())
         except Exception as e:
             logging.error(f"程序运行失败: {e}")
             import traceback

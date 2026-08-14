@@ -292,9 +292,22 @@ class CheckinMixin:
             last_error_keyword = None
             transient_error_keywords = ['请稍后再试', '请稍等重试', '访问过于频繁', '操作过于频繁']
 
-            # 验证码通过后，部分页面只关闭验证码弹窗，不会自动提交签到；此时需要再次点击签到按钮。
-            for result_attempt in range(3):
-                time.sleep(3)
+            # 验证码关闭仅表示校验请求已经提交，并不等于签到页面立即更新。论坛在高峰期
+            # 会短暂返回“请稍后再试”，此时再次点击会触发频率限制，甚至弹出一轮新验证码。
+            # 因此这里只做带退避的状态确认，绝不盲目重复提交签到。
+            confirm_delays = (3, 8, 15, 30)
+            for result_attempt, delay in enumerate(confirm_delays, start=1):
+                logging.info(
+                    "等待签到结果确认（第 %s/%s 次，%s 秒）...",
+                    result_attempt, len(confirm_delays), delay,
+                )
+                time.sleep(delay)
+                if result_attempt > 1:
+                    try:
+                        self.page.goto(main_url, wait_until='domcontentloaded')
+                        time.sleep(2)
+                    except Exception as e:
+                        logging.debug(f"刷新签到页确认状态失败: {e}")
                 result_content = self.page.content()
 
                 if re.search(signed_pattern, result_content, re.IGNORECASE | re.DOTALL):
@@ -307,52 +320,28 @@ class CheckinMixin:
                 last_error_keyword = next((keyword for keyword in error_keywords if keyword in result_content), None)
                 if last_error_keyword:
                     if last_error_keyword in transient_error_keywords:
-                        logging.warning(f"检测到临时页面提示: {last_error_keyword}，刷新签到页确认最终状态...")
-                        try:
-                            self.page.goto(main_url, wait_until='domcontentloaded')
-                            time.sleep(3)
-                            result_content = self.page.content()
-                            if re.search(signed_pattern, result_content, re.IGNORECASE | re.DOTALL):
-                                logging.info("=" * 60)
-                                logging.info("签到成功！")
-                                logging.info("=" * 60)
-                                self.stats.mark_checkin_success()
-                                return True
-                        except Exception as e:
-                            logging.debug(f"刷新签到页确认状态失败: {e}")
-                        if result_attempt < 2:
+                        logging.warning(
+                            "检测到临时页面提示: %s；不重复点击，稍后刷新确认最终状态",
+                            last_error_keyword,
+                        )
+                        if result_attempt < len(confirm_delays):
                             continue
                     logging.warning(f"检测到页面错误: {last_error_keyword}")
                     return False
 
-                if result_attempt >= 2:
-                    break
-
                 still_not_signed = bool(re.search(not_signed_pattern, result_content, re.IGNORECASE | re.DOTALL))
-                if not still_not_signed:
-                    continue
-
-                logging.info("验证码通过后仍显示未签到，重新提交签到...")
-                submitted_again = False
-                for selector in checkin_button_selectors:
-                    try:
-                        btn = self.page.locator(selector).first
-                        if btn.is_visible(timeout=2000):
-                            btn.click()
-                            submitted_again = True
-                            time.sleep(2)
-                            break
-                    except:
-                        continue
-
-                if not submitted_again:
-                    logging.warning("未找到可重新提交的签到按钮")
-                    break
+                if still_not_signed:
+                    logging.info("签到页暂未更新，继续等待服务器确认；不会重复点击签到")
+                else:
+                    logging.info("签到页尚未出现明确结果，继续等待确认")
             
             logging.error("签到失败")
             # 保存调试信息
             try:
-                debug_dir = os.path.join(base_dir, 'debug')
+                data_root = os.environ.get(
+                    'AWPULSE_BASE', os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                )
+                debug_dir = os.path.join(data_root, 'debug')
                 os.makedirs(debug_dir, exist_ok=True)
                 self.page.screenshot(path=os.path.join(debug_dir, 'checkin_failed.png'))
                 with open(os.path.join(debug_dir, 'checkin_result.html'), 'w', encoding='utf-8') as f:
