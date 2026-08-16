@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import re
 import time
 from urllib.parse import urljoin, urlparse
@@ -14,11 +15,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "憨憨赠豆",
     "id": "hhan_bonus",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "使用平台同步的 HHCLUB Cookie，通过用户账号命令单人或批量赠送憨豆。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
+    "changelog": "v1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -249,6 +250,73 @@ def _estimated_received(amount: int) -> int:
     return max(0, amount - 5 - int(amount * 0.2))
 
 
+def _rich_result(users: list[str], amount: int, note: str,
+                 rows: list[tuple[str, bool, str]]) -> str:
+    """生成 Premium 原生表格；普通账号由平台 send_rich 自动转为文本。"""
+    esc = lambda value: html.escape(str(value), quote=True)
+    if len(users) == 1:
+        username, ok, detail = rows[0]
+        title = "🫘 憨憨赠豆成功" if ok else "⚠️ 憨憨赠豆失败"
+        values = [("状态", "✅ 已送达" if ok else "❌ 未送达"), ("接收用户", username)]
+        if ok:
+            values.extend([
+                ("赠送数量", f"{amount:,} 憨豆"),
+                ("预计到账", f"{_estimated_received(amount):,} 憨豆"),
+                ("留言", note),
+            ])
+        else:
+            values.append(("失败原因", detail or "未知错误"))
+        table_rows = "".join(
+            f'<tr><th align="left">{esc(label)}</th><td align="left">{esc(value)}</td></tr>'
+            for label, value in values
+        )
+        return f'<h2>{title}</h2><table bordered striped>{table_rows}</table>'
+
+    success_count = sum(1 for _, ok, _ in rows if ok)
+    table_rows = [
+        '<tr><th align="center">状态</th><th align="left">用户</th>'
+        '<th align="right">赠送</th><th align="left">结果</th></tr>'
+    ]
+    for username, ok, detail in rows:
+        result = f"预计到账 {_estimated_received(amount):,}" if ok else (detail or "未知错误")
+        table_rows.append(
+            f'<tr><td align="center">{"✅" if ok else "❌"}</td>'
+            f'<td align="left">{esc(username)}</td>'
+            f'<td align="right">{amount:,}</td><td align="left">{esc(result)}</td></tr>'
+        )
+    summary = f"成功 {success_count}/{len(rows)} · 每份 {amount:,} 憨豆"
+    return (
+        f'<h2>🫘 憨憨批量赠豆</h2><blockquote>{esc(summary)}</blockquote>'
+        f'<table bordered striped>{"".join(table_rows)}</table>'
+        f'<blockquote>💬 {esc(note)}</blockquote>'
+    )
+
+
+def _plain_result(users: list[str], amount: int, note: str,
+                  rows: list[tuple[str, bool, str]]) -> str:
+    if len(users) == 1:
+        username, ok, detail = rows[0]
+        if ok:
+            return (
+                "🫘 憨憨赠豆成功\n\n"
+                f"👤 接收用户：{username}\n"
+                f"🎁 赠送数量：{amount:,} 憨豆\n"
+                f"💰 预计到账：{_estimated_received(amount):,} 憨豆\n"
+                f"💬 留言：{note}"
+            )
+        return f"⚠️ 憨憨赠豆失败\n\n👤 接收用户：{username}\n❌ 原因：{detail or '未知错误'}"
+    success_count = sum(1 for _, ok, _ in rows if ok)
+    details = [
+        f"{'✅' if ok else '❌'} {username}  "
+        f"{'预计到账 ' + format(_estimated_received(amount), ',') if ok else (detail or '未知错误')}"
+        for username, ok, detail in rows
+    ]
+    return (
+        f"🫘 憨憨批量赠豆\n成功 {success_count}/{len(rows)} · 每份 {amount:,} 憨豆\n"
+        f"💬 {note}\n\n" + "\n".join(details)
+    )
+
+
 async def setup(ctx):
     global _gift_lock
     _gift_lock = asyncio.Lock()
@@ -304,12 +372,11 @@ async def setup(ctx):
             return
 
         delete_after = int(cfg.get("result_delete", 90) or 0)
-        line = "─" * 16
         if head == single:
             parts = text.split(maxsplit=3)
             if len(parts) < 4 or _amount(parts[2]) is None:
                 edited = await message.edit(
-                    "```\n格式：.hh 用户名 数量 留言\n示例：.hh Alice 100 感谢分享```"
+                    "⚠️ 格式不正确\n\n用法：.hh 用户名 数量 留言\n示例：.hh Alice 100 感谢分享"
                 )
                 _schedule_delete(edited, 20)
                 return
@@ -320,7 +387,7 @@ async def setup(ctx):
             parts = text.split()
             if len(parts) < 4 or _amount(parts[-2]) is None:
                 edited = await message.edit(
-                    "```\n格式：.hhs 用户1 用户2 ... 数量 留言\n示例：.hhs Alice Bob 100 感谢```"
+                    "⚠️ 格式不正确\n\n用法：.hhs 用户1 用户2 ... 数量 留言\n示例：.hhs Alice Bob 100 感谢"
                 )
                 _schedule_delete(edited, 20)
                 return
@@ -329,64 +396,50 @@ async def setup(ctx):
             note = parts[-1]
 
         if len(users) > 50:
-            edited = await message.edit("```\n单次批量最多赠送 50 位用户，请拆分后重试```")
+            edited = await message.edit("⚠️ 单次批量最多赠送 50 位用户，请拆分后重试。")
             _schedule_delete(edited, 20)
             return
 
         if not users or not note:
-            edited = await message.edit("```\n用户名、赠送数量和留言均不能为空```")
+            edited = await message.edit("⚠️ 用户名、赠送数量和留言均不能为空。")
             _schedule_delete(edited, 20)
             return
         if _gift_lock and _gift_lock.locked():
-            edited = await message.edit("```\n已有赠豆任务正在执行，请稍后再试```")
+            edited = await message.edit("⏳ 已有赠豆任务正在执行，请稍后再试。")
             _schedule_delete(edited, 20)
             return
 
-        status = await message.edit("```\n憨豆正在打包发送，请稍候…```")
-        rows: list[str] = []
-        success_count = 0
-        last_detail = ""
+        status = await message.edit("🫘 憨豆正在打包发送，请稍候…")
+        result_rows: list[tuple[str, bool, str]] = []
         async with _gift_lock:
             for username in users:
                 await _wait_cooldown()
                 ok, detail = await _gift(ctx, username, amount, note)
-                last_detail = detail
                 _mark_gift()
                 ctx.log.info(
                     "[憨憨赠豆] user=%s amount=%s ok=%s detail=%s",
                     username, amount, ok, detail,
                 )
-                if ok:
-                    success_count += 1
-                    rows.append(f"✓ {username}")
-                else:
-                    rows.append(f"✗ {username}  {detail}")
+                result_rows.append((username, ok, detail))
+                if not ok:
                     await _cookie_error_notify(detail)
 
-        if len(users) == 1:
-            if success_count:
-                body = (
-                    f"憨憨赠豆 · 成功\n{line}\n"
-                    f"用户   {users[0]}\n"
-                    f"赠送   {amount} 憨豆\n"
-                    f"预计到账   {_estimated_received(amount)} 憨豆\n"
-                    f"留言   {note}"
-                )
-            else:
-                body = (
-                    f"憨憨赠豆 · 失败\n{line}\n"
-                    f"用户   {users[0]}\n原因   {last_detail or '未知错误'}"
-                )
-        else:
-            body = (
-                f"憨憨批量赠豆   每份 {amount} 憨豆\n"
-                f"预计每人到账 {_estimated_received(amount)} 憨豆\n"
-                f"留言 {note}\n{line}\n"
-                + "\n".join(rows)
-                + f"\n{line}\n成功 {success_count}/{len(users)}"
+        rich = _rich_result(users, amount, note, result_rows)
+        plain = _plain_result(users, amount, note, result_rows)
+        sent = None
+        try:
+            supports_rich = bool(
+                ctx.user and await ctx.user.supports_native_rich()
             )
-        edited = await status.edit(f"```\n{body}```")
-        _schedule_delete(edited, delete_after)
+            if supports_rich:
+                sent = await ctx.user.send_rich(message.chat.id, rich, format="html")
+                await status.delete()
+            else:
+                sent = await status.edit(plain)
+        except Exception as exc:  # noqa: BLE001 - 富文本不可用时回退编辑原消息
+            ctx.log.warning("[憨憨赠豆] 富文本结果发送失败，回退普通文本：%r", exc)
+            sent = await status.edit(plain)
+        _schedule_delete(sent, delete_after)
 
 
 async def teardown(ctx):

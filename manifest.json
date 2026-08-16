@@ -282,11 +282,11 @@
   },
   "hhan_bonus": {
     "name": "憨憨赠豆",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "使用平台同步的 HHCLUB Cookie，通过用户账号命令单人或批量赠送憨豆。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
+    "changelog": "v1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
     "path": "plugins/hhan_bonus.py"
   },
   "red_packet_send": {
