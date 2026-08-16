@@ -10,17 +10,18 @@
 
 import asyncio
 import time
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
 __plugin__ = {
     "name": "U2送糖",
     "id": "u2_dmhy",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "author": "AWdress",
     "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png",
-    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
+    "changelog": "v1.0.7 修复 U2 站内跳转\n- 正确处理赠送后的 HTTP 302 站内跳转，不再直接判定失败\n- 识别 Cookie 失效登录页、Cloudflare 验证和异常跨站跳转\n- 记录跳转目标日志，便于区分正常提交与登录失效\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "scope": "user",
     "default_enabled": False,
     "config_schema": {
@@ -54,6 +55,46 @@ __plugin__ = {
 
 _URL = "https://u2.dmhy.org/mpshop.php"
 _KV_LAST = "last_pay_ts"
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
+
+
+def _looks_like_login_page(resp: httpx.Response) -> bool:
+    """识别 U2 登录页，避免把跳转后的 200 登录页误报成赠送成功。"""
+    path = urlparse(str(resp.url)).path.lower()
+    if path.endswith(("/login.php", "/takelogin.php")):
+        return True
+    text = (resp.text or "").lower()
+    return (
+        "takelogin.php" in text
+        or ('name="username"' in text and 'name="password"' in text)
+        or ("name='username'" in text and "name='password'" in text)
+    )
+
+
+async def _follow_u2_redirects(client, resp, headers, log):
+    """只跟随 u2.dmhy.org 站内跳转，返回（最终响应, 是否发生跳转, 错误）。"""
+    redirected = False
+    get_headers = dict(headers)
+    get_headers.pop("X-Requested-With", None)
+    for _ in range(5):
+        if resp.status_code not in _REDIRECT_CODES:
+            return resp, redirected, ""
+        location = str(resp.headers.get("location", "") or "").strip()
+        if not location:
+            return resp, redirected, f"HTTP {resp.status_code}（缺少 Location）"
+        target = urljoin(str(resp.url), location)
+        parsed = urlparse(target)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname != "u2.dmhy.org":
+            return resp, redirected, f"站点返回了不安全的跳转：{target}"
+        path = parsed.path.lower()
+        log.info("[U2送糖] 跟随站内跳转：HTTP %s -> %s", resp.status_code, target)
+        if path.endswith(("/login.php", "/takelogin.php")):
+            return resp, True, "Cookie 已失效，站点要求重新登录"
+        if path.startswith("/cdn-cgi/"):
+            return resp, True, "站点触发了 Cloudflare 安全验证，请更新 Cookie 后重试"
+        redirected = True
+        resp = await client.get(target, headers=get_headers, follow_redirects=False)
+    return resp, redirected, "站点跳转次数过多"
 
 
 def _bare(cmd: str, default: str) -> str:
@@ -70,6 +111,8 @@ async def _gift(cookie: str, recv_id: str, amount: str, note: str, log):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh",
         "Cookie": cookie,
+        "Origin": "https://u2.dmhy.org",
+        "Referer": _URL,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
         "X-Requested-With": "XMLHttpRequest",
@@ -77,9 +120,16 @@ async def _gift(cookie: str, recv_id: str, amount: str, note: str, log):
     data = {"event": "1003", "recv": str(recv_id), "amount": str(amount), "message": str(note)}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
-            resp = await client.post(_URL, headers=headers, data=data)
+            resp = await client.post(_URL, headers=headers, data=data, follow_redirects=False)
+            resp, redirected, redirect_error = await _follow_u2_redirects(
+                client, resp, headers, log
+            )
+        if redirect_error:
+            return False, redirect_error
         if resp.status_code != 200:
             return False, f"HTTP {resp.status_code}"
+        if _looks_like_login_page(resp):
+            return False, "Cookie 已失效，最终响应为登录页"
         try:
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(resp.text, "lxml")
@@ -90,6 +140,8 @@ async def _gift(cookie: str, recv_id: str, amount: str, note: str, log):
                     detail = tables[-1].get_text(strip=True).split("。")[0]
                     return True, f"{h2.get_text(strip=True)} ：\n    {detail}"
                 return True, "无提示信息（无表格）"
+            if redirected:
+                return True, "赠送请求已提交，站点已跳转确认"
             return True, "无提示信息（无 h2）"
         except Exception:  # noqa: BLE001 - 解析失败也算请求成功
             return True, "已提交（响应解析略过）"
