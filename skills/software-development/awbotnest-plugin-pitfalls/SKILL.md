@@ -149,6 +149,42 @@ Skipping this is the fastest way to build something that loads but behaves wrong
 - release them in `teardown(ctx)` when needed
 - only manually clean what the plugin itself created
 
+## Pitfall: Starting business work with naked `asyncio.create_task`
+
+**Symptom**: Disable/reload leaves work running, repeated clicks create duplicate jobs, or new platform governance cannot report/cancel the task.
+
+**Cause**: The task bypasses the plugin context and resource governor.
+
+**Fix**:
+
+- use `ctx.create_task(coro, name=..., operation=...)` for bounded background business work
+- declare realistic `resources` limits when defaults are unsuitable
+- do not put an infinite supervisor into a governed task without redesigning it into bounded, cancellable work
+
+## Pitfall: Treating multi-instance and capabilities as ordinary imports
+
+**Symptom**: Account state leaks between instances, or one plugin breaks when another plugin reloads.
+
+**Cause**: Incorrect `instance_mode`, global mutable state, or direct plugin-to-plugin imports.
+
+**Fix**:
+
+- choose `shared` or `account` deliberately
+- use `ctx.provide_capability` / `ctx.call_capability` with metadata declarations
+- make replay handlers idempotent; never replay transfers, rewards, check-ins, or other side effects blindly
+
+## Pitfall: Bundling a private browser runtime
+
+**Symptom**: Docker lacks the executable, browser versions drift, downloads fail, or Cloudflare behaviour differs by environment.
+
+**Cause**: The plugin installs or launches its own Playwright/Chromium stack instead of using platform browser governance.
+
+**Fix**:
+
+- use `ctx.browser`
+- declare `cookie_domains` before using `ctx.cookies`
+- if a legacy anti-bot flow depends on a specialized runtime, treat migration as an explicit compatibility project rather than a mechanical replacement
+
 ## Pitfall: Declaring unsupported dependencies
 
 **Symptom**: Plugin enable fails at dependency install time.
@@ -176,4 +212,7 @@ Before concluding a plugin is “done”:
 - [ ] defaults are present and runtime-aligned
 - [ ] Vue defaults and built assets are in sync
 - [ ] plugin-owned resources are cleaned up
+- [ ] bounded background tasks use `ctx.create_task`
+- [ ] resource budgets and instance mode match actual runtime behaviour
+- [ ] no direct cross-plugin imports or unsafe replay handlers
 - [ ] marketplace metadata is synchronized when publishing

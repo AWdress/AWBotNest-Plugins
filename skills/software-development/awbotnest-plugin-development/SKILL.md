@@ -99,6 +99,10 @@ Common optional fields:
 - `config_schema`
 - `requirements`
 - `webhook`
+- `min_platform_version` / `max_platform_version` / `plugin_api_version`
+- `requires_plugins` / `requires_capabilities` / `provides_capabilities`
+- `instance_mode` (`shared` or `account`)
+- `resources` (`timeout_seconds`, `max_concurrency`, `max_background_tasks`, `failure_threshold`, `recovery_seconds`)
 
 ## Use ctx for all platform interaction
 
@@ -117,6 +121,9 @@ Use:
 - logging: `ctx.log`
 - scheduling: `ctx.schedule`
 - cleanup: `ctx.add_cleanup`
+- governed background tasks: `ctx.create_task`
+- plugin capabilities: `ctx.provide_capability`, `ctx.call_capability`
+- replay-safe business events: `ctx.record_event`, `ctx.on_replay`
 - stop propagation: `ctx.StopPropagation`
 
 Do not:
@@ -180,12 +187,16 @@ Supported field types from the plugin guide:
 - `multiselect`
 - `slider`
 - `text`
+- `list`
+- `chat`
+- `action`
+- `info`
 
 Field shape:
 
 ```python
 "field_name": {
-    "type": "string|password|number|boolean|select|multiselect|slider|text",
+    "type": "string|password|number|boolean|select|multiselect|slider|text|list|chat|action|info",
     "default": "",
     "label": "显示名",
     "help": "字段说明",
@@ -195,12 +206,16 @@ Field shape:
     "step": 1,
     "section": "分区标题",
     "show_if": {"other_field": True},
+    "required": True,
+    "cols": 6,
+    "order": 10,
 }
 ```
 
 Practical rules:
 
 - Every field should have a sensible `default`.
+- `action` and `info` are display/operation fields; other field types require a `default`.
 - Use `section` to group fields.
 - Use `show_if` for conditional visibility.
 - Keep field keys stable during UI-only refactors so saved config still works.
@@ -306,6 +321,24 @@ the platform as 100% / `执行完成`.
 
 Be careful when generating cron expressions from config. Validate minute/hour ranges.
 
+## Runtime governance and background tasks
+
+For finite background business work, use the platform task factory:
+
+```python
+task = ctx.create_task(
+    worker(),
+    name="中文任务名",
+    operation="manual_sync",
+)
+```
+
+Declare a realistic `resources` policy when the defaults do not fit. The platform applies timeout, concurrency, background-task limits, failure thresholds, and recovery windows, and cancels registered tasks on disable/reload. Do not replace an infinite supervisor loop with `ctx.create_task` until it has been redesigned into bounded work; every governed task has a finite timeout.
+
+Use `instance_mode="account"` only when each account needs isolated plugin state. Keep `shared` for one shared service instance.
+
+Cross-plugin imports remain forbidden. Publish and consume declared capabilities through `ctx.provide_capability(...)` and `ctx.call_capability(...)`. Record replayable events only when re-execution is safe and idempotent.
+
 ## Optional business self-check
 
 Expose a top-level `self_check(ctx)` when the plugin can cheaply verify important
@@ -378,6 +411,10 @@ Before finishing plugin work:
 - [ ] no `print`
 - [ ] config comes from `config_schema` / `ctx.config`
 - [ ] runtime state uses `ctx.kv` / `ctx.data_dir`
+- [ ] finite background business work uses `ctx.create_task`; no unmanaged naked task is left behind
+- [ ] resource limits and `instance_mode` are declared when the plugin actually needs non-default governance
+- [ ] cross-plugin collaboration uses declared capabilities instead of imports
+- [ ] replay handlers are idempotent and cannot duplicate destructive/financial actions
 - [ ] long scheduled work reports useful progress where practical
 - [ ] business `self_check(ctx)`, when present, is read-only and finishes within 15 seconds
 - [ ] dependencies are declared, not self-installed

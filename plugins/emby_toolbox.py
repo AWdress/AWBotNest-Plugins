@@ -29,14 +29,23 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.1.5 优化定时任务显示\n- 定时服务页使用中文名称‘Emby 工具箱定时维护’\n- 不再显示内部函数名 scheduled_task\n\nv1.1.4 操作按钮改为后台运行\n- 点击扫描、修复、刮削等长时操作后立即返回，不再卡住配置页\n- 后台执行完成后更新状态摘要并写入插件日志\n- 同一时间只运行一个手动维护任务，防止重复点击并发修改 Emby\n\nv1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "changelog": "v1.3.2 适配平台后台任务治理\n- 配置页手动维护任务改由 ctx.create_task 托管\n- 声明长任务资源配额，停用或重载时由平台安全回收\n\nv1.1.5 优化定时任务显示\n- 定时服务页使用中文名称‘Emby 工具箱定时维护’\n- 不再显示内部函数名 scheduled_task\n\nv1.1.4 操作按钮改为后台运行\n- 点击扫描、修复、刮削等长时操作后立即返回，不再卡住配置页\n- 后台执行完成后更新状态摘要并写入插件日志\n- 同一时间只运行一个手动维护任务，防止重复点击并发修改 Emby\n\nv1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
     "scope": "standalone",
+    "min_platform_version": "1.1.4.0",
+    "plugin_api_version": 1,
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
+    "resources": {
+        "timeout_seconds": 1800,
+        "max_concurrency": 1,
+        "max_background_tasks": 2,
+        "failure_threshold": 3,
+        "recovery_seconds": 120,
+    },
     "config_schema": {
         "enable_episode_fix": {
             "type": "boolean", "default": True, "label": "剧集季集校验/修复",
@@ -974,7 +983,9 @@ async def setup(ctx):
             finally:
                 active_action_task = None
 
-        active_action_task = asyncio.create_task(_run(), name=f'emby_toolbox:{label}')
+        active_action_task = ctx.create_task(
+            _run(), name=f'Emby 工具箱：{label}', operation='manual_maintenance'
+        )
         return {
             'ok': True,
             'message': f'已在后台开始“{label}”，可在状态摘要或插件日志查看结果。',

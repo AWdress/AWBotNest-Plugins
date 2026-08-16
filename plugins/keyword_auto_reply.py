@@ -14,12 +14,14 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
+    "min_platform_version": "1.1.4.0",
+    "plugin_api_version": 1,
     "default_enabled": False,
     "config_schema": {
         # —— 功能开关（最上方，cols:3, order:1-4）——
@@ -158,7 +160,7 @@ def _render(reply: str, message=None) -> str:
     return out
 
 
-def _schedule_delete(message, delay: int):
+def _schedule_delete(ctx, message, delay: int):
     if delay <= 0:
         return
 
@@ -169,7 +171,7 @@ def _schedule_delete(message, delay: int):
         except Exception:
             pass
 
-    task = asyncio.create_task(_runner())
+    task = ctx.create_task(_runner(), name="关键词回复自动删除", operation="auto_delete")
     _pending_tasks.add(task)
     task.add_done_callback(_pending_tasks.discard)
 
@@ -258,14 +260,14 @@ async def setup(ctx):
                             cd_msg = await client.send_message(
                                 chat_id, cd_text, reply_to_message_id=message.id
                             )
-                            _schedule_delete(cd_msg, delete_after)
+                            _schedule_delete(ctx, cd_msg, delete_after)
                         continue
                     _user_cooldowns[key] = (time.time(), today)
 
                 sent = await client.send_message(
                     chat_id, _render(reply, message), reply_to_message_id=message.id
                 )
-                _schedule_delete(sent, delete_after)
+                _schedule_delete(ctx, sent, delete_after)
                 chat_name = getattr(message.chat, "title", None) or str(chat_id)
                 ctx.log.info("[关键词回复] 命中 '%s' | 群组 %s (%s)",
                              keyword, chat_name, chat_id)

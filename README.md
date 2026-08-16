@@ -287,6 +287,30 @@ await ctx.notify_table(
 - **画布约 1000px、窄屏（≤768px）自动全屏——请用响应式布局（百分比 / 栅格 / 容器查询），不要写死过窄或过宽的固定尺寸，否则窄屏溢出**。参考本仓库 `auto_subscribe`（容器查询 + master-detail）。
 - 完整说明见平台 `PLUGIN_GUIDE.md` 的「Vue 模式」与模板 `plugins/_TEMPLATE_VUE/`。
 
+### 4.6 运行治理、多实例与插件能力（新版）
+
+平台现在会治理插件调用和后台任务。存在长任务、并发任务或外部服务调用的插件，建议在 `__plugin__` 中声明资源预算：
+
+```python
+"instance_mode": "shared",  # shared | account
+"resources": {
+    "timeout_seconds": 600,
+    "max_concurrency": 2,
+    "max_background_tasks": 4,
+    "failure_threshold": 5,
+    "recovery_seconds": 60,
+},
+```
+
+- `instance_mode="shared"`：所有匹配账号共用一个插件实例；`account`：按账号隔离实例和运行状态。未声明时保持兼容行为。
+- 有限后台业务任务使用 `ctx.create_task(coro, name="中文任务名", operation="业务标识")`，不要裸用 `asyncio.create_task` 启动无人托管的业务任务。平台会应用超时、并发和熔断策略，并在停用/热重载时取消回收。
+- 仅在确有依赖时声明 `min_platform_version`、`max_platform_version`、`plugin_api_version`、`requires_plugins`、`requires_capabilities`、`provides_capabilities`，不要给全部插件机械补字段。
+- 跨插件协作禁止直接 import。提供方使用 `ctx.provide_capability(name, handler)`，调用方使用 `await ctx.call_capability(name, ...)`，并在元数据声明能力依赖。
+- 只有可安全重放、具备幂等保护的业务事件才使用 `ctx.record_event(...)` 与 `ctx.on_replay(...)`；签到、转账、发奖等副作用操作不能因重放而重复执行。
+- `config_schema` 支持 `list`、`chat`、`action`、`info`；普通字段必须有 `default`，并建议用 `required`、`cols`、`order` 明确校验和布局。
+
+常驻连接或无限循环不能直接套用有限超时任务。应优先改造成平台调度、可停止的短周期任务，或在确认生命周期设计后再迁移，避免被治理超时强制终止。
+
 ### 5. 第三方依赖（requirements）
 
 插件用到平台基础环境之外的第三方库时，在 `__plugin__["requirements"]` 里**声明**，平台会在**启用插件时**自动 `pip install`。
@@ -332,7 +356,7 @@ async def setup(ctx):
 4. **不要 `print`**，用 `ctx.log`。
 5. **插件之间不要互相 import**。共用逻辑写成 `_` 开头的辅助文件，或下沉到平台。
 6. **业务配置由平台托管**：普通模式声明 `config_schema`，Vue 模式通过 `host.getConfig()/saveConfig()` 读写；后端统一从 `ctx.config` 读取。禁止直接读写平台配置文件；运行数据用 `ctx.kv`（关系型存储表名须带 `<plugin_id>_` 前缀）。
-7. 自管理资源（后台 task、连接等）必须在 `teardown` 或 `ctx.add_cleanup` 里释放；`ctx.on_message` / `ctx.on_edited_message` / `ctx.on_callback` / `ctx.schedule` 注册的由平台自动清理。
+7. 有限后台业务任务优先用 `ctx.create_task` 托管；自管理的常驻连接等资源必须在 `teardown` 或 `ctx.add_cleanup` 里释放；`ctx.on_message` / `ctx.on_edited_message` / `ctx.on_callback` / `ctx.schedule` 注册的由平台自动清理。
 
 ---
 
