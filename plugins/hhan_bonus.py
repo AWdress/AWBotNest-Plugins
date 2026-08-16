@@ -15,11 +15,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "憨憨赠豆",
     "id": "hhan_bonus",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "使用平台同步的 HHCLUB Cookie，通过用户账号命令单人或批量赠送憨豆。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.2 修复赠送成功误判\n- HHCLUB 成功后直接返回普通赠豆页时按成功处理\n- 仅在错误提示、登录页或异常页面出现时判定失败\n- 结果清理时间至少为 10 秒，保存为 0 的旧配置自动恢复默认清理\n\nv1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
+    "changelog": "v1.0.3 兼容无提示成功响应\n- 站点返回 HTTP 200 且没有错误、登录或安全验证特征时直接判定赠豆完成\n- 成功结果标题和状态统一显示为“赠豆完成”“已完成”\n\nv1.0.2 修复赠送成功误判\n- HHCLUB 成功后直接返回普通赠豆页时按成功处理\n- 仅在错误提示、登录页或异常页面出现时判定失败\n- 结果清理时间至少为 10 秒，保存为 0 的旧配置自动恢复默认清理\n\nv1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -175,6 +175,12 @@ def _feedback(resp: httpx.Response, *, redirected: bool) -> tuple[bool, str]:
     if _looks_like_login(resp):
         return False, "Cookie 已失效，最终响应为登录页"
 
+    page_lower = (resp.text or "").lower()
+    if any(marker in page_lower for marker in (
+        "cf-chl-", "challenge-platform", "cloudflare ray id", "checking your browser"
+    )):
+        return False, "站点触发了 Cloudflare 安全验证，请重新同步 Cookie"
+
     soup = BeautifulSoup(resp.text or "", "lxml")
     tips = soup.select_one(".tips")
     detail = " ".join(tips.get_text(" ", strip=True).split()) if tips else ""
@@ -188,11 +194,11 @@ def _feedback(resp: httpx.Response, *, redirected: bool) -> tuple[bool, str]:
         return True, detail or "赠送成功"
     if redirected:
         return True, detail or "赠送请求已提交，站点已跳转确认"
-    # HHCLUB 当前在赠送成功后会直接返回普通赠豆页，不显示成功 tips。
-    # 已知失败（用户不存在、余额不足、数量过低等）均由上方 .tips 返回；
-    # 因此响应仍包含赠豆表单且没有任何错误提示时，代表站点已接受请求。
-    if not detail and soup.find("input", attrs={"name": "bonusgift"}):
-        return True, "站点已接受赠送请求"
+    # HHCLUB 当前成功后可能仅返回普通页面，不提供 success tips，也不一定
+    # 保留赠豆表单。已知业务失败均通过 .tips 返回，因此剩余的正常 200
+    # 响应按完成处理，避免已实际扣豆却向用户误报失败。
+    if not detail:
+        return True, "赠豆完成"
     return False, detail or "站点未返回明确的赠送结果，请登录网页核对"
 
 
@@ -262,8 +268,8 @@ def _rich_result(users: list[str], amount: int, note: str,
     esc = lambda value: html.escape(str(value), quote=True)
     if len(users) == 1:
         username, ok, detail = rows[0]
-        title = "🫘 憨憨赠豆成功" if ok else "⚠️ 憨憨赠豆失败"
-        values = [("状态", "✅ 已送达" if ok else "❌ 未送达"), ("接收用户", username)]
+        title = "🫘 憨憨赠豆完成" if ok else "⚠️ 憨憨赠豆失败"
+        values = [("状态", "✅ 已完成" if ok else "❌ 未送达"), ("接收用户", username)]
         if ok:
             values.extend([
                 ("赠送数量", f"{amount:,} 憨豆"),
@@ -304,7 +310,7 @@ def _plain_result(users: list[str], amount: int, note: str,
         username, ok, detail = rows[0]
         if ok:
             return (
-                "🫘 憨憨赠豆成功\n\n"
+                "🫘 憨憨赠豆完成\n\n"
                 f"👤 接收用户：{username}\n"
                 f"🎁 赠送数量：{amount:,} 憨豆\n"
                 f"💰 预计到账：{_estimated_received(amount):,} 憨豆\n"
