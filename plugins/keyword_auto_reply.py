@@ -14,11 +14,11 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词自动回复",
     "id": "keyword_auto_reply",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -80,8 +80,9 @@ __plugin__ = {
     },
 }
 
-# 冷却记录：{(账号id, 用户id, 关键词): (最后触发时间戳, 触发日序号)}
-_user_cooldowns: dict[tuple, tuple[float, int]] = {}
+# 冷却记录：{(稳定账号标识, 用户id, 关键词): (最后触发时间戳, 触发日序号)}
+_user_cooldowns: dict[tuple[str, int, str], tuple[float, int]] = {}
+_COOLDOWNS_KV_KEY = "user_cooldowns_v1"
 # 自动删除后台任务，停用时统一取消
 _pending_tasks: set = set()
 
@@ -111,6 +112,60 @@ def _match(text: str, keyword: str, match_type: str) -> bool:
     if match_type == "exact":
         return text.strip() == keyword
     return keyword in text  # contains
+
+
+def _save_cooldowns(ctx) -> None:
+    """将内存冷却记录保存为 JSON 友好的列表。"""
+    rows = [
+        {
+            "account": account,
+            "user_id": user_id,
+            "keyword": keyword,
+            "last_time": last_time,
+            "last_day": last_day,
+        }
+        for (account, user_id, keyword), (last_time, last_day) in _user_cooldowns.items()
+    ]
+    ctx.kv.set(_COOLDOWNS_KV_KEY, rows)
+
+
+def _restore_cooldowns(ctx) -> None:
+    """恢复仍在当前冷却窗口内的记录，并顺便清理过期或损坏数据。"""
+    _user_cooldowns.clear()
+    raw = ctx.kv.get(_COOLDOWNS_KV_KEY, []) or []
+    if not isinstance(raw, list):
+        ctx.kv.set(_COOLDOWNS_KV_KEY, [])
+        return
+
+    cfg = ctx.config
+    midnight_reset = bool(cfg.get("midnight_reset", False))
+    try:
+        cooldown_secs = max(0.0, float(cfg.get("cooldown_hours", 24))) * 3600
+    except (TypeError, ValueError):
+        cooldown_secs = 86400
+    now = time.time()
+    today = datetime.now().date().toordinal()
+
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            account = str(item["account"])
+            user_id = int(item["user_id"])
+            keyword = str(item["keyword"])
+            last_time = float(item["last_time"])
+            last_day = int(item.get("last_day", today))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not account or not keyword or last_time <= 0:
+            continue
+        valid = last_day == today if midnight_reset else (
+            cooldown_secs > 0 and now - last_time < cooldown_secs
+        )
+        if valid:
+            _user_cooldowns[(account, user_id, keyword)] = (last_time, last_day)
+
+    _save_cooldowns(ctx)
 
 
 def _check_chat_id(chat_id: int, chat_ids) -> bool:
@@ -190,6 +245,9 @@ def _fmt_remaining(seconds: float) -> str:
 
 
 async def setup(ctx):
+    _restore_cooldowns(ctx)
+    ctx.log.info("[关键词回复] 已恢复 %d 条有效冷却记录", len(_user_cooldowns))
+
     @ctx.on_message(
         ctx.filters.group & (ctx.filters.text | ctx.filters.caption),
         group=5,
@@ -213,7 +271,7 @@ async def setup(ctx):
             return
 
         me = getattr(client, "me", None)
-        account_id = me.id if me else id(client)
+        account_id = str(me.id) if me else str(getattr(ctx, "account_name", "") or "default")
         midnight_reset = bool(cfg.get("midnight_reset", False))
         blacklist = _parse_blacklist(cfg.get("blacklist_ids", ""))
         # 屏蔽名单用户的消息不触发
@@ -263,6 +321,7 @@ async def setup(ctx):
                             _schedule_delete(ctx, cd_msg, delete_after)
                         continue
                     _user_cooldowns[key] = (time.time(), today)
+                    _save_cooldowns(ctx)
 
                 sent = await client.send_message(
                     chat_id, _render(reply, message), reply_to_message_id=message.id
