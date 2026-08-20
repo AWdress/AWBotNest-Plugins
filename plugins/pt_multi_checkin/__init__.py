@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.4.0",
+    "version": "2.4.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.4.0 对齐 AutoSignIn 上游站点适配\n- 当前 24 站已覆盖上游全部 21 个专用站点模块\n- 修复 TJUPT www 域 Cookie 读取与登录误判\n- 修复 U2 随机答案提交及成功回执识别\n- 增加 PTTime 专用回执适配\n- OurBits 验证完成但未跳转时自动重载恢复\n- 补齐 NexusPHP 首次签到回执\n\nv2.3.1 修复 Cookie 检查范围",
+    "changelog": "v2.4.1 修复 PigGo 已签到判定\n- attendance.php 只留下 Cloudflare 页脚时回到首页二次确认\n- 识别顶部“签到已得 N”为今日已签到\n- 二次确认仍不明确时继续保守报错\n\nv2.4.0 对齐 AutoSignIn 上游站点适配",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -349,6 +349,19 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         if attempt + 1 < attempts:
             page.wait_for_timeout(2_000 * (attempt + 1))
             page.reload(wait_until="domcontentloaded", timeout=60_000)
+    # PigGo 的 attendance.php 在 Cloudflare 之后可能只剩页脚；真实签到状态在首顶导航。
+    if expected_domain.lower() == "piggo.me":
+        page.goto("https://piggo.me/", wait_until="domcontentloaded", timeout=60_000)
+        for _ in range(15):
+            home_text = _page_text(page)
+            state = _nexus_result_state(home_text)
+            if state:
+                status, message = state
+                if status == "failed":
+                    raise RuntimeError(message)
+                signed_badge = bool(re.search(r"签到\s*已得\s*[\d,.]+", home_text))
+                return {"status": "already" if signed_badge else status, "message": "今天已经签到" if signed_badge else message}
+            page.wait_for_timeout(1_000)
     path = urlparse(page.url).path or "/"
     controls = page.locator('a, button, input[type="submit"], input[type="button"]')
     labels: list[str] = []
