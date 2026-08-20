@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.1",
+    "version": "2.5.2",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.1 完成 PigGo 适配\n- 配置页移除 PigGo 的“待适配”标记\n\nv2.5.0 修复 PigGo 会话 Cookie 轮换\n- PigGo 直接使用 CloakBrowser，并在进程内复用浏览器刷新的 Cookie",
+    "changelog": "v2.5.2 修复 PigGo 雷池空壳页误判\n- 识别仅显示 Cloudflare / Privacy 的验证过渡页\n- 等待通行 Cookie 下发后受控重进 attendance.php，再判断签到结果\n\nv2.5.1 完成 PigGo 适配",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -606,16 +606,31 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
     challenge_reload_done = False
+    piggo_reentries = 0
     for challenge_round in range(100):
         title = (page.title() or "").lower()
         text = _page_text(page).lower()
+        path = urlparse(page.url).path or "/"
+        piggo_security_shell = (
+            expected_domain.lower() == "piggo.me"
+            and path == "/"
+            and "cloudflare" in text
+            and "privacy" in text
+            and not any(marker in text for marker in ("签到", "控制面板", "种子", "论坛", "个人资料"))
+        )
         challenged = any(marker in f"{title}\n{text}" for marker in (
             "just a moment", "checking your browser", "cloudflare ray id", "cf-chl-",
             "请完成安全验证", "验证您是否是真人", "验证完成，即将进入网站",
             "雷池 waf", "安全检测能力由 雷池", "verification completed",
-        ))
+        )) or piggo_security_shell
         if not challenged:
             break
+        # PigGo 雷池完成验证时可能停在只含 Cloudflare / Privacy 的空壳根页。
+        # 给脚本时间写入通行 Cookie，再受控重进签到页，避免把空壳当业务页面。
+        if piggo_security_shell and challenge_round in {3, 10, 25}:
+            page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
+            piggo_reentries += 1
+            continue
         # 雷池偶尔已下发通行 Cookie 但前端未完成跳转，受控重载可恢复。
         if not challenge_reload_done and challenge_round >= 10 and any(marker in f"{title}\n{text}" for marker in (
             "验证完成，即将进入网站", "verification completed",
@@ -625,7 +640,8 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
             continue
         page.wait_for_timeout(3_000)
     else:
-        raise RuntimeError("Cloudflare/雷池验证等待超时；若为交互式验证码需要人工处理")
+        detail = f"；已重进签到页 {piggo_reentries} 次" if piggo_reentries else ""
+        raise RuntimeError(f"Cloudflare/雷池验证等待超时{detail}；若为交互式验证码需要人工处理")
 
     current_domain = (urlparse(page.url).hostname or "").lower()
     if not _same_site_domain(current_domain, expected_domain):
