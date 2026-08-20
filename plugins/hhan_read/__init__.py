@@ -1,0 +1,413 @@
+"""HHanClub 一键全部已读：使用平台 Cookie 批量标记站内信。"""
+
+from __future__ import annotations
+
+import asyncio
+import re
+from datetime import datetime
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+
+import httpx
+from bs4 import BeautifulSoup
+
+
+__plugin__ = {
+    "name": "憨憨一键已读",
+    "id": "hhan_read",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页一键将全部未读站内信设为已读。",
+    "icon": "https://hhanclub.net/favicon.ico",
+    "changelog": "v1.0.0 初始版本\n- 从油猴脚本迁移一键全部已读逻辑\n- 使用平台 Cookie 同步，不保存账号密码\n- 自带 Vue 操作面板，支持实时进度、停止、Cookie 检查和运行历史\n- 仅提交未读消息，限制站内跳转并支持结果通知",
+    "scope": "user",
+    "min_platform_version": "1.1.4.0",
+    "plugin_api_version": 1,
+    "cookie_domains": ["hhanclub.net", "*.hhanclub.net"],
+    "default_enabled": False,
+    "render_mode": "vue",
+    "resources": {
+        "timeout_seconds": 3600,
+        "max_concurrency": 2,
+        "max_background_tasks": 4,
+        "failure_threshold": 5,
+        "recovery_seconds": 60,
+    },
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "lxml>=5.0"],
+}
+
+
+DEFAULTS = {
+    "enabled": True,
+    "notify_result": True,
+    "page_delay": 1.0,
+    "max_pages": 200,
+}
+
+_DOMAIN = "hhanclub.net"
+_PAGE_URL = "https://hhanclub.net/messages.php"
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
+_task = None
+_stop_event = None
+_state = {
+    "running": False,
+    "phase": "idle",
+    "message": "尚未运行",
+    "current_page": 0,
+    "total_pages": 0,
+    "processed": 0,
+    "started_at": "",
+    "finished_at": "",
+    "stop_requested": False,
+}
+
+
+def _cfg(ctx) -> dict:
+    return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _looks_like_login(resp: httpx.Response) -> bool:
+    path = urlparse(str(resp.url)).path.lower()
+    text = (resp.text or "").lower()
+    return path.endswith(("/login.php", "/takelogin.php")) or (
+        "takelogin.php" in text
+        or ('name="username"' in text and 'name="password"' in text)
+        or ("name='username'" in text and "name='password'" in text)
+    )
+
+
+def _has_challenge(text: str) -> bool:
+    low = (text or "").lower()
+    return any(marker in low for marker in (
+        "cf-chl-", "challenge-platform", "cloudflare ray id", "checking your browser"
+    ))
+
+
+def _headers(cookie: str, referer: str = _PAGE_URL) -> dict[str, str]:
+    return {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Cookie": cookie,
+        "Referer": referer,
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        ),
+    }
+
+
+async def _cookie_header(ctx, *, request_sync: bool = True) -> tuple[str, str]:
+    if not ctx.cookies.available:
+        if request_sync:
+            try:
+                await ctx.cookies.request_sync(_DOMAIN)
+            except Exception:
+                pass
+        return "", "平台 Cookie 同步未启用或尚无可用数据"
+    try:
+        cookie = await ctx.cookies.header(_DOMAIN, path="/messages.php")
+    except Exception as exc:  # noqa: BLE001
+        return "", f"读取平台 Cookie 失败：{exc}"
+    if cookie:
+        return cookie, ""
+    if request_sync:
+        try:
+            await ctx.cookies.request_sync(_DOMAIN)
+        except Exception:
+            pass
+    return "", "未找到 hhanclub.net Cookie，请登录网站后重新同步"
+
+
+async def _request(client: httpx.AsyncClient, method: str, url: str,
+                   headers: dict[str, str], *, data=None) -> tuple[httpx.Response, str]:
+    """只允许跟随 HHanClub 站内跳转，防止显式 Cookie 泄露。"""
+    current_method = method.upper()
+    resp = await client.request(
+        current_method, url, headers=headers, data=data, follow_redirects=False
+    )
+    for _ in range(5):
+        if resp.status_code not in _REDIRECT_CODES:
+            return resp, ""
+        location = str(resp.headers.get("location", "") or "").strip()
+        if not location:
+            return resp, f"HTTP {resp.status_code}（缺少 Location）"
+        target = urljoin(str(resp.url), location)
+        parsed = urlparse(target)
+        if parsed.scheme not in {"http", "https"} or parsed.hostname != _DOMAIN:
+            return resp, f"站点返回了不安全的跳转：{target}"
+        current_method = "GET" if resp.status_code in {301, 302, 303} else current_method
+        next_headers = dict(headers)
+        next_headers["Referer"] = str(resp.url)
+        if current_method == "GET":
+            next_headers.pop("Origin", None)
+            data = None
+        resp = await client.request(
+            current_method, target, headers=next_headers, data=data, follow_redirects=False
+        )
+    return resp, "站点跳转次数过多"
+
+
+def _validate_page(resp: httpx.Response) -> str:
+    if resp.status_code != 200:
+        return f"网站返回 HTTP {resp.status_code}"
+    if _looks_like_login(resp):
+        return "Cookie 已失效，网站返回登录页"
+    if _has_challenge(resp.text):
+        return "站点触发了 Cloudflare 安全验证，请重新同步 Cookie"
+    return ""
+
+
+def _replace_page(url: str, value: str | int) -> str:
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["page"] = str(value)
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _pagination_urls(soup: BeautifulSoup, current_url: str) -> list[str]:
+    select = soup.select_one('select[onchange*="switchPage"]')
+    if not select:
+        return [current_url]
+    urls = []
+    for index, option in enumerate(select.find_all("option")):
+        raw = str(option.get("value") or "").strip()
+        if raw and ("messages.php" in raw or raw.startswith(("/", "http://", "https://"))):
+            target = urljoin(current_url, raw)
+        elif raw and re.fullmatch(r"\d+", raw):
+            target = _replace_page(current_url, raw)
+        else:
+            # NexusPHP 分页通常是从 0 开始；没有 value 时按 option 顺序回退。
+            target = _replace_page(current_url, index)
+        parsed = urlparse(target)
+        if parsed.hostname in {None, _DOMAIN} and target not in urls:
+            urls.append(target)
+    return urls or [current_url]
+
+
+def _page_form(soup: BeautifulSoup, current_url: str) -> tuple[list[str], str, list[tuple[str, str]]]:
+    unread_ids = []
+    box = soup.select_one("#mail-table-display")
+    rows = list(box.children) if box else []
+    for row in rows:
+        if not getattr(row, "select_one", None):
+            continue
+        image = row.select_one("img")
+        checkbox = row.select_one('input[name="messages[]"]')
+        src = str(image.get("src") or "") if image else ""
+        value = str(checkbox.get("value") or "").strip() if checkbox else ""
+        if "icon-unread.svg" in src and value:
+            unread_ids.append(value)
+
+    button = soup.select_one('input[type="submit"][name="markread"], button[name="markread"]')
+    if not button:
+        return unread_ids, current_url, []
+    form = button.find_parent("form")
+    action = urljoin(current_url, str(form.get("action") or current_url)) if form else current_url
+    fields: list[tuple[str, str]] = []
+    if form:
+        for element in form.select('input[type="hidden"][name]'):
+            fields.append((str(element.get("name")), str(element.get("value") or "")))
+    fields.extend(("messages[]", value) for value in unread_ids)
+    fields.append(("markread", str(button.get("value") or "设为已读")))
+    return unread_ids, action, fields
+
+
+def _history(ctx) -> list[dict]:
+    value = ctx.kv.get("history", []) or []
+    return value if isinstance(value, list) else []
+
+
+def _record(ctx, *, status: str, processed: int, pages: int, detail: str):
+    rows = _history(ctx)
+    rows.insert(0, {
+        "time": _now(), "status": status, "processed": processed,
+        "pages": pages, "detail": detail,
+    })
+    ctx.kv.set("history", rows[:20])
+
+
+async def _check_cookie(ctx) -> dict:
+    cookie, error = await _cookie_header(ctx)
+    if error:
+        return {"ok": False, "message": error}
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+            resp, redirect_error = await _request(client, "GET", _PAGE_URL, _headers(cookie))
+        error = redirect_error or _validate_page(resp)
+        if error:
+            return {"ok": False, "message": error}
+        soup = BeautifulSoup(resp.text or "", "lxml")
+        if not soup.select_one("#mail-table-display"):
+            return {"ok": False, "message": "登录成功，但未识别到消息列表，页面结构可能已更新"}
+        unread, _, _ = _page_form(soup, str(resp.url))
+        return {"ok": True, "message": f"Cookie 有效，当前页识别到 {len(unread)} 条未读消息"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": f"访问 HHanClub 失败：{exc}"}
+
+
+async def _run(ctx):
+    global _task
+    cfg = _cfg(ctx)
+    processed = pages_checked = 0
+    status = "completed"
+    detail = "全部未读消息已处理"
+    _state.update({
+        "running": True, "phase": "checking", "message": "正在检查 Cookie…",
+        "current_page": 0, "total_pages": 0, "processed": 0,
+        "started_at": _now(), "finished_at": "", "stop_requested": False,
+    })
+    try:
+        cookie, error = await _cookie_header(ctx)
+        if error:
+            raise RuntimeError(error)
+        delay = max(0.2, min(float(cfg.get("page_delay", 1.0) or 1.0), 10.0))
+        max_pages = max(1, min(int(cfg.get("max_pages", 200) or 200), 1000))
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=15.0)) as client:
+            first, redirect_error = await _request(client, "GET", _PAGE_URL, _headers(cookie))
+            error = redirect_error or _validate_page(first)
+            if error:
+                raise RuntimeError(error)
+            first_soup = BeautifulSoup(first.text or "", "lxml")
+            if not first_soup.select_one("#mail-table-display"):
+                raise RuntimeError("未识别到消息列表，网站页面可能已更新")
+            urls = _pagination_urls(first_soup, str(first.url))[:max_pages]
+            _state["total_pages"] = len(urls)
+            found_unread = False
+
+            for index, page_url in enumerate(urls, start=1):
+                if _stop_event and _stop_event.is_set():
+                    status, detail = "stopped", "用户已停止任务"
+                    break
+                _state.update({
+                    "phase": "searching" if not found_unread else "processing",
+                    "message": f"正在检查第 {index}/{len(urls)} 页",
+                    "current_page": index,
+                })
+                if index == 1 and page_url == str(first.url):
+                    resp, soup = first, first_soup
+                else:
+                    resp, redirect_error = await _request(
+                        client, "GET", page_url, _headers(cookie, str(first.url))
+                    )
+                    error = redirect_error or _validate_page(resp)
+                    if error:
+                        raise RuntimeError(f"第 {index} 页读取失败：{error}")
+                    soup = BeautifulSoup(resp.text or "", "lxml")
+                pages_checked += 1
+                unread_ids, action, fields = _page_form(soup, str(resp.url))
+                if not unread_ids:
+                    if found_unread:
+                        detail = "已进入历史已读区域，任务结束"
+                        break
+                    if index < len(urls):
+                        await asyncio.sleep(delay)
+                    continue
+                found_unread = True
+                if not fields:
+                    raise RuntimeError(f"第 {index} 页找不到“设为已读”表单")
+                _state.update({
+                    "phase": "processing", "message": f"第 {index} 页正在处理 {len(unread_ids)} 条",
+                })
+                post_headers = _headers(cookie, str(resp.url))
+                post_headers["Origin"] = "https://hhanclub.net"
+                post_headers["Content-Type"] = "application/x-www-form-urlencoded"
+                result, redirect_error = await _request(
+                    client, "POST", action, post_headers, data=fields
+                )
+                error = redirect_error or _validate_page(result)
+                if error:
+                    raise RuntimeError(f"第 {index} 页提交失败：{error}")
+                processed += len(unread_ids)
+                _state["processed"] = processed
+                ctx.log.info("[憨憨一键已读] page=%s marked=%s total=%s", index, len(unread_ids), processed)
+                if index < len(urls):
+                    await asyncio.sleep(delay)
+    except asyncio.CancelledError:
+        status, detail = "stopped", "插件已停用，任务取消"
+        raise
+    except Exception as exc:  # noqa: BLE001
+        status, detail = "failed", str(exc)
+        ctx.log.error("[憨憨一键已读] 任务失败：%r", exc)
+    finally:
+        _state.update({
+            "running": False, "phase": status, "message": detail,
+            "processed": processed, "finished_at": _now(), "stop_requested": False,
+        })
+        _record(ctx, status=status, processed=processed, pages=pages_checked, detail=detail)
+        if cfg.get("notify_result", True):
+            level = "success" if status == "completed" else ("error" if status == "failed" else "warning")
+            try:
+                await ctx.notify(
+                    f"📖 憨憨一键已读\n\n处理消息：{processed} 条\n检查页面：{pages_checked} 页\n结果：{detail}",
+                    level=level, category="憨憨一键已读",
+                )
+            except Exception as exc:  # noqa: BLE001
+                ctx.log.warning("[憨憨一键已读] 结果通知失败：%r", exc)
+        if _stop_event:
+            _stop_event.clear()
+        _task = None
+
+
+async def setup(ctx):
+    global _task, _stop_event
+    _task = None
+    _stop_event = asyncio.Event()
+    _state.update({
+        "running": False, "phase": "idle", "message": "尚未运行",
+        "current_page": 0, "total_pages": 0, "processed": 0,
+        "started_at": "", "finished_at": "", "stop_requested": False,
+    })
+
+    @ctx.on_api("/status", methods=["GET"])
+    async def api_status(req):
+        return {**_state}
+
+    @ctx.on_api("/cookie/check", methods=["GET"])
+    async def api_cookie_check(req):
+        return await _check_cookie(ctx)
+
+    @ctx.on_api("/run", methods=["POST"])
+    async def api_run(req):
+        global _task
+        if not _cfg(ctx).get("enabled", True):
+            return {"ok": False, "message": "请先启用插件并保存配置"}
+        if _task and not _task.done():
+            return {"ok": False, "message": "已有一键已读任务正在运行"}
+        if _stop_event:
+            _stop_event.clear()
+        _task = ctx.create_task(_run(ctx), name="憨憨一键全部已读", operation="mark_read")
+        return {"ok": True, "message": "任务已开始，可在面板查看实时进度"}
+
+    @ctx.on_api("/stop", methods=["POST"])
+    async def api_stop(req):
+        if not (_task and not _task.done()):
+            return {"ok": False, "message": "当前没有运行中的任务"}
+        if _stop_event:
+            _stop_event.set()
+        _state.update({"stop_requested": True, "message": "已请求停止，当前请求结束后退出"})
+        return {"ok": True, "message": "已请求停止"}
+
+    @ctx.on_api("/history", methods=["GET"])
+    async def api_history(req):
+        return {"ok": True, "items": _history(ctx)}
+
+    @ctx.on_api("/history/clear", methods=["POST"])
+    async def api_history_clear(req):
+        ctx.kv.set("history", [])
+        return {"ok": True, "message": "运行记录已清空"}
+
+
+async def teardown(ctx):
+    if _stop_event:
+        _stop_event.set()
+
+
+async def self_check(ctx):
+    cookie, error = await _cookie_header(ctx, request_sync=False)
+    return {
+        "id": "cookie_sync", "name": "平台 Cookie 同步", "ok": bool(cookie),
+        "detail": "已读取 hhanclub.net Cookie" if cookie else error,
+    }
