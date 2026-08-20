@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.2.2",
+    "version": "2.2.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.2.2 修复猫站域名与平台 AI 检测\n- PTerClub 从 pterclub.com 改为 pterclub.net，并同步 Cookie 域名与签到地址\n- 文字模型能力键从 chat 修正为平台标准 text\n- PigGo HTTP 468 自动识别为 WAF 并降级 CloakBrowser\n\nv2.2.1 修复控制栏文案重叠",
+    "changelog": "v2.2.3 修复 PigGo 签到结果误判\n- 增加 PigGo/NexusPHP 连续签到、签到次数和魔力奖励文案识别\n- CloakBrowser 刷新确认时保留站点专用判定\n- 未识别时返回页面路径与控件摘要，不记录 Cookie\n\nv2.2.2 修复猫站域名与平台 AI 检测",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -171,6 +171,29 @@ def _result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
+def _piggo_result_state(text: str) -> tuple[str, str] | None:
+    """PigGo 使用 NexusPHP 签到回执，文案不一定包含“签到成功”。"""
+    state = _result_state(text)
+    if state:
+        return state
+    compact = re.sub(r"\s+", "", text or "").lower()
+    if any(marker in compact for marker in (
+        "今日已经签到过", "今天已经签到过", "今日不能重复签到", "请勿重复签到",
+    )):
+        return "already", "今天已经签到"
+    if any(marker in compact for marker in (
+        "本次签到获得", "此次签到获得", "签到所得", "已连续签到",
+    )) or re.search(r"(?:这是您的第\d+次签到|连续签到\d+天|获得(?:了)?[\d,.]+个?魔力)", compact):
+        return "success", "PigGo 签到成功"
+    return None
+
+
+def _site_result_state(text: str, expected_domain: str = "") -> tuple[str, str] | None:
+    if expected_domain.lower() == "piggo.me":
+        return _piggo_result_state(text)
+    return _result_state(text)
+
+
 def _captcha_error(text: str) -> str:
     low = (text or "").lower()
     if any(marker in low for marker in (
@@ -291,14 +314,14 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
             pass
 
 
-def _confirm_result(page, *, attempts: int = 3) -> dict:
+def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> dict:
     """刷新确认服务端状态；绝不为确认结果而再次点击签到按钮。"""
     for attempt in range(attempts):
         text = _page_text(page)
         captcha = _captcha_error(text)
         if captcha:
             raise RuntimeError(captcha)
-        state = _result_state(text)
+        state = _site_result_state(text, expected_domain)
         if state:
             status, message = state
             if status == "failed":
@@ -307,7 +330,20 @@ def _confirm_result(page, *, attempts: int = 3) -> dict:
         if attempt + 1 < attempts:
             page.wait_for_timeout(2_000 * (attempt + 1))
             page.reload(wait_until="domcontentloaded", timeout=60_000)
-    raise RuntimeError("签到请求后无法确认成功状态，未计为签到成功")
+    path = urlparse(page.url).path or "/"
+    controls = page.locator('a, button, input[type="submit"], input[type="button"]')
+    labels: list[str] = []
+    for index in range(min(controls.count(), 30)):
+        try:
+            item = controls.nth(index)
+            label = (item.inner_text() or item.get_attribute("value") or item.get_attribute("aria-label") or "").strip()
+            label = re.sub(r"\s+", " ", label)[:24]
+            if label and label not in labels:
+                labels.append(label)
+        except Exception:
+            continue
+    summary = "、".join(labels[:5]) or "无可见操作控件"
+    raise RuntimeError(f"签到后未识别到结果（页面 {path}；控件：{summary}）")
 
 
 def _fetch_same_origin(page, url: str, *, method: str = "GET", data: dict | None = None,
@@ -542,7 +578,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
             return _tjupt_challenge(ctx, page, loop)
         raise RuntimeError(captcha)
-    initial_state = _result_state(text)
+    initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
         if status == "failed":
@@ -561,7 +597,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
                 continue
             item.click()
             page.wait_for_timeout(3_000)
-            return _confirm_result(page)
+            return _confirm_result(page, expected_domain=expected_domain)
         except RuntimeError:
             raise
         except Exception:
@@ -569,7 +605,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
 
     # 标准 NexusPHP attendance.php 通常由 GET 完成签到；刷新后必须出现明确结果。
     if urlparse(page.url).path.lower().endswith("/attendance.php"):
-        return _confirm_result(page)
+        return _confirm_result(page, expected_domain=expected_domain)
     raise RuntimeError("没有识别到签到页面或签到按钮，网站结构可能已更新")
 
 

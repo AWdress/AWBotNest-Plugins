@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.2.2",
+    "version": "2.2.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.2.2 修复猫站域名与平台 AI 检测\n- PTerClub 从 pterclub.com 改为 pterclub.net，并同步 Cookie 域名与签到地址\n- 文字模型能力键从 chat 修正为平台标准 text\n- PigGo HTTP 468 自动识别为 WAF 并降级 CloakBrowser\n\nv2.2.1 修复控制栏文案重叠",
+    "changelog": "v2.2.3 修复 PigGo 签到结果误判\n- 增加 PigGo/NexusPHP 连续签到、签到次数和魔力奖励文案识别\n- CloakBrowser 刷新确认时保留站点专用判定\n- 未识别时返回页面路径与控件摘要，不记录 Cookie\n\nv2.2.2 修复猫站域名与平台 AI 检测",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
