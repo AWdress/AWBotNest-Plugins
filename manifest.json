@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.4.2",
+    "version": "2.5.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.4.2 标记 PigGo 待适配\n- Vue 站点卡片显示醒目的“待适配”状态\n- 保留勾选与测试能力，不影响其他站点\n\nv2.4.1 修复 PigGo 已签到判定",
+    "changelog": "v2.5.0 修复 PigGo 会话 Cookie 轮换\n- PigGo 跳过 HTTP 预请求，直接使用 CloakBrowser，避免两个客户端争用旧会话\n- 签到成功后仅在内存中保留浏览器刷新的 PigGo Cookie，后续任务复用\n- Cookie 不写入配置、KV、磁盘或日志，平台重启后仍从 CookieCloud 读取\n\nv2.4.2 标记 PigGo 待适配",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
