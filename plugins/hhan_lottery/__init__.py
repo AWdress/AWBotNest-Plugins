@@ -16,11 +16,11 @@ from . import _lottery
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘和一键全部已读。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布\n- 转盘和已读任务分别提供配置、进度、停止、结果与统计\n- 两项功能统一读取平台 HHanClub Cookie\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务由平台统一托管并限制站内跳转",
+    "changelog": "v1.1.1 修复一键已读提交失败\n- 将包含多个 messages[] 的表单预编码后再交给异步客户端提交\n- 修复 AsyncClient 收到同步请求流导致任务失败的问题\n\nv1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布\n- 转盘和已读任务分别提供配置、进度、停止、结果与统计\n- 两项功能统一读取平台 HHanClub Cookie",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -128,11 +128,11 @@ async def _cookie_header(ctx, *, request_sync: bool = True) -> tuple[str, str]:
 
 
 async def _request(client: httpx.AsyncClient, method: str, url: str,
-                   headers: dict[str, str], *, data=None) -> tuple[httpx.Response, str]:
+                   headers: dict[str, str], *, content: bytes | None = None) -> tuple[httpx.Response, str]:
     """只允许跟随 HHanClub 站内跳转，防止显式 Cookie 泄露。"""
     current_method = method.upper()
     resp = await client.request(
-        current_method, url, headers=headers, data=data, follow_redirects=False
+        current_method, url, headers=headers, content=content, follow_redirects=False
     )
     for _ in range(5):
         if resp.status_code not in _REDIRECT_CODES:
@@ -149,9 +149,9 @@ async def _request(client: httpx.AsyncClient, method: str, url: str,
         next_headers["Referer"] = str(resp.url)
         if current_method == "GET":
             next_headers.pop("Origin", None)
-            data = None
+            content = None
         resp = await client.request(
-            current_method, target, headers=next_headers, data=data, follow_redirects=False
+            current_method, target, headers=next_headers, content=content, follow_redirects=False
         )
     return resp, "站点跳转次数过多"
 
@@ -321,7 +321,8 @@ async def _run(ctx):
                 post_headers["Origin"] = "https://hhanclub.net"
                 post_headers["Content-Type"] = "application/x-www-form-urlencoded"
                 result, redirect_error = await _request(
-                    client, "POST", action, post_headers, data=fields
+                    client, "POST", action, post_headers,
+                    content=urlencode(fields).encode("utf-8"),
                 )
                 error = redirect_error or _validate_page(result)
                 if error:
