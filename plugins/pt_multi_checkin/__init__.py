@@ -18,17 +18,18 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.2.3",
+    "version": "2.3.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.2.3 修复 PigGo 签到结果误判\n- 增加 PigGo/NexusPHP 连续签到、签到次数和魔力奖励文案识别\n- CloakBrowser 刷新确认时保留站点专用判定\n- 未识别时返回页面路径与控件摘要，不记录 Cookie\n\nv2.2.2 修复猫站域名与平台 AI 检测",
+    "changelog": "v2.3.0 新增 HHanClub 自动签到\n- 从平台同步 hhanclub.net Cookie\n- HTTP 优先，遇到安全验证或动态页面自动降级 CloakBrowser\n- TJUPT 图片验证保留人工确认后提交\n\nv2.2.3 修复 PigGo 签到结果误判",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
     "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
+        "hhanclub.net", "*.hhanclub.net",
         "piggo.me", "*.piggo.me", "tjupt.org", "*.tjupt.org", "52pt.site", "*.52pt.site",
         "pt.btschool.club", "*.pt.btschool.club", "ptchdbits.co", "*.ptchdbits.co",
         "haidan.video", "*.haidan.video", "club.hares.top", "*.club.hares.top",
@@ -53,6 +54,7 @@ SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
     "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
     "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
+    "hhan": {"name": "HHanClub", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "NexusPHP"},
     "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php", "group": "交互验证"},
     "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
     "btschool": {"name": "BT School", "domain": "pt.btschool.club", "url": "https://pt.btschool.club", "mode": "btschool", "group": "专用适配"},
@@ -171,8 +173,8 @@ def _result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
-def _piggo_result_state(text: str) -> tuple[str, str] | None:
-    """PigGo 使用 NexusPHP 签到回执，文案不一定包含“签到成功”。"""
+def _nexus_result_state(text: str) -> tuple[str, str] | None:
+    """NexusPHP 签到回执不一定包含“签到成功”。"""
     state = _result_state(text)
     if state:
         return state
@@ -184,13 +186,13 @@ def _piggo_result_state(text: str) -> tuple[str, str] | None:
     if any(marker in compact for marker in (
         "本次签到获得", "此次签到获得", "签到所得", "已连续签到",
     )) or re.search(r"(?:这是您的第\d+次签到|连续签到\d+天|获得(?:了)?[\d,.]+个?魔力)", compact):
-        return "success", "PigGo 签到成功"
+        return "success", "签到成功"
     return None
 
 
 def _site_result_state(text: str, expected_domain: str = "") -> tuple[str, str] | None:
-    if expected_domain.lower() == "piggo.me":
-        return _piggo_result_state(text)
+    if expected_domain.lower() in {"piggo.me", "hhanclub.net"}:
+        return _nexus_result_state(text)
     return _result_state(text)
 
 
@@ -687,7 +689,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         if state and state[0] != "failed":
             return {"status": state[0], "message": state[1], "engine": "http"}
 
-        if key in {"audiences", "ourbits", "piggo"}:
+        if key in {"audiences", "ourbits", "piggo", "hhan"}:
             # 标准 attendance.php 通常 GET 即完成；未知页面交给浏览器识别动态按钮。
             if state and state[0] == "failed":
                 raise RuntimeError(state[1])
@@ -859,7 +861,7 @@ async def _run(ctx, source: str) -> dict:
                         _state.update({"phase": "浏览器降级", "message": f"{site['name']}：{browser_reason}"})
 
                         def action(page, site_key=key, current_site=site):
-                            if site_key in {"audiences", "ourbits", "piggo", "tjupt"}:
+                            if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
                                 return _browser_checkin(page, current_site["domain"], ctx, loop)
                             return _special_checkin(page, site_key, current_site, ctx, loop)
 
