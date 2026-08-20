@@ -15,11 +15,11 @@ from urllib.parse import urlparse
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.1",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v2.0.1 自动识别签到验证\n- 52PT、CHDBits 使用平台 AI 自动回答签到题\n- HDSky、OpenCD 使用平台视觉模型识别 6 位验证码\n- U2 自动提交签到表单，TJUPT 继续保留 Telegram 确认\n\nv2.0.0 扩展多站签到并启用 Vue 配置",
+    "changelog": "v2.1.0 重做 Vue 管理界面\n- 站点改为带标识与勾选状态的标签式选择\n- 重构计划设置、Cookie 状态、运行进度与历史记录布局\n- 完善桌面与移动端响应式交互\n\nv2.0.1 自动识别签到验证",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,

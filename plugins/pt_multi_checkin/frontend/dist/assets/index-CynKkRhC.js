@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-DXTLETQ2.js';
+import Config from './__federation_expose_Config-CqtUlG4Y.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -43,7 +43,19 @@ const {createApp} = await importShared('vue');
 
 const demoHost = {
   getConfig: async () => ({}),
-  callApi: async path => path === '/meta' ? { defaults: {}, sites: [] } : path === '/history' ? { items: [] } : {},
+  callApi: async path => path === '/meta' ? {
+    defaults: { selected_sites: ['audiences', 'ourbits', 'piggo', 'tjupt', 'hdsky', 'opencd'] },
+    sites: [
+      { key: 'audiences', name: 'Audiences', domain: 'audiences.me', group: 'NexusPHP' },
+      { key: 'ourbits', name: 'OurBits', domain: 'ourbits.club', group: 'NexusPHP' },
+      { key: 'piggo', name: 'PigGo', domain: 'piggo.me', group: 'NexusPHP' },
+      { key: 'tjupt', name: 'TJUPT', domain: 'tjupt.org', group: '交互验证' },
+      { key: 'hdsky', name: '天空', domain: 'hdsky.me', group: '交互验证' },
+      { key: 'opencd', name: 'OpenCD', domain: 'open.cd', group: '交互验证' },
+      { key: 'pterclub', name: 'PTerClub', domain: 'pterclub.com', group: '专用适配' },
+      { key: 'zhuque', name: '朱雀', domain: 'zhuque.in', group: '专用适配' },
+    ],
+  } : path === '/history' ? { items: [] } : {},
   saveConfig: async () => {},
   toast: { success: console.log, warning: console.warn, error: console.error },
 };
