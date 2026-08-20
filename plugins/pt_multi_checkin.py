@@ -18,40 +18,14 @@ SITES = {
 }
 
 
-def _site_schema():
-    schema = {}
-    order = 10
-    for key, site in SITES.items():
-        section = site["name"]
-        schema[f"{key}_enabled"] = {
-            "type": "boolean", "default": True, "label": "启用签到",
-            "section": section, "cols": 4, "order": order,
-        }
-        schema[f"{key}_cookie_source"] = {
-            "type": "select", "default": "platform", "label": "Cookie 来源",
-            "options": [
-                {"label": "从平台读取", "value": "platform"},
-                {"label": "手动填写", "value": "manual"},
-            ],
-            "section": section, "cols": 4, "order": order + 1,
-        }
-        schema[f"{key}_cookie"] = {
-            "type": "password", "default": "", "label": "手动 Cookie",
-            "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。",
-            "section": section, "cols": 4, "order": order + 2,
-        }
-        order += 10
-    return schema
-
-
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.1.0 增加雷池兼容与 TJUPT 人工确认\n- PigGo 识别雷池 WAF 验证完成页并等待站内跳转\n- TJUPT 验证题调用平台 AI 识图并向 Telegram 推送候选按钮\n- 用户点击候选答案后在原浏览器会话提交，超时或页面变化时安全取消\n\nv1.0.3 按真实站点结果适配\n- 兼容 Audiences 与 OurBits 实际签到状态\n- Cookie、验证码和权限类错误不再无意义自动重试",
+    "changelog": "v1.1.1 修复灰度元数据检查\n- 配置架构改为完全静态字典，兼容平台灰度检查的字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT 人工确认\n- PigGo 等待雷池 WAF 完成并继续签到\n- TJUPT 调用平台 AI 识图，主人点击 Telegram 候选按钮后在原会话提交",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -103,7 +77,18 @@ __plugin__ = {
             "type": "slider", "default": 300, "label": "TJUPT 等待确认（秒）",
             "min": 60, "max": 600, "step": 30, "section": "任务设置", "cols": 4, "order": 9,
         },
-        **_site_schema(),
+        "audiences_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "观众 Audiences", "cols": 4, "order": 10},
+        "audiences_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "观众 Audiences", "cols": 4, "order": 11},
+        "audiences_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "观众 Audiences", "cols": 4, "order": 12},
+        "ourbits_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "OurBits", "cols": 4, "order": 20},
+        "ourbits_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "OurBits", "cols": 4, "order": 21},
+        "ourbits_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "OurBits", "cols": 4, "order": 22},
+        "piggo_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "PigGo", "cols": 4, "order": 30},
+        "piggo_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "PigGo", "cols": 4, "order": 31},
+        "piggo_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "PigGo", "cols": 4, "order": 32},
+        "tjupt_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "北洋园 TJUPT", "cols": 4, "order": 40},
+        "tjupt_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "北洋园 TJUPT", "cols": 4, "order": 41},
+        "tjupt_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "北洋园 TJUPT", "cols": 4, "order": 42},
         "run_now": {
             "type": "action", "label": "立即签到全部启用站点", "action": "run_now",
             "section": "操作", "cols": 6, "order": 100,
