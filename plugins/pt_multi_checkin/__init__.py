@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.2.0 HTTP 优先签到\n- 普通站点改用轻量 HTTP 请求，不再逐站启动 CloakBrowser\n- 检测到 Cloudflare、雷池或动态页面后自动降级 CloakBrowser\n- 新增实时执行阶段与降级原因，降低低配服务器资源占用\n\nv2.1.2 修复开关样式并更新图标",
+    "changelog": "v2.2.1 修复控制栏文案重叠\n- 开关组与时间参数组改为弹性换行布局\n- 长文案或窄容器下参数区整体换行，不再互相覆盖\n\nv2.2.0 HTTP 优先签到",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
