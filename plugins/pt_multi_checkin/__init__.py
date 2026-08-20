@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.3",
+    "version": "2.5.4",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.3 修复签到结果与 Cookie 重试\n- Audiences 仅按页面可见回执判断，避免源码文案造成签到假阳性\n- OpenCD 返回登录页时强制触发平台 Cookie 同步并重试\n\nv2.5.2 修复 PigGo 雷池空壳页误判",
+    "changelog": "v2.5.4 全面收紧浏览器签到判定\n- 初始页面不再凭裸词“已签到 / 签到成功”判定结果\n- NexusPHP 必须出现今日状态、签到次数、连续天数或奖励上下文\n- 交互验证站不再在处理验证前套用通用成功判定\n\nv2.5.3 修复签到结果与 Cookie 重试",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -183,18 +183,20 @@ def _html_visible_text(html: str) -> str:
     return soup.get_text("\n", strip=True)
 
 
-def _result_state(text: str) -> tuple[str, str] | None:
+def _result_state(text: str, *, confirmed: bool = False) -> tuple[str, str] | None:
     """只根据明确的站点反馈判断结果，避免把普通 200 页面误报为成功。"""
     low = (text or "").lower()
     already_markers = (
-        "今日已签到", "今天已签到", "已经签到", "签到已完成", "今日已经签到", "已签到", "签到已得",
+        "今日已签到", "今天已签到", "今日已经签到", "今天已经签到", "今日签到已完成", "今天签到已完成",
         "already attended", "already signed", "attended today", "already checked in",
     )
-    success_markers = (
-        "签到成功", "成功签到", "签到获得", "签到奖励",
+    success_markers = [
+        "本次签到获得", "此次签到获得", "签到获得", "签到奖励",
         "attend got", "attend get bonus", "attend get bouns",
         "attendance success", "check-in successful", "checked in successfully",
-    )
+    ]
+    if confirmed:
+        success_markers.extend(("签到成功", "成功签到"))
     failure_markers = (
         "签到失败", "操作频繁", "验证失败", "请求失败", "稍后再试",
         "attendance failed", "check-in failed", "too many requests", "rate limit",
@@ -210,25 +212,25 @@ def _result_state(text: str) -> tuple[str, str] | None:
 
 def _nexus_result_state(text: str) -> tuple[str, str] | None:
     """NexusPHP 签到回执不一定包含“签到成功”。"""
-    state = _result_state(text)
-    if state:
-        return state
     compact = re.sub(r"\s+", "", text or "").lower()
+    if any(marker in compact for marker in ("签到失败", "验证失败", "操作频繁", "请稍后再试")):
+        return "failed", "网站返回签到失败、验证失败或操作频繁"
     if any(marker in compact for marker in (
-        "今日已经签到过", "今天已经签到过", "今日不能重复签到", "请勿重复签到",
+        "今日已签到", "今天已签到", "今日已经签到", "今天已经签到",
+        "今日已经签到过", "今天已经签到过", "今日不能重复签到", "今天不能重复签到", "请勿重复签到",
     )):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
         "本次签到获得", "此次签到获得", "签到所得", "已连续签到",
-    )) or re.search(r"(?:这是您的(?:首次|第\d+次)签到|连续签到\d+天|获得(?:了)?[\d,.]+个?魔力)", compact):
+    )) or re.search(r"(?:这是您的(?:首次|第\d+次)签到|第\d+次签到|连续签到\d+天|获得(?:了)?[\d,.]+个?(?:魔力|魔力值|爆米花|奖励))", compact):
         return "success", "签到成功"
     return None
 
 
-def _site_result_state(text: str, expected_domain: str = "") -> tuple[str, str] | None:
-    if expected_domain.lower() in {"piggo.me", "hhanclub.net"}:
+def _site_result_state(text: str, expected_domain: str = "", *, confirmed: bool = False) -> tuple[str, str] | None:
+    if expected_domain.lower() in {"audiences.me", "ourbits.club", "piggo.me", "hhanclub.net"}:
         return _nexus_result_state(text)
-    return _result_state(text)
+    return _result_state(text, confirmed=confirmed)
 
 
 def _same_site_domain(current: str, expected: str) -> bool:
@@ -379,7 +381,7 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         captcha = _captcha_error(text)
         if captcha:
             raise RuntimeError(captcha)
-        state = _site_result_state(text, expected_domain)
+        state = _site_result_state(text, expected_domain, confirmed=True)
         if state:
             status, message = state
             if status == "failed":
@@ -508,10 +510,6 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         raise RuntimeError("Cookie 已失效，网站返回登录页")
     mode = site.get("mode")
     if mode == "interactive":
-        visible_text = _html_visible_text(text)
-        state = _site_result_state(visible_text, site["domain"])
-        if state and state[0] != "failed":
-            return {"status": state[0], "message": state[1]}
         if key in {"pt52", "chdbits"}:
             return _quiz_checkin(page, site, ctx, loop)
         if key == "hdsky":
@@ -788,12 +786,12 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
 
         mode = site.get("mode")
         response, text = await get(site["url"])
-        state = _result_state(text)
-        if state and state[0] != "failed":
-            return {"status": state[0], "message": state[1], "engine": "http"}
-
+        visible_text = _html_visible_text(text)
         if key in {"audiences", "ourbits", "piggo", "hhan"}:
             # 标准 attendance.php 通常 GET 即完成；未知页面交给浏览器识别动态按钮。
+            state = _site_result_state(visible_text, site["domain"], confirmed=True)
+            if state and state[0] != "failed":
+                return {"status": state[0], "message": state[1], "engine": "http"}
             if state and state[0] == "failed":
                 raise RuntimeError(state[1])
             raise _NeedsBrowser("HTTP 页面没有明确签到结果，切换 CloakBrowser 确认")
