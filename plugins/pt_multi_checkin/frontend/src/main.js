@@ -8,7 +8,7 @@ const demoHost = {
     sites: [
       { key: 'audiences', name: 'Audiences', domain: 'audiences.me', group: 'NexusPHP' },
       { key: 'ourbits', name: 'OurBits', domain: 'ourbits.club', group: 'NexusPHP' },
-      { key: 'piggo', name: 'PigGo', domain: 'piggo.me', group: 'NexusPHP' },
+      { key: 'piggo', name: 'PigGo', domain: 'piggo.me', group: 'NexusPHP', status: 'pending' },
       { key: 'hhan', name: 'HHanClub', domain: 'hhanclub.net', group: 'NexusPHP' },
       { key: 'tjupt', name: 'TJUPT', domain: 'tjupt.org', group: '交互验证' },
       { key: 'hdsky', name: '天空', domain: 'hdsky.me', group: '交互验证' },

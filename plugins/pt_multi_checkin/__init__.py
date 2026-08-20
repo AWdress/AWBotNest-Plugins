@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.4.1",
+    "version": "2.4.2",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.4.1 修复 PigGo 已签到判定\n- attendance.php 只留下 Cloudflare 页脚时回到首页二次确认\n- 识别顶部“签到已得 N”为今日已签到\n- 二次确认仍不明确时继续保守报错\n\nv2.4.0 对齐 AutoSignIn 上游站点适配",
+    "changelog": "v2.4.2 标记 PigGo 待适配\n- Vue 站点卡片显示醒目的“待适配”状态\n- 保留勾选与测试能力，不影响其他站点\n\nv2.4.1 修复 PigGo 已签到判定",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -53,7 +53,7 @@ __plugin__ = {
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
     "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
-    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
+    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP", "status": "pending"},
     "hhan": {"name": "HHanClub", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "NexusPHP"},
     "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://www.tjupt.org/attendance.php", "group": "交互验证"},
     "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
@@ -978,7 +978,7 @@ async def setup(ctx):
     async def api_meta(req):
         return {
             "ok": True,
-            "sites": [{"key": key, **{field: site[field] for field in ("name", "domain", "group")}} for key, site in SITES.items()],
+            "sites": [{"key": key, **{field: site[field] for field in ("name", "domain", "group")}, "status": site.get("status", "ready")} for key, site in SITES.items()],
             "defaults": DEFAULTS,
         }
 

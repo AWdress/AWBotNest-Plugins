@@ -46,21 +46,23 @@ const _hoisted_22 = { class: "site-chips" };
 const _hoisted_23 = ["value"];
 const _hoisted_24 = { class: "site-badge" };
 const _hoisted_25 = { class: "site-copy" };
-const _hoisted_26 = ["title"];
-const _hoisted_27 = { class: "save-bar" };
-const _hoisted_28 = ["disabled"];
-const _hoisted_29 = { class: "history-panel" };
-const _hoisted_30 = { class: "section-head" };
-const _hoisted_31 = ["disabled"];
-const _hoisted_32 = {
+const _hoisted_26 = { class: "site-name" };
+const _hoisted_27 = { key: 0 };
+const _hoisted_28 = ["title"];
+const _hoisted_29 = { class: "save-bar" };
+const _hoisted_30 = ["disabled"];
+const _hoisted_31 = { class: "history-panel" };
+const _hoisted_32 = { class: "section-head" };
+const _hoisted_33 = ["disabled"];
+const _hoisted_34 = {
   key: 0,
   class: "history"
 };
-const _hoisted_33 = {
+const _hoisted_35 = {
   key: 1,
   class: "empty"
 };
-const _hoisted_34 = {
+const _hoisted_36 = {
   key: 1,
   class: "loading"
 };
@@ -339,7 +341,12 @@ return (_ctx, _cache) => {
                       ], -1)),
                       _createElementVNode("span", _hoisted_24, _toDisplayString(site.name.slice(0, 2).toUpperCase()), 1),
                       _createElementVNode("span", _hoisted_25, [
-                        _createElementVNode("b", null, _toDisplayString(site.name), 1),
+                        _createElementVNode("span", _hoisted_26, [
+                          _createElementVNode("b", null, _toDisplayString(site.name), 1),
+                          (site.status === 'pending')
+                            ? (_openBlock(), _createElementBlock("em", _hoisted_27, "待适配"))
+                            : _createCommentVNode("", true)
+                        ]),
                         _createElementVNode("small", null, _toDisplayString(site.domain), 1)
                       ]),
                       (cookieState[site.key])
@@ -347,14 +354,14 @@ return (_ctx, _cache) => {
                             key: 0,
                             class: "cookie-dot",
                             title: cookieState[site.key].message
-                          }, null, 8, _hoisted_26))
+                          }, null, 8, _hoisted_28))
                         : _createCommentVNode("", true)
                     ], 2))
                   }), 128))
                 ])
               ]))
             }), 128)),
-            _createElementVNode("footer", _hoisted_27, [
+            _createElementVNode("footer", _hoisted_29, [
               _cache[29] || (_cache[29] = _createElementVNode("p", null, [
                 _createElementVNode("span", {
                   class: "shield",
@@ -366,11 +373,11 @@ return (_ctx, _cache) => {
                 class: "button primary",
                 disabled: saving.value,
                 onClick: save
-              }, _toDisplayString(saving.value ? '正在保存…' : '保存并应用'), 9, _hoisted_28)
+              }, _toDisplayString(saving.value ? '正在保存…' : '保存并应用'), 9, _hoisted_30)
             ])
           ]),
-          _createElementVNode("section", _hoisted_29, [
-            _createElementVNode("div", _hoisted_30, [
+          _createElementVNode("section", _hoisted_31, [
+            _createElementVNode("div", _hoisted_32, [
               _cache[30] || (_cache[30] = _createElementVNode("div", null, [
                 _createElementVNode("h3", null, "最近运行"),
                 _createElementVNode("p", null, "保留最近 30 次签到结果。")
@@ -379,10 +386,10 @@ return (_ctx, _cache) => {
                 class: "link-button danger",
                 disabled: !history.value.length,
                 onClick: clearHistory
-              }, "清空记录", 8, _hoisted_31)
+              }, "清空记录", 8, _hoisted_33)
             ]),
             (history.value.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_32, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_34, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value, (item) => {
                     return (_openBlock(), _createElementBlock("details", {
                       key: item.time
@@ -410,19 +417,19 @@ return (_ctx, _cache) => {
                     ]))
                   }), 128))
                 ]))
-              : (_openBlock(), _createElementBlock("div", _hoisted_33, [...(_cache[32] || (_cache[32] = [
+              : (_openBlock(), _createElementBlock("div", _hoisted_35, [...(_cache[32] || (_cache[32] = [
                   _createElementVNode("span", { class: "empty-mark" }, null, -1),
                   _createElementVNode("b", null, "等待第一次签到", -1),
                   _createElementVNode("p", null, "运行完成后，站点结果会显示在这里。", -1)
                 ]))]))
           ])
         ]))
-      : (_openBlock(), _createElementBlock("div", _hoisted_34, "正在读取签到配置…"))
+      : (_openBlock(), _createElementBlock("div", _hoisted_36, "正在读取签到配置…"))
   ], 64))
 }
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-551c6010"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1890c21a"]]);
 
 export { Config as default };

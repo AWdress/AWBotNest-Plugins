@@ -86,7 +86,7 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
             <input v-model="config.selected_sites" type="checkbox" :value="site.key">
             <span class="checkmark"><i></i></span>
             <span class="site-badge">{{ site.name.slice(0, 2).toUpperCase() }}</span>
-            <span class="site-copy"><b>{{ site.name }}</b><small>{{ site.domain }}</small></span>
+            <span class="site-copy"><span class="site-name"><b>{{ site.name }}</b><em v-if="site.status === 'pending'">待适配</em></span><small>{{ site.domain }}</small></span>
             <span v-if="cookieState[site.key]" class="cookie-dot" :title="cookieState[site.key].message"></span>
           </label>
         </div>
@@ -115,4 +115,6 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
 /* 控制栏按可用宽度换行：开关组与参数组永不互相侵占。 */
 .control-rail{display:flex!important;align-items:center!important;justify-content:space-between!important;flex-wrap:wrap!important;column-gap:36px!important;row-gap:16px!important}.control-rail>.toggles{flex:0 0 auto!important;min-width:max-content!important}.control-rail>.schedule-fields{flex:1 1 470px!important;min-width:0!important}
 @media(max-width:620px){.control-rail>.toggles{width:100%!important;min-width:0!important}.control-rail>.schedule-fields{flex-basis:100%!important}}
+
+.site-name{display:flex;align-items:center;gap:6px;min-width:0}.site-name>b{min-width:0}.site-name>em{flex:0 0 auto;padding:1px 5px;border:1px solid #9b6b2b;border-radius:5px;color:#ffc56c;background:#302413;font-size:9px;font-style:normal;font-weight:750;line-height:15px}
 </style>
