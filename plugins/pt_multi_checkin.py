@@ -44,11 +44,11 @@ def _site_schema():
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站\n\nv1.0.0 初始版本\n- 使用平台托管 CloakBrowser 等待 Cloudflare 验证\n- 每站可独立选择平台同步或手动 Cookie\n- 支持立即签到、失败重试、结果推送和最近记录",
+    "changelog": "v1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态，不再把普通页面误报成功\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 补充新旧 NexusPHP 中英文结果文案\n- 插件停用时等待后台签到和浏览器任务完成清理\n\nv1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -164,6 +164,46 @@ def _page_text(page) -> str:
         return page.content()
 
 
+def _result_state(text: str) -> tuple[str, str] | None:
+    """只根据明确的站点反馈判断结果，避免把普通 200 页面误报为成功。"""
+    low = (text or "").lower()
+    already_markers = (
+        "今日已签到", "今天已签到", "已经签到", "签到已完成", "今日已经签到",
+        "already attended", "already signed", "attended today", "already checked in",
+    )
+    success_markers = (
+        "签到成功", "成功签到", "签到获得", "签到奖励",
+        "attend got", "attend get bonus", "attend get bouns",
+        "attendance success", "check-in successful", "checked in successfully",
+    )
+    failure_markers = (
+        "签到失败", "操作频繁", "验证失败", "请求失败", "稍后再试",
+        "attendance failed", "check-in failed", "too many requests", "rate limit",
+    )
+    if any(marker in low for marker in already_markers):
+        return "already", "今天已经签到"
+    if any(marker in low for marker in success_markers):
+        return "success", "签到成功"
+    if any(marker in low for marker in failure_markers):
+        return "failed", "网站返回签到失败、验证失败或操作频繁"
+    return None
+
+
+def _confirm_result(page, *, attempts: int = 3) -> dict:
+    """刷新确认服务端状态；绝不为确认结果而再次点击签到按钮。"""
+    for attempt in range(attempts):
+        state = _result_state(_page_text(page))
+        if state:
+            status, message = state
+            if status == "failed":
+                raise RuntimeError(message)
+            return {"status": status, "message": message}
+        if attempt + 1 < attempts:
+            page.wait_for_timeout(2_000 * (attempt + 1))
+            page.reload(wait_until="domcontentloaded", timeout=60_000)
+    raise RuntimeError("签到请求后无法确认成功状态，未计为签到成功")
+
+
 def _browser_checkin(page, expected_domain: str) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
@@ -192,14 +232,12 @@ def _browser_checkin(page, expected_domain: str) -> dict:
         raise RuntimeError("Cookie 已失效，网站返回登录页")
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
-    if any(marker in low for marker in (
-        "今日已签到", "今天已签到", "已经签到", "签到已完成", "already attended", "already signed", "attended today",
-    )):
-        return {"status": "already", "message": "今天已经签到"}
-    if any(marker in low for marker in (
-        "签到成功", "成功签到", "签到获得", "签到奖励", "attend got", "attendance success",
-    )):
-        return {"status": "success", "message": "签到成功"}
+    initial_state = _result_state(text)
+    if initial_state:
+        status, message = initial_state
+        if status == "failed":
+            raise RuntimeError(message)
+        return {"status": status, "message": message}
 
     candidates = page.locator('a, button, input[type="submit"], input[type="button"]')
     for index in range(min(candidates.count(), 80)):
@@ -213,23 +251,15 @@ def _browser_checkin(page, expected_domain: str) -> dict:
                 continue
             item.click()
             page.wait_for_timeout(3_000)
-            result_text = _page_text(page)
-            result_low = result_text.lower()
-            if any(marker in result_low for marker in (
-                "签到成功", "成功签到", "签到获得", "签到奖励", "今日已签到", "attend got", "already attended",
-            )):
-                return {"status": "success", "message": "签到成功"}
-            if any(marker in result_low for marker in ("签到失败", "操作频繁", "验证失败", "error")):
-                raise RuntimeError("网站返回签到失败或操作频繁")
-            return {"status": "success", "message": "签到请求已提交"}
+            return _confirm_result(page)
         except RuntimeError:
             raise
         except Exception:
             continue
 
-    # 标准 NexusPHP attendance.php 通过带登录态 GET 即完成签到。
+    # 标准 NexusPHP attendance.php 通常由 GET 完成签到；刷新后必须出现明确结果。
     if urlparse(page.url).path.lower().endswith("/attendance.php"):
-        return {"status": "success", "message": "签到页已正常访问"}
+        return _confirm_result(page)
     raise RuntimeError("没有识别到签到页面或签到按钮，网站结构可能已更新")
 
 
@@ -324,7 +354,10 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    for task in list(_tasks):
+    tasks = list(_tasks)
+    for task in tasks:
         if not task.done():
             task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()

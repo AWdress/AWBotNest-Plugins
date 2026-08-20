@@ -1,7 +1,7 @@
 {
   "webhook_bridge": {
     "name": "Webhook 通知桥",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "scope": "standalone",
     "author": "AWdress",
     "description": "接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。",
@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站\n\nv1.0.0 初始版本\n- 使用平台托管 CloakBrowser 等待 Cloudflare 验证\n- 每站可独立选择平台同步或手动 Cookie\n- 支持立即签到、失败重试、结果推送和最近记录",
+    "changelog": "v1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态，不再把普通页面误报成功\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 补充新旧 NexusPHP 中英文结果文案\n- 插件停用时等待后台签到和浏览器任务完成清理\n\nv1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站",
     "path": "plugins/pt_multi_checkin.py"
   },
   "pterclub_bonus": {
