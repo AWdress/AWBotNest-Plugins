@@ -291,12 +291,12 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "1.1.2",
+    "version": "2.0.0",
     "author": "AWdress",
-    "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
+    "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.1.2 兼容旧版灰度检查器\n- 将 __plugin__ 调整为导入后的第一个顶层赋值，避免旧检查器被站点常量干扰\n- 保持元数据为完全静态字典\n\nv1.1.1 修复新版灰度元数据字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT AI 识图确认",
-    "path": "plugins/pt_multi_checkin.py"
+    "changelog": "v2.0.0 扩展多站签到并启用 Vue 配置\n- 迁移 MoviePilot AutoSignIn 中除 TJUPT 外的 19 个站点适配\n- 保留 Audiences、OurBits、PigGo、TJUPT 现有实现\n- Cookie 全部改为平台同步读取，移除手动 Cookie 配置\n- 新增 Vue 站点矩阵、任务控制、运行状态与历史结果界面",
+    "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
     "name": "猫站赠粮",

@@ -1,4 +1,4 @@
-"""多站点 PT 自动签到：平台 CloakBrowser + 平台/手动 Cookie。"""
+"""多站点 PT 自动签到：平台 CloakBrowser + 平台同步 Cookie。"""
 
 from __future__ import annotations
 
@@ -13,95 +13,68 @@ from urllib.parse import urlparse
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.1.2",
+    "version": "2.0.0",
     "author": "AWdress",
-    "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
+    "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.1.2 兼容旧版灰度检查器\n- 将 __plugin__ 调整为导入后的第一个顶层赋值，避免旧检查器被站点常量干扰\n- 保持元数据为完全静态字典\n\nv1.1.1 修复新版灰度元数据字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT AI 识图确认",
+    "changelog": "v2.0.0 扩展多站签到并启用 Vue 配置\n- 迁移 MoviePilot AutoSignIn 中除 TJUPT 外的 19 个站点适配\n- 保留 Audiences、OurBits、PigGo、TJUPT 现有实现\n- Cookie 全部改为平台同步读取，移除手动 Cookie 配置\n- 新增 Vue 站点矩阵、任务控制、运行状态与历史结果界面",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
-        "piggo.me", "*.piggo.me", "tjupt.org", "*.tjupt.org",
+        "piggo.me", "*.piggo.me", "tjupt.org", "*.tjupt.org", "52pt.site", "*.52pt.site",
+        "pt.btschool.club", "*.pt.btschool.club", "ptchdbits.co", "*.ptchdbits.co",
+        "haidan.video", "*.haidan.video", "club.hares.top", "*.club.hares.top",
+        "hdarea.club", "*.hdarea.club", "hdchina.org", "*.hdchina.org",
+        "hdcity.city", "*.hdcity.city", "hdsky.me", "*.hdsky.me",
+        "pt.hdupt.com", "*.pt.hdupt.com", "m-team.cc", "*.m-team.cc",
+        "v6.nexushd.org", "*.v6.nexushd.org", "open.cd", "*.open.cd",
+        "pterclub.com", "*.pterclub.com", "pttime.org", "*.pttime.org",
+        "totheglory.im", "*.totheglory.im", "u2.dmhy.org", "*.u2.dmhy.org",
+        "yemapt.org", "*.yemapt.org", "zhuque.in", "*.zhuque.in",
     ],
     "default_enabled": False,
+    "render_mode": "vue",
     "resources": {
         "timeout_seconds": 1800, "max_concurrency": 1, "max_background_tasks": 3,
         "failure_threshold": 3, "recovery_seconds": 120,
-    },
-    "config_schema": {
-        "auto_checkin": {
-            "type": "boolean", "default": True, "label": "启用每日自动签到",
-            "section": "任务设置", "cols": 4, "order": 1,
-        },
-        "notify_result": {
-            "type": "boolean", "default": True, "label": "推送签到结果",
-            "section": "任务设置", "cols": 4, "order": 2,
-        },
-        "headless": {
-            "type": "boolean", "default": True, "label": "无头浏览器",
-            "help": "服务器建议保持开启；底层优先使用与色花堂助手相同的 CloakBrowser。",
-            "section": "任务设置", "cols": 4, "order": 3,
-        },
-        "checkin_hour": {
-            "type": "slider", "default": 8, "label": "签到小时",
-            "min": 0, "max": 23, "step": 1, "section": "定时与重试", "cols": 3, "order": 4,
-        },
-        "checkin_minute": {
-            "type": "slider", "default": 10, "label": "签到分钟",
-            "min": 0, "max": 59, "step": 1, "section": "定时与重试", "cols": 3, "order": 5,
-        },
-        "retry_count": {
-            "type": "slider", "default": 2, "label": "失败重试次数",
-            "min": 0, "max": 5, "step": 1, "section": "定时与重试", "cols": 3, "order": 6,
-        },
-        "retry_interval": {
-            "type": "slider", "default": 20, "label": "重试间隔（秒）",
-            "min": 5, "max": 300, "step": 5, "section": "定时与重试", "cols": 3, "order": 7,
-        },
-        "tjupt_ai_assist": {
-            "type": "boolean", "default": True, "label": "TJUPT AI 识图辅助",
-            "help": "把验证题截图、AI 建议和候选按钮推送给平台主人；由你点击答案后提交。",
-            "section": "任务设置", "cols": 4, "order": 8,
-        },
-        "tjupt_confirm_timeout": {
-            "type": "slider", "default": 300, "label": "TJUPT 等待确认（秒）",
-            "min": 60, "max": 600, "step": 30, "section": "任务设置", "cols": 4, "order": 9,
-        },
-        "audiences_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "观众 Audiences", "cols": 4, "order": 10},
-        "audiences_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "观众 Audiences", "cols": 4, "order": 11},
-        "audiences_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "观众 Audiences", "cols": 4, "order": 12},
-        "ourbits_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "OurBits", "cols": 4, "order": 20},
-        "ourbits_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "OurBits", "cols": 4, "order": 21},
-        "ourbits_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "OurBits", "cols": 4, "order": 22},
-        "piggo_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "PigGo", "cols": 4, "order": 30},
-        "piggo_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "PigGo", "cols": 4, "order": 31},
-        "piggo_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "PigGo", "cols": 4, "order": 32},
-        "tjupt_enabled": {"type": "boolean", "default": True, "label": "启用签到", "section": "北洋园 TJUPT", "cols": 4, "order": 40},
-        "tjupt_cookie_source": {"type": "select", "default": "platform", "label": "Cookie 来源", "options": [{"label": "从平台读取", "value": "platform"}, {"label": "手动填写", "value": "manual"}], "section": "北洋园 TJUPT", "cols": 4, "order": 41},
-        "tjupt_cookie": {"type": "password", "default": "", "label": "手动 Cookie", "help": "仅在 Cookie 来源选择“手动填写”时使用；可省略 Cookie: 前缀。", "section": "北洋园 TJUPT", "cols": 4, "order": 42},
-        "run_now": {
-            "type": "action", "label": "立即签到全部启用站点", "action": "run_now",
-            "section": "操作", "cols": 6, "order": 100,
-        },
-        "view_result": {
-            "type": "action", "label": "查看最近结果", "action": "view_result",
-            "section": "操作", "cols": 6, "order": 101,
-        },
-        "usage": {
-            "type": "info", "label": "说明", "section": "说明", "cols": 12, "order": 110,
-            "default": "每个站点可独立选择 Cookie 来源。Cloudflare/雷池会等待正常验证。TJUPT 验证题可由平台 AI 给出建议，并推送 Telegram 候选按钮供主人确认。",
-        },
     },
 }
 
 
 SITES = {
-    "audiences": {"name": "观众 Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php"},
-    "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php"},
-    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php"},
-    "tjupt": {"name": "北洋园 TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php"},
+    "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
+    "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
+    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
+    "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php", "group": "交互验证"},
+    "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
+    "btschool": {"name": "BT School", "domain": "pt.btschool.club", "url": "https://pt.btschool.club", "mode": "btschool", "group": "专用适配"},
+    "chdbits": {"name": "CHDBits", "domain": "ptchdbits.co", "url": "https://ptchdbits.co/bakatest.php", "mode": "interactive", "group": "交互验证"},
+    "haidan": {"name": "海胆", "domain": "haidan.video", "url": "https://www.haidan.video/signin.php", "mode": "haidan", "group": "专用适配"},
+    "hares": {"name": "白兔", "domain": "club.hares.top", "url": "https://club.hares.top", "mode": "hares", "group": "专用适配"},
+    "hdarea": {"name": "好大", "domain": "hdarea.club", "url": "https://www.hdarea.club", "mode": "hdarea", "group": "专用适配"},
+    "hdchina": {"name": "HDChina", "domain": "hdchina.org", "url": "https://hdchina.org/index.php", "mode": "hdchina", "group": "专用适配"},
+    "hdcity": {"name": "HDCity", "domain": "hdcity.city", "url": "https://hdcity.city/sign", "mode": "direct", "group": "专用适配"},
+    "hdsky": {"name": "天空", "domain": "hdsky.me", "url": "https://hdsky.me", "mode": "interactive", "group": "交互验证"},
+    "hdupt": {"name": "HDU PT", "domain": "pt.hdupt.com", "url": "https://pt.hdupt.com", "mode": "hdupt", "group": "专用适配"},
+    "mteam": {"name": "M-Team", "domain": "kp.m-team.cc", "url": "https://kp.m-team.cc", "mode": "visit", "group": "专用适配"},
+    "nexushd": {"name": "NexusHD", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "专用适配"},
+    "opencd": {"name": "OpenCD", "domain": "open.cd", "url": "https://www.open.cd", "mode": "interactive", "group": "交互验证"},
+    "pterclub": {"name": "PTerClub", "domain": "pterclub.com", "url": "https://pterclub.com/attendance-ajax.php", "mode": "pterclub", "group": "专用适配"},
+    "pttime": {"name": "PTTime", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "direct", "group": "专用适配"},
+    "ttg": {"name": "TTG", "domain": "totheglory.im", "url": "https://totheglory.im", "mode": "ttg", "group": "专用适配"},
+    "u2": {"name": "U2", "domain": "u2.dmhy.org", "url": "https://u2.dmhy.org/showup.php", "mode": "interactive", "group": "交互验证"},
+    "yema": {"name": "YemaPT", "domain": "yemapt.org", "url": "https://yemapt.org/api/consumer/checkIn", "mode": "yema", "group": "专用适配"},
+    "zhuque": {"name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in", "mode": "zhuque", "group": "专用适配"},
+}
+
+
+DEFAULTS = {
+    "auto_checkin": True, "notify_result": True, "headless": True,
+    "checkin_hour": 8, "checkin_minute": 10, "retry_count": 2, "retry_interval": 20,
+    "tjupt_ai_assist": True, "tjupt_confirm_timeout": 300,
+    "selected_sites": list(SITES.keys()),
 }
 
 
@@ -110,6 +83,11 @@ _tasks: set[asyncio.Task] = set()
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
+_state = {"running": False, "started_at": "", "finished_at": "", "current": "", "completed": 0, "total": 0}
+
+
+def _cfg(ctx) -> dict:
+    return {**DEFAULTS, **dict(ctx.config or {})}
 
 
 def _bounded(value, default: int, low: int, high: int) -> int:
@@ -119,25 +97,12 @@ def _bounded(value, default: int, low: int, high: int) -> int:
         return default
 
 
-def _clean_cookie(value) -> tuple[str, str]:
-    cookie = str(value or "").strip()
-    if cookie.lower().startswith("cookie:"):
-        cookie = cookie[7:].strip()
-    if not cookie:
-        return "", "尚未填写手动 Cookie"
-    if "\r" in cookie or "\n" in cookie or "=" not in cookie:
-        return "", "手动 Cookie 格式不正确"
-    return cookie, ""
-
-
 async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
-    source = str(ctx.config.get(f"{key}_cookie_source", "platform") or "platform")
-    if source == "manual":
-        return _clean_cookie(ctx.config.get(f"{key}_cookie"))
     if not ctx.cookies.available:
         return "", "平台 Cookie 同步未启用"
+    path = urlparse(site["url"]).path or "/"
     try:
-        cookie = await ctx.cookies.header(site["domain"], path="/attendance.php")
+        cookie = await ctx.cookies.header(site["domain"], path=path)
     except Exception as exc:  # noqa: BLE001
         return "", f"读取平台 Cookie 失败：{exc}"
     if cookie:
@@ -147,7 +112,7 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     except Exception:
         pass
     try:
-        cookie = await ctx.cookies.header(site["domain"], path="/attendance.php")
+        cookie = await ctx.cookies.header(site["domain"], path=path)
     except Exception:
         cookie = ""
     if cookie:
@@ -326,6 +291,108 @@ def _confirm_result(page, *, attempts: int = 3) -> dict:
     raise RuntimeError("签到请求后无法确认成功状态，未计为签到成功")
 
 
+def _fetch_same_origin(page, url: str, *, method: str = "GET", data: dict | None = None,
+                       json_data: dict | None = None, headers: dict | None = None) -> dict:
+    return page.evaluate("""async payload => {
+        const options = {method: payload.method, credentials: 'include', headers: payload.headers || {}};
+        if (payload.jsonData !== null) {
+            options.headers['Content-Type'] = 'application/json; charset=utf-8';
+            options.body = JSON.stringify(payload.jsonData);
+        } else if (payload.data !== null) {
+            options.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+            options.body = new URLSearchParams(payload.data).toString();
+        }
+        const response = await fetch(payload.url, options);
+        return {status: response.status, text: await response.text(), url: response.url};
+    }""", {"url": url, "method": method, "data": data, "jsonData": json_data, "headers": headers or {}})
+
+
+def _response_result(text: str, *, success: tuple[str, ...], already: tuple[str, ...] = ()) -> dict:
+    low = (text or "").lower()
+    if any(marker.lower() in low for marker in already):
+        return {"status": "already", "message": "今天已经签到"}
+    if any(marker.lower() in low for marker in success):
+        return {"status": "success", "message": "签到成功"}
+    raise RuntimeError("签到接口返回未识别结果，未计为成功")
+
+
+def _special_checkin(page, key: str, site: dict) -> dict:
+    current_domain = (urlparse(page.url).hostname or "").lower()
+    expected = site["domain"].lower()
+    if current_domain not in {expected, f"www.{expected}"}:
+        raise RuntimeError(f"站点跳转到了非预期域名：{current_domain or '未知'}")
+    text = _page_text(page)
+    low = text.lower()
+    html = page.content()
+    if "login.php" in low or "takelogin.php" in low or 'name="username"' in html.lower():
+        raise RuntimeError("Cookie 已失效，网站返回登录页")
+    mode = site.get("mode")
+    if mode == "interactive":
+        state = _result_state(text)
+        if state and state[0] != "failed":
+            return {"status": state[0], "message": state[1]}
+        raise RuntimeError("网站签到需要交互题或图片验证码，请在站点页面人工完成")
+    if mode == "visit":
+        return {"status": "success", "message": "模拟访问成功，已刷新最后访问时间"}
+    if mode == "direct":
+        return _response_result(text, success=("签到成功", "本次签到获得魅力"), already=("已签到", "已经签到"))
+    if mode == "btschool":
+        if "每日签到" not in text:
+            return {"status": "already", "message": "今天已经签到"}
+        page.goto("https://pt.btschool.club/index.php?action=addbonus", wait_until="domcontentloaded", timeout=60_000)
+        if "每日签到" not in _page_text(page):
+            return {"status": "success", "message": "签到成功"}
+        raise RuntimeError("签到入口仍然存在")
+    if mode == "haidan":
+        page.goto("https://www.haidan.video/index.php", wait_until="domcontentloaded", timeout=60_000)
+        return _response_result(page.content(), success=("已经打卡",), already=())
+    if mode == "hares":
+        result = _fetch_same_origin(page, "https://club.hares.top/attendance.php?action=sign")
+        return _response_result(result.get("text", ""), success=('"code":0', "签到成功"), already=('"code":1', "已经签到过"))
+    if mode == "hdarea":
+        result = _fetch_same_origin(page, "https://www.hdarea.club/sign_in.php", method="POST", data={"action": "sign_in"})
+        return _response_result(result.get("text", ""), success=("此次签到您获得",), already=("请不要重复签到",))
+    if mode == "hdchina":
+        csrf = page.locator('meta[name="x-csrf"]').get_attribute("content")
+        if not csrf:
+            if "已签到" in text:
+                return {"status": "already", "message": "今天已经签到"}
+            raise RuntimeError("未获取到 HDChina CSRF 参数")
+        result = _fetch_same_origin(page, "https://hdchina.org/plugin_sign-in.php?cmd=signin", method="POST", data={"csrf": csrf})
+        return _response_result(result.get("text", ""), success=('"state":"success"', '"state":true'), already=("已签到",))
+    if mode == "hdupt":
+        if "yiqiandao" in html:
+            return {"status": "already", "message": "今天已经签到"}
+        page.goto("https://pt.hdupt.com/added.php?action=qiandao", wait_until="domcontentloaded", timeout=60_000)
+        if any(ch.isdigit() for ch in _page_text(page)):
+            return {"status": "success", "message": "签到成功"}
+        raise RuntimeError("HDU PT 签到接口返回异常")
+    if mode == "nexushd":
+        result = _fetch_same_origin(page, "https://v6.nexushd.org/signin.php", method="POST", data={"action": "post", "content": ""})
+        return _response_result(result.get("text", ""), success=("本次签到获得",), already=("你今天已经签到过了",))
+    if mode == "pterclub":
+        return _response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过"))
+    if mode == "ttg":
+        if "已签到" in text:
+            return {"status": "already", "message": "今天已经签到"}
+        import re
+        timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', html)
+        token = re.search(r'signed_token:\s*["\']([^"\']+)', html)
+        if not timestamp or not token:
+            raise RuntimeError("未获取到 TTG 签到参数")
+        result = _fetch_same_origin(page, "https://totheglory.im/signed.php", method="POST", data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)})
+        return _response_result(result.get("text", ""), success=("您已连续签到",), already=("今天已签到过",))
+    if mode == "yema":
+        return _response_result(text, success=('"success":true', '"success": true'), already=("already", "已签到"))
+    if mode == "zhuque":
+        csrf = page.locator('meta[name="x-csrf-token"]').get_attribute("content")
+        if not csrf:
+            raise RuntimeError("未获取到朱雀 CSRF 参数")
+        result = _fetch_same_origin(page, "https://zhuque.in/api/gaming/fireGenshinCharacterMagic", method="POST", json_data={"all": 1, "resetModal": "true"}, headers={"x-csrf-token": csrf})
+        return _response_result(result.get("text", ""), success=("FIRE_GENSHIN_CHARACTER_MAGIC_SUCCESS", '"status":200'), already=("already",))
+    return _browser_checkin(page, site["domain"])
+
+
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
@@ -398,32 +465,44 @@ async def _run(ctx, source: str) -> dict:
     if _run_lock.locked():
         return {"ok": False, "message": "签到任务正在运行"}
     async with _run_lock:
-        enabled = [(key, site) for key, site in SITES.items() if ctx.config.get(f"{key}_enabled", True)]
+        cfg = _cfg(ctx)
+        selected = cfg.get("selected_sites", list(SITES))
+        if not isinstance(selected, list):
+            selected = list(SITES)
+        enabled = [(key, SITES[key]) for key in selected if key in SITES]
         if not enabled:
             return {"ok": False, "message": "没有启用任何签到站点"}
+        _state.update({
+            "running": True, "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "finished_at": "", "current": "", "completed": 0, "total": len(enabled),
+        })
         results = []
-        retries = _bounded(ctx.config.get("retry_count"), 2, 0, 5)
-        interval = _bounded(ctx.config.get("retry_interval"), 20, 5, 300)
+        retries = _bounded(cfg.get("retry_count"), 2, 0, 5)
+        interval = _bounded(cfg.get("retry_interval"), 20, 5, 300)
         loop = asyncio.get_running_loop()
         for key, site in enabled:
+            _state["current"] = site["name"]
             cookie, error = await _site_cookie(ctx, key, site)
             if error:
-                results.append({"site": site["name"], "ok": False, "status": "failed", "message": error})
+                results.append({"key": key, "site": site["name"], "ok": False, "status": "failed", "message": error})
+                _state["completed"] += 1
                 continue
             item = None
             for attempt in range(retries + 1):
                 try:
-                    def action(page, domain=site["domain"]):
-                        return _browser_checkin(page, domain, ctx, loop)
+                    def action(page, site_key=key, current_site=site):
+                        if site_key in {"audiences", "ourbits", "piggo", "tjupt"}:
+                            return _browser_checkin(page, current_site["domain"], ctx, loop)
+                        return _special_checkin(page, site_key, current_site)
 
                     outcome = await ctx.browser.run(
                         site["url"], action, cookies=cookie,
-                        headless=bool(ctx.config.get("headless", True)),
+                        headless=bool(cfg.get("headless", True)),
                         timeout=720 if key == "tjupt" else (300 if key == "piggo" else 150),
                     )
                     status = str((outcome or {}).get("status") or "success")
                     item = {
-                        "site": site["name"], "ok": True, "status": status,
+                        "key": key, "site": site["name"], "ok": True, "status": status,
                         "message": str((outcome or {}).get("message") or "签到完成"),
                     }
                     break
@@ -431,9 +510,10 @@ async def _run(ctx, source: str) -> dict:
                     if attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)
                     else:
-                        item = {"site": site["name"], "ok": False, "status": "failed", "message": str(exc)}
+                        item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "message": str(exc)}
                         break
             results.append(item)
+            _state["completed"] += 1
 
         success = sum(1 for item in results if item["ok"])
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -447,18 +527,61 @@ async def _run(ctx, source: str) -> dict:
             history = []
         ctx.kv.set(_HISTORY_KEY, [record, *history][:30])
         ctx.kv.set(_LAST_KEY, text)
-        if ctx.config.get("notify_result", True):
+        if cfg.get("notify_result", True):
             rows = [{"站点": item["site"], "结果": "已签到" if item["status"] == "already" else ("成功" if item["ok"] else "失败"), "详情": item["message"]} for item in results]
             try:
                 await ctx.notify(rows, level="success" if success == len(results) else "warning", category="PT站签到")
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("签到结果推送失败：%r", exc)
+        _state.update({"running": False, "finished_at": stamp, "current": ""})
         return {"ok": success == len(results), "message": text, "results": results}
 
 
 async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
+    _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "completed": 0, "total": 0})
+
+    @ctx.on_api("/meta", methods=["GET"])
+    async def api_meta(req):
+        return {
+            "ok": True,
+            "sites": [{"key": key, **{field: site[field] for field in ("name", "domain", "group")}} for key, site in SITES.items()],
+            "defaults": DEFAULTS,
+        }
+
+    @ctx.on_api("/status", methods=["GET"])
+    async def api_status(req):
+        return {"ok": True, **_state}
+
+    @ctx.on_api("/run", methods=["POST"])
+    async def api_run(req):
+        if _run_lock and _run_lock.locked():
+            return {"ok": False, "message": "签到任务已经在运行"}
+        task = ctx.create_task(_run(ctx, "手动"), name="PT站手动签到", operation="manual_checkin")
+        _tasks.add(task)
+        task.add_done_callback(_tasks.discard)
+        return {"ok": True, "message": "签到任务已开始"}
+
+    @ctx.on_api("/history", methods=["GET"])
+    async def api_history(req):
+        items = ctx.kv.get(_HISTORY_KEY, []) or []
+        return {"ok": True, "items": items if isinstance(items, list) else []}
+
+    @ctx.on_api("/history/clear", methods=["POST"])
+    async def api_history_clear(req):
+        ctx.kv.set(_HISTORY_KEY, [])
+        return {"ok": True, "message": "签到记录已清空"}
+
+    @ctx.on_api("/cookies/check", methods=["GET"])
+    async def api_cookies_check(req):
+        rows = []
+        for key in _cfg(ctx).get("selected_sites", list(SITES)):
+            if key not in SITES:
+                continue
+            cookie, error = await _site_cookie(ctx, key, SITES[key])
+            rows.append({"key": key, "ok": bool(cookie), "message": "平台 Cookie 可用" if cookie else error})
+        return {"ok": all(row["ok"] for row in rows), "items": rows}
 
     @ctx.on_callback(ctx.filters.regex(r"^pttj:"), target="bot", group=10)
     async def tjupt_choice(client, query):
@@ -496,9 +619,10 @@ async def setup(ctx):
         text = str(ctx.kv.get(_LAST_KEY, "") or "")
         return {"ok": bool(text), "message": text or "暂无签到记录"}
 
-    if ctx.config.get("auto_checkin", True):
-        hour = _bounded(ctx.config.get("checkin_hour"), 8, 0, 23)
-        minute = _bounded(ctx.config.get("checkin_minute"), 10, 0, 59)
+    cfg = _cfg(ctx)
+    if cfg.get("auto_checkin", True):
+        hour = _bounded(cfg.get("checkin_hour"), 8, 0, 23)
+        minute = _bounded(cfg.get("checkin_minute"), 10, 0, 59)
 
         async def scheduled():
             await _run(ctx, "定时")
@@ -507,6 +631,7 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    _state.update({"running": False, "current": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
         pending["event"].set()
