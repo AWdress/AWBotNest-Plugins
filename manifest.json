@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
-    "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v2.1.0 重做 Vue 管理界面\n- 站点改为带标识与勾选状态的标签式选择\n- 重构计划设置、Cookie 状态、运行进度与历史记录布局\n- 完善桌面与移动端响应式交互\n\nv2.0.1 自动识别签到验证",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin.svg",
+    "changelog": "v2.1.1 修复配置界面开关布局并更换专属图标\n- 开关使用固定轨道尺寸和独立栅格，避免宿主样式挤压重叠\n- 新增 PT 多站签到专属 SVG 图标\n\nv2.1.0 重做 Vue 管理界面",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
