@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.4.2",
+    "version": "2.5.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.4.2 标记 PigGo 待适配\n- Vue 站点卡片显示醒目的“待适配”状态\n- 保留勾选与测试能力，不影响其他站点\n\nv2.4.1 修复 PigGo 已签到判定",
+    "changelog": "v2.5.0 修复 PigGo 会话 Cookie 轮换\n- PigGo 跳过 HTTP 预请求，直接使用 CloakBrowser，避免两个客户端争用旧会话\n- 签到成功后仅在内存中保留浏览器刷新的 PigGo Cookie，后续任务复用\n- Cookie 不写入配置、KV、磁盘或日志，平台重启后仍从 CookieCloud 读取\n\nv2.4.2 标记 PigGo 待适配",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -91,6 +91,7 @@ _tasks: set[asyncio.Task] = set()
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
+_browser_cookie_cache: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 
 
@@ -211,6 +212,22 @@ def _site_result_state(text: str, expected_domain: str = "") -> tuple[str, str] 
 def _same_site_domain(current: str, expected: str) -> bool:
     """www 与根域视为同一站点，不放宽到其他子域。"""
     return current.lower().removeprefix("www.") == expected.lower().removeprefix("www.")
+
+
+def _refreshed_cookie_header(page, expected_domain: str) -> str:
+    """读取浏览器刷新后的同站 Cookie；调用方只允许保存在进程内。"""
+    expected = expected_domain.lower().lstrip(".").removeprefix("www.")
+    try:
+        cookies = page.context.cookies()
+    except Exception:
+        return ""
+    pairs = []
+    for item in cookies or []:
+        domain = str(item.get("domain") or "").lower().lstrip(".").removeprefix("www.")
+        name = str(item.get("name") or "")
+        if domain == expected and name:
+            pairs.append(f"{name}={item.get('value', '')}")
+    return "; ".join(pairs)
 
 
 def _captcha_error(text: str) -> str:
@@ -904,17 +921,20 @@ async def _run(ctx, source: str) -> dict:
                 results.append({"key": key, "site": site["name"], "ok": False, "status": "failed", "message": error})
                 _state["completed"] += 1
                 continue
+            cookie = _browser_cookie_cache.get(key) or cookie
             item = None
             for attempt in range(retries + 1):
                 try:
                     outcome = None
                     browser_reason = ""
-                    if key != "tjupt":
+                    if key not in {"piggo", "tjupt"}:
                         _state.update({"phase": "HTTP 请求", "message": f"{site['name']} 正在使用轻量 HTTP 签到"})
                         try:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
                             browser_reason = str(fallback)
+                    elif key == "piggo":
+                        browser_reason = "PigGo 会话会轮换，直接使用 CloakBrowser"
                     else:
                         browser_reason = "TJUPT 需要页面交互验证"
 
@@ -923,7 +943,12 @@ async def _run(ctx, source: str) -> dict:
 
                         def action(page, site_key=key, current_site=site):
                             if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
-                                return _browser_checkin(page, current_site["domain"], ctx, loop)
+                                result = _browser_checkin(page, current_site["domain"], ctx, loop)
+                                if site_key == "piggo":
+                                    refreshed = _refreshed_cookie_header(page, current_site["domain"])
+                                    if refreshed:
+                                        _browser_cookie_cache[site_key] = refreshed
+                                return result
                             return _special_checkin(page, site_key, current_site, ctx, loop)
 
                         outcome = await ctx.browser.run(
@@ -1072,6 +1097,7 @@ async def teardown(ctx):
         pending["choice"] = None
         pending["event"].set()
     _tjupt_pending.clear()
+    _browser_cookie_cache.clear()
     tasks = list(_tasks)
     for task in tasks:
         if not task.done():
