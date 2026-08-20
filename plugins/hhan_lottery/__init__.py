@@ -10,17 +10,17 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import httpx
 from bs4 import BeautifulSoup
 
-from . import _lottery
+from . import _bonus, _lottery
 
 
 __plugin__ = {
-    "name": "憨憨转盘",
+    "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "1.2.0",
+    "version": "2.0.0",
     "author": "AWdress",
-    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘、全部已读和收件箱消息删除。",
+    "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息\n- 删除前需要二次确认，并逐批重新读取第一页避免分页收缩漏删\n- 运行状态、结果推送和历史记录区分已读与删除任务\n\nv1.1.1 修复一键已读提交失败\n- 将包含多个 messages[] 的表单预编码后再交给异步客户端提交\n- 修复 AsyncClient 收到同步请求流导致任务失败的问题\n\nv1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布",
+    "changelog": "v2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理\n- 保留 .hh 单人赠豆与 .hhs 批量赠豆、冷却和结果清理\n- 所有功能统一读取平台 HHanClub Cookie\n\nv1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -30,7 +30,7 @@ __plugin__ = {
     "resources": {
         "timeout_seconds": 3600,
         "max_concurrency": 2,
-        "max_background_tasks": 12,
+        "max_background_tasks": 24,
         "failure_threshold": 5,
         "recovery_seconds": 60,
     },
@@ -47,6 +47,11 @@ DEFAULTS = {
     "interval_seconds": 7,
     "page_delay": 1.0,
     "max_pages": 200,
+    "bonus_enabled": True,
+    "single_command": ".hh",
+    "batch_command": ".hhs",
+    "cooldown_seconds": 10,
+    "result_delete": 90,
 }
 
 _DOMAIN = "hhanclub.net"
@@ -483,6 +488,7 @@ async def setup(ctx):
     })
 
     await _lottery.setup(ctx)
+    await _bonus.setup(ctx)
 
     @ctx.on_api("/read/status", methods=["GET"])
     async def api_status(req):
@@ -539,6 +545,7 @@ async def teardown(ctx):
     if _stop_event:
         _stop_event.set()
     await _lottery.teardown(ctx)
+    await _bonus.teardown(ctx)
 
 
 async def self_check(ctx):

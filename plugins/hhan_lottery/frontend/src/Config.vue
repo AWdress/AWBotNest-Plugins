@@ -2,18 +2,21 @@
 import { ref } from 'vue'
 import LotteryPanel from './LotteryPanel.vue'
 import ReadPanel from './ReadPanel.vue'
+import BonusPanel from './BonusPanel.vue'
 
 defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
-const tab = ref('lottery')
+const tab = ref('bonus')
 </script>
 
 <template>
   <div class="plugin-shell">
     <nav class="tabs" aria-label="插件功能">
+      <button :class="{ active: tab === 'bonus' }" @click="tab = 'bonus'">赠豆</button>
       <button :class="{ active: tab === 'lottery' }" @click="tab = 'lottery'">幸运转盘</button>
       <button :class="{ active: tab === 'read' }" @click="tab = 'read'">消息管理</button>
     </nav>
-    <LotteryPanel v-if="tab === 'lottery'" :plugin-id="pluginId" :host="host" />
+    <BonusPanel v-if="tab === 'bonus'" :plugin-id="pluginId" :host="host" />
+    <LotteryPanel v-else-if="tab === 'lottery'" :plugin-id="pluginId" :host="host" />
     <ReadPanel v-else :plugin-id="pluginId" :host="host" />
   </div>
 </template>

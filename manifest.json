@@ -280,22 +280,13 @@
     "changelog": "v1.0.7 修复 U2 站内跳转\n- 正确处理赠送后的 HTTP 302 站内跳转，不再直接判定失败\n- 识别 Cookie 失效登录页、Cloudflare 验证和异常跨站跳转\n- 记录跳转目标日志，便于区分正常提交与登录失效\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
     "path": "plugins/u2_dmhy.py"
   },
-  "hhan_bonus": {
-    "name": "憨憨赠豆",
-    "version": "1.0.3",
-    "author": "AWdress",
-    "description": "使用平台同步的 HHCLUB Cookie，通过用户账号命令单人或批量赠送憨豆。",
-    "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.3 兼容无提示成功响应\n- 站点返回 HTTP 200 且没有错误、登录或安全验证特征时直接判定赠豆完成\n- 成功结果标题和状态统一显示为“赠豆完成”“已完成”\n\nv1.0.2 修复赠送成功误判\n- HHCLUB 成功后直接返回普通赠豆页时按成功处理\n- 仅在错误提示、登录页或异常页面出现时判定失败\n- 结果清理时间至少为 10 秒，保存为 0 的旧配置自动恢复默认清理\n\nv1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
-    "path": "plugins/hhan_bonus.py"
-  },
   "hhan_lottery": {
-    "name": "憨憨转盘",
-    "version": "1.2.0",
+    "name": "憨憨小助手",
+    "version": "2.0.0",
     "author": "AWdress",
-    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘、全部已读和收件箱消息删除。",
+    "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息\n- 删除前需要二次确认，并逐批重新读取第一页避免分页收缩漏删\n- 运行状态、结果推送和历史记录区分已读与删除任务\n\nv1.1.1 修复一键已读提交失败\n- 将包含多个 messages[] 的表单预编码后再交给异步客户端提交\n- 修复 AsyncClient 收到同步请求流导致任务失败的问题\n\nv1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布",
+    "changelog": "v2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理\n- 保留 .hh 单人赠豆与 .hhs 批量赠豆、冷却和结果清理\n- 所有功能统一读取平台 HHanClub Cookie\n\nv1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息",
     "path": "plugins/hhan_lottery/"
   },
   "pterclub_bonus": {

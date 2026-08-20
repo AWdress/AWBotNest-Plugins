@@ -366,15 +366,19 @@ async def setup(ctx):
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("[憨憨赠豆] Cookie 异常通知失败：%r", exc)
 
-    @ctx.action("test_cookie")
+    @ctx.action("test_bonus_cookie")
     async def test_cookie():
         ok, message = await _check_login(ctx)
         return {"ok": ok, "message": message}
 
+    @ctx.on_api("/bonus/cookie/check", methods=["GET"])
+    async def api_cookie_check(_request=None):
+        return await test_cookie()
+
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
     async def gift_command(client, message):
         cfg = ctx.config
-        if not cfg.get("enabled", True):
+        if not cfg.get("bonus_enabled", cfg.get("enabled", True)):
             return
         text = (message.text or "").strip()
         head = _head(text)
