@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态，不再把普通页面误报成功\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 补充新旧 NexusPHP 中英文结果文案\n- 插件停用时等待后台签到和浏览器任务完成清理\n\nv1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站",
+    "changelog": "v1.0.3 按真实站点结果适配\n- 兼容 Audiences 实际使用的“已签到”状态\n- 识别 TJUPT 影视图片签到验证码并明确提示人工处理\n- Cookie、验证码和权限类错误不再无意义自动重试\n\nv1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 插件停用时等待后台任务完成清理",
     "path": "plugins/pt_multi_checkin.py"
   },
   "pterclub_bonus": {

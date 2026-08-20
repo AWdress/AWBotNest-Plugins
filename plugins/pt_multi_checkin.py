@@ -44,11 +44,11 @@ def _site_schema():
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态，不再把普通页面误报成功\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 补充新旧 NexusPHP 中英文结果文案\n- 插件停用时等待后台签到和浏览器任务完成清理\n\nv1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站",
+    "changelog": "v1.0.3 按真实站点结果适配\n- 兼容 Audiences 实际使用的“已签到”状态\n- 识别 TJUPT 影视图片签到验证码并明确提示人工处理\n- Cookie、验证码和权限类错误不再无意义自动重试\n\nv1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 插件停用时等待后台任务完成清理",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -168,7 +168,7 @@ def _result_state(text: str) -> tuple[str, str] | None:
     """只根据明确的站点反馈判断结果，避免把普通 200 页面误报为成功。"""
     low = (text or "").lower()
     already_markers = (
-        "今日已签到", "今天已签到", "已经签到", "签到已完成", "今日已经签到",
+        "今日已签到", "今天已签到", "已经签到", "签到已完成", "今日已经签到", "已签到", "签到已得",
         "already attended", "already signed", "attended today", "already checked in",
     )
     success_markers = (
@@ -189,10 +189,36 @@ def _result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
+def _captcha_error(text: str) -> str:
+    low = (text or "").lower()
+    if any(marker in low for marker in (
+        "签到验证码", "请选择与左侧图片对应", "回答正确将获得", "回答错误将反向扣除",
+    )):
+        return "网站要求完成签到图片验证码，需要人工签到，本插件不会自动提交答案"
+    if any(marker in low for marker in (
+        "turnstile", "hcaptcha", "recaptcha", "交互式验证码",
+    )):
+        return "网站要求完成交互式验证码，需要人工处理"
+    return ""
+
+
+def _retryable_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    permanent = (
+        "cookie", "登录页", "人工签到", "人工处理", "验证码", "没有访问权限",
+        "非预期域名", "格式不正确",
+    )
+    return not any(marker in text for marker in permanent)
+
+
 def _confirm_result(page, *, attempts: int = 3) -> dict:
     """刷新确认服务端状态；绝不为确认结果而再次点击签到按钮。"""
     for attempt in range(attempts):
-        state = _result_state(_page_text(page))
+        text = _page_text(page)
+        captcha = _captcha_error(text)
+        if captcha:
+            raise RuntimeError(captcha)
+        state = _result_state(text)
         if state:
             status, message = state
             if status == "failed":
@@ -232,6 +258,9 @@ def _browser_checkin(page, expected_domain: str) -> dict:
         raise RuntimeError("Cookie 已失效，网站返回登录页")
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
+    captcha = _captcha_error(text)
+    if captcha:
+        raise RuntimeError(captcha)
     initial_state = _result_state(text)
     if initial_state:
         status, message = initial_state
@@ -298,10 +327,11 @@ async def _run(ctx, source: str) -> dict:
                     }
                     break
                 except Exception as exc:  # noqa: BLE001
-                    if attempt < retries:
+                    if attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)
                     else:
                         item = {"site": site["name"], "ok": False, "status": "failed", "message": str(exc)}
+                        break
             results.append(item)
 
         success = sum(1 for item in results if item["ok"])
