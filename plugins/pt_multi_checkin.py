@@ -1,4 +1,4 @@
-"""四站 PT 自动签到：平台 CloakBrowser + 平台/手动 Cookie。"""
+"""多站点 PT 自动签到：平台 CloakBrowser + 平台/手动 Cookie。"""
 
 from __future__ import annotations
 
@@ -42,13 +42,13 @@ def _site_schema():
 
 
 __plugin__ = {
-    "name": "PT 四站自动签到",
+    "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
-    "description": "使用平台 CloakBrowser 为 Audiences、OurBits、PigGo、TJUPT 自动签到，支持平台或手动 Cookie。",
+    "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.0 初始版本\n- 支持 Audiences、OurBits、PigGo、TJUPT 每日自动签到\n- 使用平台托管 CloakBrowser 等待 Cloudflare 验证\n- 每站可独立选择平台同步或手动 Cookie\n- 支持立即签到、失败重试、结果推送和最近记录",
+    "changelog": "v1.0.1 调整为通用多站定位\n- 插件更名为 PT站自动签到，便于后续持续增加站点\n- 当前内置 Audiences、OurBits、PigGo、TJUPT 四站\n\nv1.0.0 初始版本\n- 使用平台托管 CloakBrowser 等待 Cloudflare 验证\n- 每站可独立选择平台同步或手动 Cookie\n- 支持立即签到、失败重试、结果推送和最近记录",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -289,7 +289,7 @@ async def _run(ctx, source: str) -> dict:
         if ctx.config.get("notify_result", True):
             rows = [{"站点": item["site"], "结果": "已签到" if item["status"] == "already" else ("成功" if item["ok"] else "失败"), "详情": item["message"]} for item in results]
             try:
-                await ctx.notify(rows, level="success" if success == len(results) else "warning", category="PT 四站签到")
+                await ctx.notify(rows, level="success" if success == len(results) else "warning", category="PT站签到")
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("签到结果推送失败：%r", exc)
         return {"ok": success == len(results), "message": text, "results": results}
@@ -303,7 +303,7 @@ async def setup(ctx):
     async def run_now():
         if _run_lock and _run_lock.locked():
             return {"ok": True, "message": "签到任务已经在后台运行"}
-        task = ctx.create_task(_run(ctx, "手动"), name="PT 四站手动签到", operation="manual_checkin")
+        task = ctx.create_task(_run(ctx, "手动"), name="PT站手动签到", operation="manual_checkin")
         _tasks.add(task)
         task.add_done_callback(_tasks.discard)
         return {"ok": True, "message": "签到任务已开始，完成后会推送汇总结果"}
@@ -320,7 +320,7 @@ async def setup(ctx):
         async def scheduled():
             await _run(ctx, "定时")
 
-        ctx.schedule(scheduled, "cron", hour=hour, minute=minute, id="PT 四站每日签到")
+        ctx.schedule(scheduled, "cron", hour=hour, minute=minute, id="PT站每日签到")
 
 
 async def teardown(ctx):
