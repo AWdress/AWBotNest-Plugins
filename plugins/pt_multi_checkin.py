@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
+import secrets
+import threading
 from urllib.parse import urlparse
 
 
@@ -44,11 +47,11 @@ def _site_schema():
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.0.3 按真实站点结果适配\n- 兼容 Audiences 实际使用的“已签到”状态\n- 识别 TJUPT 影视图片签到验证码并明确提示人工处理\n- Cookie、验证码和权限类错误不再无意义自动重试\n\nv1.0.2 修复签到误判与任务清理\n- 点击或访问签到页后必须确认成功或已签到状态\n- 结果未知时仅刷新确认，绝不重复点击签到\n- 插件停用时等待后台任务完成清理",
+    "changelog": "v1.1.0 增加雷池兼容与 TJUPT 人工确认\n- PigGo 识别雷池 WAF 验证完成页并等待站内跳转\n- TJUPT 验证题调用平台 AI 识图并向 Telegram 推送候选按钮\n- 用户点击候选答案后在原浏览器会话提交，超时或页面变化时安全取消\n\nv1.0.3 按真实站点结果适配\n- 兼容 Audiences 与 OurBits 实际签到状态\n- Cookie、验证码和权限类错误不再无意义自动重试",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -91,6 +94,15 @@ __plugin__ = {
             "type": "slider", "default": 20, "label": "重试间隔（秒）",
             "min": 5, "max": 300, "step": 5, "section": "定时与重试", "cols": 3, "order": 7,
         },
+        "tjupt_ai_assist": {
+            "type": "boolean", "default": True, "label": "TJUPT AI 识图辅助",
+            "help": "把验证题截图、AI 建议和候选按钮推送给平台主人；由你点击答案后提交。",
+            "section": "任务设置", "cols": 4, "order": 8,
+        },
+        "tjupt_confirm_timeout": {
+            "type": "slider", "default": 300, "label": "TJUPT 等待确认（秒）",
+            "min": 60, "max": 600, "step": 30, "section": "任务设置", "cols": 4, "order": 9,
+        },
         **_site_schema(),
         "run_now": {
             "type": "action", "label": "立即签到全部启用站点", "action": "run_now",
@@ -102,7 +114,7 @@ __plugin__ = {
         },
         "usage": {
             "type": "info", "label": "说明", "section": "说明", "cols": 12, "order": 110,
-            "default": "每个站点可独立选择 Cookie 来源。遇到 Cloudflare 时浏览器会等待验证；若出现需要人工操作的交互式验证码，本轮会报告失败，不会绕过验证码。",
+            "default": "每个站点可独立选择 Cookie 来源。Cloudflare/雷池会等待正常验证。TJUPT 验证题可由平台 AI 给出建议，并推送 Telegram 候选按钮供主人确认。",
         },
     },
 }
@@ -112,6 +124,7 @@ _run_lock: asyncio.Lock | None = None
 _tasks: set[asyncio.Task] = set()
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
+_tjupt_pending: dict[str, dict] = {}
 
 
 def _bounded(value, default: int, low: int, high: int) -> int:
@@ -206,9 +219,107 @@ def _retryable_error(exc: Exception) -> bool:
     text = str(exc).lower()
     permanent = (
         "cookie", "登录页", "人工签到", "人工处理", "验证码", "没有访问权限",
-        "非预期域名", "格式不正确",
+        "非预期域名", "格式不正确", "bot 未连接", "主人 id",
+        "等待 telegram", "签到选项", "验证题已变化",
     )
     return not any(marker in text for marker in permanent)
+
+
+def _ai_available(ctx, capability: str) -> bool:
+    checker = getattr(ctx.ai, "is_available", None)
+    if callable(checker):
+        return bool(checker(capability))
+    return bool(getattr(ctx.ai, "available", False))
+
+
+def _radio_label(item) -> str:
+    """读取单选项可见文案，兼容 label[for]、包裹式 label 和表格布局。"""
+    try:
+        return str(item.evaluate("""el => {
+            const direct = el.labels && el.labels.length ? el.labels[0].innerText : '';
+            if (direct.trim()) return direct.trim();
+            const wrapped = el.closest('label');
+            if (wrapped && wrapped.innerText.trim()) return wrapped.innerText.trim();
+            const cell = el.closest('td,li,div');
+            return cell ? cell.innerText.trim() : (el.value || '');
+        }""") or "").strip()
+    except Exception:
+        return str(item.get_attribute("value") or "").strip()
+
+
+async def _send_tjupt_question(ctx, token: str, image_path: Path, options: list[str]) -> None:
+    suggestion = "平台未配置视觉模型，请根据海报手动选择。"
+    if ctx.config.get("tjupt_ai_assist", True) and _ai_available(ctx, "vision"):
+        try:
+            suggestion = str(await ctx.ai.vision(
+                image=image_path.read_bytes(),
+                prompt=(
+                    "这是 TJUPT 的影视海报选择题。请观察图片，在下列候选项中给出最可能的一个，"
+                    "同时简短说明依据和置信度。不要编造候选项。\n候选项：\n"
+                    + "\n".join(f"{index + 1}. {label}" for index, label in enumerate(options))
+                ),
+                system="你是谨慎的影视海报识别助手。答案不确定时必须明确说明。",
+            ) or "AI 未返回建议")
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("TJUPT AI 识图失败：%r", exc)
+            suggestion = f"AI 识图失败：{exc.__class__.__name__}，请手动选择。"
+
+    rows = []
+    for index, label in enumerate(options):
+        rows.append([{"text": f"{index + 1}. {label}"[:60], "callback_data": f"pttj:{token}:{index}"}])
+    caption = (
+        "🎬 TJUPT 签到验证\n\n"
+        f"AI 建议：{suggestion[:700]}\n\n"
+        "请核对海报后点击一个候选答案；插件只会提交你点击的选项。"
+    )
+    if not ctx.bot.connected or not ctx.owner_id:
+        raise RuntimeError("平台 Bot 未连接或未配置主人 ID，无法发送 TJUPT 确认按钮")
+    await ctx.bot.send_photo(ctx.owner_id, str(image_path), caption=caption, reply_markup={"inline_keyboard": rows})
+
+
+def _tjupt_challenge(ctx, page, loop) -> dict:
+    radios = page.locator('input[type="radio"]')
+    count = min(radios.count(), 12)
+    if count < 2:
+        raise RuntimeError("识别到 TJUPT 签到验证，但没有解析到候选答案")
+    options = [_radio_label(radios.nth(index)) or f"选项 {index + 1}" for index in range(count)]
+    token = secrets.token_urlsafe(6)
+    image_path = Path(ctx.data_dir) / f"tjupt_{token}.png"
+    form = radios.first.locator("xpath=ancestor::form[1]")
+    try:
+        form.screenshot(path=str(image_path))
+    except Exception:
+        page.screenshot(path=str(image_path), full_page=True)
+
+    event = threading.Event()
+    pending = {"event": event, "choice": None, "created": datetime.now().timestamp()}
+    _tjupt_pending[token] = pending
+    timeout = _bounded(ctx.config.get("tjupt_confirm_timeout"), 300, 60, 600)
+    try:
+        future = asyncio.run_coroutine_threadsafe(_send_tjupt_question(ctx, token, image_path, options), loop)
+        future.result(timeout=90)
+        if not event.wait(timeout):
+            raise RuntimeError(f"等待 Telegram 选择超时（{timeout} 秒），未提交签到答案")
+        choice = pending.get("choice")
+        if not isinstance(choice, int) or choice < 0 or choice >= count:
+            raise RuntimeError("Telegram 返回的签到选项无效，未提交")
+        current = page.locator('input[type="radio"]')
+        if current.count() != count or [_radio_label(current.nth(i)) or f"选项 {i + 1}" for i in range(count)] != options:
+            raise RuntimeError("TJUPT 验证题已变化，未提交旧答案")
+        selected = current.nth(choice)
+        selected.check()
+        submit = form.locator('button[type="submit"], input[type="submit"], button').first
+        if submit.count() < 1:
+            raise RuntimeError("没有找到 TJUPT 验证题提交按钮")
+        submit.click()
+        page.wait_for_timeout(3_000)
+        return _confirm_result(page)
+    finally:
+        _tjupt_pending.pop(token, None)
+        try:
+            image_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _confirm_result(page, *, attempts: int = 3) -> dict:
@@ -230,21 +341,22 @@ def _confirm_result(page, *, attempts: int = 3) -> dict:
     raise RuntimeError("签到请求后无法确认成功状态，未计为签到成功")
 
 
-def _browser_checkin(page, expected_domain: str) -> dict:
+def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
-    for _ in range(30):
+    for _ in range(60):
         title = (page.title() or "").lower()
         text = _page_text(page).lower()
         challenged = any(marker in f"{title}\n{text}" for marker in (
             "just a moment", "checking your browser", "cloudflare ray id", "cf-chl-",
-            "请完成安全验证", "验证您是否是真人",
+            "请完成安全验证", "验证您是否是真人", "验证完成，即将进入网站",
+            "雷池 waf", "安全检测能力由 雷池", "verification completed",
         ))
         if not challenged:
             break
         page.wait_for_timeout(3_000)
     else:
-        raise RuntimeError("Cloudflare 验证等待超时；若为交互式验证码需要人工处理")
+        raise RuntimeError("Cloudflare/雷池验证等待超时；若为交互式验证码需要人工处理")
 
     current_domain = (urlparse(page.url).hostname or "").lower()
     if current_domain not in {expected_domain, f"www.{expected_domain}"}:
@@ -260,6 +372,8 @@ def _browser_checkin(page, expected_domain: str) -> dict:
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
     captcha = _captcha_error(text)
     if captcha:
+        if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
+            return _tjupt_challenge(ctx, page, loop)
         raise RuntimeError(captcha)
     initial_state = _result_state(text)
     if initial_state:
@@ -305,6 +419,7 @@ async def _run(ctx, source: str) -> dict:
         results = []
         retries = _bounded(ctx.config.get("retry_count"), 2, 0, 5)
         interval = _bounded(ctx.config.get("retry_interval"), 20, 5, 300)
+        loop = asyncio.get_running_loop()
         for key, site in enabled:
             cookie, error = await _site_cookie(ctx, key, site)
             if error:
@@ -314,11 +429,12 @@ async def _run(ctx, source: str) -> dict:
             for attempt in range(retries + 1):
                 try:
                     def action(page, domain=site["domain"]):
-                        return _browser_checkin(page, domain)
+                        return _browser_checkin(page, domain, ctx, loop)
 
                     outcome = await ctx.browser.run(
                         site["url"], action, cookies=cookie,
-                        headless=bool(ctx.config.get("headless", True)), timeout=150,
+                        headless=bool(ctx.config.get("headless", True)),
+                        timeout=720 if key == "tjupt" else (300 if key == "piggo" else 150),
                     )
                     status = str((outcome or {}).get("status") or "success")
                     item = {
@@ -359,6 +475,28 @@ async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
 
+    @ctx.on_callback(ctx.filters.regex(r"^pttj:"), target="bot", group=10)
+    async def tjupt_choice(client, query):
+        data = getattr(query, "data", "") or ""
+        if isinstance(data, (bytes, bytearray)):
+            data = bytes(data).decode("utf-8", "replace")
+        try:
+            _, token, raw_choice = str(data).split(":", 2)
+            choice = int(raw_choice)
+        except (TypeError, ValueError):
+            await query.answer("选项数据无效", show_alert=True)
+            return
+        if not getattr(query, "from_user", None) or int(query.from_user.id) != int(ctx.owner_id or 0):
+            await query.answer("只有平台主人可以确认签到答案", show_alert=True)
+            return
+        pending = _tjupt_pending.get(token)
+        if not pending or pending["event"].is_set():
+            await query.answer("这道验证题已失效", show_alert=True)
+            return
+        pending["choice"] = choice
+        pending["event"].set()
+        await query.answer("已选择，正在原页面提交")
+
     @ctx.action("run_now")
     async def run_now():
         if _run_lock and _run_lock.locked():
@@ -384,6 +522,10 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    for pending in list(_tjupt_pending.values()):
+        pending["choice"] = None
+        pending["event"].set()
+    _tjupt_pending.clear()
     tasks = list(_tasks)
     for task in tasks:
         if not task.done():
