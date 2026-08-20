@@ -50,11 +50,12 @@ __plugin__ = {
         },
         "lottery_count": {
             "type": "number", "default": 10, "label": "抽奖次数",
-            "min": 1, "max": 1000, "section": "抽奖设置", "cols": 4, "order": 20,
+            "min": 1, "section": "抽奖设置", "cols": 6, "order": 20,
         },
-        "max_count": {
-            "type": "number", "default": 100, "label": "单次任务上限",
-            "min": 1, "max": 10000, "section": "抽奖设置", "cols": 4, "order": 21,
+        "lottery_mode": {
+            "type": "select", "default": "fixed", "label": "抽奖方式",
+            "options": [{"label": "指定次数", "value": "fixed"}, {"label": "按余额抽完", "value": "balance"}],
+            "section": "抽奖设置", "cols": 6, "order": 21,
         },
         "interval_seconds": {
             "type": "slider", "default": 7, "label": "抽奖间隔（秒）",
@@ -317,25 +318,27 @@ async def setup(ctx):
         except Exception as exc:  # noqa: BLE001
             ctx.log.warning("[憨憨转盘] 推送结果失败：%r", exc)
 
-    async def _run(count: int):
+    async def _run(count: int | None):
         global _active_task
         prizes: list[str] = []
-        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": count})
+        requested = count or 0
+        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": requested})
         ok, detail, balance, cost = await _page_info(ctx)
         if not ok:
             await _notify_cookie(detail)
             result_text = f"⚠️ 憨憨转盘无法启动\n\n{detail}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": count, "detail": detail})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": requested, "detail": detail})
             await _push_result(result_text, success=False)
             _active_task = None
             return
         possible = balance // cost if cost > 0 else 0
-        target = min(count, possible)
+        target = possible if count is None else min(count, possible)
+        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": target})
         if target <= 0:
             result_text = f"💸 憨豆不足\n\n余额 {balance:,}，单次需要 {cost:,}。"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": count, "detail": "憨豆不足"})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": "憨豆不足"})
             await _push_result(result_text, success=False)
             _active_task = None
             return
@@ -344,7 +347,7 @@ async def setup(ctx):
         if error:
             result_text = f"⚠️ {error}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": count, "detail": error})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": error})
             await _push_result(result_text, success=False)
             _active_task = None
             return
@@ -390,7 +393,7 @@ async def setup(ctx):
             if prizes:
                 _save_result(ctx, prizes, cost)
             title = "🎉 憨憨转盘完成" if len(prizes) == target else "🛑 憨憨转盘已停止"
-            if target < count and not stop_detail:
+            if count is not None and target < count and not stop_detail:
                 stop_detail = f"余额最多支持 {target} 次，已自动缩减"
             result_text = _summary(title, prizes, cost, balance, stop_detail)
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
@@ -421,16 +424,17 @@ async def setup(ctx):
                 "ok": False,
                 "message": f"已有任务运行中：{_int(status.get('completed'), 0)}/{_int(status.get('target'), 0)}",
             }
-        count = _int(ctx.config.get("lottery_count"), 10, 1)
-        maximum = _int(ctx.config.get("max_count"), 100, 1)
-        if count < 1 or count > maximum:
-            return {"ok": False, "message": f"抽奖次数需为 1–{maximum} 的整数"}
+        balance_mode = str(ctx.config.get("lottery_mode", "fixed")) == "balance"
+        count = None if balance_mode else _int(ctx.config.get("lottery_count"), 10, 1)
+        if count is not None and count < 1:
+            return {"ok": False, "message": "抽奖次数必须是大于 0 的整数"}
         if _stop_event:
             _stop_event.clear()
         _active_task = ctx.create_task(
             _run(count), name="憨憨转盘后台任务", operation="lottery"
         )
-        return {"ok": True, "message": f"憨憨转盘已开始，计划抽奖 {count} 次；可稍后查看最近结果。"}
+        plan = "将按当前余额计算全部可抽次数" if balance_mode else f"计划抽奖 {count} 次"
+        return {"ok": True, "message": f"憨憨转盘已开始，{plan}；可在面板查看进度。"}
 
     @ctx.action("stop_lottery")
     async def stop_lottery():

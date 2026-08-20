@@ -8,7 +8,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$2,normalizeClass:_normalizeClass$4,normalizeStyle:_normalizeStyle$1,vModelCheckbox:_vModelCheckbox$2,withDirectives:_withDirectives$3,vModelText:_vModelText$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4} = await importShared('vue');
+const {createElementVNode:_createElementVNode$4,toDisplayString:_toDisplayString$3,createTextVNode:_createTextVNode$2,normalizeClass:_normalizeClass$4,normalizeStyle:_normalizeStyle$1,vModelCheckbox:_vModelCheckbox$2,withDirectives:_withDirectives$3,vModelSelect:_vModelSelect,vModelText:_vModelText$3,openBlock:_openBlock$4,createElementBlock:_createElementBlock$4,createCommentVNode:_createCommentVNode$4} = await importShared('vue');
 
 
 const _hoisted_1$4 = { class: "panel" };
@@ -18,14 +18,18 @@ const _hoisted_4$3 = { class: "track" };
 const _hoisted_5$3 = { class: "grid" };
 const _hoisted_6$3 = { class: "card settings" };
 const _hoisted_7$3 = { class: "toggle-row" };
-const _hoisted_8$3 = ["max"];
-const _hoisted_9$3 = { class: "check" };
+const _hoisted_8$3 = { key: 0 };
+const _hoisted_9$3 = {
+  key: 1,
+  class: "mode-note"
+};
 const _hoisted_10$2 = { class: "check" };
-const _hoisted_11$2 = ["disabled"];
-const _hoisted_12$2 = { class: "card result" };
-const _hoisted_13$2 = ["disabled"];
+const _hoisted_11$2 = { class: "check" };
+const _hoisted_12$2 = ["disabled"];
+const _hoisted_13$2 = { class: "card result" };
 const _hoisted_14$1 = ["disabled"];
 const _hoisted_15$1 = ["disabled"];
+const _hoisted_16$1 = ["disabled"];
 
 const {computed: computed$2,onBeforeUnmount: onBeforeUnmount$1,onMounted: onMounted$3,reactive: reactive$3,ref: ref$4} = await importShared('vue');
 
@@ -37,7 +41,7 @@ const _sfc_main$4 = {
   setup(__props) {
 
 const props = __props;
-const cfg = reactive$3({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_count: 10, max_count: 100, interval_seconds: 7 });
+const cfg = reactive$3({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7 });
 const status = ref$4({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '' });
 const stats = ref$4('暂无累计统计');
 const busy = ref$4('');
@@ -49,7 +53,8 @@ const stateText = computed$2(() => status.value.running ? `正在抽奖 ${status
 async function refresh() { try { status.value = await props.host.callApi('/lottery/status'); } catch (_) {} }
 async function loadStats() { try { stats.value = (await props.host.callApi('/lottery/stats')).text || '暂无累计统计'; } catch (_) {} }
 async function save(showToast = true) {
-  cfg.lottery_count = Math.max(1, Math.min(Number(cfg.lottery_count) || 10, Number(cfg.max_count) || 100));
+  cfg.lottery_mode = cfg.lottery_mode === 'balance' ? 'balance' : 'fixed';
+  cfg.lottery_count = Math.max(1, Math.trunc(Number(cfg.lottery_count) || 10));
   cfg.interval_seconds = Math.max(3, Math.min(Number(cfg.interval_seconds) || 7, 30));
   await props.host.saveConfig({ ...cfg });
   if (showToast) props.host.toast.success('转盘配置已保存');
@@ -75,15 +80,15 @@ onBeforeUnmount$1(() => clearInterval(timer));
 return (_ctx, _cache) => {
   return (_openBlock$4(), _createElementBlock$4("section", _hoisted_1$4, [
     _createElementVNode$4("header", null, [
-      _cache[10] || (_cache[10] = _createElementVNode$4("div", null, [
+      _cache[11] || (_cache[11] = _createElementVNode$4("div", null, [
         _createElementVNode$4("p", { class: "eyebrow" }, "HHANCLUB"),
         _createElementVNode$4("h2", null, "幸运转盘"),
-        _createElementVNode$4("p", { class: "sub" }, "使用平台已登录 Cookie，在后台按设定次数抽奖。")
+        _createElementVNode$4("p", { class: "sub" }, "可指定任意正整数次数，或按当前余额自动抽完。")
       ], -1)),
       _createElementVNode$4("span", {
         class: _normalizeClass$4(["state", { live: status.value.running }])
       }, [
-        _cache[9] || (_cache[9] = _createElementVNode$4("i", null, null, -1)),
+        _cache[10] || (_cache[10] = _createElementVNode$4("i", null, null, -1)),
         _createTextVNode$2(_toDisplayString$3(stateText.value), 1)
       ], 2)
     ]),
@@ -91,7 +96,7 @@ return (_ctx, _cache) => {
       _createElementVNode$4("div", _hoisted_3$3, [
         _createElementVNode$4("strong", null, [
           _createTextVNode$2(_toDisplayString$3(status.value.completed) + " ", 1),
-          _createElementVNode$4("small", null, "/ " + _toDisplayString$3(status.value.target || cfg.lottery_count) + " 次", 1)
+          _createElementVNode$4("small", null, "/ " + _toDisplayString$3(status.value.target || (cfg.lottery_mode === 'balance' ? '待计算' : cfg.lottery_count)) + " 次", 1)
         ]),
         _createElementVNode$4("span", null, _toDisplayString$3(progress.value) + "%", 1)
       ]),
@@ -104,9 +109,9 @@ return (_ctx, _cache) => {
     ]),
     _createElementVNode$4("div", _hoisted_5$3, [
       _createElementVNode$4("div", _hoisted_6$3, [
-        _cache[16] || (_cache[16] = _createElementVNode$4("h3", null, "抽奖设置", -1)),
+        _cache[19] || (_cache[19] = _createElementVNode$4("h3", null, "抽奖设置", -1)),
         _createElementVNode$4("label", _hoisted_7$3, [
-          _cache[11] || (_cache[11] = _createElementVNode$4("span", null, [
+          _cache[12] || (_cache[12] = _createElementVNode$4("span", null, [
             _createElementVNode$4("b", null, "启用转盘"),
             _createElementVNode$4("small", null, "关闭后不能启动新任务")
           ], -1)),
@@ -118,25 +123,38 @@ return (_ctx, _cache) => {
           ])
         ]),
         _createElementVNode$4("label", null, [
-          _cache[12] || (_cache[12] = _createElementVNode$4("span", null, "抽奖次数", -1)),
-          _withDirectives$3(_createElementVNode$4("input", {
-            "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((cfg.lottery_count) = $event)),
-            type: "number",
-            min: "1",
-            max: cfg.max_count
-          }, null, 8, _hoisted_8$3), [
-            [
-              _vModelText$3,
-              cfg.lottery_count,
-              void 0,
-              { number: true }
-            ]
+          _cache[14] || (_cache[14] = _createElementVNode$4("span", null, "抽奖方式", -1)),
+          _withDirectives$3(_createElementVNode$4("select", {
+            "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((cfg.lottery_mode) = $event))
+          }, [...(_cache[13] || (_cache[13] = [
+            _createElementVNode$4("option", { value: "fixed" }, "指定次数", -1),
+            _createElementVNode$4("option", { value: "balance" }, "按余额抽完", -1)
+          ]))], 512), [
+            [_vModelSelect, cfg.lottery_mode]
           ])
         ]),
+        (cfg.lottery_mode === 'fixed')
+          ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_8$3, [
+              _cache[15] || (_cache[15] = _createElementVNode$4("span", null, "抽奖次数", -1)),
+              _withDirectives$3(_createElementVNode$4("input", {
+                "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.lottery_count) = $event)),
+                type: "number",
+                min: "1",
+                step: "1"
+              }, null, 512), [
+                [
+                  _vModelText$3,
+                  cfg.lottery_count,
+                  void 0,
+                  { number: true }
+                ]
+              ])
+            ]))
+          : (_openBlock$4(), _createElementBlock$4("p", _hoisted_9$3, "启动时读取憨豆余额和单次消耗，自动计算本次可抽次数。")),
         _createElementVNode$4("label", null, [
-          _cache[13] || (_cache[13] = _createElementVNode$4("span", null, "抽奖间隔（秒）", -1)),
+          _cache[16] || (_cache[16] = _createElementVNode$4("span", null, "抽奖间隔（秒）", -1)),
           _withDirectives$3(_createElementVNode$4("input", {
-            "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.interval_seconds) = $event)),
+            "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.interval_seconds) = $event)),
             type: "number",
             min: "3",
             max: "30"
@@ -149,34 +167,34 @@ return (_ctx, _cache) => {
             ]
           ])
         ]),
-        _createElementVNode$4("label", _hoisted_9$3, [
+        _createElementVNode$4("label", _hoisted_10$2, [
           _withDirectives$3(_createElementVNode$4("input", {
-            "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.notify_result) = $event)),
+            "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.notify_result) = $event)),
             type: "checkbox"
           }, null, 512), [
             [_vModelCheckbox$2, cfg.notify_result]
           ]),
-          _cache[14] || (_cache[14] = _createTextVNode$2(" 完成后推送结果", -1))
+          _cache[17] || (_cache[17] = _createTextVNode$2(" 完成后推送结果", -1))
         ]),
-        _createElementVNode$4("label", _hoisted_10$2, [
+        _createElementVNode$4("label", _hoisted_11$2, [
           _withDirectives$3(_createElementVNode$4("input", {
-            "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.notify_cookie_error) = $event)),
+            "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((cfg.notify_cookie_error) = $event)),
             type: "checkbox"
           }, null, 512), [
             [_vModelCheckbox$2, cfg.notify_cookie_error]
           ]),
-          _cache[15] || (_cache[15] = _createTextVNode$2(" Cookie 异常时通知", -1))
+          _cache[18] || (_cache[18] = _createTextVNode$2(" Cookie 异常时通知", -1))
         ]),
         _createElementVNode$4("button", {
           class: "secondary",
           disabled: busy.value,
-          onClick: _cache[5] || (_cache[5] = $event => (save()))
-        }, "保存设置", 8, _hoisted_11$2)
+          onClick: _cache[6] || (_cache[6] = $event => (save()))
+        }, "保存设置", 8, _hoisted_12$2)
       ]),
-      _createElementVNode$4("div", _hoisted_12$2, [
-        _cache[17] || (_cache[17] = _createElementVNode$4("h3", null, "最近结果", -1)),
+      _createElementVNode$4("div", _hoisted_13$2, [
+        _cache[20] || (_cache[20] = _createElementVNode$4("h3", null, "最近结果", -1)),
         _createElementVNode$4("pre", null, _toDisplayString$3(status.value.last_result || '还没有抽奖记录。'), 1),
-        _cache[18] || (_cache[18] = _createElementVNode$4("h3", null, "累计统计", -1)),
+        _cache[21] || (_cache[21] = _createElementVNode$4("h3", null, "累计统计", -1)),
         _createElementVNode$4("pre", null, _toDisplayString$3(stats.value), 1)
       ])
     ]),
@@ -184,25 +202,25 @@ return (_ctx, _cache) => {
       _createElementVNode$4("button", {
         class: "primary",
         disabled: busy.value || status.value.running || !cfg.enabled,
-        onClick: _cache[6] || (_cache[6] = $event => (action('run', '/lottery/run')))
-      }, _toDisplayString$3(busy.value === 'run' ? '正在启动…' : '开始抽奖'), 9, _hoisted_13$2),
+        onClick: _cache[7] || (_cache[7] = $event => (action('run', '/lottery/run')))
+      }, _toDisplayString$3(busy.value === 'run' ? '正在启动…' : '开始抽奖'), 9, _hoisted_14$1),
       _createElementVNode$4("button", {
         class: "danger",
         disabled: busy.value || !status.value.running,
-        onClick: _cache[7] || (_cache[7] = $event => (action('stop', '/lottery/stop')))
-      }, "停止抽奖", 8, _hoisted_14$1),
+        onClick: _cache[8] || (_cache[8] = $event => (action('stop', '/lottery/stop')))
+      }, "停止抽奖", 8, _hoisted_15$1),
       _createElementVNode$4("button", {
         class: "secondary",
         disabled: busy.value,
-        onClick: _cache[8] || (_cache[8] = $event => (action('cookie', '/lottery/cookie/check', 'GET')))
-      }, "检查平台 Cookie", 8, _hoisted_15$1)
+        onClick: _cache[9] || (_cache[9] = $event => (action('cookie', '/lottery/cookie/check', 'GET')))
+      }, "检查 Cookie 与余额", 8, _hoisted_16$1)
     ])
   ]))
 }
 }
 
 };
-const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-0ffce8ff"]]);
+const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-2c2678b6"]]);
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$1,normalizeClass:_normalizeClass$3,Fragment:_Fragment$2,normalizeStyle:_normalizeStyle,vModelCheckbox:_vModelCheckbox$1,withDirectives:_withDirectives$2,vModelText:_vModelText$2,renderList:_renderList} = await importShared('vue');
 

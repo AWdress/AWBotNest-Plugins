@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-D5u5qzqh.js';
+import Config from './__federation_expose_Config-Cr7gv70T.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -41,7 +41,7 @@ true              &&(function polyfill() {
 
 const {createApp,h} = await importShared('vue');
 
-let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_count: 10, max_count: 100, interval_seconds: 7, page_delay: 1, max_pages: 200 };
+let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, page_delay: 1, max_pages: 200 };
 let running = false;
 let processed = 0;
 

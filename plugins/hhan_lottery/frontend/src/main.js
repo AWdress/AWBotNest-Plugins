@@ -1,7 +1,7 @@
 import { createApp, h } from 'vue'
 import Config from './Config.vue'
 
-let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_count: 10, max_count: 100, interval_seconds: 7, page_delay: 1, max_pages: 200 }
+let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, page_delay: 1, max_pages: 200 }
 let running = false
 let processed = 0
 const started = Date.now()
