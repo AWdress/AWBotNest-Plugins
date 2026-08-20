@@ -52,12 +52,12 @@ function iconPath(name) {
 }
 
 async function loadStatus() {
-  try { status.value = await props.host.callApi('/status') }
+  try { status.value = await props.host.callApi('/read/status') }
   catch (error) { /* 轮询失败不打断用户 */ }
 }
 
 async function loadHistory() {
-  try { history.value = (await props.host.callApi('/history')).items || [] }
+  try { history.value = (await props.host.callApi('/read/history')).items || [] }
   catch (error) { props.host.toast.error('读取运行记录失败：' + (error.message || error)) }
 }
 
@@ -77,7 +77,7 @@ async function run() {
   starting.value = true
   try {
     await props.host.saveConfig({ ...cfg })
-    const result = await props.host.callApi('/run', { method: 'POST', body: {} })
+    const result = await props.host.callApi('/read/run', { method: 'POST', body: {} })
     result.ok ? props.host.toast.success(result.message) : props.host.toast.error(result.message)
     await loadStatus()
   } catch (error) {
@@ -88,7 +88,7 @@ async function run() {
 async function stop() {
   stopping.value = true
   try {
-    const result = await props.host.callApi('/stop', { method: 'POST', body: {} })
+    const result = await props.host.callApi('/read/stop', { method: 'POST', body: {} })
     result.ok ? props.host.toast.success(result.message) : props.host.toast.error(result.message)
     await loadStatus()
   } catch (error) {
@@ -99,7 +99,7 @@ async function stop() {
 async function checkCookie() {
   checking.value = true
   try {
-    const result = await props.host.callApi('/cookie/check')
+    const result = await props.host.callApi('/read/cookie/check')
     result.ok ? props.host.toast.success(result.message) : props.host.toast.error(result.message)
   } catch (error) {
     props.host.toast.error('检查失败：' + (error.message || error))
@@ -110,7 +110,7 @@ async function clearHistory() {
   if (!confirm('清空最近运行记录？')) return
   clearing.value = true
   try {
-    const result = await props.host.callApi('/history/clear', { method: 'POST', body: {} })
+    const result = await props.host.callApi('/read/history/clear', { method: 'POST', body: {} })
     history.value = []
     props.host.toast.success(result.message)
   } catch (error) {

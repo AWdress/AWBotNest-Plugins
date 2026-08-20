@@ -2,8 +2,8 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-CXYbak96.css"], false, './Config');
-      return __federation_import('/api/plugins/hhan_read/fe/assets/__federation_expose_Config-D0PhKAEV.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Config-BJNEFCdO.css"], false, './Config');
+      return __federation_import('/api/plugins/hhan_lottery/fe/assets/__federation_expose_Config-C4dYSBRs.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;
@@ -13,7 +13,7 @@ const currentImports = {};
         }
 
         const curUrl = metaUrl.substring(0, metaUrl.lastIndexOf('remoteEntry.js'));
-        const base = '/api/plugins/hhan_read/fe/';
+        const base = '/api/plugins/hhan_lottery/fe/';
         'assets';
 
         cssFilePaths.forEach(cssPath => {
@@ -44,7 +44,7 @@ const currentImports = {};
          }
          
           if (dontAppendStylesToHead) {
-            const key = 'css__awbotnest_hhan_read__' + exposeItemName;
+            const key = 'css__awbotnest_hhan_lottery__' + exposeItemName;
             window[key] = window[key] || [];
             window[key].push(href);
             return;

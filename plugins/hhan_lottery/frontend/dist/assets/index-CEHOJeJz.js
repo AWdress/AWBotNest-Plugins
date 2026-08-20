@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-D0PhKAEV.js';
+import Config from './__federation_expose_Config-C4dYSBRs.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -41,15 +41,20 @@ true              &&(function polyfill() {
 
 const {createApp,h} = await importShared('vue');
 
-let config = { enabled: true, notify_result: true, page_delay: 1, max_pages: 200 };
+let config = { enabled: true, notify_result: true, notify_cookie_error: true, lottery_count: 10, max_count: 100, interval_seconds: 7, page_delay: 1, max_pages: 200 };
 let running = false;
 let processed = 0;
 
 const mockHost = {
-  pluginId: 'hhan_read',
+  pluginId: 'hhan_lottery',
   async getConfig() { return { ...config } },
   async saveConfig(values) { config = { ...config, ...values }; },
   async callApi(path) {
+    if (path === '/lottery/status') return { running, completed: processed, target: 10, last_prize: processed ? '憨豆 500' : '', last_result: processed ? '本次抽奖完成：10 次' : '' }
+    if (path === '/lottery/run') { running = true; processed = 3; return { ok: true, message: '转盘任务已开始' } }
+    if (path === '/lottery/stop') { running = false; return { ok: true, message: '已请求停止' } }
+    if (path === '/lottery/cookie/check') return { ok: true, message: 'Cookie 有效；余额 12,500，单次消耗 100' }
+    if (path === '/lottery/stats') return { ok: true, text: '累计抽奖：36 次\n累计消耗：3,600 憨豆\n奖品：憨豆 500 × 8' }
     if (path === '/status') {
       if (running) processed = Math.min(12, processed + 2);
       return {

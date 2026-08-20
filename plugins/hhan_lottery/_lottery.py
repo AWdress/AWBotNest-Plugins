@@ -474,6 +474,32 @@ async def setup(ctx):
     async def view_stats():
         return {"ok": True, "message": _stats_text(_load_stats(ctx))}
 
+    @ctx.on_api("/lottery/status", methods=["GET"])
+    async def lottery_status(_request=None):
+        status = dict(ctx.kv.get(_STATUS_KEY, {}) or {})
+        status["running"] = bool(_active_task and not _active_task.done())
+        status.setdefault("completed", 0)
+        status.setdefault("target", 0)
+        status["last_result"] = str(ctx.kv.get(_LAST_RESULT_KEY, "") or "")
+        return status
+
+    @ctx.on_api("/lottery/run", methods=["POST"])
+    async def lottery_run(_request=None):
+        return await start_lottery()
+
+    @ctx.on_api("/lottery/stop", methods=["POST"])
+    async def lottery_stop(_request=None):
+        return await stop_lottery()
+
+    @ctx.on_api("/lottery/cookie/check", methods=["GET"])
+    async def lottery_cookie_check(_request=None):
+        return await test_cookie()
+
+    @ctx.on_api("/lottery/stats", methods=["GET"])
+    async def lottery_stats(_request=None):
+        stats = _load_stats(ctx)
+        return {"ok": True, "text": _stats_text(stats), "stats": stats}
+
 
 async def teardown(ctx):
     global _active_task

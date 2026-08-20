@@ -3,11 +3,11 @@ import vue from '@vitejs/plugin-vue'
 import federation from '@originjs/vite-plugin-federation'
 
 export default defineConfig({
-  base: '/api/plugins/hhan_read/fe/',
+  base: '/api/plugins/hhan_lottery/fe/',
   plugins: [
     vue(),
     federation({
-      name: 'awbotnest_hhan_read',
+      name: 'awbotnest_hhan_lottery',
       filename: 'remoteEntry.js',
       exposes: { './Config': './src/Config.vue' },
       shared: {

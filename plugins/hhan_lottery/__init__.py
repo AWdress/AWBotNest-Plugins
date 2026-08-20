@@ -1,4 +1,4 @@
-"""HHanClub 一键全部已读：使用平台 Cookie 批量标记站内信。"""
+"""憨憨工具箱：HHanClub 转盘与一键全部已读。"""
 
 from __future__ import annotations
 
@@ -10,15 +10,17 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import httpx
 from bs4 import BeautifulSoup
 
+from . import _lottery
+
 
 __plugin__ = {
-    "name": "憨憨一键已读",
-    "id": "hhan_read",
-    "version": "1.0.0",
+    "name": "憨憨转盘",
+    "id": "hhan_lottery",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页一键将全部未读站内信设为已读。",
+    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘和一键全部已读。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.0 初始版本\n- 从油猴脚本迁移一键全部已读逻辑\n- 使用平台 Cookie 同步，不保存账号密码\n- 自带 Vue 操作面板，支持实时进度、停止、Cookie 检查和运行历史\n- 仅提交未读消息，限制站内跳转并支持结果通知",
+    "changelog": "v1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布\n- 转盘和已读任务分别提供配置、进度、停止、结果与统计\n- 两项功能统一读取平台 HHanClub Cookie\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务由平台统一托管并限制站内跳转",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -28,7 +30,7 @@ __plugin__ = {
     "resources": {
         "timeout_seconds": 3600,
         "max_concurrency": 2,
-        "max_background_tasks": 4,
+        "max_background_tasks": 12,
         "failure_threshold": 5,
         "recovery_seconds": 60,
     },
@@ -39,6 +41,10 @@ __plugin__ = {
 DEFAULTS = {
     "enabled": True,
     "notify_result": True,
+    "notify_cookie_error": True,
+    "lottery_count": 10,
+    "max_count": 100,
+    "interval_seconds": 7,
     "page_delay": 1.0,
     "max_pages": 200,
 }
@@ -361,15 +367,17 @@ async def setup(ctx):
         "started_at": "", "finished_at": "", "stop_requested": False,
     })
 
-    @ctx.on_api("/status", methods=["GET"])
+    await _lottery.setup(ctx)
+
+    @ctx.on_api("/read/status", methods=["GET"])
     async def api_status(req):
         return {**_state}
 
-    @ctx.on_api("/cookie/check", methods=["GET"])
+    @ctx.on_api("/read/cookie/check", methods=["GET"])
     async def api_cookie_check(req):
         return await _check_cookie(ctx)
 
-    @ctx.on_api("/run", methods=["POST"])
+    @ctx.on_api("/read/run", methods=["POST"])
     async def api_run(req):
         global _task
         if not _cfg(ctx).get("enabled", True):
@@ -381,7 +389,7 @@ async def setup(ctx):
         _task = ctx.create_task(_run(ctx), name="憨憨一键全部已读", operation="mark_read")
         return {"ok": True, "message": "任务已开始，可在面板查看实时进度"}
 
-    @ctx.on_api("/stop", methods=["POST"])
+    @ctx.on_api("/read/stop", methods=["POST"])
     async def api_stop(req):
         if not (_task and not _task.done()):
             return {"ok": False, "message": "当前没有运行中的任务"}
@@ -390,11 +398,11 @@ async def setup(ctx):
         _state.update({"stop_requested": True, "message": "已请求停止，当前请求结束后退出"})
         return {"ok": True, "message": "已请求停止"}
 
-    @ctx.on_api("/history", methods=["GET"])
+    @ctx.on_api("/read/history", methods=["GET"])
     async def api_history(req):
         return {"ok": True, "items": _history(ctx)}
 
-    @ctx.on_api("/history/clear", methods=["POST"])
+    @ctx.on_api("/read/history/clear", methods=["POST"])
     async def api_history_clear(req):
         ctx.kv.set("history", [])
         return {"ok": True, "message": "运行记录已清空"}
@@ -403,6 +411,7 @@ async def setup(ctx):
 async def teardown(ctx):
     if _stop_event:
         _stop_event.set()
+    await _lottery.teardown(ctx)
 
 
 async def self_check(ctx):
