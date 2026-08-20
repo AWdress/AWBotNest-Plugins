@@ -12,7 +12,7 @@ const demoHost = {
       { key: 'tjupt', name: 'TJUPT', domain: 'tjupt.org', group: '交互验证' },
       { key: 'hdsky', name: '天空', domain: 'hdsky.me', group: '交互验证' },
       { key: 'opencd', name: 'OpenCD', domain: 'open.cd', group: '交互验证' },
-      { key: 'pterclub', name: 'PTerClub', domain: 'pterclub.com', group: '专用适配' },
+      { key: 'pterclub', name: 'PTerClub', domain: 'pterclub.net', group: '专用适配' },
       { key: 'zhuque', name: '朱雀', domain: 'zhuque.in', group: '专用适配' },
     ],
   } : path === '/history' ? { items: [] } : {},

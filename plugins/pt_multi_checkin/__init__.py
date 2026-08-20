@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.2.1",
+    "version": "2.2.2",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.2.1 修复控制栏文案重叠\n- 开关组与时间参数组改为弹性换行布局\n- 长文案或窄容器下参数区整体换行，不再互相覆盖\n\nv2.2.0 HTTP 优先签到",
+    "changelog": "v2.2.2 修复猫站域名与平台 AI 检测\n- PTerClub 从 pterclub.com 改为 pterclub.net，并同步 Cookie 域名与签到地址\n- 文字模型能力键从 chat 修正为平台标准 text\n- PigGo HTTP 468 自动识别为 WAF 并降级 CloakBrowser\n\nv2.2.1 修复控制栏文案重叠",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -36,7 +36,7 @@ __plugin__ = {
         "hdcity.city", "*.hdcity.city", "hdsky.me", "*.hdsky.me",
         "pt.hdupt.com", "*.pt.hdupt.com", "m-team.cc", "*.m-team.cc",
         "v6.nexushd.org", "*.v6.nexushd.org", "open.cd", "*.open.cd",
-        "pterclub.com", "*.pterclub.com", "pttime.org", "*.pttime.org",
+        "pterclub.net", "*.pterclub.net", "pttime.org", "*.pttime.org",
         "totheglory.im", "*.totheglory.im", "u2.dmhy.org", "*.u2.dmhy.org",
         "yemapt.org", "*.yemapt.org", "zhuque.in", "*.zhuque.in",
     ],
@@ -67,7 +67,7 @@ SITES = {
     "mteam": {"name": "M-Team", "domain": "kp.m-team.cc", "url": "https://kp.m-team.cc", "mode": "visit", "group": "专用适配"},
     "nexushd": {"name": "NexusHD", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "专用适配"},
     "opencd": {"name": "OpenCD", "domain": "open.cd", "url": "https://www.open.cd", "mode": "interactive", "group": "交互验证"},
-    "pterclub": {"name": "PTerClub", "domain": "pterclub.com", "url": "https://pterclub.com/attendance-ajax.php", "mode": "pterclub", "group": "专用适配"},
+    "pterclub": {"name": "PTerClub", "domain": "pterclub.net", "url": "https://pterclub.net/attendance-ajax.php", "mode": "pterclub", "group": "专用适配"},
     "pttime": {"name": "PTTime", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "direct", "group": "专用适配"},
     "ttg": {"name": "TTG", "domain": "totheglory.im", "url": "https://totheglory.im", "mode": "ttg", "group": "专用适配"},
     "u2": {"name": "U2", "domain": "u2.dmhy.org", "url": "https://u2.dmhy.org/showup.php", "mode": "interactive", "group": "交互验证"},
@@ -349,7 +349,7 @@ def _ai_call(ctx, loop, capability: str, *, prompt: str, image: bytes | None = N
 
 
 def _ai_choice(ctx, loop, question: str, options: list[str]) -> int:
-    answer = _ai_call(ctx, loop, "chat", prompt=(
+    answer = _ai_call(ctx, loop, "text", prompt=(
         "请回答下面的单选题。只输出正确选项编号（从 1 开始）；不确定就输出 0。\n"
         f"问题：{question}\n" + "\n".join(f"{i + 1}. {text}" for i, text in enumerate(options))
     ))
@@ -580,7 +580,7 @@ class _NeedsBrowser(RuntimeError):
 def _http_guard(response: httpx.Response) -> str:
     text = response.text or ""
     low = text.lower()
-    if response.status_code in {403, 429, 503} or any(marker in low for marker in (
+    if response.status_code in {403, 429, 468, 503, 521, 522, 525} or any(marker in low for marker in (
         "cf-chl-", "cloudflare ray id", "just a moment", "checking your browser",
         "turnstile", "雷池 waf", "安全检测能力由 雷池", "验证您是否是真人",
         "verification completed", "challenge-platform",
@@ -594,8 +594,8 @@ def _http_guard(response: httpx.Response) -> str:
 
 
 async def _http_ai_choice(ctx, question: str, options: list[str]) -> int:
-    if not _ai_available(ctx, "chat"):
-        raise RuntimeError("平台未配置可用的 AI chat 能力，无法回答签到题")
+    if not _ai_available(ctx, "text"):
+        raise RuntimeError("平台未配置可用的 AI 文字模型，无法回答签到题")
     answer = str(await ctx.ai.chat(
         prompt="请回答下面的单选题。只输出正确选项编号（从 1 开始）；不确定就输出 0。\n"
                f"问题：{question}\n" + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options)),
