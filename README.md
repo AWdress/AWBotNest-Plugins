@@ -437,6 +437,7 @@ curl -X POST 'https://你的平台/api/v1/plugin/webhook_bridge/webhook?apikey=�
 | 影巢115媒体监控 | `movie_monitor_115` | 监听频道 | user | 监控 115 分享，TMDB 识别 + 查 Emby，缺失转发 CMS 入库 |
 | U2送糖 | `u2_dmhy` | `/u2` `/u2s`（带 cookie） | user | 给 u2.dmhy.org 用户赠送 UCoin，单人/批量，自带冷却 |
 | 憨憨小助手 | `hhan_lottery` | `.hh` `.hhs` / Vue 配置页（平台或手动 Cookie） | user | 集成赠豆、幸运转盘与消息管理；转盘支持不限固定次数或按余额抽完，可选择平台同步或手动 Cookie |
+| PT 四站自动签到 | `pt_multi_checkin` | 定时 / 立即签到（平台或手动 Cookie） | standalone | 通过平台 CloakBrowser 为 Audiences、OurBits、PigGo、TJUPT 签到，支持 CF 等待、重试和汇总推送 |
 | 猫站赠粮 | `pterclub_bonus` | `.pm` `.pms`（平台 Cookie） | user | 从平台 Cookie 同步读取 PTerClub 登录态，支持单人/批量赠送猫粮、10% 税后估算与持久化冷却 |
 | 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
