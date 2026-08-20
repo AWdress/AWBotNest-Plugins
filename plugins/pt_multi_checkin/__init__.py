@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.3.1",
+    "version": "2.4.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.3.1 修复 Cookie 检查范围\n- 只检查界面当前勾选的站点\n- 无需先保存配置，未勾选站点不再请求 Cookie\n\nv2.3.0 新增 HHanClub 自动签到",
+    "changelog": "v2.4.0 对齐 AutoSignIn 上游站点适配\n- 当前 24 站已覆盖上游全部 21 个专用站点模块\n- 修复 TJUPT www 域 Cookie 读取与登录误判\n- 修复 U2 随机答案提交及成功回执识别\n- 增加 PTTime 专用回执适配\n- OurBits 验证完成但未跳转时自动重载恢复\n- 补齐 NexusPHP 首次签到回执\n\nv2.3.1 修复 Cookie 检查范围",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -55,7 +55,7 @@ SITES = {
     "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
     "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
     "hhan": {"name": "HHanClub", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "NexusPHP"},
-    "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php", "group": "交互验证"},
+    "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://www.tjupt.org/attendance.php", "group": "交互验证"},
     "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
     "btschool": {"name": "BT School", "domain": "pt.btschool.club", "url": "https://pt.btschool.club", "mode": "btschool", "group": "专用适配"},
     "chdbits": {"name": "CHDBits", "domain": "ptchdbits.co", "url": "https://ptchdbits.co/bakatest.php", "mode": "interactive", "group": "交互验证"},
@@ -70,7 +70,7 @@ SITES = {
     "nexushd": {"name": "NexusHD", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "专用适配"},
     "opencd": {"name": "OpenCD", "domain": "open.cd", "url": "https://www.open.cd", "mode": "interactive", "group": "交互验证"},
     "pterclub": {"name": "PTerClub", "domain": "pterclub.net", "url": "https://pterclub.net/attendance-ajax.php", "mode": "pterclub", "group": "专用适配"},
-    "pttime": {"name": "PTTime", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "direct", "group": "专用适配"},
+    "pttime": {"name": "PTTime", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "pttime", "group": "专用适配"},
     "ttg": {"name": "TTG", "domain": "totheglory.im", "url": "https://totheglory.im", "mode": "ttg", "group": "专用适配"},
     "u2": {"name": "U2", "domain": "u2.dmhy.org", "url": "https://u2.dmhy.org/showup.php", "mode": "interactive", "group": "交互验证"},
     "yema": {"name": "YemaPT", "domain": "yemapt.org", "url": "https://yemapt.org/api/consumer/checkIn", "mode": "yema", "group": "专用适配"},
@@ -121,23 +121,35 @@ def _bounded(value, default: int, low: int, high: int) -> int:
 async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     if not ctx.cookies.available:
         return "", "平台 Cookie 同步未启用"
-    path = urlparse(site["url"]).path or "/"
-    try:
-        cookie = await ctx.cookies.header(site["domain"], path=path)
-    except Exception as exc:  # noqa: BLE001
-        return "", f"读取平台 Cookie 失败：{exc}"
-    if cookie:
-        return cookie, ""
-    try:
-        await ctx.cookies.request_sync(site["domain"])
-    except Exception:
-        pass
-    try:
-        cookie = await ctx.cookies.header(site["domain"], path=path)
-    except Exception:
-        cookie = ""
-    if cookie:
-        return cookie, ""
+    parsed = urlparse(site["url"])
+    path = parsed.path or "/"
+    domain = site["domain"].lower()
+    url_host = (parsed.hostname or domain).lower()
+    hosts = list(dict.fromkeys((url_host, domain, domain[4:] if domain.startswith("www.") else f"www.{domain}")))
+    last_error = ""
+    for host in hosts:
+        try:
+            cookie = await ctx.cookies.header(host, path=path)
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            continue
+        if cookie:
+            return cookie, ""
+    for host in hosts:
+        try:
+            await ctx.cookies.request_sync(host)
+        except Exception:
+            continue
+    for host in hosts:
+        try:
+            cookie = await ctx.cookies.header(host, path=path)
+        except Exception as exc:  # noqa: BLE001
+            last_error = str(exc)
+            continue
+        if cookie:
+            return cookie, ""
+    if last_error:
+        return "", f"读取平台 Cookie 失败：{last_error}"
     return "", "平台中没有该站 Cookie，请登录网站并同步"
 
 
@@ -185,7 +197,7 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
         "本次签到获得", "此次签到获得", "签到所得", "已连续签到",
-    )) or re.search(r"(?:这是您的第\d+次签到|连续签到\d+天|获得(?:了)?[\d,.]+个?魔力)", compact):
+    )) or re.search(r"(?:这是您的(?:首次|第\d+次)签到|连续签到\d+天|获得(?:了)?[\d,.]+个?魔力)", compact):
         return "success", "签到成功"
     return None
 
@@ -194,6 +206,11 @@ def _site_result_state(text: str, expected_domain: str = "") -> tuple[str, str] 
     if expected_domain.lower() in {"piggo.me", "hhanclub.net"}:
         return _nexus_result_state(text)
     return _result_state(text)
+
+
+def _same_site_domain(current: str, expected: str) -> bool:
+    """www 与根域视为同一站点，不放宽到其他子域。"""
+    return current.lower().removeprefix("www.") == expected.lower().removeprefix("www.")
 
 
 def _captcha_error(text: str) -> str:
@@ -430,7 +447,7 @@ def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
 def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     current_domain = (urlparse(page.url).hostname or "").lower()
     expected = site["domain"].lower()
-    if current_domain not in {expected, f"www.{expected}"}:
+    if not _same_site_domain(current_domain, expected):
         raise RuntimeError(f"站点跳转到了非预期域名：{current_domain or '未知'}")
     text = _page_text(page)
     low = text.lower()
@@ -479,17 +496,26 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             submits = form.locator('input[type="submit"]')
             if not req or not hash_value or not form_value or submits.count() < 1:
                 raise RuntimeError("U2 未解析到签到表单")
-            submit = submits.first
+            submit = submits.nth(secrets.randbelow(submits.count()))
             result = _fetch_same_origin(page, "https://u2.dmhy.org/showup.php?action=show", method="POST", data={
                 "req": req, "hash": hash_value, "form": form_value, "message": "自动签到",
                 str(submit.get_attribute("name")): str(submit.get_attribute("value")),
             })
-            return _response_result(result.get("text", ""), success=("window.location.href = 'showup.php'",), already=("已签到", "Show Up"))
+            body = result.get("text", "")
+            if re.search(r"window\.location\.href\s*=\s*['\"]showup\.php['\"]", body, re.IGNORECASE):
+                return {"status": "success", "message": "签到成功"}
+            page.goto("https://u2.dmhy.org/showup.php", wait_until="domcontentloaded", timeout=60_000)
+            confirmed = page.content()
+            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', confirmed, re.IGNORECASE):
+                return {"status": "success", "message": "签到成功"}
+            raise RuntimeError("U2 签到提交后仍未确认已签到")
         raise RuntimeError("暂不支持该站点的自动验证")
     if mode == "visit":
         return {"status": "success", "message": "模拟访问成功，已刷新最后访问时间"}
     if mode == "direct":
         return _response_result(text, success=("签到成功", "本次签到获得魅力"), already=("已签到", "已经签到"))
+    if mode == "pttime":
+        return _response_result(text, success=("签到成功",), already=("今日已签到", "今天已签到"))
     if mode == "btschool":
         if "每日签到" not in text:
             return {"status": "already", "message": "今天已经签到"}
@@ -549,7 +575,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
-    for _ in range(60):
+    challenge_reload_done = False
+    for challenge_round in range(100):
         title = (page.title() or "").lower()
         text = _page_text(page).lower()
         challenged = any(marker in f"{title}\n{text}" for marker in (
@@ -559,12 +586,19 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
         ))
         if not challenged:
             break
+        # 雷池偶尔已下发通行 Cookie 但前端未完成跳转，受控重载可恢复。
+        if not challenge_reload_done and challenge_round >= 10 and any(marker in f"{title}\n{text}" for marker in (
+            "验证完成，即将进入网站", "verification completed",
+        )):
+            page.reload(wait_until="domcontentloaded", timeout=60_000)
+            challenge_reload_done = True
+            continue
         page.wait_for_timeout(3_000)
     else:
         raise RuntimeError("Cloudflare/雷池验证等待超时；若为交互式验证码需要人工处理")
 
     current_domain = (urlparse(page.url).hostname or "").lower()
-    if current_domain not in {expected_domain, f"www.{expected_domain}"}:
+    if not _same_site_domain(current_domain, expected_domain):
         raise RuntimeError(f"站点跳转到了非预期域名：{current_domain or '未知'}")
     text = _page_text(page)
     low = text.lower()
@@ -700,6 +734,12 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         if mode == "direct":
             result = _response_result(text, success=("签到成功", "本次签到获得魅力"), already=("已签到", "已经签到"))
             return {**result, "engine": "http"}
+        if mode == "pttime":
+            try:
+                result = _response_result(text, success=("签到成功",), already=("今日已签到", "今天已签到"))
+            except RuntimeError as exc:
+                raise _NeedsBrowser("PTTime HTTP 回执未识别，切换 CloakBrowser 确认") from exc
+            return {**result, "engine": "http"}
         if mode == "btschool":
             if "每日签到" not in text:
                 return {"status": "already", "message": "今天已经签到", "engine": "http"}
@@ -805,11 +845,19 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
-            submit = soup.select_one('input[type="submit"][name]')
-            if not req or not hash_value or not form_value or not submit:
+            submits = soup.select('input[type="submit"][name]')
+            if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
+            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', text, re.IGNORECASE):
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            submit = submits[secrets.randbelow(len(submits))]
             _, body = await post("https://u2.dmhy.org/showup.php?action=show", data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")})
-            return {**_response_result(body, success=("window.location.href = 'showup.php'",), already=("已签到", "Show Up")), "engine": "http"}
+            if re.search(r"window\.location\.href\s*=\s*['\"]showup\.php['\"]", body, re.IGNORECASE):
+                return {"status": "success", "message": "签到成功", "engine": "http"}
+            _, confirmed = await get("https://u2.dmhy.org/showup.php")
+            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', confirmed, re.IGNORECASE):
+                return {"status": "success", "message": "签到成功", "engine": "http"}
+            raise RuntimeError("U2 签到提交后仍未确认已签到")
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
 
