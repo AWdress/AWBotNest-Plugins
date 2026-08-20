@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.2",
+    "version": "2.5.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.2 修复 PigGo 雷池空壳页误判\n- 识别仅显示 Cloudflare / Privacy 的验证过渡页\n- 等待通行 Cookie 下发后受控重进 attendance.php，再判断签到结果\n\nv2.5.1 完成 PigGo 适配",
+    "changelog": "v2.5.3 修复签到结果与 Cookie 重试\n- Audiences 仅按页面可见回执判断，避免源码文案造成签到假阳性\n- OpenCD 返回登录页时强制触发平台 Cookie 同步并重试\n\nv2.5.2 修复 PigGo 雷池空壳页误判",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -154,11 +154,33 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     return "", "平台中没有该站 Cookie，请登录网站并同步"
 
 
+async def _refresh_site_cookie(ctx, site: dict) -> tuple[str, str]:
+    """要求平台刷新指定站点 Cookie；不在插件配置或存储中保留 Cookie。"""
+    parsed = urlparse(site["url"])
+    domain = site["domain"].lower()
+    url_host = (parsed.hostname or domain).lower()
+    hosts = list(dict.fromkeys((url_host, domain, domain[4:] if domain.startswith("www.") else f"www.{domain}")))
+    for host in hosts:
+        try:
+            await ctx.cookies.request_sync(host)
+        except Exception:
+            continue
+    return await _site_cookie(ctx, "", site)
+
+
 def _page_text(page) -> str:
     try:
         return page.locator("body").inner_text(timeout=10_000)
     except Exception:
         return page.content()
+
+
+def _html_visible_text(html: str) -> str:
+    """提取服务端页面的可见文本，排除脚本中的提示语和翻译文案。"""
+    soup = BeautifulSoup(html or "", "html.parser")
+    for node in soup.select("script, style, template, noscript"):
+        node.decompose()
+    return soup.get_text("\n", strip=True)
 
 
 def _result_state(text: str) -> tuple[str, str] | None:
@@ -486,7 +508,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         raise RuntimeError("Cookie 已失效，网站返回登录页")
     mode = site.get("mode")
     if mode == "interactive":
-        state = _result_state(text)
+        visible_text = _html_visible_text(text)
+        state = _site_result_state(visible_text, site["domain"])
         if state and state[0] != "failed":
             return {"status": state[0], "message": state[1]}
         if key in {"pt52", "chdbits"}:
@@ -980,7 +1003,18 @@ async def _run(ctx, source: str) -> dict:
                     }
                     break
                 except Exception as exc:  # noqa: BLE001
-                    if attempt < retries and _retryable_error(exc):
+                    login_expired = "Cookie 已失效" in str(exc) or "网站返回登录页" in str(exc)
+                    if attempt < retries and login_expired:
+                        _state.update({"phase": "刷新 Cookie", "message": f"{site['name']} 登录状态失效，正在请求平台重新同步"})
+                        _browser_cookie_cache.pop(key, None)
+                        refreshed, refresh_error = await _refresh_site_cookie(ctx, site)
+                        if refreshed:
+                            cookie = refreshed
+                        elif refresh_error:
+                            item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": refresh_error}
+                            break
+                        await asyncio.sleep(min(interval, 5))
+                    elif attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)
                     else:
                         item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": str(exc)}

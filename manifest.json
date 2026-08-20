@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.2",
+    "version": "2.5.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.2 修复 PigGo 雷池空壳页误判\n- 识别仅显示 Cloudflare / Privacy 的验证过渡页\n- 等待通行 Cookie 下发后受控重进 attendance.php，再判断签到结果\n\nv2.5.1 完成 PigGo 适配",
+    "changelog": "v2.5.3 修复签到结果与 Cookie 重试\n- Audiences 仅按页面可见回执判断，避免源码文案造成签到假阳性\n- OpenCD 返回登录页时强制触发平台 Cookie 同步并重试\n\nv2.5.2 修复 PigGo 雷池空壳页误判",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
