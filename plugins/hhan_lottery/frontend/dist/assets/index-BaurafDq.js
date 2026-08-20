@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-pBY4un5e.js';
+import Config from './__federation_expose_Config-D5u5qzqh.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -41,7 +41,7 @@ true              &&(function polyfill() {
 
 const {createApp,h} = await importShared('vue');
 
-let config = { enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_count: 10, max_count: 100, interval_seconds: 7, page_delay: 1, max_pages: 200 };
+let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_count: 10, max_count: 100, interval_seconds: 7, page_delay: 1, max_pages: 200 };
 let running = false;
 let processed = 0;
 
@@ -52,6 +52,7 @@ const mockHost = {
   async callApi(path) {
     if (path === '/lottery/status') return { running, completed: processed, target: 10, last_prize: processed ? '憨豆 500' : '', last_result: processed ? '本次抽奖完成：10 次' : '' }
     if (path === '/bonus/cookie/check') return { ok: true, message: 'Cookie 有效，可以使用赠豆命令' }
+    if (path === '/auth/check') return { ok: true, source: config.cookie_source, message: 'Cookie 有效，已成功访问 HHanClub' }
     if (path === '/lottery/run') { running = true; processed = 3; return { ok: true, message: '转盘任务已开始' } }
     if (path === '/lottery/stop') { running = false; return { ok: true, message: '已请求停止' } }
     if (path === '/lottery/cookie/check') return { ok: true, message: 'Cookie 有效；余额 12,500，单次消耗 100' }

@@ -282,11 +282,11 @@
   },
   "hhan_lottery": {
     "name": "憨憨小助手",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理\n- 保留 .hh 单人赠豆与 .hhs 批量赠豆、冷却和结果清理\n- 所有功能统一读取平台 HHanClub Cookie\n\nv1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息",
+    "changelog": "v2.1.0 增加 Cookie 来源设置\n- 可选择读取平台同步 Cookie 或手动填写 Cookie\n- 赠豆、转盘和消息管理统一使用选定的登录来源\n- 新增登录设置页、连接检查和手动 Cookie 清空\n- 手动 Cookie 作为密码字段保存，不写入日志\n\nv2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理",
     "path": "plugins/hhan_lottery/"
   },
   "pterclub_bonus": {

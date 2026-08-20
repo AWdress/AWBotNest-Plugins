@@ -11,16 +11,17 @@ import httpx
 from bs4 import BeautifulSoup
 
 from . import _bonus, _lottery
+from ._auth import cookie_header
 
 
 __plugin__ = {
     "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理\n- 保留 .hh 单人赠豆与 .hhs 批量赠豆、冷却和结果清理\n- 所有功能统一读取平台 HHanClub Cookie\n\nv1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息",
+    "changelog": "v2.1.0 增加 Cookie 来源设置\n- 可选择读取平台同步 Cookie 或手动填写 Cookie\n- 赠豆、转盘和消息管理统一使用选定的登录来源\n- 新增登录设置页、连接检查和手动 Cookie 清空\n- 手动 Cookie 作为密码字段保存，不写入日志\n\nv2.0.0 合并为憨憨小助手\n- 将憨憨赠豆并入转盘插件，不再单独发布\n- Vue 配置页统一管理赠豆命令、幸运转盘和消息管理",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -39,6 +40,8 @@ __plugin__ = {
 
 
 DEFAULTS = {
+    "cookie_source": "platform",
+    "manual_cookie": "",
     "enabled": True,
     "notify_result": True,
     "notify_cookie_error": True,
@@ -111,25 +114,7 @@ def _headers(cookie: str, referer: str = _PAGE_URL) -> dict[str, str]:
 
 
 async def _cookie_header(ctx, *, request_sync: bool = True) -> tuple[str, str]:
-    if not ctx.cookies.available:
-        if request_sync:
-            try:
-                await ctx.cookies.request_sync(_DOMAIN)
-            except Exception:
-                pass
-        return "", "平台 Cookie 同步未启用或尚无可用数据"
-    try:
-        cookie = await ctx.cookies.header(_DOMAIN, path="/messages.php")
-    except Exception as exc:  # noqa: BLE001
-        return "", f"读取平台 Cookie 失败：{exc}"
-    if cookie:
-        return cookie, ""
-    if request_sync:
-        try:
-            await ctx.cookies.request_sync(_DOMAIN)
-        except Exception:
-            pass
-    return "", "未找到 hhanclub.net Cookie，请登录网站后重新同步"
+    return await cookie_header(ctx, path="/messages.php", request_sync=request_sync)
 
 
 async def _request(client: httpx.AsyncClient, method: str, url: str,
@@ -493,6 +478,12 @@ async def setup(ctx):
     @ctx.on_api("/read/status", methods=["GET"])
     async def api_status(req):
         return {**_state}
+
+    @ctx.on_api("/auth/check", methods=["GET"])
+    async def api_auth_check(req):
+        result = await _check_cookie(ctx)
+        result["source"] = str(_cfg(ctx).get("cookie_source", "platform"))
+        return result
 
     @ctx.on_api("/read/cookie/check", methods=["GET"])
     async def api_cookie_check(req):

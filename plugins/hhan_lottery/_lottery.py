@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from ._auth import cookie_header
+
 
 __plugin__ = {
     "name": "憨憨转盘",
@@ -127,25 +129,7 @@ def _headers(cookie: str, *, ajax: bool = False) -> dict[str, str]:
 
 
 async def _cookie_header(ctx, *, request_sync: bool = True) -> tuple[str, str]:
-    if not ctx.cookies.available:
-        if request_sync:
-            try:
-                await ctx.cookies.request_sync(_DOMAIN)
-            except Exception:
-                pass
-        return "", "平台 Cookie 同步未启用或尚无可用数据"
-    try:
-        cookie = await ctx.cookies.header(_DOMAIN, path="/lucky.php")
-    except Exception as exc:  # noqa: BLE001
-        return "", f"读取平台 Cookie 失败：{exc}"
-    if cookie:
-        return cookie, ""
-    if request_sync:
-        try:
-            await ctx.cookies.request_sync(_DOMAIN)
-        except Exception:
-            pass
-    return "", "未找到 hhanclub.net Cookie，请登录网站后重新同步"
+    return await cookie_header(ctx, path="/lucky.php", request_sync=request_sync)
 
 
 def _looks_like_login(resp: httpx.Response) -> bool:

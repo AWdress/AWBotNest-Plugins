@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import LotteryPanel from './LotteryPanel.vue'
 import ReadPanel from './ReadPanel.vue'
 import BonusPanel from './BonusPanel.vue'
+import CookiePanel from './CookiePanel.vue'
 
 defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
 const tab = ref('bonus')
@@ -14,10 +15,12 @@ const tab = ref('bonus')
       <button :class="{ active: tab === 'bonus' }" @click="tab = 'bonus'">赠豆</button>
       <button :class="{ active: tab === 'lottery' }" @click="tab = 'lottery'">幸运转盘</button>
       <button :class="{ active: tab === 'read' }" @click="tab = 'read'">消息管理</button>
+      <button :class="{ active: tab === 'auth' }" @click="tab = 'auth'">登录设置</button>
     </nav>
     <BonusPanel v-if="tab === 'bonus'" :plugin-id="pluginId" :host="host" />
     <LotteryPanel v-else-if="tab === 'lottery'" :plugin-id="pluginId" :host="host" />
-    <ReadPanel v-else :plugin-id="pluginId" :host="host" />
+    <ReadPanel v-else-if="tab === 'read'" :plugin-id="pluginId" :host="host" />
+    <CookiePanel v-else :plugin-id="pluginId" :host="host" />
   </div>
 </template>
 
