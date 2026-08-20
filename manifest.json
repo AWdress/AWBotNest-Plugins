@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v2.0.0 扩展多站签到并启用 Vue 配置\n- 迁移 MoviePilot AutoSignIn 中除 TJUPT 外的 19 个站点适配\n- 保留 Audiences、OurBits、PigGo、TJUPT 现有实现\n- Cookie 全部改为平台同步读取，移除手动 Cookie 配置\n- 新增 Vue 站点矩阵、任务控制、运行状态与历史结果界面",
+    "changelog": "v2.0.1 自动识别签到验证\n- 52PT、CHDBits 使用平台 AI 自动回答签到题\n- HDSky、OpenCD 使用平台视觉模型识别 6 位验证码\n- U2 自动提交签到表单，TJUPT 继续保留 Telegram 确认\n\nv2.0.0 扩展多站签到并启用 Vue 配置",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

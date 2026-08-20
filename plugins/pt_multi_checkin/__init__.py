@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 from pathlib import Path
+import re
 import secrets
 import threading
 from urllib.parse import urlparse
@@ -13,11 +15,11 @@ from urllib.parse import urlparse
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v2.0.0 扩展多站签到并启用 Vue 配置\n- 迁移 MoviePilot AutoSignIn 中除 TJUPT 外的 19 个站点适配\n- 保留 Audiences、OurBits、PigGo、TJUPT 现有实现\n- Cookie 全部改为平台同步读取，移除手动 Cookie 配置\n- 新增 Vue 站点矩阵、任务控制、运行状态与历史结果界面",
+    "changelog": "v2.0.1 自动识别签到验证\n- 52PT、CHDBits 使用平台 AI 自动回答签到题\n- HDSky、OpenCD 使用平台视觉模型识别 6 位验证码\n- U2 自动提交签到表单，TJUPT 继续保留 Telegram 确认\n\nv2.0.0 扩展多站签到并启用 Vue 配置",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -316,7 +318,61 @@ def _response_result(text: str, *, success: tuple[str, ...], already: tuple[str,
     raise RuntimeError("签到接口返回未识别结果，未计为成功")
 
 
-def _special_checkin(page, key: str, site: dict) -> dict:
+def _ai_call(ctx, loop, capability: str, *, prompt: str, image: bytes | None = None) -> str:
+    if not _ai_available(ctx, capability):
+        raise RuntimeError(f"平台未配置可用的 AI {capability} 能力，无法自动识别签到验证")
+    if capability == "vision":
+        coro = ctx.ai.vision(image=image, prompt=prompt, system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。")
+    else:
+        coro = ctx.ai.chat(prompt=prompt, system="你是谨慎的 PT 签到答题助手，只输出答案编号，不要解释。", temperature=0)
+    try:
+        return str(asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=90) or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"AI 识别失败：{exc}") from exc
+
+
+def _ai_choice(ctx, loop, question: str, options: list[str]) -> int:
+    answer = _ai_call(ctx, loop, "chat", prompt=(
+        "请回答下面的单选题。只输出正确选项编号（从 1 开始）；不确定就输出 0。\n"
+        f"问题：{question}\n" + "\n".join(f"{i + 1}. {text}" for i, text in enumerate(options))
+    ))
+    match = re.search(r"(?<!\d)(\d+)(?!\d)", answer)
+    index = int(match.group(1)) - 1 if match else -1
+    if index < 0 or index >= len(options):
+        raise RuntimeError("AI 未给出可靠的有效选项，未提交签到答案")
+    return index
+
+
+def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
+    answer = _ai_call(ctx, loop, "vision", image=image, prompt=(
+        f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。"
+    ))
+    if "UNKNOWN" in answer.upper():
+        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
+    candidates = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
+    if not candidates:
+        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
+    return candidates[0]
+
+
+def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
+    text = _page_text(page)
+    if "今天已经签过到了" in text:
+        return {"status": "already", "message": "今天已经签到"}
+    question_id = page.locator('input[name="questionid"]').get_attribute("value")
+    choices = page.locator('input[name="choice[]"]')
+    if not question_id or choices.count() < 2:
+        raise RuntimeError("未解析到签到问题或候选答案")
+    question = text.split("请问：", 1)[1].splitlines()[0].strip() if "请问：" in text else text[:500]
+    options = [_radio_label(choices.nth(i)) or str(choices.nth(i).get_attribute("value") or "") for i in range(choices.count())]
+    selected = choices.nth(_ai_choice(ctx, loop, question, options)).get_attribute("value")
+    result = _fetch_same_origin(page, site["url"], method="POST", data={
+        "questionid": question_id, "choice[]": selected, "usercomment": "自动签到", "wantskip": "不会",
+    })
+    return _response_result(result.get("text", ""), success=("点魔力值",), already=("今天已经签过到了",))
+
+
+def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     current_domain = (urlparse(page.url).hostname or "").lower()
     expected = site["domain"].lower()
     if current_domain not in {expected, f"www.{expected}"}:
@@ -331,7 +387,50 @@ def _special_checkin(page, key: str, site: dict) -> dict:
         state = _result_state(text)
         if state and state[0] != "failed":
             return {"status": state[0], "message": state[1]}
-        raise RuntimeError("网站签到需要交互题或图片验证码，请在站点页面人工完成")
+        if key in {"pt52", "chdbits"}:
+            return _quiz_checkin(page, site, ctx, loop)
+        if key == "hdsky":
+            code_response = _fetch_same_origin(page, "https://hdsky.me/image_code_ajax.php", method="POST", data={"action": "new"})
+            try:
+                image_hash = json.loads(code_response.get("text", "")).get("code")
+            except (TypeError, ValueError):
+                image_hash = None
+            if not image_hash:
+                raise RuntimeError("天空未返回有效验证码参数")
+            page.goto(f"https://hdsky.me/image.php?action=regimage&imagehash={image_hash}", wait_until="load", timeout=60_000)
+            captcha = _ai_ocr(ctx, loop, page.screenshot(), 6)
+            result = _fetch_same_origin(page, "https://hdsky.me/showup.php", method="POST", data={"action": "showup", "imagehash": image_hash, "imagestring": captcha})
+            body = result.get("text", "")
+            return _response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",))
+        if key == "opencd":
+            if "/plugin_sign-in.php?cmd=show-log" in html:
+                return {"status": "already", "message": "今天已经签到"}
+            page.goto("https://www.open.cd/plugin_sign-in.php", wait_until="domcontentloaded", timeout=60_000)
+            form = page.locator("#frmSignin")
+            image = form.locator("img").first
+            image_hash = form.locator('input[name="imagehash"]').get_attribute("value")
+            if not image_hash or image.count() < 1:
+                raise RuntimeError("OpenCD 未解析到验证码参数")
+            captcha = _ai_ocr(ctx, loop, image.screenshot(), 6)
+            result = _fetch_same_origin(page, "https://www.open.cd/plugin_sign-in.php?cmd=signin", method="POST", data={"imagehash": image_hash, "imagestring": captcha})
+            return _response_result(result.get("text", ""), success=('"state":"success"', '"state":true'), already=("已签到",))
+        if key == "u2":
+            if datetime.now().hour < 9:
+                raise RuntimeError("U2 站点规则要求 09:00 后签到")
+            form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
+            req = form.locator('input[name="req"]').get_attribute("value")
+            hash_value = form.locator('input[name="hash"]').get_attribute("value")
+            form_value = form.locator('input[name="form"]').get_attribute("value")
+            submits = form.locator('input[type="submit"]')
+            if not req or not hash_value or not form_value or submits.count() < 1:
+                raise RuntimeError("U2 未解析到签到表单")
+            submit = submits.first
+            result = _fetch_same_origin(page, "https://u2.dmhy.org/showup.php?action=show", method="POST", data={
+                "req": req, "hash": hash_value, "form": form_value, "message": "自动签到",
+                str(submit.get_attribute("name")): str(submit.get_attribute("value")),
+            })
+            return _response_result(result.get("text", ""), success=("window.location.href = 'showup.php'",), already=("已签到", "Show Up"))
+        raise RuntimeError("暂不支持该站点的自动验证")
     if mode == "visit":
         return {"status": "success", "message": "模拟访问成功，已刷新最后访问时间"}
     if mode == "direct":
@@ -375,7 +474,6 @@ def _special_checkin(page, key: str, site: dict) -> dict:
     if mode == "ttg":
         if "已签到" in text:
             return {"status": "already", "message": "今天已经签到"}
-        import re
         timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', html)
         token = re.search(r'signed_token:\s*["\']([^"\']+)', html)
         if not timestamp or not token:
@@ -390,7 +488,7 @@ def _special_checkin(page, key: str, site: dict) -> dict:
             raise RuntimeError("未获取到朱雀 CSRF 参数")
         result = _fetch_same_origin(page, "https://zhuque.in/api/gaming/fireGenshinCharacterMagic", method="POST", json_data={"all": 1, "resetModal": "true"}, headers={"x-csrf-token": csrf})
         return _response_result(result.get("text", ""), success=("FIRE_GENSHIN_CHARACTER_MAGIC_SUCCESS", '"status":200'), already=("already",))
-    return _browser_checkin(page, site["domain"])
+    return _browser_checkin(page, site["domain"], ctx, loop)
 
 
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
@@ -493,7 +591,7 @@ async def _run(ctx, source: str) -> dict:
                     def action(page, site_key=key, current_site=site):
                         if site_key in {"audiences", "ourbits", "piggo", "tjupt"}:
                             return _browser_checkin(page, current_site["domain"], ctx, loop)
-                        return _special_checkin(page, site_key, current_site)
+                        return _special_checkin(page, site_key, current_site, ctx, loop)
 
                     outcome = await ctx.browser.run(
                         site["url"], action, cookies=cookie,

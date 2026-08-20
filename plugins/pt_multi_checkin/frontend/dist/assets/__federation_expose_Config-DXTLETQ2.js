@@ -240,7 +240,7 @@ return (_ctx, _cache) => {
           _createElementVNode("div", _hoisted_14, [
             _cache[17] || (_cache[17] = _createElementVNode("div", null, [
               _createElementVNode("h3", null, "站点范围"),
-              _createElementVNode("p", null, "交互验证站会在无法安全识别时明确提示，不会随机提交。")
+              _createElementVNode("p", null, "除 TJUPT 需 Telegram 确认外，签到题和字符验证码均由平台 AI 自动识别。")
             ], -1)),
             _createElementVNode("button", {
               class: "secondary",
@@ -334,6 +334,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ae9f3dd9"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-da4c6bc0"]]);
 
 export { Config as default };

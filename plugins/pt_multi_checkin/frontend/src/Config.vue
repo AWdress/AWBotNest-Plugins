@@ -69,7 +69,7 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
       <label>间隔（秒） <input v-model.number="config.retry_interval" type="number" min="5" max="300"></label>
     </section>
 
-    <div class="section-head"><div><h3>站点范围</h3><p>交互验证站会在无法安全识别时明确提示，不会随机提交。</p></div><button class="secondary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
+    <div class="section-head"><div><h3>站点范围</h3><p>除 TJUPT 需 Telegram 确认外，签到题和字符验证码均由平台 AI 自动识别。</p></div><button class="secondary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
     <section class="site-list">
       <div v-for="[group, items] in groups" :key="group" class="site-group">
         <div class="group-head"><b>{{ group }}</b><button @click="toggleGroup(items, !items.every(site => config.selected_sites.includes(site.key)))">{{ items.every(site => config.selected_sites.includes(site.key)) ? '取消全选' : '全选' }}</button></div>
