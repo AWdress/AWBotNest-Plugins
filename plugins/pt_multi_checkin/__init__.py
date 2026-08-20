@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.0",
+    "version": "2.5.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.0 修复 PigGo 会话 Cookie 轮换\n- PigGo 跳过 HTTP 预请求，直接使用 CloakBrowser，避免两个客户端争用旧会话\n- 签到成功后仅在内存中保留浏览器刷新的 PigGo Cookie，后续任务复用\n- Cookie 不写入配置、KV、磁盘或日志，平台重启后仍从 CookieCloud 读取\n\nv2.4.2 标记 PigGo 待适配",
+    "changelog": "v2.5.1 完成 PigGo 适配\n- 配置页移除 PigGo 的“待适配”标记\n\nv2.5.0 修复 PigGo 会话 Cookie 轮换\n- PigGo 直接使用 CloakBrowser，并在进程内复用浏览器刷新的 Cookie",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -53,7 +53,7 @@ __plugin__ = {
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
     "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
-    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP", "status": "pending"},
+    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
     "hhan": {"name": "HHanClub", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "NexusPHP"},
     "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://www.tjupt.org/attendance.php", "group": "交互验证"},
     "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
