@@ -10,22 +10,14 @@ import threading
 from urllib.parse import urlparse
 
 
-SITES = {
-    "audiences": {"name": "观众 Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php"},
-    "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php"},
-    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php"},
-    "tjupt": {"name": "北洋园 TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php"},
-}
-
-
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.1.1 修复灰度元数据检查\n- 配置架构改为完全静态字典，兼容平台灰度检查的字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT 人工确认\n- PigGo 等待雷池 WAF 完成并继续签到\n- TJUPT 调用平台 AI 识图，主人点击 Telegram 候选按钮后在原会话提交",
+    "changelog": "v1.1.2 兼容旧版灰度检查器\n- 将 __plugin__ 调整为导入后的第一个顶层赋值，避免旧检查器被站点常量干扰\n- 保持元数据为完全静态字典\n\nv1.1.1 修复新版灰度元数据字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT AI 识图确认",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -102,6 +94,14 @@ __plugin__ = {
             "default": "每个站点可独立选择 Cookie 来源。Cloudflare/雷池会等待正常验证。TJUPT 验证题可由平台 AI 给出建议，并推送 Telegram 候选按钮供主人确认。",
         },
     },
+}
+
+
+SITES = {
+    "audiences": {"name": "观众 Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php"},
+    "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php"},
+    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php"},
+    "tjupt": {"name": "北洋园 TJUPT", "domain": "tjupt.org", "url": "https://tjupt.org/attendance.php"},
 }
 
 

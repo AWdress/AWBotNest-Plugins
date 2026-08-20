@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "author": "AWdress",
     "description": "可持续扩展的多 PT 站自动签到助手，使用平台 CloakBrowser，支持平台或手动 Cookie。",
     "icon": "https://audiences.me/favicon.ico",
-    "changelog": "v1.1.1 修复灰度元数据检查\n- 配置架构改为完全静态字典，兼容平台灰度检查的字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT 人工确认\n- PigGo 等待雷池 WAF 完成并继续签到\n- TJUPT 调用平台 AI 识图，主人点击 Telegram 候选按钮后在原会话提交",
+    "changelog": "v1.1.2 兼容旧版灰度检查器\n- 将 __plugin__ 调整为导入后的第一个顶层赋值，避免旧检查器被站点常量干扰\n- 保持元数据为完全静态字典\n\nv1.1.1 修复新版灰度元数据字面量解析\n\nv1.1.0 增加雷池兼容与 TJUPT AI 识图确认",
     "path": "plugins/pt_multi_checkin.py"
   },
   "pterclub_bonus": {
