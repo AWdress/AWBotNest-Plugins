@@ -11,18 +11,22 @@ import secrets
 import threading
 from urllib.parse import urlparse
 
+import httpx
+from bs4 import BeautifulSoup
+
 
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.1.2",
+    "version": "2.2.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.1.2 彻底隔离平台开关样式并更新图标\n- 隐藏平台原生开关，清除 label 与伪元素的宿主样式，解决双圆点和胶囊边框\n- 图标更换为多站节点与签到勾组合\n\nv2.1.1 修复配置界面开关布局",
+    "changelog": "v2.2.0 HTTP 优先签到\n- 普通站点改用轻量 HTTP 请求，不再逐站启动 CloakBrowser\n- 检测到 Cloudflare、雷池或动态页面后自动降级 CloakBrowser\n- 新增实时执行阶段与降级原因，降低低配服务器资源占用\n\nv2.1.2 修复开关样式并更新图标",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "piggo.me", "*.piggo.me", "tjupt.org", "*.tjupt.org", "52pt.site", "*.52pt.site",
@@ -85,11 +89,24 @@ _tasks: set[asyncio.Task] = set()
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
-_state = {"running": False, "started_at": "", "finished_at": "", "current": "", "completed": 0, "total": 0}
+_state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 
 
 def _cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+def _task_done(task: asyncio.Task) -> None:
+    _tasks.discard(task)
+    if task.cancelled():
+        _state.update({"running": False, "phase": "已取消", "message": "签到任务已取消", "current": ""})
+        return
+    try:
+        error = task.exception()
+    except Exception as exc:  # noqa: BLE001
+        error = exc
+    if error:
+        _state.update({"running": False, "phase": "异常", "message": f"后台任务异常：{error}", "current": ""})
 
 
 def _bounded(value, default: int, low: int, high: int) -> int:
@@ -556,6 +573,208 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     raise RuntimeError("没有识别到签到页面或签到按钮，网站结构可能已更新")
 
 
+class _NeedsBrowser(RuntimeError):
+    """HTTP 页面需要浏览器执行挑战或动态脚本。"""
+
+
+def _http_guard(response: httpx.Response) -> str:
+    text = response.text or ""
+    low = text.lower()
+    if response.status_code in {403, 429, 503} or any(marker in low for marker in (
+        "cf-chl-", "cloudflare ray id", "just a moment", "checking your browser",
+        "turnstile", "雷池 waf", "安全检测能力由 雷池", "验证您是否是真人",
+        "verification completed", "challenge-platform",
+    )):
+        raise _NeedsBrowser(f"HTTP 命中安全验证（{response.status_code}），切换 CloakBrowser")
+    if any(marker in low for marker in ('name="username"', "name='username'", "takelogin.php")) or response.url.path.lower().endswith(("/login.php", "/takelogin.php")):
+        raise RuntimeError("Cookie 已失效，网站返回登录页")
+    if response.status_code >= 400:
+        raise RuntimeError(f"HTTP 请求失败：{response.status_code}")
+    return text
+
+
+async def _http_ai_choice(ctx, question: str, options: list[str]) -> int:
+    if not _ai_available(ctx, "chat"):
+        raise RuntimeError("平台未配置可用的 AI chat 能力，无法回答签到题")
+    answer = str(await ctx.ai.chat(
+        prompt="请回答下面的单选题。只输出正确选项编号（从 1 开始）；不确定就输出 0。\n"
+               f"问题：{question}\n" + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options)),
+        system="你是谨慎的 PT 签到答题助手，只输出答案编号，不要解释。", temperature=0,
+    ) or "").strip()
+    match = re.search(r"(?<!\d)(\d+)(?!\d)", answer)
+    index = int(match.group(1)) - 1 if match else -1
+    if index < 0 or index >= len(options):
+        raise RuntimeError("AI 未给出可靠的有效选项，未提交签到答案")
+    return index
+
+
+async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
+    if not _ai_available(ctx, "vision"):
+        raise RuntimeError("平台未配置视觉模型，无法识别签到验证码")
+    answer = str(await ctx.ai.vision(
+        image=image, prompt=f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。",
+        system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。",
+    ) or "").strip()
+    if "UNKNOWN" in answer.upper():
+        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
+    matches = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
+    if not matches:
+        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
+    return matches[0]
+
+
+def _soup_value(soup: BeautifulSoup, name: str) -> str:
+    node = soup.select_one(f'input[name="{name}"]')
+    return str(node.get("value") or "") if node else ""
+
+
+async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
+    """轻量签到；只有安全挑战或必须执行动态脚本时才请求浏览器降级。"""
+    headers = {
+        "Cookie": cookie,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+    }
+    timeout = httpx.Timeout(35.0, connect=12.0)
+    async with httpx.AsyncClient(headers=headers, timeout=timeout, follow_redirects=True) as client:
+        async def get(url: str) -> tuple[httpx.Response, str]:
+            response = await client.get(url)
+            return response, _http_guard(response)
+
+        async def post(url: str, *, data=None, json_data=None, extra_headers=None) -> tuple[httpx.Response, str]:
+            response = await client.post(url, data=data, json=json_data, headers=extra_headers)
+            return response, _http_guard(response)
+
+        mode = site.get("mode")
+        response, text = await get(site["url"])
+        state = _result_state(text)
+        if state and state[0] != "failed":
+            return {"status": state[0], "message": state[1], "engine": "http"}
+
+        if key in {"audiences", "ourbits", "piggo"}:
+            # 标准 attendance.php 通常 GET 即完成；未知页面交给浏览器识别动态按钮。
+            if state and state[0] == "failed":
+                raise RuntimeError(state[1])
+            raise _NeedsBrowser("HTTP 页面没有明确签到结果，切换 CloakBrowser 确认")
+
+        if mode == "visit":
+            return {"status": "success", "message": "轻量访问成功，已刷新最后访问时间", "engine": "http"}
+        if mode == "direct":
+            result = _response_result(text, success=("签到成功", "本次签到获得魅力"), already=("已签到", "已经签到"))
+            return {**result, "engine": "http"}
+        if mode == "btschool":
+            if "每日签到" not in text:
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            _, body = await get("https://pt.btschool.club/index.php?action=addbonus")
+            if "每日签到" not in body:
+                return {"status": "success", "message": "签到成功", "engine": "http"}
+            raise RuntimeError("签到入口仍然存在")
+        if mode == "haidan":
+            _, body = await get("https://www.haidan.video/index.php")
+            return {**_response_result(body, success=("已经打卡",)), "engine": "http"}
+        if mode == "hares":
+            _, body = await get("https://club.hares.top/attendance.php?action=sign")
+            return {**_response_result(body, success=('"code":0', "签到成功"), already=('"code":1', "已经签到过")), "engine": "http"}
+        if mode == "hdarea":
+            _, body = await post("https://www.hdarea.club/sign_in.php", data={"action": "sign_in"})
+            return {**_response_result(body, success=("此次签到您获得",), already=("请不要重复签到",)), "engine": "http"}
+        if mode == "hdchina":
+            soup = BeautifulSoup(text, "html.parser")
+            csrf_node = soup.select_one('meta[name="x-csrf"]')
+            csrf = str(csrf_node.get("content") or "") if csrf_node else ""
+            if not csrf:
+                raise _NeedsBrowser("HTTP 未取得 HDChina CSRF，切换 CloakBrowser")
+            _, body = await post("https://hdchina.org/plugin_sign-in.php?cmd=signin", data={"csrf": csrf})
+            return {**_response_result(body, success=('"state":"success"', '"state":true'), already=("已签到",)), "engine": "http"}
+        if mode == "hdupt":
+            if "yiqiandao" in text:
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            _, body = await get("https://pt.hdupt.com/added.php?action=qiandao")
+            if any(char.isdigit() for char in BeautifulSoup(body, "html.parser").get_text(" ")):
+                return {"status": "success", "message": "签到成功", "engine": "http"}
+            raise RuntimeError("HDU PT 签到接口返回异常")
+        if mode == "nexushd":
+            _, body = await post("https://v6.nexushd.org/signin.php", data={"action": "post", "content": ""})
+            return {**_response_result(body, success=("本次签到获得",), already=("你今天已经签到过了",)), "engine": "http"}
+        if mode == "pterclub":
+            return {**_response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过")), "engine": "http"}
+        if mode == "ttg":
+            if "已签到" in text:
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', text)
+            token = re.search(r'signed_token:\s*["\']([^"\']+)', text)
+            if not timestamp or not token:
+                raise _NeedsBrowser("HTTP 未取得 TTG 动态参数，切换 CloakBrowser")
+            _, body = await post("https://totheglory.im/signed.php", data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)})
+            return {**_response_result(body, success=("您已连续签到",), already=("今天已签到过",)), "engine": "http"}
+        if mode == "yema":
+            return {**_response_result(text, success=('"success":true', '"success": true'), already=("already", "已签到")), "engine": "http"}
+        if mode == "zhuque":
+            soup = BeautifulSoup(text, "html.parser")
+            csrf_node = soup.select_one('meta[name="x-csrf-token"]')
+            csrf = str(csrf_node.get("content") or "") if csrf_node else ""
+            if not csrf:
+                raise _NeedsBrowser("HTTP 未取得朱雀 CSRF，切换 CloakBrowser")
+            _, body = await post("https://zhuque.in/api/gaming/fireGenshinCharacterMagic", json_data={"all": 1, "resetModal": "true"}, extra_headers={"x-csrf-token": csrf})
+            return {**_response_result(body, success=("FIRE_GENSHIN_CHARACTER_MAGIC_SUCCESS", '"status":200'), already=("already",)), "engine": "http"}
+        if key in {"pt52", "chdbits"}:
+            if "今天已经签过到了" in text:
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            soup = BeautifulSoup(text, "html.parser")
+            question_id = _soup_value(soup, "questionid")
+            nodes = soup.select('input[name="choice[]"]')
+            if not question_id or len(nodes) < 2:
+                raise _NeedsBrowser("HTTP 未解析到签到题，切换 CloakBrowser")
+            question = soup.get_text(" ", strip=True).split("请问：", 1)[-1][:500]
+            options = []
+            for node in nodes:
+                label = soup.select_one(f'label[for="{node.get("id", "")}"]') if node.get("id") else None
+                options.append(label.get_text(" ", strip=True) if label else str(node.parent.get_text(" ", strip=True) or node.get("value") or ""))
+            selected = str(nodes[await _http_ai_choice(ctx, question, options)].get("value") or "")
+            _, body = await post(site["url"], data={"questionid": question_id, "choice[]": selected, "usercomment": "自动签到", "wantskip": "不会"})
+            return {**_response_result(body, success=("点魔力值",), already=("今天已经签过到了",)), "engine": "http"}
+        if key == "hdsky":
+            _, code_body = await post("https://hdsky.me/image_code_ajax.php", data={"action": "new"})
+            try:
+                image_hash = json.loads(code_body).get("code")
+            except (TypeError, ValueError):
+                image_hash = None
+            if not image_hash:
+                raise _NeedsBrowser("HTTP 未取得天空验证码，切换 CloakBrowser")
+            image_response = await client.get(f"https://hdsky.me/image.php?action=regimage&imagehash={image_hash}")
+            if image_response.status_code >= 400:
+                raise RuntimeError(f"下载天空验证码失败：{image_response.status_code}")
+            captcha = await _http_ai_ocr(ctx, image_response.content)
+            _, body = await post("https://hdsky.me/showup.php", data={"action": "showup", "imagehash": image_hash, "imagestring": captcha})
+            return {**_response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",)), "engine": "http"}
+        if key == "opencd":
+            if "/plugin_sign-in.php?cmd=show-log" in text:
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            _, form_body = await get("https://www.open.cd/plugin_sign-in.php")
+            soup = BeautifulSoup(form_body, "html.parser")
+            form = soup.select_one("#frmSignin")
+            image_node = form.select_one("img") if form else None
+            hash_node = form.select_one('input[name="imagehash"]') if form else None
+            if not image_node or not hash_node:
+                raise _NeedsBrowser("HTTP 未解析到 OpenCD 验证码，切换 CloakBrowser")
+            image_url = str(response.url.join(str(image_node.get("src") or "")))
+            image_response = await client.get(image_url)
+            captcha = await _http_ai_ocr(ctx, image_response.content)
+            _, body = await post("https://www.open.cd/plugin_sign-in.php?cmd=signin", data={"imagehash": hash_node.get("value"), "imagestring": captcha})
+            return {**_response_result(body, success=('"state":"success"', '"state":true'), already=("已签到",)), "engine": "http"}
+        if key == "u2":
+            if datetime.now().hour < 9:
+                raise RuntimeError("U2 站点规则要求 09:00 后签到")
+            soup = BeautifulSoup(text, "html.parser")
+            req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
+            submit = soup.select_one('input[type="submit"][name]')
+            if not req or not hash_value or not form_value or not submit:
+                raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
+            _, body = await post("https://u2.dmhy.org/showup.php?action=show", data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")})
+            return {**_response_result(body, success=("window.location.href = 'showup.php'",), already=("已签到", "Show Up")), "engine": "http"}
+        raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
+
+
 async def _run(ctx, source: str) -> dict:
     global _run_lock
     if _run_lock is None:
@@ -572,14 +791,15 @@ async def _run(ctx, source: str) -> dict:
             return {"ok": False, "message": "没有启用任何签到站点"}
         _state.update({
             "running": True, "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "finished_at": "", "current": "", "completed": 0, "total": len(enabled),
+            "finished_at": "", "current": "", "phase": "准备", "message": "正在准备签到任务",
+            "completed": 0, "total": len(enabled),
         })
         results = []
         retries = _bounded(cfg.get("retry_count"), 2, 0, 5)
         interval = _bounded(cfg.get("retry_interval"), 20, 5, 300)
         loop = asyncio.get_running_loop()
         for key, site in enabled:
-            _state["current"] = site["name"]
+            _state.update({"current": site["name"], "phase": "读取 Cookie", "message": f"正在读取 {site['name']} 平台 Cookie"})
             cookie, error = await _site_cookie(ctx, key, site)
             if error:
                 results.append({"key": key, "site": site["name"], "ok": False, "status": "failed", "message": error})
@@ -588,27 +808,42 @@ async def _run(ctx, source: str) -> dict:
             item = None
             for attempt in range(retries + 1):
                 try:
-                    def action(page, site_key=key, current_site=site):
-                        if site_key in {"audiences", "ourbits", "piggo", "tjupt"}:
-                            return _browser_checkin(page, current_site["domain"], ctx, loop)
-                        return _special_checkin(page, site_key, current_site, ctx, loop)
+                    outcome = None
+                    browser_reason = ""
+                    if key != "tjupt":
+                        _state.update({"phase": "HTTP 请求", "message": f"{site['name']} 正在使用轻量 HTTP 签到"})
+                        try:
+                            outcome = await _http_checkin(ctx, key, site, cookie)
+                        except _NeedsBrowser as fallback:
+                            browser_reason = str(fallback)
+                    else:
+                        browser_reason = "TJUPT 需要页面交互验证"
 
-                    outcome = await ctx.browser.run(
-                        site["url"], action, cookies=cookie,
-                        headless=bool(cfg.get("headless", True)),
-                        timeout=720 if key == "tjupt" else (300 if key == "piggo" else 150),
-                    )
+                    if outcome is None:
+                        _state.update({"phase": "浏览器降级", "message": f"{site['name']}：{browser_reason}"})
+
+                        def action(page, site_key=key, current_site=site):
+                            if site_key in {"audiences", "ourbits", "piggo", "tjupt"}:
+                                return _browser_checkin(page, current_site["domain"], ctx, loop)
+                            return _special_checkin(page, site_key, current_site, ctx, loop)
+
+                        outcome = await ctx.browser.run(
+                            site["url"], action, cookies=cookie,
+                            headless=bool(cfg.get("headless", True)),
+                            timeout=720 if key == "tjupt" else (300 if key == "piggo" else 150),
+                        )
                     status = str((outcome or {}).get("status") or "success")
+                    engine = str((outcome or {}).get("engine") or "browser")
                     item = {
                         "key": key, "site": site["name"], "ok": True, "status": status,
-                        "message": str((outcome or {}).get("message") or "签到完成"),
+                        "engine": engine, "message": str((outcome or {}).get("message") or "签到完成"),
                     }
                     break
                 except Exception as exc:  # noqa: BLE001
                     if attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)
                     else:
-                        item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "message": str(exc)}
+                        item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": str(exc)}
                         break
             results.append(item)
             _state["completed"] += 1
@@ -631,14 +866,14 @@ async def _run(ctx, source: str) -> dict:
                 await ctx.notify(rows, level="success" if success == len(results) else "warning", category="PT站签到")
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("签到结果推送失败：%r", exc)
-        _state.update({"running": False, "finished_at": stamp, "current": ""})
+        _state.update({"running": False, "finished_at": stamp, "current": "", "phase": "完成", "message": summary})
         return {"ok": success == len(results), "message": text, "results": results}
 
 
 async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
-    _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "completed": 0, "total": 0})
+    _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0})
 
     @ctx.on_api("/meta", methods=["GET"])
     async def api_meta(req):
@@ -658,7 +893,7 @@ async def setup(ctx):
             return {"ok": False, "message": "签到任务已经在运行"}
         task = ctx.create_task(_run(ctx, "手动"), name="PT站手动签到", operation="manual_checkin")
         _tasks.add(task)
-        task.add_done_callback(_tasks.discard)
+        task.add_done_callback(_task_done)
         return {"ok": True, "message": "签到任务已开始"}
 
     @ctx.on_api("/history", methods=["GET"])
@@ -709,7 +944,7 @@ async def setup(ctx):
             return {"ok": True, "message": "签到任务已经在后台运行"}
         task = ctx.create_task(_run(ctx, "手动"), name="PT站手动签到", operation="manual_checkin")
         _tasks.add(task)
-        task.add_done_callback(_tasks.discard)
+        task.add_done_callback(_task_done)
         return {"ok": True, "message": "签到任务已开始，完成后会推送汇总结果"}
 
     @ctx.action("view_result")
@@ -729,7 +964,7 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    _state.update({"running": False, "current": ""})
+    _state.update({"running": False, "current": "", "phase": "", "message": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
         pending["event"].set()

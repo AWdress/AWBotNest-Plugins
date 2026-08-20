@@ -77,7 +77,7 @@ const _sfc_main = {
 const props = __props;
 const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] });
 const sites = ref([]), history = ref([]), cookieState = reactive({});
-const status = reactive({ running: false, current: '', completed: 0, total: 0, finished_at: '' });
+const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' });
 const loading = ref(true), saving = ref(false), checking = ref(false);
 let timer;
 const groups = computed(() => Object.entries(sites.value.reduce((all, site) => ((all[site.group] ||= []).push(site), all), {})));
@@ -194,7 +194,7 @@ return (_ctx, _cache) => {
                   [_vModelCheckbox, config.headless]
                 ]),
                 _cache[19] || (_cache[19] = _createElementVNode("i", null, null, -1)),
-                _cache[20] || (_cache[20] = _createElementVNode("span", null, "后台运行", -1))
+                _cache[20] || (_cache[20] = _createElementVNode("span", null, "浏览器静默运行", -1))
               ])
             ]),
             _createElementVNode("div", _hoisted_12, [
@@ -275,8 +275,8 @@ return (_ctx, _cache) => {
                   class: _normalizeClass(['pulse', { active: status.running }])
                 }, null, 2),
                 _createElementVNode("div", null, [
-                  _createElementVNode("b", null, _toDisplayString(status.running ? `正在签到 · ${status.current}` : '最近任务已完成'), 1),
-                  _createElementVNode("small", null, _toDisplayString(status.completed) + " / " + _toDisplayString(status.total) + " 个站点", 1)
+                  _createElementVNode("b", null, _toDisplayString(status.running ? `${status.phase} · ${status.current}` : '最近任务已完成'), 1),
+                  _createElementVNode("small", null, _toDisplayString(status.message || `${status.completed} / ${status.total} 个站点`), 1)
                 ]),
                 _createElementVNode("strong", null, _toDisplayString(progress.value) + "%", 1),
                 _createElementVNode("div", _hoisted_16, [
@@ -418,6 +418,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-50812f70"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f3b2d5f9"]]);
 
 export { Config as default };
