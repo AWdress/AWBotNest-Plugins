@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="多站自动签到">
+  <rect width="128" height="128" rx="30" fill="#0b1727"/>
+  <rect x="24" y="24" width="80" height="80" rx="22" fill="#142b49" stroke="#2e78c7" stroke-width="4"/>
+  <circle cx="45" cy="48" r="8" fill="#76bdff"/>
+  <circle cx="83" cy="48" r="8" fill="#76bdff"/>
+  <circle cx="45" cy="82" r="8" fill="#76bdff"/>
+  <path d="M53 48h22M45 56v18M52 79l19-14" fill="none" stroke="#4b91d8" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="83" cy="82" r="22" fill="#2788ed" stroke="#0b1727" stroke-width="6"/>
+  <path d="m72 82 7 7 15-17" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
