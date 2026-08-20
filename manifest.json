@@ -289,6 +289,24 @@
     "changelog": "v1.0.3 兼容无提示成功响应\n- 站点返回 HTTP 200 且没有错误、登录或安全验证特征时直接判定赠豆完成\n- 成功结果标题和状态统一显示为“赠豆完成”“已完成”\n\nv1.0.2 修复赠送成功误判\n- HHCLUB 成功后直接返回普通赠豆页时按成功处理\n- 仅在错误提示、登录页或异常页面出现时判定失败\n- 结果清理时间至少为 10 秒，保存为 0 的旧配置自动恢复默认清理\n\nv1.0.1 美化赠豆结果\n- 单人和批量结果优先使用 Premium 原生富文本表格\n- 非会员账号由平台自动降级为整齐的普通文本\n- 移除代码块复制框，优化执行中、格式错误和结果提示\n\nv1.0.0 初始版本\n- 支持 .hh 单人赠豆与 .hhs 批量赠豆\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
     "path": "plugins/hhan_bonus.py"
   },
+  "hhan_lottery": {
+    "name": "憨憨转盘",
+    "version": "1.0.2",
+    "author": "AWdress",
+    "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
+    "icon": "https://hhanclub.net/favicon.ico",
+    "changelog": "v1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
+    "path": "plugins/hhan_lottery.py"
+  },
+  "pterclub_bonus": {
+    "name": "猫站赠粮",
+    "version": "1.0.0",
+    "author": "AWdress",
+    "description": "使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。",
+    "icon": "https://pterclub.net/favicon.ico",
+    "changelog": "v1.0.0 初始版本\n- 支持 .pm 单人赠粮与 .pms 批量赠粮\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 按猫站规则校验每份 25–50,000 猫粮并显示 10% 税后到账\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
+    "path": "plugins/pterclub_bonus.py"
+  },
   "red_packet_send": {
     "name": "发红包",
     "version": "1.0.13",

@@ -437,6 +437,8 @@ curl -X POST 'https://你的平台/api/v1/plugin/webhook_bridge/webhook?apikey=�
 | 影巢115媒体监控 | `movie_monitor_115` | 监听频道 | user | 监控 115 分享，TMDB 识别 + 查 Emby，缺失转发 CMS 入库 |
 | U2送糖 | `u2_dmhy` | `/u2` `/u2s`（带 cookie） | user | 给 u2.dmhy.org 用户赠送 UCoin，单人/批量，自带冷却 |
 | 憨憨赠豆 | `hhan_bonus` | `.hh` `.hhs`（平台 Cookie） | user | 从平台 Cookie 同步读取 HHCLUB 登录态，支持单人/批量赠送憨豆与持久化冷却 |
+| 憨憨转盘 | `hhan_lottery` | 配置页操作（平台 Cookie） | user | 在配置页设置次数并开始/停止抽奖，完成后推送结果，同时保存最近结果与累计统计 |
+| 猫站赠粮 | `pterclub_bonus` | `.pm` `.pms`（平台 Cookie） | user | 从平台 Cookie 同步读取 PTerClub 登录态，支持单人/批量赠送猫粮、10% 税后估算与持久化冷却 |
 | 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
 | AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | standalone | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
