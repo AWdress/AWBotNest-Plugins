@@ -11,7 +11,7 @@ const tab = ref('lottery')
   <div class="plugin-shell">
     <nav class="tabs" aria-label="插件功能">
       <button :class="{ active: tab === 'lottery' }" @click="tab = 'lottery'">幸运转盘</button>
-      <button :class="{ active: tab === 'read' }" @click="tab = 'read'">一键全部已读</button>
+      <button :class="{ active: tab === 'read' }" @click="tab = 'read'">消息管理</button>
     </nav>
     <LotteryPanel v-if="tab === 'lottery'" :plugin-id="pluginId" :host="host" />
     <ReadPanel v-else :plugin-id="pluginId" :host="host" />

@@ -16,11 +16,11 @@ from . import _lottery
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "author": "AWdress",
-    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘和一键全部已读。",
+    "description": "使用平台同步的 HHanClub Cookie，在 Vue 配置页操作幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.1.1 修复一键已读提交失败\n- 将包含多个 messages[] 的表单预编码后再交给异步客户端提交\n- 修复 AsyncClient 收到同步请求流导致任务失败的问题\n\nv1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布\n- 转盘和已读任务分别提供配置、进度、停止、结果与统计\n- 两项功能统一读取平台 HHanClub Cookie",
+    "changelog": "v1.2.0 增加站内信删除\n- 消息管理同时提供全部已读和删除全部收件箱消息\n- 删除前需要二次确认，并逐批重新读取第一页避免分页收缩漏删\n- 运行状态、结果推送和历史记录区分已读与删除任务\n\nv1.1.1 修复一键已读提交失败\n- 将包含多个 messages[] 的表单预编码后再交给异步客户端提交\n- 修复 AsyncClient 收到同步请求流导致任务失败的问题\n\nv1.1.0 集成一键全部已读与 Vue 面板\n- 转盘插件升级为 Vue 双标签界面\n- 集成 HHanClub 一键全部已读，不再作为独立插件发布",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -55,7 +55,7 @@ _REDIRECT_CODES = {301, 302, 303, 307, 308}
 _task = None
 _stop_event = None
 _state = {
-    "running": False,
+    "running": False, "operation": "read",
     "phase": "idle",
     "message": "尚未运行",
     "current_page": 0,
@@ -221,16 +221,46 @@ def _page_form(soup: BeautifulSoup, current_url: str) -> tuple[list[str], str, l
     return unread_ids, action, fields
 
 
+def _delete_form(soup: BeautifulSoup, current_url: str) -> tuple[list[str], str, list[tuple[str, str]]]:
+    """构造删除当前页全部消息的原生表单。"""
+    message_ids = [
+        str(item.get("value") or "").strip()
+        for item in soup.select('#mail-table-display input[name="messages[]"]')
+    ]
+    message_ids = [value for value in message_ids if value]
+    button = soup.select_one(
+        'input[type="submit"][name="delete"], button[name="delete"], '
+        'input[type="submit"][name="del"], button[name="del"], '
+        'input[type="submit"][name="deletemessages"], button[name="deletemessages"]'
+    )
+    if not button:
+        button = next((
+            item for item in soup.select('input[type="submit"][name], button[name]')
+            if "删除" in str(item.get("value") or item.get_text() or "")
+        ), None)
+    if not button:
+        return message_ids, current_url, []
+    form = button.find_parent("form")
+    action = urljoin(current_url, str(form.get("action") or current_url)) if form else current_url
+    fields: list[tuple[str, str]] = []
+    if form:
+        for element in form.select('input[type="hidden"][name]'):
+            fields.append((str(element.get("name")), str(element.get("value") or "")))
+    fields.extend(("messages[]", value) for value in message_ids)
+    fields.append((str(button.get("name") or "delete"), str(button.get("value") or "删除")))
+    return message_ids, action, fields
+
+
 def _history(ctx) -> list[dict]:
     value = ctx.kv.get("history", []) or []
     return value if isinstance(value, list) else []
 
 
-def _record(ctx, *, status: str, processed: int, pages: int, detail: str):
+def _record(ctx, *, status: str, processed: int, pages: int, detail: str, operation: str = "read"):
     rows = _history(ctx)
     rows.insert(0, {
         "time": _now(), "status": status, "processed": processed,
-        "pages": pages, "detail": detail,
+        "pages": pages, "detail": detail, "operation": operation,
     })
     ctx.kv.set("history", rows[:20])
 
@@ -261,7 +291,7 @@ async def _run(ctx):
     status = "completed"
     detail = "全部未读消息已处理"
     _state.update({
-        "running": True, "phase": "checking", "message": "正在检查 Cookie…",
+        "running": True, "operation": "read", "phase": "checking", "message": "正在检查 Cookie…",
         "current_page": 0, "total_pages": 0, "processed": 0,
         "started_at": _now(), "finished_at": "", "stop_requested": False,
     })
@@ -358,12 +388,96 @@ async def _run(ctx):
         _task = None
 
 
+async def _run_delete(ctx):
+    """逐批删除收件箱当前第一页，避免删除后分页收缩而跳过消息。"""
+    global _task
+    cfg = _cfg(ctx)
+    processed = batches = 0
+    status, detail = "completed", "收件箱消息已全部删除"
+    previous_ids: tuple[str, ...] = ()
+    _state.update({
+        "running": True, "operation": "delete", "phase": "checking",
+        "message": "正在检查 Cookie…", "current_page": 0, "total_pages": 0,
+        "processed": 0, "started_at": _now(), "finished_at": "", "stop_requested": False,
+    })
+    try:
+        cookie, error = await _cookie_header(ctx)
+        if error:
+            raise RuntimeError(error)
+        delay = max(0.2, min(float(cfg.get("page_delay", 1.0) or 1.0), 10.0))
+        max_batches = max(1, min(int(cfg.get("max_pages", 200) or 200), 1000))
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=15.0)) as client:
+            while batches < max_batches:
+                if _stop_event and _stop_event.is_set():
+                    status, detail = "stopped", "用户已停止删除任务"
+                    break
+                resp, redirect_error = await _request(client, "GET", _PAGE_URL, _headers(cookie))
+                error = redirect_error or _validate_page(resp)
+                if error:
+                    raise RuntimeError(error)
+                soup = BeautifulSoup(resp.text or "", "lxml")
+                if not soup.select_one("#mail-table-display"):
+                    raise RuntimeError("未识别到消息列表，网站页面可能已更新")
+                message_ids, action, fields = _delete_form(soup, str(resp.url))
+                if not message_ids:
+                    break
+                fingerprint = tuple(message_ids)
+                if fingerprint == previous_ids:
+                    raise RuntimeError("删除后消息列表没有变化，站点可能拒绝了请求")
+                if not fields:
+                    raise RuntimeError("找不到网站的“删除”表单")
+                previous_ids = fingerprint
+                batches += 1
+                _state.update({
+                    "phase": "processing", "message": f"正在删除第 {batches} 批，共 {len(message_ids)} 条",
+                    "current_page": batches, "total_pages": max_batches,
+                })
+                post_headers = _headers(cookie, str(resp.url))
+                post_headers.update({"Origin": "https://hhanclub.net", "Content-Type": "application/x-www-form-urlencoded"})
+                result, redirect_error = await _request(
+                    client, "POST", action, post_headers,
+                    content=urlencode(fields).encode("utf-8"),
+                )
+                error = redirect_error or _validate_page(result)
+                if error:
+                    raise RuntimeError(f"第 {batches} 批删除失败：{error}")
+                processed += len(message_ids)
+                _state["processed"] = processed
+                await asyncio.sleep(delay)
+            else:
+                detail = f"已达到最多处理 {max_batches} 批的限制"
+    except asyncio.CancelledError:
+        status, detail = "stopped", "插件已停用，删除任务取消"
+        raise
+    except Exception as exc:  # noqa: BLE001
+        status, detail = "failed", str(exc)
+        ctx.log.error("[憨憨消息删除] 任务失败：%r", exc)
+    finally:
+        _state.update({
+            "running": False, "phase": status, "message": detail,
+            "processed": processed, "finished_at": _now(), "stop_requested": False,
+        })
+        _record(ctx, status=status, processed=processed, pages=batches, detail=detail, operation="delete")
+        if cfg.get("notify_result", True):
+            level = "success" if status == "completed" else ("error" if status == "failed" else "warning")
+            try:
+                await ctx.notify(
+                    f"憨憨消息删除\n\n删除消息：{processed} 条\n处理批次：{batches} 批\n结果：{detail}",
+                    level=level, category="憨憨消息管理",
+                )
+            except Exception as exc:  # noqa: BLE001
+                ctx.log.warning("[憨憨消息删除] 结果通知失败：%r", exc)
+        if _stop_event:
+            _stop_event.clear()
+        _task = None
+
+
 async def setup(ctx):
     global _task, _stop_event
     _task = None
     _stop_event = asyncio.Event()
     _state.update({
-        "running": False, "phase": "idle", "message": "尚未运行",
+        "running": False, "operation": "read", "phase": "idle", "message": "尚未运行",
         "current_page": 0, "total_pages": 0, "processed": 0,
         "started_at": "", "finished_at": "", "stop_requested": False,
     })
@@ -389,6 +503,18 @@ async def setup(ctx):
             _stop_event.clear()
         _task = ctx.create_task(_run(ctx), name="憨憨一键全部已读", operation="mark_read")
         return {"ok": True, "message": "任务已开始，可在面板查看实时进度"}
+
+    @ctx.on_api("/read/delete", methods=["POST"])
+    async def api_delete(req):
+        global _task
+        if not _cfg(ctx).get("enabled", True):
+            return {"ok": False, "message": "请先启用插件并保存配置"}
+        if _task and not _task.done():
+            return {"ok": False, "message": "已有消息处理任务正在运行"}
+        if _stop_event:
+            _stop_event.clear()
+        _task = ctx.create_task(_run_delete(ctx), name="憨憨删除全部消息", operation="delete_messages")
+        return {"ok": True, "message": "删除任务已开始，可在面板查看实时进度"}
 
     @ctx.on_api("/read/stop", methods=["POST"])
     async def api_stop(req):

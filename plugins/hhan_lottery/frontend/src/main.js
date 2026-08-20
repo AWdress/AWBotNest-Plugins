@@ -16,24 +16,25 @@ const mockHost = {
     if (path === '/lottery/stop') { running = false; return { ok: true, message: '已请求停止' } }
     if (path === '/lottery/cookie/check') return { ok: true, message: 'Cookie 有效；余额 12,500，单次消耗 100' }
     if (path === '/lottery/stats') return { ok: true, text: '累计抽奖：36 次\n累计消耗：3,600 憨豆\n奖品：憨豆 500 × 8' }
-    if (path === '/status') {
+    if (path === '/read/status') {
       if (running) processed = Math.min(12, processed + 2)
       return {
-        running, phase: running ? 'processing' : 'completed',
+        running, operation: 'read', phase: running ? 'processing' : 'completed',
         message: running ? '第 2 页正在处理 4 条' : '全部未读消息已处理',
         current_page: running ? 2 : 3, total_pages: 3, processed,
         started_at: '2026-08-20 14:20:00',
         finished_at: running ? '' : '2026-08-20 14:20:08', stop_requested: false,
       }
     }
-    if (path === '/run') { running = true; processed = 0; return { ok: true, message: '任务已开始' } }
-    if (path === '/stop') { running = false; return { ok: true, message: '已请求停止' } }
-    if (path === '/cookie/check') return { ok: true, message: 'Cookie 有效，当前页识别到 4 条未读消息' }
-    if (path === '/history') return { ok: true, items: [
-      { time: '2026-08-20 14:12:06', status: 'completed', processed: 12, pages: 3, detail: '全部未读消息已处理' },
-      { time: '2026-08-19 21:08:32', status: 'completed', processed: 3, pages: 1, detail: '已进入历史已读区域，任务结束' },
+    if (path === '/read/run') { running = true; processed = 0; return { ok: true, message: '任务已开始' } }
+    if (path === '/read/delete') { running = true; processed = 0; return { ok: true, message: '删除任务已开始' } }
+    if (path === '/read/stop') { running = false; return { ok: true, message: '已请求停止' } }
+    if (path === '/read/cookie/check') return { ok: true, message: 'Cookie 有效，当前页识别到 4 条未读消息' }
+    if (path === '/read/history') return { ok: true, items: [
+      { time: '2026-08-20 14:12:06', operation: 'delete', status: 'completed', processed: 12, pages: 3, detail: '收件箱消息已全部删除' },
+      { time: '2026-08-19 21:08:32', operation: 'read', status: 'completed', processed: 3, pages: 1, detail: '已进入历史已读区域，任务结束' },
     ] }
-    if (path === '/history/clear') return { ok: true, message: '运行记录已清空' }
+    if (path === '/read/history/clear') return { ok: true, message: '运行记录已清空' }
     return { ok: true }
   },
   toast: {

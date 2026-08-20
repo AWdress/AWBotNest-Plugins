@@ -15,6 +15,7 @@ const history = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const starting = ref(false)
+const deleting = ref(false)
 const stopping = ref(false)
 const checking = ref(false)
 const clearing = ref(false)
@@ -85,6 +86,19 @@ async function run() {
   } finally { starting.value = false }
 }
 
+async function runDelete() {
+  if (!confirm('确定删除 HHanClub 收件箱中的全部消息吗？\n\n已读和未读消息都会被永久删除，此操作无法撤销。')) return
+  deleting.value = true
+  try {
+    await props.host.saveConfig({ ...cfg })
+    const result = await props.host.callApi('/read/delete', { method: 'POST', body: {} })
+    result.ok ? props.host.toast.success(result.message) : props.host.toast.error(result.message)
+    await loadStatus()
+  } catch (error) {
+    props.host.toast.error('启动删除失败：' + (error.message || error))
+  } finally { deleting.value = false }
+}
+
 async function stop() {
   stopping.value = true
   try {
@@ -122,6 +136,8 @@ function historyStatus(item) {
   return ({ completed: '完成', stopped: '停止', failed: '失败' }[item.status] || item.status)
 }
 
+function operationLabel(item) { return item.operation === 'delete' ? '删除' : '已读' }
+
 onMounted(async () => {
   try {
     Object.assign(cfg, await props.host.getConfig() || {})
@@ -150,8 +166,8 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
         <div class="title-wrap">
           <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true" v-html="iconPath('inbox')"></svg>
           <div>
-            <h2>一键全部已读</h2>
-            <p>扫描 HHanClub 收件箱，只处理带未读标记的站内信。</p>
+            <h2>消息管理</h2>
+            <p>可以将未读消息批量设为已读，或删除收件箱全部消息。</p>
           </div>
         </div>
         <span class="state" :class="statusTone"><i></i>{{ phaseLabel }}</span>
@@ -170,6 +186,10 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
           <button v-if="!status.running" class="button primary" :disabled="starting || !cfg.enabled" @click="run">
             <svg viewBox="0 0 24 24" aria-hidden="true" v-html="iconPath('play')"></svg>
             {{ starting ? '启动中…' : '开始全部已读' }}
+          </button>
+          <button v-if="!status.running" class="button danger" :disabled="deleting || !cfg.enabled" @click="runDelete">
+            <svg viewBox="0 0 24 24" aria-hidden="true" v-html="iconPath('trash')"></svg>
+            {{ deleting ? '启动中…' : '删除全部消息' }}
           </button>
           <button v-else class="button danger" :disabled="stopping || status.stop_requested" @click="stop">
             <svg viewBox="0 0 24 24" aria-hidden="true" v-html="iconPath('stop')"></svg>
@@ -203,7 +223,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
             <label><span>翻页间隔</span><div class="input-unit"><input v-model.number="cfg.page_delay" type="number" min="0.2" max="10" step="0.1" /><em>秒</em></div></label>
             <label><span>最多扫描</span><div class="input-unit"><input v-model.number="cfg.max_pages" type="number" min="1" max="1000" /><em>页</em></div></label>
           </div>
-          <p class="notice">任务只勾选页面中使用 <code>icon-unread.svg</code> 标记的消息；进入连续已读区域后自动结束。</p>
+          <p class="notice"><b>全部已读</b>只处理带 <code>icon-unread.svg</code> 标记的消息；<b>删除全部消息</b>会清空当前收件箱中的已读和未读消息，且无法撤销。</p>
         </section>
 
         <section class="history-area" aria-labelledby="history-heading">
@@ -225,7 +245,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
           <div v-else class="history-list">
             <article v-for="(item, index) in history" :key="item.time + index" class="history-item">
               <span class="history-status" :class="item.status">{{ historyStatus(item) }}</span>
-              <div><b>{{ item.processed }} 条消息</b><span>{{ item.detail }}</span></div>
+              <div><b>{{ operationLabel(item) }} · {{ item.processed }} 条消息</b><span>{{ item.detail }}</span></div>
               <div class="history-meta"><time>{{ item.time }}</time><span>{{ item.pages }} 页</span></div>
             </article>
           </div>

@@ -229,38 +229,40 @@ const _hoisted_12 = ["disabled"];
 const _hoisted_13 = ["innerHTML"];
 const _hoisted_14 = ["disabled"];
 const _hoisted_15 = ["innerHTML"];
-const _hoisted_16 = ["aria-valuenow"];
-const _hoisted_17 = { class: "content-grid" };
-const _hoisted_18 = {
+const _hoisted_16 = ["disabled"];
+const _hoisted_17 = ["innerHTML"];
+const _hoisted_18 = ["aria-valuenow"];
+const _hoisted_19 = { class: "content-grid" };
+const _hoisted_20 = {
   class: "settings",
   "aria-labelledby": "settings-heading"
 };
-const _hoisted_19 = { class: "section-head" };
-const _hoisted_20 = ["disabled"];
-const _hoisted_21 = { class: "toggle-row" };
-const _hoisted_22 = { class: "toggle-row" };
-const _hoisted_23 = { class: "field-grid" };
-const _hoisted_24 = { class: "input-unit" };
-const _hoisted_25 = { class: "input-unit" };
-const _hoisted_26 = {
+const _hoisted_21 = { class: "section-head" };
+const _hoisted_22 = ["disabled"];
+const _hoisted_23 = { class: "toggle-row" };
+const _hoisted_24 = { class: "toggle-row" };
+const _hoisted_25 = { class: "field-grid" };
+const _hoisted_26 = { class: "input-unit" };
+const _hoisted_27 = { class: "input-unit" };
+const _hoisted_28 = {
   class: "history-area",
   "aria-labelledby": "history-heading"
 };
-const _hoisted_27 = { class: "section-head" };
-const _hoisted_28 = { class: "head-actions" };
-const _hoisted_29 = ["innerHTML"];
-const _hoisted_30 = ["disabled"];
+const _hoisted_29 = { class: "section-head" };
+const _hoisted_30 = { class: "head-actions" };
 const _hoisted_31 = ["innerHTML"];
-const _hoisted_32 = {
+const _hoisted_32 = ["disabled"];
+const _hoisted_33 = ["innerHTML"];
+const _hoisted_34 = {
   key: 0,
   class: "empty"
 };
-const _hoisted_33 = ["innerHTML"];
-const _hoisted_34 = {
+const _hoisted_35 = ["innerHTML"];
+const _hoisted_36 = {
   key: 1,
   class: "history-list"
 };
-const _hoisted_35 = { class: "history-meta" };
+const _hoisted_37 = { class: "history-meta" };
 
 const {computed,onBeforeUnmount,onMounted,reactive,ref: ref$1} = await importShared('vue');
 
@@ -285,6 +287,7 @@ const history = ref$1([]);
 const loading = ref$1(true);
 const saving = ref$1(false);
 const starting = ref$1(false);
+const deleting = ref$1(false);
 const stopping = ref$1(false);
 const checking = ref$1(false);
 const clearing = ref$1(false);
@@ -355,6 +358,19 @@ async function run() {
   } finally { starting.value = false; }
 }
 
+async function runDelete() {
+  if (!confirm('确定删除 HHanClub 收件箱中的全部消息吗？\n\n已读和未读消息都会被永久删除，此操作无法撤销。')) return
+  deleting.value = true;
+  try {
+    await props.host.saveConfig({ ...cfg });
+    const result = await props.host.callApi('/read/delete', { method: 'POST', body: {} });
+    result.ok ? props.host.toast.success(result.message) : props.host.toast.error(result.message);
+    await loadStatus();
+  } catch (error) {
+    props.host.toast.error('启动删除失败：' + (error.message || error));
+  } finally { deleting.value = false; }
+}
+
 async function stop() {
   stopping.value = true;
   try {
@@ -392,6 +408,8 @@ function historyStatus(item) {
   return ({ completed: '完成', stopped: '停止', failed: '失败' }[item.status] || item.status)
 }
 
+function operationLabel(item) { return item.operation === 'delete' ? '删除' : '已读' }
+
 onMounted(async () => {
   try {
     Object.assign(cfg, await props.host.getConfig() || {});
@@ -426,8 +444,8 @@ return (_ctx, _cache) => {
                 innerHTML: iconPath('inbox')
               }, null, 8, _hoisted_5)),
               _cache[5] || (_cache[5] = _createElementVNode$1("div", null, [
-                _createElementVNode$1("h2", null, "一键全部已读"),
-                _createElementVNode$1("p", null, "扫描 HHanClub 收件箱，只处理带未读标记的站内信。")
+                _createElementVNode$1("h2", null, "消息管理"),
+                _createElementVNode$1("p", null, "可以将未读消息批量设为已读，或删除收件箱全部消息。")
               ], -1))
             ]),
             _createElementVNode$1("span", {
@@ -468,8 +486,23 @@ return (_ctx, _cache) => {
                     }, null, 8, _hoisted_11)),
                     _createTextVNode(" " + _toDisplayString(starting.value ? '启动中…' : '开始全部已读'), 1)
                   ], 8, _hoisted_10))
-                : (_openBlock$1(), _createElementBlock$1("button", {
+                : _createCommentVNode$1("", true),
+              (!status.value.running)
+                ? (_openBlock$1(), _createElementBlock$1("button", {
                     key: 1,
+                    class: "button danger",
+                    disabled: deleting.value || !cfg.enabled,
+                    onClick: runDelete
+                  }, [
+                    (_openBlock$1(), _createElementBlock$1("svg", {
+                      viewBox: "0 0 24 24",
+                      "aria-hidden": "true",
+                      innerHTML: iconPath('trash')
+                    }, null, 8, _hoisted_13)),
+                    _createTextVNode(" " + _toDisplayString(deleting.value ? '启动中…' : '删除全部消息'), 1)
+                  ], 8, _hoisted_12))
+                : (_openBlock$1(), _createElementBlock$1("button", {
+                    key: 2,
                     class: "button danger",
                     disabled: stopping.value || status.value.stop_requested,
                     onClick: stop
@@ -478,9 +511,9 @@ return (_ctx, _cache) => {
                       viewBox: "0 0 24 24",
                       "aria-hidden": "true",
                       innerHTML: iconPath('stop')
-                    }, null, 8, _hoisted_13)),
+                    }, null, 8, _hoisted_15)),
                     _createTextVNode(" " + _toDisplayString(status.value.stop_requested ? '等待停止…' : stopping.value ? '提交中…' : '停止任务'), 1)
-                  ], 8, _hoisted_12)),
+                  ], 8, _hoisted_14)),
               _createElementVNode$1("button", {
                 class: "button",
                 disabled: checking.value || status.value.running,
@@ -490,9 +523,9 @@ return (_ctx, _cache) => {
                   viewBox: "0 0 24 24",
                   "aria-hidden": "true",
                   innerHTML: iconPath('shield')
-                }, null, 8, _hoisted_15)),
+                }, null, 8, _hoisted_17)),
                 _createTextVNode(" " + _toDisplayString(checking.value ? '检查中…' : '检查 Cookie'), 1)
-              ], 8, _hoisted_14)
+              ], 8, _hoisted_16)
             ]),
             _createElementVNode$1("div", {
               class: "progress",
@@ -504,11 +537,11 @@ return (_ctx, _cache) => {
               _createElementVNode$1("span", {
                 style: _normalizeStyle({ transform: `scaleX(${progress.value / 100})` })
               }, null, 4)
-            ], 8, _hoisted_16)
+            ], 8, _hoisted_18)
           ]),
-          _createElementVNode$1("div", _hoisted_17, [
-            _createElementVNode$1("section", _hoisted_18, [
-              _createElementVNode$1("div", _hoisted_19, [
+          _createElementVNode$1("div", _hoisted_19, [
+            _createElementVNode$1("section", _hoisted_20, [
+              _createElementVNode$1("div", _hoisted_21, [
                 _cache[8] || (_cache[8] = _createElementVNode$1("div", null, [
                   _createElementVNode$1("h3", { id: "settings-heading" }, "运行设置"),
                   _createElementVNode$1("p", null, "开始任务时会先自动保存这些设置。")
@@ -517,9 +550,9 @@ return (_ctx, _cache) => {
                   class: "button compact",
                   disabled: saving.value,
                   onClick: save
-                }, _toDisplayString(saving.value ? '保存中…' : '保存'), 9, _hoisted_20)
+                }, _toDisplayString(saving.value ? '保存中…' : '保存'), 9, _hoisted_22)
               ]),
-              _createElementVNode$1("label", _hoisted_21, [
+              _createElementVNode$1("label", _hoisted_23, [
                 _cache[9] || (_cache[9] = _createElementVNode$1("span", null, [
                   _createElementVNode$1("b", null, "启用插件"),
                   _createElementVNode$1("small", null, "关闭后不能启动新任务")
@@ -532,7 +565,7 @@ return (_ctx, _cache) => {
                   [_vModelCheckbox, cfg.enabled]
                 ])
               ]),
-              _createElementVNode$1("label", _hoisted_22, [
+              _createElementVNode$1("label", _hoisted_24, [
                 _cache[10] || (_cache[10] = _createElementVNode$1("span", null, [
                   _createElementVNode$1("b", null, "完成后推送结果"),
                   _createElementVNode$1("small", null, "通过平台通知渠道发送处理汇总")
@@ -545,10 +578,10 @@ return (_ctx, _cache) => {
                   [_vModelCheckbox, cfg.notify_result]
                 ])
               ]),
-              _createElementVNode$1("div", _hoisted_23, [
+              _createElementVNode$1("div", _hoisted_25, [
                 _createElementVNode$1("label", null, [
                   _cache[12] || (_cache[12] = _createElementVNode$1("span", null, "翻页间隔", -1)),
-                  _createElementVNode$1("div", _hoisted_24, [
+                  _createElementVNode$1("div", _hoisted_26, [
                     _withDirectives(_createElementVNode$1("input", {
                       "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.page_delay) = $event)),
                       type: "number",
@@ -568,7 +601,7 @@ return (_ctx, _cache) => {
                 ]),
                 _createElementVNode$1("label", null, [
                   _cache[14] || (_cache[14] = _createElementVNode$1("span", null, "最多扫描", -1)),
-                  _createElementVNode$1("div", _hoisted_25, [
+                  _createElementVNode$1("div", _hoisted_27, [
                     _withDirectives(_createElementVNode$1("input", {
                       "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.max_pages) = $event)),
                       type: "number",
@@ -587,18 +620,21 @@ return (_ctx, _cache) => {
                 ])
               ]),
               _cache[15] || (_cache[15] = _createElementVNode$1("p", { class: "notice" }, [
-                _createTextVNode("任务只勾选页面中使用 "),
+                _createElementVNode$1("b", null, "全部已读"),
+                _createTextVNode("只处理带 "),
                 _createElementVNode$1("code", null, "icon-unread.svg"),
-                _createTextVNode(" 标记的消息；进入连续已读区域后自动结束。")
+                _createTextVNode(" 标记的消息；"),
+                _createElementVNode$1("b", null, "删除全部消息"),
+                _createTextVNode("会清空当前收件箱中的已读和未读消息，且无法撤销。")
               ], -1))
             ]),
-            _createElementVNode$1("section", _hoisted_26, [
-              _createElementVNode$1("div", _hoisted_27, [
+            _createElementVNode$1("section", _hoisted_28, [
+              _createElementVNode$1("div", _hoisted_29, [
                 _cache[16] || (_cache[16] = _createElementVNode$1("div", null, [
                   _createElementVNode$1("h3", { id: "history-heading" }, "最近运行"),
                   _createElementVNode$1("p", null, "保留最近 20 次处理结果。")
                 ], -1)),
-                _createElementVNode$1("div", _hoisted_28, [
+                _createElementVNode$1("div", _hoisted_30, [
                   _createElementVNode$1("button", {
                     class: "icon-button",
                     title: "刷新记录",
@@ -609,7 +645,7 @@ return (_ctx, _cache) => {
                       viewBox: "0 0 24 24",
                       "aria-hidden": "true",
                       innerHTML: iconPath('refresh')
-                    }, null, 8, _hoisted_29))
+                    }, null, 8, _hoisted_31))
                   ]),
                   _createElementVNode$1("button", {
                     class: "icon-button danger-text",
@@ -622,21 +658,21 @@ return (_ctx, _cache) => {
                       viewBox: "0 0 24 24",
                       "aria-hidden": "true",
                       innerHTML: iconPath('trash')
-                    }, null, 8, _hoisted_31))
-                  ], 8, _hoisted_30)
+                    }, null, 8, _hoisted_33))
+                  ], 8, _hoisted_32)
                 ])
               ]),
               (!history.value.length)
-                ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_32, [
+                ? (_openBlock$1(), _createElementBlock$1("div", _hoisted_34, [
                     (_openBlock$1(), _createElementBlock$1("svg", {
                       viewBox: "0 0 24 24",
                       "aria-hidden": "true",
                       innerHTML: iconPath('inbox')
-                    }, null, 8, _hoisted_33)),
+                    }, null, 8, _hoisted_35)),
                     _cache[17] || (_cache[17] = _createElementVNode$1("b", null, "还没有运行记录", -1)),
                     _cache[18] || (_cache[18] = _createElementVNode$1("span", null, "首次执行后，处理数量和结果会显示在这里。", -1))
                   ]))
-                : (_openBlock$1(), _createElementBlock$1("div", _hoisted_34, [
+                : (_openBlock$1(), _createElementBlock$1("div", _hoisted_36, [
                     (_openBlock$1(true), _createElementBlock$1(_Fragment, null, _renderList(history.value, (item, index) => {
                       return (_openBlock$1(), _createElementBlock$1("article", {
                         key: item.time + index,
@@ -646,10 +682,10 @@ return (_ctx, _cache) => {
                           class: _normalizeClass$1(["history-status", item.status])
                         }, _toDisplayString(historyStatus(item)), 3),
                         _createElementVNode$1("div", null, [
-                          _createElementVNode$1("b", null, _toDisplayString(item.processed) + " 条消息", 1),
+                          _createElementVNode$1("b", null, _toDisplayString(operationLabel(item)) + " · " + _toDisplayString(item.processed) + " 条消息", 1),
                           _createElementVNode$1("span", null, _toDisplayString(item.detail), 1)
                         ]),
-                        _createElementVNode$1("div", _hoisted_35, [
+                        _createElementVNode$1("div", _hoisted_37, [
                           _createElementVNode$1("time", null, _toDisplayString(item.time), 1),
                           _createElementVNode$1("span", null, _toDisplayString(item.pages) + " 页", 1)
                         ])
@@ -664,7 +700,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const ReadPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-0bb13601"]]);
+const ReadPanel = /*#__PURE__*/_export_sfc(_sfc_main$1, [['__scopeId',"data-v-cda4d93d"]]);
 
 const {normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,openBlock:_openBlock,createBlock:_createBlock,createCommentVNode:_createCommentVNode,createElementBlock:_createElementBlock} = await importShared('vue');
 
@@ -696,7 +732,7 @@ return (_ctx, _cache) => {
       _createElementVNode("button", {
         class: _normalizeClass({ active: tab.value === 'read' }),
         onClick: _cache[1] || (_cache[1] = $event => (tab.value = 'read'))
-      }, "一键全部已读", 2)
+      }, "消息管理", 2)
     ]),
     (tab.value === 'lottery')
       ? (_openBlock(), _createBlock(LotteryPanel, {
@@ -714,6 +750,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-71377b84"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-efb152e2"]]);
 
 export { Config as default };
