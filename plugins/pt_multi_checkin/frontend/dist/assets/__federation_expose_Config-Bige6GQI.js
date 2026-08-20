@@ -111,7 +111,12 @@ async function run() {
 }
 async function checkCookies() {
   checking.value = true;
-  try { const data = await props.host.callApi('/cookies/check'); (data.items || []).forEach(item => { cookieState[item.key] = item; }); props.host.toast[data.ok ? 'success' : 'warning'](data.ok ? '所选站点 Cookie 均可用' : '部分站点 Cookie 不可用'); }
+  try {
+    Object.keys(cookieState).forEach(key => delete cookieState[key]);
+    const data = await props.host.callApi('/cookies/check', { method: 'POST', body: { selected_sites: [...config.selected_sites] } })
+    ;(data.items || []).forEach(item => { cookieState[item.key] = item; });
+    props.host.toast[data.ok ? 'success' : 'warning'](data.ok ? '所选站点 Cookie 均可用' : (data.message || '部分所选站点 Cookie 不可用'));
+  }
   catch (error) { props.host.toast.error(`检查失败：${error.message || error}`); }
   finally { checking.value = false; }
 }
@@ -142,7 +147,7 @@ return (_ctx, _cache) => {
             _createElementVNode("div", _hoisted_4, [
               _createElementVNode("button", {
                 class: "button quiet",
-                disabled: checking.value,
+                disabled: checking.value || !config.selected_sites.length,
                 onClick: checkCookies
               }, [
                 _cache[13] || (_cache[13] = _createElementVNode("span", {
@@ -418,6 +423,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-4244d279"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-551c6010"]]);
 
 export { Config as default };

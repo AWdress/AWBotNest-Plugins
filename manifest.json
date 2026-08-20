@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.3.0",
+    "version": "2.3.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.3.0 新增 HHanClub 自动签到\n- 从平台同步 hhanclub.net Cookie\n- HTTP 优先，遇到安全验证或动态页面自动降级 CloakBrowser\n- TJUPT 图片验证保留人工确认后提交\n\nv2.2.3 修复 PigGo 签到结果误判",
+    "changelog": "v2.3.1 修复 Cookie 检查范围\n- 只检查界面当前勾选的站点\n- 无需先保存配置，未勾选站点不再请求 Cookie\n\nv2.3.0 新增 HHanClub 自动签到",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

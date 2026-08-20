@@ -38,7 +38,12 @@ async function run() {
 }
 async function checkCookies() {
   checking.value = true
-  try { const data = await props.host.callApi('/cookies/check'); (data.items || []).forEach(item => { cookieState[item.key] = item }); props.host.toast[data.ok ? 'success' : 'warning'](data.ok ? '所选站点 Cookie 均可用' : '部分站点 Cookie 不可用') }
+  try {
+    Object.keys(cookieState).forEach(key => delete cookieState[key])
+    const data = await props.host.callApi('/cookies/check', { method: 'POST', body: { selected_sites: [...config.selected_sites] } })
+    ;(data.items || []).forEach(item => { cookieState[item.key] = item })
+    props.host.toast[data.ok ? 'success' : 'warning'](data.ok ? '所选站点 Cookie 均可用' : (data.message || '部分所选站点 Cookie 不可用'))
+  }
   catch (error) { props.host.toast.error(`检查失败：${error.message || error}`) }
   finally { checking.value = false }
 }
@@ -52,7 +57,7 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
   <main class="console" v-if="!loading">
     <header class="mast">
       <div class="title-block"><span class="brand-mark" aria-hidden="true">PT</span><div><h2>多站签到</h2><p>平台 Cookie 自动同步 · 已选择 <b>{{ config.selected_sites.length }}</b> / {{ sites.length }} 个站点</p></div></div>
-      <div class="mast-actions"><button class="button quiet" :disabled="checking" @click="checkCookies"><span class="button-icon" aria-hidden="true"></span>{{ checking ? '正在检查' : '检查 Cookie' }}</button><button class="button primary" :disabled="status.running || !config.selected_sites.length" @click="run"><span class="play" aria-hidden="true"></span>{{ status.running ? '签到进行中' : '立即签到' }}</button></div>
+      <div class="mast-actions"><button class="button quiet" :disabled="checking || !config.selected_sites.length" @click="checkCookies"><span class="button-icon" aria-hidden="true"></span>{{ checking ? '正在检查' : '检查 Cookie' }}</button><button class="button primary" :disabled="status.running || !config.selected_sites.length" @click="run"><span class="play" aria-hidden="true"></span>{{ status.running ? '签到进行中' : '立即签到' }}</button></div>
     </header>
 
     <section class="control-rail" aria-label="签到设置">

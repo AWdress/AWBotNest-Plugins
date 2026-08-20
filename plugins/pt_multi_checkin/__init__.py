@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.3.0",
+    "version": "2.3.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.3.0 新增 HHanClub 自动签到\n- 从平台同步 hhanclub.net Cookie\n- HTTP 优先，遇到安全验证或动态页面自动降级 CloakBrowser\n- TJUPT 图片验证保留人工确认后提交\n\nv2.2.3 修复 PigGo 签到结果误判",
+    "changelog": "v2.3.1 修复 Cookie 检查范围\n- 只检查界面当前勾选的站点\n- 无需先保存配置，未勾选站点不再请求 Cookie\n\nv2.3.0 新增 HHanClub 自动签到",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -944,12 +944,16 @@ async def setup(ctx):
         ctx.kv.set(_HISTORY_KEY, [])
         return {"ok": True, "message": "签到记录已清空"}
 
-    @ctx.on_api("/cookies/check", methods=["GET"])
+    @ctx.on_api("/cookies/check", methods=["POST"])
     async def api_cookies_check(req):
+        data = req.json if isinstance(req.json, dict) else {}
+        requested = data.get("selected_sites")
+        selected = requested if isinstance(requested, list) else _cfg(ctx).get("selected_sites", list(SITES))
+        selected = list(dict.fromkeys(str(key) for key in selected if str(key) in SITES))
+        if not selected:
+            return {"ok": False, "message": "请至少勾选一个站点", "items": []}
         rows = []
-        for key in _cfg(ctx).get("selected_sites", list(SITES)):
-            if key not in SITES:
-                continue
+        for key in selected:
             cookie, error = await _site_cookie(ctx, key, SITES[key])
             rows.append({"key": key, "ok": bool(cookie), "message": "平台 Cookie 可用" if cookie else error})
         return {"ok": all(row["ok"] for row in rows), "items": rows}
