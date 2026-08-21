@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: String, host: { type: Object, required: true } })
-const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '' })
+const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '', scheduled_stop_enabled: false, scheduled_stop_at: '' })
 const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '' })
 const stats = ref('暂无累计统计')
 const busy = ref('')
@@ -24,6 +24,7 @@ async function save(showToast = true) {
     cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0))
     cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)))
     cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000))
+    cfg.scheduled_stop_at = String(cfg.scheduled_stop_at || '')
     await props.host.saveConfig({ ...cfg })
     if (showToast) props.host.toast.success('转盘配置已保存')
   } catch (error) {
@@ -76,6 +77,9 @@ onBeforeUnmount(() => clearInterval(timer))
         <label><span>抽奖间隔（秒）</span><input v-model.number="cfg.interval_seconds" type="number" min="3" max="30"></label>
         <label><span>余额校准间隔</span><input v-model.number="cfg.sync_every_draws" type="number" min="1" max="200"></label>
         <label class="check"><input v-model="cfg.auto_clean_lottery_mail" type="checkbox"> 校准时清理转盘通知</label>
+        <label class="check"><input v-model="cfg.scheduled_stop_enabled" type="checkbox"> 到指定日期时间自动停止</label>
+        <label v-if="cfg.scheduled_stop_enabled"><span>停止日期时间</span><input v-model="cfg.scheduled_stop_at" type="datetime-local"></label>
+        <p v-if="cfg.scheduled_stop_enabled" class="mode-note">任务计划会持久化；平台或插件重启后，将继续剩余抽奖并在此时间停止。</p>
         <label class="check"><input v-model="cfg.stop_on_prize" type="checkbox"> 命中大奖后自动停止</label>
         <div v-if="cfg.stop_on_prize" class="stop-box">
           <label class="check"><input v-model="cfg.stop_on_vip" type="checkbox"> VIP</label>
@@ -110,7 +114,7 @@ onBeforeUnmount(() => clearInterval(timer))
 header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:18px; } h2 { margin:2px 0 5px; color:#f4f8fd; font-size:25px; } .eyebrow { margin:0; color:var(--blue); font-size:11px; font-weight:800; letter-spacing:.16em; } .sub { margin:0; color:var(--muted); font-size:13px; }
 .state { display:flex; align-items:center; gap:8px; max-width:280px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; color:#aebdd0; background:#111c2b; font-size:12px; } .state i { width:7px; height:7px; border-radius:50%; background:#64748b; } .state.live i { background:#38d796; box-shadow:0 0 0 5px #38d7961d; }
 .progress-card,.card { border:1px solid var(--line); border-radius:14px; background:#111c2b; } .progress-card { padding:18px 20px; margin-bottom:14px; } .progress-top { display:flex; justify-content:space-between; color:#71adfa; } .progress-top strong { color:#f2f6fc; font-size:25px; } .progress-top small { color:var(--muted); font-size:13px; } .track { height:7px; margin:13px 0 9px; overflow:hidden; border-radius:9px; background:#243349; } .track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#287de7,#55a8ff); } .progress-card p { margin:0; color:var(--muted); font-size:12px; }
-.grid { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(320px,1.2fr); gap:14px; } .card { padding:18px; min-width:0; } h3 { margin:0 0 14px; color:#dfe9f6; font-size:14px; } label:not(.check,.toggle-row) { display:grid; grid-template-columns:1fr 120px; align-items:center; gap:12px; margin:12px 0; color:#bac8d9; font-size:13px; } input[type=number],select { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; } .toggle-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; } .toggle-row span { display:grid; gap:3px; } .toggle-row small { color:var(--muted); } .mode-note { margin:8px 0 13px; padding:10px 11px; border-radius:8px; color:#8fb5e4; background:#12253d; font-size:12px; line-height:1.55; } .check { display:block; margin:11px 0; color:#aebed0; font-size:13px; } pre { max-height:150px; overflow:auto; white-space:pre-wrap; margin:0 0 17px; color:#9fb1c6; font:12px/1.6 ui-monospace,Consolas,monospace; }
+.grid { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(320px,1.2fr); gap:14px; } .card { padding:18px; min-width:0; } h3 { margin:0 0 14px; color:#dfe9f6; font-size:14px; } label:not(.check,.toggle-row) { display:grid; grid-template-columns:1fr 160px; align-items:center; gap:12px; margin:12px 0; color:#bac8d9; font-size:13px; } input[type=number],input[type=datetime-local],select { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; } .toggle-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; } .toggle-row span { display:grid; gap:3px; } .toggle-row small { color:var(--muted); } .mode-note { margin:8px 0 13px; padding:10px 11px; border-radius:8px; color:#8fb5e4; background:#12253d; font-size:12px; line-height:1.55; } .check { display:block; margin:11px 0; color:#aebed0; font-size:13px; } pre { max-height:150px; overflow:auto; white-space:pre-wrap; margin:0 0 17px; color:#9fb1c6; font:12px/1.6 ui-monospace,Consolas,monospace; }
 .stop-box { margin:10px 0; padding:10px 12px; border:1px solid #2e425b; border-radius:9px; background:#0d1827; } .stop-box .check { display:inline-block; margin:3px 12px 3px 0; } input[type=text] { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; }
 footer { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; } button { min-height:40px; padding:0 16px; border-radius:9px; border:1px solid transparent; color:#dce8f7; background:#18263a; font:inherit; font-weight:650; cursor:pointer; } button:disabled { opacity:.45; cursor:not-allowed; } .primary { color:white; background:#287de7; } .danger { color:#ffb0b0; border-color:#7c353d; background:#2a1920; } .secondary { border-color:#344a65; background:#152338; }
 @media(max-width:700px){ header{display:block}.state{margin-top:13px}.grid{grid-template-columns:1fr}.result{min-height:0} footer button{flex:1} }

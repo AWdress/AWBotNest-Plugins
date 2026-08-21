@@ -6,6 +6,7 @@ import asyncio
 import html
 import re
 from collections import Counter
+from datetime import datetime
 from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
@@ -17,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -100,6 +101,7 @@ _DOMAIN = "hhanclub.net"
 _STATS_KEY = "lottery_stats"
 _LAST_RESULT_KEY = "last_result"
 _STATUS_KEY = "task_status"
+_PLAN_KEY = "lottery_resume_plan"
 _MAILBOX_URL = "https://hhanclub.net/messages.php?action=viewmailbox&box=1&page=0"
 _MAIL_KEYWORD = "幸运大转盘"
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
@@ -112,6 +114,13 @@ def _int(value, default: int, minimum: int = 0) -> int:
         return max(minimum, int(value))
     except (TypeError, ValueError):
         return default
+
+
+def _stop_at(value) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(value or "").strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def _headers(cookie: str, *, ajax: bool = False, referer: str = _PAGE_URL) -> dict[str, str]:
@@ -371,7 +380,7 @@ async def setup(ctx):
     _stop_event = asyncio.Event()
     stale_status = ctx.kv.get(_STATUS_KEY, {}) or {}
     if isinstance(stale_status, dict) and stale_status.get("running"):
-        stale_status.update({"running": False, "detail": "插件已重载，原任务已结束"})
+        stale_status.update({"running": False, "detail": "插件已重载，正在检查续跑计划"})
         ctx.kv.set(_STATUS_KEY, stale_status)
 
     async def _notify_cookie(detail: str):
@@ -393,18 +402,23 @@ async def setup(ctx):
         except Exception as exc:  # noqa: BLE001
             ctx.log.warning("[憨憨转盘] 推送结果失败：%r", exc)
 
-    async def _run(count: int | None):
+    async def _run(count: int | None, *, resumed: bool = False):
         global _active_task
         prizes: list[str] = []
         cfg = dict(ctx.config or {})
         mode = str(cfg.get("lottery_mode", "fixed"))
         reserve = _int(cfg.get("reserve_beans"), 0) if mode == "reserve" else 0
         sync_every = _int(cfg.get("sync_every_draws"), 20, 1)
+        saved_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+        deadline = _stop_at(saved_plan.get("stop_at")) if resumed else (
+            _stop_at(cfg.get("scheduled_stop_at")) if cfg.get("scheduled_stop_enabled", False) else None
+        )
         mail_cleaned = 0
         requested = count or 0
         ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": requested})
         ok, detail, balance, cost = await _page_info(ctx)
         if not ok:
+            ctx.kv.set(_PLAN_KEY, {})
             await _notify_cookie(detail)
             result_text = f"⚠️ 憨憨转盘无法启动\n\n{detail}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
@@ -417,6 +431,7 @@ async def setup(ctx):
         estimated_balance = balance
         ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": target, "balance": balance, "cost": cost})
         if target <= 0:
+            ctx.kv.set(_PLAN_KEY, {})
             result_text = f"💸 憨豆不足\n\n余额 {balance:,}，单次需要 {cost:,}。"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": "憨豆不足"})
@@ -426,6 +441,7 @@ async def setup(ctx):
 
         cookie, error = await _cookie_header(ctx)
         if error:
+            ctx.kv.set(_PLAN_KEY, {})
             result_text = f"⚠️ {error}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": error})
@@ -442,6 +458,9 @@ async def setup(ctx):
                     if _stop_event and _stop_event.is_set():
                         stop_detail = "用户已手动停止任务"
                         break
+                    if deadline and datetime.now() >= deadline:
+                        stop_detail = f"已到定时停止时间 {deadline:%Y-%m-%d %H:%M}"
+                        break
                     if estimated_balance - cost < reserve:
                         stop_detail = f"已到保留余额 {reserve:,} 憨豆，自动停止"
                         break
@@ -457,6 +476,10 @@ async def setup(ctx):
                                 if 900_000 <= converted <= 1_100_000:
                                     result = f"{result}（已转换为憨豆 {converted:,}）"
                         prizes.append(result)
+                        plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+                        if plan.get("active") and count is not None:
+                            plan["count"] = max(0, _int(plan.get("count"), count) - 1)
+                            ctx.kv.set(_PLAN_KEY, plan)
                         consecutive_retry = 0
                         dynamic_interval = interval
                         ctx.kv.set(_STATUS_KEY, {
@@ -494,7 +517,8 @@ async def setup(ctx):
                     if len(prizes) < target:
                         await asyncio.sleep(dynamic_interval)
         except asyncio.CancelledError:
-            stop_detail = "插件停止，任务已取消"
+            stop_detail = "平台或插件正在重启，任务将在恢复后继续"
+            raise
         finally:
             if prizes:
                 _save_result(ctx, prizes, cost)
@@ -511,6 +535,8 @@ async def setup(ctx):
             })
             await _push_result(result_text, success=len(prizes) == target)
             _active_task = None
+            if not stop_detail.startswith("平台或插件正在重启"):
+                ctx.kv.set(_PLAN_KEY, {})
             if _stop_event:
                 _stop_event.clear()
 
@@ -547,6 +573,16 @@ async def setup(ctx):
             return {"ok": False, "message": "抽奖次数必须是大于 0 的整数"}
         if _stop_event:
             _stop_event.clear()
+        deadline = _stop_at(ctx.config.get("scheduled_stop_at")) if ctx.config.get("scheduled_stop_enabled", False) else None
+        if ctx.config.get("scheduled_stop_enabled", False) and not deadline:
+            return {"ok": False, "message": "请设置有效的定时停止日期和时间"}
+        if deadline and deadline <= datetime.now():
+            return {"ok": False, "message": "定时停止时间必须晚于当前时间"}
+        ctx.kv.set(_PLAN_KEY, {
+            "active": True,
+            "count": count,
+            "stop_at": deadline.isoformat(timespec="minutes") if deadline else "",
+        })
         _active_task = ctx.create_task(
             _run(count), name="憨憨转盘后台任务", operation="lottery"
         )
@@ -562,6 +598,7 @@ async def setup(ctx):
             return {"ok": False, "message": "当前没有正在运行的抽奖任务"}
         if _stop_event:
             _stop_event.set()
+        ctx.kv.set(_PLAN_KEY, {})
         return {"ok": True, "message": "已请求停止，当前请求完成后退出"}
 
     @ctx.action("view_result")
@@ -611,6 +648,25 @@ async def setup(ctx):
     async def lottery_stats(_request=None):
         stats = _load_stats(ctx)
         return {"ok": True, "text": _stats_text(stats), "stats": stats}
+
+    plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+    if plan.get("active"):
+        resume_deadline = _stop_at(plan.get("stop_at"))
+        resume_count = plan.get("count")
+        if resume_deadline and resume_deadline <= datetime.now():
+            ctx.kv.set(_PLAN_KEY, {})
+            ctx.kv.set(_STATUS_KEY, {
+                "running": False, "completed": 0, "target": _int(resume_count, 0),
+                "detail": f"平台恢复时已超过定时停止时间 {resume_deadline:%Y-%m-%d %H:%M}",
+            })
+        elif resume_count is None or _int(resume_count, 0) > 0:
+            _active_task = ctx.create_task(
+                _run(None if resume_count is None else _int(resume_count, 0, 1), resumed=True),
+                name="憨憨转盘重启续跑任务", operation="lottery",
+            )
+            ctx.log.info("[憨憨转盘] 检测到未完成计划，平台重启后自动续跑")
+        else:
+            ctx.kv.set(_PLAN_KEY, {})
 
 
 async def teardown(ctx):
