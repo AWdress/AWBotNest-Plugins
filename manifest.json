@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.6",
+    "version": "2.5.7",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
+    "changelog": "v2.5.7 修复天空已签到漏判\n- 识别首页导航中的‘[已签到]’明确状态，已签到时不再重复请求验证码\n- 签到接口回执无法识别时回查首页最终状态，避免实际成功却通知失败\n\nv2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

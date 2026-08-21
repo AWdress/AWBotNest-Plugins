@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.6",
+    "version": "2.5.7",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
+    "changelog": "v2.5.7 修复天空已签到漏判\n- 识别首页导航中的‘[已签到]’明确状态，已签到时不再重复请求验证码\n- 签到接口回执无法识别时回查首页最终状态，避免实际成功却通知失败\n\nv2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -248,6 +248,11 @@ def _site_result_state(text: str, expected_domain: str = "", *, confirmed: bool 
     if expected_domain.lower() in {"audiences.me", "ourbits.club", "piggo.me", "hhanclub.net"}:
         return _nexus_result_state(text)
     return _result_state(text, confirmed=confirmed)
+
+
+def _hdsky_already(text: str) -> bool:
+    """天空以首页导航的方括号标签表示当天已签到。"""
+    return bool(re.search(r"\[\s*(?:已签到|已簽到)\s*\]", text or "", re.IGNORECASE))
 
 
 def _same_site_domain(current: str, expected: str) -> bool:
@@ -530,6 +535,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         if key in {"pt52", "chdbits"}:
             return _quiz_checkin(page, site, ctx, loop)
         if key == "hdsky":
+            if _hdsky_already(text):
+                return {"status": "already", "message": "今天已经签到"}
             code_response = _fetch_same_origin(page, "https://hdsky.me/image_code_ajax.php", method="POST", data={"action": "new"})
             try:
                 image_hash = json.loads(code_response.get("text", "")).get("code")
@@ -541,7 +548,13 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             captcha = _ai_ocr(ctx, loop, page.screenshot(), 6)
             result = _fetch_same_origin(page, "https://hdsky.me/showup.php", method="POST", data={"action": "showup", "imagehash": image_hash, "imagestring": captcha})
             body = result.get("text", "")
-            return _response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",))
+            try:
+                return _response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",))
+            except RuntimeError:
+                page.goto("https://hdsky.me", wait_until="domcontentloaded", timeout=60_000)
+                if _hdsky_already(_page_text(page)):
+                    return {"status": "success", "message": "签到成功（首页状态已确认）"}
+                raise
         if key == "opencd":
             if "/plugin_sign-in.php?cmd=show-log" in html:
                 return {"status": "already", "message": "今天已经签到"}
@@ -902,6 +915,8 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             _, body = await post(site["url"], data={"questionid": question_id, "choice[]": selected, "usercomment": "自动签到", "wantskip": "不会"})
             return {**_response_result(body, success=("点魔力值",), already=("今天已经签过到了",)), "engine": "http"}
         if key == "hdsky":
+            if _hdsky_already(visible_text):
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
             _, code_body = await post("https://hdsky.me/image_code_ajax.php", data={"action": "new"})
             try:
                 image_hash = json.loads(code_body).get("code")
@@ -914,7 +929,15 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
                 raise RuntimeError(f"下载天空验证码失败：{image_response.status_code}")
             captcha = await _http_ai_ocr(ctx, image_response.content)
             _, body = await post("https://hdsky.me/showup.php", data={"action": "showup", "imagehash": image_hash, "imagestring": captcha})
-            return {**_response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",)), "engine": "http"}
+            try:
+                result = _response_result(body, success=('"success":true', '"success": true'), already=("date_unmatch",))
+            except RuntimeError:
+                _, confirmed = await get("https://hdsky.me")
+                if _hdsky_already(_html_visible_text(confirmed)):
+                    result = {"status": "success", "message": "签到成功（首页状态已确认）"}
+                else:
+                    raise
+            return {**result, "engine": "http"}
         if key == "opencd":
             if "/plugin_sign-in.php?cmd=show-log" in text:
                 return {"status": "already", "message": "今天已经签到", "engine": "http"}
