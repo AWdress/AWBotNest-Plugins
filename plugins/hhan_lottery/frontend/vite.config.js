@@ -16,6 +16,6 @@ export default defineConfig({
       format: 'esm',
     }),
   ],
-  build: { target: 'esnext', minify: false, cssCodeSplit: true },
+  build: { target: 'esnext', minify: false, cssCodeSplit: true, emptyOutDir: false },
   server: { port: 5013, cors: true },
 })
