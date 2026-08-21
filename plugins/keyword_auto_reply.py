@@ -6,6 +6,7 @@
 # =============================================================================
 
 import asyncio
+import html
 import random
 import re
 import time
@@ -14,7 +15,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -74,7 +75,7 @@ __plugin__ = {
         "delete_after": {
             "type": "slider", "default": 0, "label": "回复自动删除(秒)",
             "min": 0, "max": 600, "step": 10, "order": 22, "section": "范围与冷却",
-            "help": "回复发出后多少秒自动撤回；0 = 不删除。",
+            "help": "关键词回复和羊毛榜发出后多少秒自动撤回；0 = 不删除。",
         },
         "blacklist_ids": {
             "type": "text", "default": "", "label": "屏蔽用户ID",
@@ -261,6 +262,36 @@ def _leaderboard_text(ctx, account: str, chat_id: int, limit: int) -> str:
     return "\n".join(lines)
 
 
+def _leaderboard_rich(ctx, account: str, chat_id: int, limit: int) -> str:
+    rows = ctx.kv.get(_LEADERBOARD_KV_KEY, []) or []
+    selected = [item for item in rows if isinstance(item, dict)
+                and str(item.get("account")) == account
+                and int(item.get("chat_id", 0)) == chat_id]
+    selected.sort(key=lambda item: (-int(item.get("count", 0) or 0), int(item.get("last_time", 0) or 0)))
+    selected = selected[:max(3, min(30, limit))]
+    if not selected:
+        return "<h2>🐑 薅羊毛排行榜</h2><p>还没有人领取过福利。</p>"
+    medals = ("🥇", "🥈", "🥉")
+    table_rows = ['<tr><th align="center">排名</th><th align="left">用户</th><th align="right">领取次数</th></tr>']
+    for index, item in enumerate(selected):
+        rank = medals[index] if index < 3 else str(index + 1)
+        name = html.escape(str(item.get("name") or "未知用户"))
+        user_id = int(item.get("user_id", 0) or 0)
+        user = f'<a href="tg://user?id={user_id}">{name}</a>' if user_id else name
+        if index < 3:
+            user = f"<b>{user}</b>"
+        table_rows.append(
+            f'<tr><td align="center"><b>{rank}</b></td>'
+            f'<td align="left">{user}</td>'
+            f'<td align="right"><b>{int(item.get("count", 0) or 0)}</b></td></tr>'
+        )
+    return (
+        f"<h2>🐑 薅羊毛排行榜 TOP{len(selected)}</h2>\n"
+        f'<table bordered striped>{"".join(table_rows)}</table>\n'
+        f"<p>累计上榜 {len([x for x in rows if isinstance(x, dict) and str(x.get('account')) == account and int(x.get('chat_id', 0)) == chat_id])} 人</p>"
+    )
+
+
 def _render(reply: str, message=None) -> str:
     """渲染回复：a-b 随机数、{uid}/{uname}（昵称做 Markdown 转义）。"""
     pattern = re.compile(r"(?<!\d)(\+?)(\d+)-(\d+)(?!\d)")
@@ -341,10 +372,24 @@ async def setup(ctx):
                 limit = int(cfg.get("leaderboard_size", 10) or 10)
             except (TypeError, ValueError):
                 limit = 10
-            await client.send_message(
-                chat_id, _leaderboard_text(ctx, account_id, chat_id, limit),
-                reply_to_message_id=message.id,
-            )
+            try:
+                leaderboard_delete_after = int(cfg.get("delete_after", 0) or 0)
+            except (TypeError, ValueError):
+                leaderboard_delete_after = 0
+            sent = None
+            try:
+                if ctx.user and await ctx.user.supports_native_rich():
+                    sent = await ctx.user.send_rich(
+                        chat_id, _leaderboard_rich(ctx, account_id, chat_id, limit), format="html"
+                    )
+            except Exception as exc:  # noqa: BLE001 - Premium 不可用时回退普通文本
+                ctx.log.warning("[羊毛榜] 富文本发送失败，回退普通文本：%r", exc)
+            if sent is None:
+                sent = await client.send_message(
+                    chat_id, _leaderboard_text(ctx, account_id, chat_id, limit),
+                    reply_to_message_id=message.id,
+                )
+            _schedule_delete(ctx, sent, leaderboard_delete_after)
             return
 
         rules = _parse_rules(cfg.get("rules_text", ""))
