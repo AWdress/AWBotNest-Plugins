@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.3",
+    "version": "1.3.4",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -106,6 +106,7 @@ _MAILBOX_URL = "https://hhanclub.net/messages.php?action=viewmailbox&box=1&page=
 _MAIL_KEYWORD = "幸运大转盘"
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
 _active_task: asyncio.Task | None = None
+_resume_task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
 
 
@@ -412,8 +413,9 @@ def _merge_stats(base: dict, current: dict) -> dict:
 
 
 async def setup(ctx):
-    global _active_task, _stop_event
+    global _active_task, _resume_task, _stop_event
     _active_task = None
+    _resume_task = None
     _stop_event = asyncio.Event()
     stale_status = ctx.kv.get(_STATUS_KEY, {}) or {}
     if isinstance(stale_status, dict) and stale_status.get("running"):
@@ -759,35 +761,57 @@ async def setup(ctx):
         stats = _load_stats(ctx)
         return {"ok": True, "text": _stats_text(stats), "stats": stats}
 
-    plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
-    if plan.get("active"):
-        resume_deadline = _stop_at(plan.get("stop_at"))
-        resume_count = plan.get("count")
-        if resume_deadline and resume_deadline <= datetime.now():
-            ctx.kv.set(_PLAN_KEY, {})
-            ctx.kv.set(_STATUS_KEY, {
-                "running": False, "completed": 0, "target": _int(resume_count, 0),
-                "detail": f"平台恢复时已超过定时停止时间 {resume_deadline:%Y-%m-%d %H:%M}",
-            })
-        elif resume_count is None or _int(resume_count, 0) > 0:
-            _active_task = ctx.create_task(
-                _run(None if resume_count is None else _int(resume_count, 0, 1), resumed=True),
-                name="憨憨转盘重启续跑任务", operation="lottery",
-            )
-            ctx.log.info("[憨憨转盘] 检测到未完成计划，平台重启后自动续跑")
-        else:
-            ctx.kv.set(_PLAN_KEY, {})
+    async def _resume_supervisor():
+        """持续守护持久化计划，避免平台重载窗口取消唯一一次续跑启动。"""
+        global _active_task
+        await asyncio.sleep(3)
+        while True:
+            plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+            if plan.get("active") and not (_active_task and not _active_task.done()):
+                if _active_task and _active_task.done() and not _active_task.cancelled():
+                    try:
+                        failure = _active_task.exception()
+                    except Exception as exc:  # noqa: BLE001
+                        failure = exc
+                    if failure:
+                        ctx.log.error("[憨憨转盘] 续跑任务异常退出，将自动重建：%r", failure)
+                resume_deadline = _stop_at(plan.get("stop_at"))
+                resume_count = plan.get("count")
+                if resume_deadline and resume_deadline <= datetime.now():
+                    ctx.kv.set(_PLAN_KEY, {})
+                    ctx.kv.set(_STATUS_KEY, {
+                        "running": False, "completed": 0, "target": _int(resume_count, 0),
+                        "detail": f"平台恢复时已超过定时停止时间 {resume_deadline:%Y-%m-%d %H:%M}",
+                    })
+                elif resume_count is None or _int(resume_count, 0) > 0:
+                    if _stop_event:
+                        _stop_event.clear()
+                    _active_task = ctx.create_task(
+                        _run(None if resume_count is None else _int(resume_count, 0, 1), resumed=True),
+                        name="憨憨转盘重启续跑任务", operation="lottery",
+                    )
+                    ctx.log.info("[憨憨转盘] 守护器检测到未完成计划，已启动或重建续跑任务")
+                else:
+                    ctx.kv.set(_PLAN_KEY, {})
+            await asyncio.sleep(10)
+
+    _resume_task = ctx.create_task(
+        _resume_supervisor(), name="憨憨转盘续跑守护器", operation="lottery_resume"
+    )
 
 
 async def teardown(ctx):
-    global _active_task
-    if _active_task and not _active_task.done():
-        _active_task.cancel()
+    global _active_task, _resume_task
+    tasks = [task for task in (_resume_task, _active_task) if task and not task.done()]
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
         try:
-            await _active_task
+            await task
         except (asyncio.CancelledError, Exception):
             pass
     _active_task = None
+    _resume_task = None
 
 
 async def self_check(ctx):

@@ -282,7 +282,7 @@
   },
   "hhan_lottery": {
     "name": "憨憨小助手",
-    "version": "2.6.0",
+    "version": "2.6.1",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
