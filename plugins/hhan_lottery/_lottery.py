@@ -18,11 +18,11 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.1.0 同步庆典版功能\n- 新增保留余额抽取、大奖止损与自定义关键词停止\n- 每 N 抽校准真实余额，可选自动清理转盘通知\n- 新增手动定向清理，只删除‘幸运大转盘’站内信\n- 增强 VIP 折算憨豆识别与限流退避\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
+    "changelog": "v1.2.1 修复重启续跑启动\n- 平台恢复阶段 Cookie 或网络暂不可用时保留计划并退避重试\n\nv1.1.0 同步庆典版功能\n- 新增保留余额抽取、大奖止损与自定义关键词停止\n- 每 N 抽校准真实余额，可选自动清理转盘通知\n- 新增手动定向清理，只删除‘幸运大转盘’站内信\n- 增强 VIP 折算憨豆识别与限流退避\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -416,9 +416,37 @@ async def setup(ctx):
         mail_cleaned = 0
         requested = count or 0
         ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": requested})
-        ok, detail, balance, cost = await _page_info(ctx)
+        startup_attempt = 0
+        while True:
+            ok, detail, balance, cost = await _page_info(ctx)
+            if ok:
+                break
+            if not resumed:
+                break
+            if _stop_event and _stop_event.is_set():
+                detail = "用户已手动停止恢复任务"
+                ctx.kv.set(_PLAN_KEY, {})
+                break
+            if deadline and datetime.now() >= deadline:
+                detail = f"平台恢复时已超过定时停止时间 {deadline:%Y-%m-%d %H:%M}"
+                ctx.kv.set(_PLAN_KEY, {})
+                break
+            startup_attempt += 1
+            delay = min(60, max(5, startup_attempt * 5))
+            ctx.kv.set(_STATUS_KEY, {
+                "running": True, "completed": 0, "target": requested,
+                "detail": f"续跑等待平台就绪：{detail}；{delay} 秒后重试",
+            })
+            if startup_attempt == 1 or startup_attempt % 10 == 0:
+                ctx.log.warning(
+                    "[憨憨转盘] 续跑启动检查失败（第 %s 次）：%s；%s 秒后重试",
+                    startup_attempt, detail, delay,
+                )
+                await _notify_cookie(detail)
+            await asyncio.sleep(delay)
         if not ok:
-            ctx.kv.set(_PLAN_KEY, {})
+            if not resumed:
+                ctx.kv.set(_PLAN_KEY, {})
             await _notify_cookie(detail)
             result_text = f"⚠️ 憨憨转盘无法启动\n\n{detail}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
@@ -440,8 +468,28 @@ async def setup(ctx):
             return
 
         cookie, error = await _cookie_header(ctx)
+        cookie_attempt = 0
+        while error and resumed and not (_stop_event and _stop_event.is_set()):
+            if deadline and datetime.now() >= deadline:
+                ctx.kv.set(_PLAN_KEY, {})
+                break
+            cookie_attempt += 1
+            delay = min(60, max(5, cookie_attempt * 5))
+            ctx.kv.set(_STATUS_KEY, {
+                "running": True, "completed": 0, "target": target,
+                "detail": f"续跑等待 Cookie 服务就绪：{error}；{delay} 秒后重试",
+            })
+            if cookie_attempt == 1 or cookie_attempt % 10 == 0:
+                ctx.log.warning(
+                    "[憨憨转盘] 续跑 Cookie 检查失败（第 %s 次）：%s；%s 秒后重试",
+                    cookie_attempt, error, delay,
+                )
+                await _notify_cookie(error)
+            await asyncio.sleep(delay)
+            cookie, error = await _cookie_header(ctx)
         if error:
-            ctx.kv.set(_PLAN_KEY, {})
+            if not resumed:
+                ctx.kv.set(_PLAN_KEY, {})
             result_text = f"⚠️ {error}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": error})
