@@ -57,7 +57,7 @@
   },
   "keyword_auto_reply": {
     "name": "关键词互动助手",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",

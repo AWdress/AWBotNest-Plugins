@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "1.2.2",
+    "version": "1.2.3",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -421,9 +421,18 @@ async def setup(ctx):
             return
 
         me = getattr(client, "me", None)
+        if me is None:
+            try:
+                me = await client.get_me()
+            except Exception:
+                me = None
         account_id = str(me.id) if me else str(getattr(ctx, "account_name", "") or "default")
         leaderboard_command = str(cfg.get("leaderboard_command", ".羊毛榜") or ".羊毛榜").strip()
-        if cfg.get("leaderboard_enabled", True) and leaderboard_command and text.strip() == leaderboard_command:
+        if leaderboard_command and text.strip() == leaderboard_command:
+            sender_id = int(getattr(getattr(message, "from_user", None), "id", 0) or 0)
+            own_id = int(getattr(me, "id", 0) or 0)
+            if not cfg.get("leaderboard_enabled", True) or not own_id or sender_id != own_id:
+                return
             await _refresh_leaderboard_names(ctx, client, account_id, chat_id)
             try:
                 limit = int(cfg.get("leaderboard_size", 10) or 10)
@@ -454,6 +463,10 @@ async def setup(ctx):
                 _schedule_delete_rich(ctx, client, chat_id, rich_sent_at, leaderboard_delete_after)
             else:
                 _schedule_delete(ctx, sent, leaderboard_delete_after)
+            try:
+                await message.delete()
+            except Exception as exc:  # noqa: BLE001 - 无删除权限不影响榜单发送
+                ctx.log.warning("[羊毛榜] 查询命令删除失败：%r", exc)
             return
 
         rules = _parse_rules(cfg.get("rules_text", ""))
