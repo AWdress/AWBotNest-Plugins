@@ -15,15 +15,16 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "1.2.3",
+    "version": "2.0.0",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
     "default_enabled": False,
+    "render_mode": "vue",
     "config_schema": {
         # —— 功能开关（最上方，cols:3, order:1-4）——
         "enabled": {
@@ -102,15 +103,22 @@ _LEADERBOARD_KV_KEY = "welfare_leaderboard_v1"
 _pending_tasks: set = set()
 
 
-def _parse_rules(raw) -> list[tuple[str, str, bool]]:
-    """解析为 (关键词, 回复, 冷却提示)；旧规则没有开关时默认开启。"""
-    rules: list[tuple[str, str, bool]] = []
+def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24) -> list[tuple[str, str, bool, str, float]]:
+    """解析规则；旧配置自动继承原来的全局匹配方式与冷却时间。"""
+    rules: list[tuple[str, str, bool, str, float]] = []
     if isinstance(raw, list):
         for d in raw:
             if isinstance(d, dict):
                 keyword, reply = str(d.get("keyword", "")).strip(), str(d.get("reply", "")).strip()
                 if keyword and reply:
-                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True))))
+                    match_type = str(d.get("match_type", default_match) or default_match)
+                    if match_type not in {"contains", "exact"}:
+                        match_type = default_match
+                    try:
+                        cooldown = max(0.0, min(720.0, float(d.get("cooldown_hours", default_cooldown))))
+                    except (TypeError, ValueError):
+                        cooldown = default_cooldown
+                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown))
         return rules
     for line in str(raw or "").splitlines():
         line = line.strip()
@@ -119,7 +127,7 @@ def _parse_rules(raw) -> list[tuple[str, str, bool]]:
         keyword, reply = line.split("=", 1)
         keyword, reply = keyword.strip(), reply.strip()
         if keyword and reply:
-            rules.append((keyword, reply, True))
+            rules.append((keyword, reply, True, default_match, default_cooldown))
     return rules
 
 
@@ -155,9 +163,15 @@ def _restore_cooldowns(ctx) -> None:
     cfg = ctx.config
     midnight_reset = bool(cfg.get("midnight_reset", False))
     try:
-        cooldown_secs = max(0.0, float(cfg.get("cooldown_hours", 24))) * 3600
+        default_cooldown = float(cfg.get("cooldown_hours", 24) or 24)
     except (TypeError, ValueError):
-        cooldown_secs = 86400
+        default_cooldown = 24
+    rules = _parse_rules(
+        cfg.get("rules_text", []),
+        default_match=str(cfg.get("match_type", "contains")),
+        default_cooldown=default_cooldown,
+    )
+    cooldown_secs = max((rule[4] for rule in rules), default=0) * 3600
     now = time.time()
     today = datetime.now().date().toordinal()
 
@@ -414,7 +428,6 @@ async def setup(ctx):
         if not text:
             return
 
-        match_type = cfg.get("match_type", "contains")
         chat_ids_str = cfg.get("chat_ids", "")
         chat_id = message.chat.id
         if not _check_chat_id(chat_id, chat_ids_str):
@@ -469,7 +482,15 @@ async def setup(ctx):
                 ctx.log.warning("[羊毛榜] 查询命令删除失败：%r", exc)
             return
 
-        rules = _parse_rules(cfg.get("rules_text", ""))
+        try:
+            default_cooldown = float(cfg.get("cooldown_hours", 24) or 24)
+        except (TypeError, ValueError):
+            default_cooldown = 24
+        rules = _parse_rules(
+            cfg.get("rules_text", []),
+            default_match=str(cfg.get("match_type", "contains")),
+            default_cooldown=default_cooldown,
+        )
         if not rules:
             return
         midnight_reset = bool(cfg.get("midnight_reset", False))
@@ -478,18 +499,16 @@ async def setup(ctx):
         if message.from_user and message.from_user.id in blacklist:
             return
         try:
-            cooldown_secs = max(0.0, float(cfg.get("cooldown_hours", 24))) * 3600
-        except (ValueError, TypeError):
-            cooldown_secs = 86400
-        try:
             delete_after = int(cfg.get("delete_after", 0) or 0)
         except (ValueError, TypeError):
             delete_after = 0
 
         try:
-            for keyword, reply, cooldown_notify in rules:
+            for keyword, reply, cooldown_notify, match_type, cooldown_hours in rules:
                 if not _match(text, keyword, match_type):
                     continue
+
+                cooldown_secs = cooldown_hours * 3600
 
                 user_id = message.from_user.id if message.from_user else None
                 # 冷却（按 账号+用户+关键词）
