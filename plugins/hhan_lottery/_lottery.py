@@ -17,7 +17,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -234,7 +234,8 @@ async def _draw(client: httpx.AsyncClient, cookie: str) -> tuple[bool, str, bool
             prize = {}
         return True, str(prize.get("prize_text") or "未知奖品"), False
     detail = str(data.get("msg") or "未知错误")
-    retryable = "重复点击" in detail or "请稍后" in detail
+    terminal_markers = ("次数", "用完", "余额不足", "憨豆不足")
+    retryable = not any(marker in detail for marker in terminal_markers)
     return False, detail, retryable
 
 
