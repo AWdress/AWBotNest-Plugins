@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -345,6 +345,20 @@ def _save_result(ctx, prizes: list[str], total_cost: int) -> None:
     ctx.kv.set(_STATS_KEY, stats)
 
 
+def _save_stats_payload(ctx, current: dict) -> None:
+    """把已持久化的本轮聚合数据一次性并入累计统计。"""
+    stats = _stats_payload(_load_stats(ctx))
+    current = _stats_payload(current)
+    prize_stats = Counter(stats.get("prizes", {}) or {})
+    prize_stats.update(current.get("prizes", {}) or {})
+    ctx.kv.set(_STATS_KEY, {
+        "count": stats["count"] + current["count"],
+        "cost": stats["cost"] + current["cost"],
+        "beans": stats["beans"] + current["beans"],
+        "prizes": dict(prize_stats),
+    })
+
+
 def _summary(title: str, prizes: list[str], total_cost: int, balance: int, detail: str = "") -> str:
     counts = Counter(prizes)
     bean_rewards = sum(_bean_value(item) for item in prizes)
@@ -355,6 +369,25 @@ def _summary(title: str, prizes: list[str], total_cost: int, balance: int, detai
         f"📈 憨豆净盈亏：{bean_rewards - total_cost:+,}",
         f"🫘 开始余额：{balance:,} 憨豆",
     ]
+    if counts:
+        lines.extend(["", "🎁 奖品统计："])
+        lines.extend(f"• {name} × {count}" for name, count in counts.most_common())
+    if detail:
+        lines.extend(["", f"ℹ️ {detail}"])
+    return "\n".join(lines)
+
+
+def _summary_payload(title: str, current: dict, balance: int, detail: str = "") -> str:
+    """从聚合状态生成完整摘要，续跑时无需保留庞大的逐条奖品列表。"""
+    current = _stats_payload(current)
+    lines = [
+        title, "",
+        f"🎲 完成次数：{current['count']}",
+        f"💸 本轮消耗：{current['cost']:,} 憨豆",
+        f"📈 憨豆净盈亏：{current['profit']:+,}",
+        f"🫘 开始余额：{balance:,} 憨豆",
+    ]
+    counts = Counter(current["prizes"])
     if counts:
         lines.extend(["", "🎁 奖品统计："])
         lines.extend(f"• {name} × {count}" for name, count in counts.most_common())
@@ -444,20 +477,30 @@ async def setup(ctx):
     async def _run(count: int | None, *, resumed: bool = False):
         global _active_task
         prizes: list[str] = []
-        current_counts: Counter = Counter()
-        current_cost = 0
-        current_beans = 0
         cfg = dict(ctx.config or {})
         mode = str(cfg.get("lottery_mode", "fixed"))
         reserve = _int(cfg.get("reserve_beans"), 0) if mode == "reserve" else 0
         sync_every = _int(cfg.get("sync_every_draws"), 20, 1)
         saved_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+        restored = _stats_payload(saved_plan.get("current_stats", {}) or {}) if resumed else _stats_payload({})
+        base_completed = restored["count"]
+        current_counts: Counter = Counter(restored["prizes"])
+        current_cost = restored["cost"]
+        current_beans = restored["beans"]
         deadline = _stop_at(saved_plan.get("stop_at")) if resumed else (
             _stop_at(cfg.get("scheduled_stop_at")) if cfg.get("scheduled_stop_enabled", False) else None
         )
         mail_cleaned = 0
         requested = count or 0
-        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": requested})
+        initial_target = base_completed + requested
+        current_payload = {
+            "count": base_completed, "cost": current_cost,
+            "beans": current_beans, "prizes": dict(current_counts),
+        }
+        ctx.kv.set(_STATUS_KEY, {
+            "running": True, "completed": base_completed, "target": initial_target,
+            "detail": "正在恢复未完成任务" if resumed else "", "current_stats": current_payload,
+        })
         startup_attempt = 0
         while True:
             ok, detail, balance, cost = await _page_info(ctx)
@@ -476,8 +519,9 @@ async def setup(ctx):
             startup_attempt += 1
             delay = min(60, max(5, startup_attempt * 5))
             ctx.kv.set(_STATUS_KEY, {
-                "running": True, "completed": 0, "target": requested,
+                "running": True, "completed": base_completed, "target": initial_target,
                 "detail": f"续跑等待平台就绪：{detail}；{delay} 秒后重试",
+                "current_stats": current_payload,
             })
             if startup_attempt == 1 or startup_attempt % 10 == 0:
                 ctx.log.warning(
@@ -492,19 +536,28 @@ async def setup(ctx):
             await _notify_cookie(detail)
             result_text = f"⚠️ 憨憨转盘无法启动\n\n{detail}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": requested, "detail": detail})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": base_completed, "target": initial_target, "detail": detail, "current_stats": current_payload})
             await _push_result(result_text, success=False)
             _active_task = None
             return
         possible = max(0, balance - reserve) // cost if cost > 0 else 0
-        target = possible if count is None else min(count, possible)
+        remaining_target = possible if count is None else min(count, possible)
+        target = base_completed + remaining_target
         estimated_balance = balance
-        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": target, "balance": balance, "cost": cost})
-        if target <= 0:
+        start_balance = _int(saved_plan.get("start_balance"), balance) if resumed else balance
+        active_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+        if active_plan.get("active"):
+            active_plan["start_balance"] = start_balance
+            active_plan["current_stats"] = current_payload
+            ctx.kv.set(_PLAN_KEY, active_plan)
+        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": base_completed, "target": target, "balance": balance, "cost": cost, "current_stats": current_payload})
+        if remaining_target <= 0:
+            if base_completed:
+                _save_stats_payload(ctx, current_payload)
             ctx.kv.set(_PLAN_KEY, {})
             result_text = f"💸 憨豆不足\n\n余额 {balance:,}，单次需要 {cost:,}。"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": "憨豆不足"})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": base_completed, "target": target, "detail": "憨豆不足", "current_stats": current_payload})
             await _push_result(result_text, success=False)
             _active_task = None
             return
@@ -518,8 +571,9 @@ async def setup(ctx):
             cookie_attempt += 1
             delay = min(60, max(5, cookie_attempt * 5))
             ctx.kv.set(_STATUS_KEY, {
-                "running": True, "completed": 0, "target": target,
+                "running": True, "completed": base_completed, "target": target,
                 "detail": f"续跑等待 Cookie 服务就绪：{error}；{delay} 秒后重试",
+                "current_stats": current_payload,
             })
             if cookie_attempt == 1 or cookie_attempt % 10 == 0:
                 ctx.log.warning(
@@ -534,7 +588,7 @@ async def setup(ctx):
                 ctx.kv.set(_PLAN_KEY, {})
             result_text = f"⚠️ {error}"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
-            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": 0, "target": target, "detail": error})
+            ctx.kv.set(_STATUS_KEY, {"running": False, "completed": base_completed, "target": target, "detail": error, "current_stats": current_payload})
             await _push_result(result_text, success=False)
             _active_task = None
             return
@@ -544,7 +598,7 @@ async def setup(ctx):
         stop_detail = ""
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=15.0)) as client:
-                while len(prizes) < target:
+                while base_completed + len(prizes) < target:
                     if _stop_event and _stop_event.is_set():
                         stop_detail = "用户已手动停止任务"
                         break
@@ -569,28 +623,33 @@ async def setup(ctx):
                         current_counts[result] += 1
                         current_cost += cost
                         current_beans += _bean_value(result)
+                        completed = base_completed + len(prizes)
+                        current_payload = {
+                            "count": completed,
+                            "cost": current_cost,
+                            "beans": current_beans,
+                            "prizes": dict(current_counts),
+                        }
                         plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
-                        if plan.get("active") and count is not None:
-                            plan["count"] = max(0, _int(plan.get("count"), count) - 1)
+                        if plan.get("active"):
+                            if count is not None:
+                                plan["count"] = max(0, _int(plan.get("count"), count) - 1)
+                            plan["start_balance"] = start_balance
+                            plan["current_stats"] = current_payload
                             ctx.kv.set(_PLAN_KEY, plan)
                         consecutive_retry = 0
                         dynamic_interval = interval
                         ctx.kv.set(_STATUS_KEY, {
-                            "running": True, "completed": len(prizes), "target": target,
+                            "running": True, "completed": completed, "target": target,
                             "last_prize": result, "balance": estimated_balance, "cost": cost,
-                            "current_stats": {
-                                "count": len(prizes),
-                                "cost": current_cost,
-                                "beans": current_beans,
-                                "prizes": dict(current_counts),
-                            },
+                            "current_stats": current_payload,
                         })
-                        ctx.log.info("[憨憨转盘] %s/%s prize=%s", len(prizes), target, result)
+                        ctx.log.info("[憨憨转盘] %s/%s prize=%s", completed, target, result)
                         hit = _stop_target(result, cfg)
                         if hit:
                             stop_detail = f"命中止损目标“{hit}”：{result}"
                             break
-                        if len(prizes) % sync_every == 0:
+                        if completed % sync_every == 0:
                             live_ok, _, live_balance, live_cost = await _page_info(ctx)
                             if live_ok:
                                 estimated_balance, cost = live_balance, live_cost
@@ -613,35 +672,36 @@ async def setup(ctx):
                         stop_detail = result
                         await _notify_cookie(result)
                         break
-                    if len(prizes) < target:
+                    if base_completed + len(prizes) < target:
                         await asyncio.sleep(dynamic_interval)
         except asyncio.CancelledError:
             stop_detail = "平台或插件正在重启，任务将在恢复后继续"
             raise
         finally:
-            if prizes:
-                _save_result(ctx, prizes, current_cost)
-            title = "🎉 憨憨转盘完成" if len(prizes) == target else "🛑 憨憨转盘已停止"
-            if count is not None and target < count and not stop_detail:
-                stop_detail = f"余额最多支持 {target} 次，已自动缩减"
+            completed = base_completed + len(prizes)
+            current_payload = {
+                "count": completed, "cost": current_cost,
+                "beans": current_beans, "prizes": dict(current_counts),
+            }
+            restarting = stop_detail.startswith("平台或插件正在重启")
+            if completed and not restarting:
+                _save_stats_payload(ctx, current_payload)
+            title = "🎉 憨憨转盘完成" if completed == target else "🛑 憨憨转盘已停止"
+            if count is not None and remaining_target < count and not stop_detail:
+                stop_detail = f"余额最多支持新增 {remaining_target} 次，已自动缩减"
             if mail_cleaned:
                 stop_detail = f"{stop_detail + '；' if stop_detail else ''}已清理 {mail_cleaned} 封转盘通知"
-            result_text = _summary(title, prizes, current_cost, balance, stop_detail)
+            result_text = _summary_payload(title, current_payload, start_balance, stop_detail)
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {
-                "running": False, "completed": len(prizes), "target": target,
+                "running": False, "completed": completed, "target": target,
                 "detail": stop_detail,
                 "last_prize": prizes[-1] if prizes else "",
-                "current_stats": {
-                    "count": len(prizes),
-                    "cost": current_cost,
-                    "beans": current_beans,
-                    "prizes": dict(current_counts),
-                },
+                "current_stats": current_payload,
             })
-            await _push_result(result_text, success=len(prizes) == target)
+            await _push_result(result_text, success=completed == target)
             _active_task = None
-            if not stop_detail.startswith("平台或插件正在重启"):
+            if not restarting:
                 ctx.kv.set(_PLAN_KEY, {})
             if _stop_event:
                 _stop_event.clear()
