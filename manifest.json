@@ -282,11 +282,11 @@
   },
   "hhan_lottery": {
     "name": "憨憨小助手",
-    "version": "2.2.2",
+    "version": "2.3.0",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v2.2.0 优化转盘次数\n- 指定次数模式取消 100 次上限，只要求次数大于 0\n- 新增按余额抽完模式，自动按余额和单次消耗计算次数\n- 指定次数超过余额可承受次数时仍会自动缩减\n\nv2.1.0 增加 Cookie 来源设置\n- 可选择读取平台同步 Cookie 或手动填写 Cookie\n- 赠豆、转盘和消息管理统一使用选定的登录来源",
+    "changelog": "v2.3.0 同步庆典版转盘更新\n- 新增保留余额模式、大奖止损和自定义奖品关键词\n- 每 N 抽自动校准服务端余额，可选清理“幸运大转盘”通知\n- 新增手动清理转盘通知，保留其他站内信\n- 增强 VIP 折算憨豆识别、奖品统计与限流退避\n\nv2.2.0 优化转盘次数",
     "path": "plugins/hhan_lottery/"
   },
   "pt_multi_checkin": {

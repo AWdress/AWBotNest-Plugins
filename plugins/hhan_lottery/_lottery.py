@@ -6,7 +6,7 @@ import asyncio
 import html
 import re
 from collections import Counter
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -17,11 +17,11 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
+    "changelog": "v1.1.0 同步庆典版功能\n- 新增保留余额抽取、大奖止损与自定义关键词停止\n- 每 N 抽校准真实余额，可选自动清理转盘通知\n- 新增手动定向清理，只删除‘幸运大转盘’站内信\n- 增强 VIP 折算憨豆识别与限流退避\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -100,6 +100,8 @@ _DOMAIN = "hhanclub.net"
 _STATS_KEY = "lottery_stats"
 _LAST_RESULT_KEY = "last_result"
 _STATUS_KEY = "task_status"
+_MAILBOX_URL = "https://hhanclub.net/messages.php?action=viewmailbox&box=1&page=0"
+_MAIL_KEYWORD = "幸运大转盘"
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
 _active_task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
@@ -112,13 +114,13 @@ def _int(value, default: int, minimum: int = 0) -> int:
         return default
 
 
-def _headers(cookie: str, *, ajax: bool = False) -> dict[str, str]:
+def _headers(cookie: str, *, ajax: bool = False, referer: str = _PAGE_URL) -> dict[str, str]:
     headers = {
         "Accept": "*/*" if ajax else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Cookie": cookie,
         "Origin": "https://hhanclub.net",
-        "Referer": _PAGE_URL,
+        "Referer": referer,
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -150,10 +152,10 @@ def _has_challenge(text: str) -> bool:
 
 
 async def _same_site_request(client: httpx.AsyncClient, method: str, url: str,
-                             headers: dict[str, str]) -> tuple[httpx.Response, str]:
+                             headers: dict[str, str], *, content: bytes | None = None) -> tuple[httpx.Response, str]:
     """请求并只跟随 HHCLUB 站内跳转，避免显式 Cookie 泄露给其他域名。"""
     current_method = method.upper()
-    resp = await client.request(current_method, url, headers=headers, follow_redirects=False)
+    resp = await client.request(current_method, url, headers=headers, content=content, follow_redirects=False)
     for _ in range(5):
         if resp.status_code not in _REDIRECT_CODES:
             return resp, ""
@@ -168,8 +170,9 @@ async def _same_site_request(client: httpx.AsyncClient, method: str, url: str,
         if current_method == "GET":
             next_headers.pop("Origin", None)
             next_headers.pop("X-Requested-With", None)
+            content = None
         resp = await client.request(
-            current_method, str(target), headers=next_headers, follow_redirects=False
+            current_method, str(target), headers=next_headers, content=content, follow_redirects=False
         )
     return resp, "站点跳转次数过多"
 
@@ -238,8 +241,79 @@ async def _draw(client: httpx.AsyncClient, cookie: str) -> tuple[bool, str, bool
 def _bean_value(prize: str) -> int:
     if "憨豆" not in prize and "魔力" not in prize:
         return 0
+    converted = re.search(r"已转换为憨豆\s*([\d,]+)", prize)
+    if converted:
+        return int(converted.group(1).replace(",", ""))
     match = re.search(r"(\d[\d,]*)", prize)
     return int(match.group(1).replace(",", "")) if match else 0
+
+
+def _stop_target(prize: str, cfg: dict) -> str:
+    if not cfg.get("stop_on_prize", False):
+        return ""
+    if cfg.get("stop_on_vip", True) and re.search(r"\bVIP\b", prize, re.IGNORECASE):
+        return "VIP"
+    if cfg.get("stop_on_invite", True) and "邀请" in prize:
+        return "邀请"
+    threshold = _int(cfg.get("big_bean_threshold"), 500_000, 1)
+    if cfg.get("stop_on_big_beans", True) and _bean_value(prize) >= threshold:
+        return f"大额憨豆（≥{threshold:,}）"
+    keywords = [item.strip() for item in re.split(r"[,，\n]", str(cfg.get("stop_prize_keywords", "") or "")) if item.strip()]
+    return next((f"关键词：{item}" for item in keywords if item in prize), "")
+
+
+async def _clean_lottery_mail(ctx, *, max_rounds: int = 20) -> int:
+    """只删除标题包含“幸运大转盘”的通知，保留其他站内信。"""
+    cookie, error = await _cookie_header(ctx)
+    if error:
+        raise RuntimeError(error)
+    removed = 0
+    previous: tuple[str, ...] = ()
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=15.0)) as client:
+        for _ in range(max_rounds):
+            resp, redirect_error = await _same_site_request(client, "GET", _MAILBOX_URL, _headers(cookie, referer=_MAILBOX_URL))
+            if redirect_error:
+                raise RuntimeError(redirect_error)
+            if resp.status_code != 200 or _looks_like_login(resp):
+                raise RuntimeError("读取转盘通知失败，Cookie 已失效或网站返回异常")
+            soup = BeautifulSoup(resp.text or "", "lxml")
+            targets = []
+            box = soup.select_one("#mail-table-display")
+            for checkbox in soup.select('#mail-table-display input[name="messages[]"]'):
+                row = checkbox
+                while box and row.parent and row.parent is not box:
+                    row = row.parent
+                if row and _MAIL_KEYWORD in row.get_text(" ", strip=True):
+                    value = str(checkbox.get("value") or "").strip()
+                    if value:
+                        targets.append(value)
+            targets = targets[:100]
+            fingerprint = tuple(targets)
+            if not targets or fingerprint == previous:
+                break
+            previous = fingerprint
+            button = soup.select_one('input[type="submit"][name="delete"], button[name="delete"], input[type="submit"][name="del"], button[name="del"]')
+            if not button:
+                button = next((item for item in soup.select('input[type="submit"][name], button[name]') if "删除" in str(item.get("value") or item.get_text() or "")), None)
+            if not button:
+                raise RuntimeError("未识别到站内信删除表单")
+            form = button.find_parent("form")
+            action = urljoin(str(resp.url), str(form.get("action") or resp.url)) if form else str(resp.url)
+            fields = []
+            if form:
+                fields.extend((str(item.get("name")), str(item.get("value") or "")) for item in form.select('input[type="hidden"][name]'))
+            fields.extend(("messages[]", value) for value in targets)
+            fields.append((str(button.get("name") or "delete"), str(button.get("value") or "删除")))
+            headers = _headers(cookie, referer=_MAILBOX_URL)
+            headers["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+            deleted, redirect_error = await _same_site_request(
+                client, "POST", action, headers,
+                content=urlencode(fields, doseq=True).encode("utf-8"),
+            )
+            if redirect_error or deleted.status_code >= 400:
+                raise RuntimeError(redirect_error or f"删除转盘通知失败：HTTP {deleted.status_code}")
+            removed += len(targets)
+    return removed
 
 
 def _load_stats(ctx) -> dict:
@@ -321,6 +395,11 @@ async def setup(ctx):
     async def _run(count: int | None):
         global _active_task
         prizes: list[str] = []
+        cfg = dict(ctx.config or {})
+        mode = str(cfg.get("lottery_mode", "fixed"))
+        reserve = _int(cfg.get("reserve_beans"), 0) if mode == "reserve" else 0
+        sync_every = _int(cfg.get("sync_every_draws"), 20, 1)
+        mail_cleaned = 0
         requested = count or 0
         ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": requested})
         ok, detail, balance, cost = await _page_info(ctx)
@@ -332,9 +411,10 @@ async def setup(ctx):
             await _push_result(result_text, success=False)
             _active_task = None
             return
-        possible = balance // cost if cost > 0 else 0
+        possible = max(0, balance - reserve) // cost if cost > 0 else 0
         target = possible if count is None else min(count, possible)
-        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": target})
+        estimated_balance = balance
+        ctx.kv.set(_STATUS_KEY, {"running": True, "completed": 0, "target": target, "balance": balance, "cost": cost})
         if target <= 0:
             result_text = f"💸 憨豆不足\n\n余额 {balance:,}，单次需要 {cost:,}。"
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
@@ -361,22 +441,47 @@ async def setup(ctx):
                     if _stop_event and _stop_event.is_set():
                         stop_detail = "用户已手动停止任务"
                         break
+                    if estimated_balance - cost < reserve:
+                        stop_detail = f"已到保留余额 {reserve:,} 憨豆，自动停止"
+                        break
                     success, result, retryable = await _draw(client, cookie)
                     if success:
+                        before_balance = estimated_balance
+                        estimated_balance = max(0, before_balance - cost + _bean_value(result))
+                        if re.search(r"\bVIP\b", result, re.IGNORECASE) and _bean_value(result) == 0:
+                            live_ok, _, live_balance, _ = await _page_info(ctx)
+                            if live_ok:
+                                converted = live_balance - (before_balance - cost)
+                                estimated_balance = live_balance
+                                if 900_000 <= converted <= 1_100_000:
+                                    result = f"{result}（已转换为憨豆 {converted:,}）"
                         prizes.append(result)
                         consecutive_retry = 0
                         dynamic_interval = interval
                         ctx.kv.set(_STATUS_KEY, {
                             "running": True, "completed": len(prizes), "target": target,
-                            "last_prize": result,
+                            "last_prize": result, "balance": estimated_balance, "cost": cost,
                         })
                         ctx.log.info("[憨憨转盘] %s/%s prize=%s", len(prizes), target, result)
+                        hit = _stop_target(result, cfg)
+                        if hit:
+                            stop_detail = f"命中止损目标“{hit}”：{result}"
+                            break
+                        if len(prizes) % sync_every == 0:
+                            live_ok, _, live_balance, live_cost = await _page_info(ctx)
+                            if live_ok:
+                                estimated_balance, cost = live_balance, live_cost
+                            if cfg.get("auto_clean_lottery_mail", False):
+                                try:
+                                    mail_cleaned += await _clean_lottery_mail(ctx)
+                                except Exception as exc:  # noqa: BLE001
+                                    ctx.log.warning("[憨憨转盘] 自动清理通知失败：%s", exc)
                     elif retryable:
                         consecutive_retry += 1
                         ctx.log.warning("[憨憨转盘] 可重试错误：%s", result)
                         if consecutive_retry >= 3:
                             dynamic_interval = min(30, max(interval, int(dynamic_interval * 1.5)))
-                        if consecutive_retry >= 10:
+                        if consecutive_retry >= 12:
                             stop_detail = f"连续重试 {consecutive_retry} 次仍失败：{result}"
                             break
                         await asyncio.sleep(dynamic_interval)
@@ -395,6 +500,8 @@ async def setup(ctx):
             title = "🎉 憨憨转盘完成" if len(prizes) == target else "🛑 憨憨转盘已停止"
             if count is not None and target < count and not stop_detail:
                 stop_detail = f"余额最多支持 {target} 次，已自动缩减"
+            if mail_cleaned:
+                stop_detail = f"{stop_detail + '；' if stop_detail else ''}已清理 {mail_cleaned} 封转盘通知"
             result_text = _summary(title, prizes, cost, balance, stop_detail)
             ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {
@@ -413,6 +520,14 @@ async def setup(ctx):
             message += f"；余额 {balance:,}，单次消耗 {cost:,}"
         return {"ok": ok, "message": message}
 
+    @ctx.action("clean_lottery_mail")
+    async def clean_lottery_mail():
+        try:
+            removed = await _clean_lottery_mail(ctx)
+            return {"ok": True, "message": f"已删除 {removed} 封“幸运大转盘”通知，其他站内信已保留"}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": f"清理转盘通知失败：{exc}"}
+
     @ctx.action("start_lottery")
     async def start_lottery():
         global _active_task
@@ -424,7 +539,8 @@ async def setup(ctx):
                 "ok": False,
                 "message": f"已有任务运行中：{_int(status.get('completed'), 0)}/{_int(status.get('target'), 0)}",
             }
-        balance_mode = str(ctx.config.get("lottery_mode", "fixed")) == "balance"
+        mode = str(ctx.config.get("lottery_mode", "fixed"))
+        balance_mode = mode in {"balance", "reserve"}
         count = None if balance_mode else _int(ctx.config.get("lottery_count"), 10, 1)
         if count is not None and count < 1:
             return {"ok": False, "message": "抽奖次数必须是大于 0 的整数"}
@@ -433,7 +549,10 @@ async def setup(ctx):
         _active_task = ctx.create_task(
             _run(count), name="憨憨转盘后台任务", operation="lottery"
         )
-        plan = "将按当前余额计算全部可抽次数" if balance_mode else f"计划抽奖 {count} 次"
+        if mode == "reserve":
+            plan = f"将保留 {_int(ctx.config.get('reserve_beans'), 0):,} 憨豆，其余余额自动抽取"
+        else:
+            plan = "将按当前余额计算全部可抽次数" if balance_mode else f"计划抽奖 {count} 次"
         return {"ok": True, "message": f"憨憨转盘已开始，{plan}；可在面板查看进度。"}
 
     @ctx.action("stop_lottery")
@@ -482,6 +601,10 @@ async def setup(ctx):
     @ctx.on_api("/lottery/cookie/check", methods=["GET"])
     async def lottery_cookie_check(_request=None):
         return await test_cookie()
+
+    @ctx.on_api("/lottery/mail/clean", methods=["POST"])
+    async def lottery_mail_clean(_request=None):
+        return await clean_lottery_mail()
 
     @ctx.on_api("/lottery/stats", methods=["GET"])
     async def lottery_stats(_request=None):

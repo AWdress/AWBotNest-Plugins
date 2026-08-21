@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-Cr7gv70T.js';
+import Config from './__federation_expose_Config-DO9LP9Yt.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -41,7 +41,7 @@ true              &&(function polyfill() {
 
 const {createApp,h} = await importShared('vue');
 
-let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, page_delay: 1, max_pages: 200 };
+let config = { cookie_source: 'platform', manual_cookie: '', enabled: true, bonus_enabled: true, notify_result: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '', page_delay: 1, max_pages: 200 };
 let running = false;
 let processed = 0;
 
@@ -56,6 +56,7 @@ const mockHost = {
     if (path === '/lottery/run') { running = true; processed = 3; return { ok: true, message: '转盘任务已开始' } }
     if (path === '/lottery/stop') { running = false; return { ok: true, message: '已请求停止' } }
     if (path === '/lottery/cookie/check') return { ok: true, message: 'Cookie 有效；余额 12,500，单次消耗 100' }
+    if (path === '/lottery/mail/clean') return { ok: true, message: '已删除 3 封“幸运大转盘”通知，其他站内信已保留' }
     if (path === '/lottery/stats') return { ok: true, text: '累计抽奖：36 次\n累计消耗：3,600 憨豆\n奖品：憨豆 500 × 8' }
     if (path === '/read/status') {
       if (running) processed = Math.min(12, processed + 2);
