@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.4",
+    "version": "2.5.5",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.4 全面收紧浏览器签到判定\n- 初始页面不再凭裸词“已签到 / 签到成功”判定结果\n- NexusPHP 必须出现今日状态、签到次数、连续天数或奖励上下文\n- 交互验证站不再在处理验证前套用通用成功判定\n\nv2.5.3 修复签到结果与 Cookie 重试",
+    "changelog": "v2.5.5 按真实页面修复签到误报与漏判\n- OurBits 不再把签到奖励规则误判为本次签到成功\n- OurBits 验证程序未加载完成时持续等待，不提前报成功\n- U2 精确识别“感谢，今天已签到”，避免等待不存在的表单\n- TTG 仅按顶部 [已签到] 状态确认\n\nv2.5.4 全面收紧浏览器签到判定",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -221,8 +221,8 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     )):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
-        "本次签到获得", "此次签到获得", "签到所得", "已连续签到",
-    )) or re.search(r"(?:这是您的(?:首次|第\d+次)签到|第\d+次签到|连续签到\d+天|获得(?:了)?[\d,.]+个?(?:魔力|魔力值|爆米花|奖励))", compact):
+        "本次签到获得", "此次签到获得", "签到所得", "今日签到排名",
+    )) or re.search(r"这是您的(?:首次|第\d+次)签到", compact):
         return "success", "签到成功"
     return None
 
@@ -540,6 +540,11 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         if key == "u2":
             if datetime.now().hour < 9:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
+            if "感谢，今天已签到" in text or re.search(
+                r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|已簽到)\s*</a>',
+                html, re.IGNORECASE,
+            ):
+                return {"status": "already", "message": "今天已经签到"}
             form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
             req = form.locator('input[name="req"]').get_attribute("value")
             hash_value = form.locator('input[name="hash"]').get_attribute("value")
@@ -604,7 +609,7 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     if mode == "pterclub":
         return _response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过"))
     if mode == "ttg":
-        if "已签到" in text:
+        if re.search(r"\[\s*已签到\s*\]", text):
             return {"status": "already", "message": "今天已经签到"}
         timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', html)
         token = re.search(r'signed_token:\s*["\']([^"\']+)', html)
@@ -643,6 +648,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
             "just a moment", "checking your browser", "cloudflare ray id", "cf-chl-",
             "请完成安全验证", "验证您是否是真人", "验证完成，即将进入网站",
             "雷池 waf", "安全检测能力由 雷池", "verification completed",
+            "请耐心等待签到验证程序加载",
         )) or piggo_security_shell
         if not challenged:
             break
@@ -991,7 +997,7 @@ async def _run(ctx, source: str) -> dict:
                         outcome = await ctx.browser.run(
                             site["url"], action, cookies=cookie,
                             headless=bool(cfg.get("headless", True)),
-                            timeout=720 if key == "tjupt" else (300 if key == "piggo" else 150),
+                            timeout=720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150),
                         )
                     status = str((outcome or {}).get("status") or "success")
                     engine = str((outcome or {}).get("engine") or "browser")
