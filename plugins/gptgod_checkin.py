@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.5",
+    "version": "1.1.6",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.5 适配平台后台任务治理\n- 立即签到改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明浏览器长任务资源配额，避免并发签到占满运行资源\n\nv1.1.4 使用平台结构化汇总通知\n- 多账号签到结果直接提交结构化数据，由平台自动生成表格\n- 普通账号及非 Telegram 渠道由平台自动回退为清晰文本\n\nv1.1.3 增加签到失败自动重试\n- 每个账号失败后独立重试，不影响其他账号继续签到\n- 支持配置重试次数和间隔，默认失败后再尝试 2 次\n- 区分账号密码错误等不可重试问题，并优化浏览器运行时缺失提示\n\nv1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.1.6 使用签到接口确认结果\n- 监听 GPT-GOD 官方 POST /user/checkin 响应并优先采用服务端结果\n- 修复 SPA 按钮未及时刷新时实际签到成功却被误报失败的问题\n- 明确失败响应不再盲目重复提交\n\nv1.1.5 适配平台后台任务治理\n- 立即签到改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明浏览器长任务资源配额，避免并发签到占满运行资源\n\nv1.1.4 使用平台结构化汇总通知\n- 多账号签到结果直接提交结构化数据，由平台自动生成表格\n- 普通账号及非 Telegram 渠道由平台自动回退为清晰文本\n\nv1.1.3 增加签到失败自动重试\n- 每个账号失败后独立重试，不影响其他账号继续签到\n- 支持配置重试次数和间隔，默认失败后再尝试 2 次\n- 区分账号密码错误等不可重试问题，并优化浏览器运行时缺失提示\n\nv1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -348,6 +348,63 @@ def _click_checkin(page) -> bool:
         return False
 
 
+def _classify_checkin_response(response) -> tuple[str, str] | None:
+    """读取官方 /user/checkin 响应；服务端结果优先于可能滞后的 SPA 按钮。"""
+    try:
+        url = str(getattr(response, "url", "") or "")
+        if "/user/checkin" not in url:
+            return None
+        status = int(getattr(response, "status", 0) or 0)
+        payload = response.json()
+    except Exception:  # noqa: BLE001 - 非 JSON 响应交给页面状态兜底
+        return None
+
+    text = str(payload)
+    message = ""
+    if isinstance(payload, dict):
+        message = str(payload.get("message") or payload.get("msg") or "").strip()
+        code = payload.get("code")
+        success = payload.get("success")
+        data = payload.get("data")
+        if isinstance(data, dict):
+            message = str(data.get("message") or data.get("msg") or message).strip()
+        lowered = f"{message} {text}".lower()
+        if any(marker in lowered for marker in ("already", "已签到", "重复签到")):
+            return "already", message or "今天已经签到"
+        if success is False or code not in (None, 0, 200, "0", "200"):
+            return "failure", message or f"签到接口返回失败（code={code}）"
+        if success is True or code in (0, 200, "0", "200"):
+            return "success", message or "签到接口已确认成功"
+    if 200 <= status < 300:
+        return "success", message or "签到接口已确认成功"
+    return "failure", message or f"签到接口返回 HTTP {status}"
+
+
+def _start_checkin_response_watch(page):
+    watch = {"results": []}
+
+    def _on_response(response):
+        result = _classify_checkin_response(response)
+        if result is not None:
+            watch["results"].append(result)
+
+    try:
+        page.on("response", _on_response)
+        watch["callback"] = _on_response
+    except Exception:  # noqa: BLE001 - 不支持事件监听时继续使用页面核验
+        watch["callback"] = None
+    return watch
+
+
+def _stop_checkin_response_watch(page, watch) -> None:
+    callback = watch.get("callback") if watch else None
+    if callback:
+        try:
+            page.remove_listener("response", callback)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _wait_for_checkin_state(
     page, timeout_ms: int = 45_000, *, stop_on_login: bool = False,
 ) -> str | None:
@@ -402,9 +459,25 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
     if state != "claim":
         raise RuntimeError("未找到可见的签到状态按钮，网站页面可能已更新")
 
-    trace("点击签到控件")
-    if not _click_checkin(page):
-        raise RuntimeError("未找到签到按钮，网站页面可能已更新")
+    trace("点击签到控件并监听服务端结果")
+    watch = _start_checkin_response_watch(page)
+    try:
+        if not _click_checkin(page):
+            raise RuntimeError("未找到签到按钮，网站页面可能已更新")
+
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline and not watch["results"]:
+            page.wait_for_timeout(250)
+        if watch["results"]:
+            api_state, api_message = watch["results"][-1]
+            trace(f"签到接口结果：{api_state}（{api_message}）")
+            if api_state == "success":
+                return _checkin_result(page, "success", f"账号 {account} 签到成功，服务端已确认", trace)
+            if api_state == "already":
+                return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取", trace)
+            raise RuntimeError(api_message or "签到接口返回失败")
+    finally:
+        _stop_checkin_response_watch(page, watch)
 
     try:
         page.locator(
