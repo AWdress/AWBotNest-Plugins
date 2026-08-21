@@ -18,11 +18,11 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.0",
+    "version": "1.3.1",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v1.3.0 新增实时奖品统计\n- 状态接口实时返回当前任务与合并后的累计奖品结构\n\nv1.2.1 修复重启续跑启动\n- 平台恢复阶段 Cookie 或网络暂不可用时保留计划并退避重试\n\nv1.1.0 同步庆典版功能\n- 新增保留余额抽取、大奖止损与自定义关键词停止\n- 每 N 抽校准真实余额，可选自动清理转盘通知\n- 新增手动定向清理，只删除‘幸运大转盘’站内信\n- 增强 VIP 折算憨豆识别与限流退避\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
+    "changelog": "v1.3.1 新增实时净盈亏\n- 结构化状态、完成摘要和累计文本统一计算憨豆净盈亏\n\nv1.3.0 新增实时奖品统计\n- 状态接口实时返回当前任务与合并后的累计奖品结构\n\nv1.2.1 修复重启续跑启动\n- 平台恢复阶段 Cookie 或网络暂不可用时保留计划并退避重试\n\nv1.1.0 同步庆典版功能\n- 新增保留余额抽取、大奖止损与自定义关键词停止\n- 每 N 抽校准真实余额，可选自动清理转盘通知\n- 新增手动定向清理，只删除‘幸运大转盘’站内信\n- 增强 VIP 折算憨豆识别与限流退避\n\nv1.0.3 修复配置页布局\n- 三个功能开关调整为同一行三等分，消除第三项单独换行和大面积留白\n- 保持任务操作首行三按钮、次行两按钮的对称栅格结构\n\nv1.0.2 修复后台任务与跳转安全\n- 后台抽奖任务改由平台统一托管，确保插件停用或重载时可靠清理\n- 页面和抽奖接口仅允许跟随 hhanclub.net 站内跳转，避免 Cookie 随跨站跳转泄露\n- 插件重载时修复残留的运行中状态\n\nv1.0.1 改为配置页控制\n- 移除聊天命令，抽奖次数直接在插件配置中填写\n- 配置页提供开始、停止、查看最近结果和累计统计操作\n- 抽奖完成后通过平台通知推送，并保存最近一次结果\n\nv1.0.0 初始版本\n- 使用平台 Cookie 同步读取 HHCLUB 登录态\n- 支持按次数自动抽奖、手动停止和统计查询\n- 自动识别余额与单次消耗，并对重复点击进行退避\n- 保存累计抽奖、消耗、憨豆收益与奖品统计",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -346,10 +346,12 @@ def _save_result(ctx, prizes: list[str], total_cost: int) -> None:
 
 def _summary(title: str, prizes: list[str], total_cost: int, balance: int, detail: str = "") -> str:
     counts = Counter(prizes)
+    bean_rewards = sum(_bean_value(item) for item in prizes)
     lines = [
         title, "",
         f"🎲 完成次数：{len(prizes)}",
         f"💸 本轮消耗：{total_cost:,} 憨豆",
+        f"📈 憨豆净盈亏：{bean_rewards - total_cost:+,}",
         f"🫘 开始余额：{balance:,} 憨豆",
     ]
     if counts:
@@ -362,11 +364,14 @@ def _summary(title: str, prizes: list[str], total_cost: int, balance: int, detai
 
 def _stats_text(stats: dict) -> str:
     counts = Counter(stats.get("prizes", {}) or {})
+    total_cost = _int(stats.get("cost"), 0)
+    total_beans = _int(stats.get("beans"), 0)
     lines = [
         "📊 憨憨转盘累计统计", "",
         f"🎲 抽奖次数：{_int(stats.get('count'), 0):,}",
-        f"💸 累计消耗：{_int(stats.get('cost'), 0):,} 憨豆",
-        f"🫘 憨豆奖品：{_int(stats.get('beans'), 0):,}",
+        f"💸 累计消耗：{total_cost:,} 憨豆",
+        f"🫘 憨豆奖品：{total_beans:,}",
+        f"📈 憨豆净盈亏：{total_beans - total_cost:+,}",
     ]
     if counts:
         lines.extend(["", "🎁 奖品明细："])
@@ -376,10 +381,13 @@ def _stats_text(stats: dict) -> str:
 
 def _stats_payload(stats: dict) -> dict:
     """返回前端可直接渲染的统计结构，统一清理数值和 HTML 实体。"""
+    cost = _int(stats.get("cost"), 0)
+    beans = _int(stats.get("beans"), 0)
     return {
         "count": _int(stats.get("count"), 0),
-        "cost": _int(stats.get("cost"), 0),
-        "beans": _int(stats.get("beans"), 0),
+        "cost": cost,
+        "beans": beans,
+        "profit": beans - cost,
         "prizes": {
             html.unescape(str(name)): _int(count, 0)
             for name, count in (stats.get("prizes", {}) or {}).items()
@@ -398,6 +406,7 @@ def _merge_stats(base: dict, current: dict) -> dict:
         "count": base["count"] + current["count"],
         "cost": base["cost"] + current["cost"],
         "beans": base["beans"] + current["beans"],
+        "profit": base["profit"] + current["profit"],
         "prizes": dict(counts),
     }
 

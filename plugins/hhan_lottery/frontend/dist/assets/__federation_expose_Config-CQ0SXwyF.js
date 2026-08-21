@@ -17,49 +17,51 @@ const _hoisted_3$3 = { class: "progress-top" };
 const _hoisted_4$3 = { class: "track" };
 const _hoisted_5$3 = { class: "live-stats" };
 const _hoisted_6$3 = { class: "stats-head" };
-const _hoisted_7$3 = { key: 0 };
-const _hoisted_8$3 = {
+const _hoisted_7$3 = { class: "balance-line" };
+const _hoisted_8$3 = { key: 0 };
+const _hoisted_9$3 = {
   key: 1,
   class: "empty-stat"
 };
-const _hoisted_9$3 = { class: "stats-head" };
-const _hoisted_10$2 = { key: 0 };
-const _hoisted_11$2 = {
+const _hoisted_10$2 = { class: "stats-head" };
+const _hoisted_11$2 = { class: "balance-line" };
+const _hoisted_12$2 = { key: 0 };
+const _hoisted_13$2 = {
   key: 1,
   class: "empty-stat"
 };
-const _hoisted_12$2 = { class: "grid" };
-const _hoisted_13$2 = { class: "card settings" };
-const _hoisted_14$1 = { class: "toggle-row" };
-const _hoisted_15$1 = { key: 0 };
-const _hoisted_16$1 = { key: 1 };
-const _hoisted_17$1 = {
+const _hoisted_14$1 = { class: "grid" };
+const _hoisted_15$1 = { class: "card settings" };
+const _hoisted_16$1 = { class: "toggle-row" };
+const _hoisted_17$1 = { key: 0 };
+const _hoisted_18$1 = { key: 1 };
+const _hoisted_19$1 = {
   key: 2,
   class: "mode-note"
 };
-const _hoisted_18$1 = { class: "check" };
-const _hoisted_19$1 = { class: "check" };
-const _hoisted_20$1 = { key: 3 };
-const _hoisted_21$1 = {
+const _hoisted_20$1 = { class: "check" };
+const _hoisted_21$1 = { class: "check" };
+const _hoisted_22$1 = { key: 3 };
+const _hoisted_23$1 = {
   key: 4,
   class: "mode-note"
 };
-const _hoisted_22$1 = { class: "check" };
-const _hoisted_23$1 = {
+const _hoisted_24$1 = { class: "check" };
+const _hoisted_25$1 = {
   key: 5,
   class: "stop-box"
 };
-const _hoisted_24$1 = { class: "check" };
-const _hoisted_25$1 = { class: "check" };
 const _hoisted_26$1 = { class: "check" };
 const _hoisted_27$1 = { class: "check" };
 const _hoisted_28$1 = { class: "check" };
-const _hoisted_29$1 = ["disabled"];
-const _hoisted_30$1 = { class: "card result" };
+const _hoisted_29$1 = { class: "check" };
+const _hoisted_30$1 = { class: "check" };
 const _hoisted_31$1 = ["disabled"];
-const _hoisted_32$1 = ["disabled"];
+const _hoisted_32$1 = { class: "card result" };
 const _hoisted_33$1 = ["disabled"];
 const _hoisted_34$1 = ["disabled"];
+const _hoisted_35$1 = ["disabled"];
+const _hoisted_36$1 = ["disabled"];
 
 const {computed: computed$2,onBeforeUnmount: onBeforeUnmount$1,onMounted: onMounted$3,reactive: reactive$3,ref: ref$4} = await importShared('vue');
 
@@ -82,6 +84,8 @@ const stateText = computed$2(() => status.value.running ? `正在抽奖 ${status
 const currentStats = computed$2(() => status.value.current_stats || {});
 const cumulativeStats = computed$2(() => status.value.cumulative_stats || {});
 const formatNumber = value => new Intl.NumberFormat('zh-CN').format(Number(value) || 0);
+const formatSigned = value => `${Number(value) > 0 ? '+' : ''}${formatNumber(value)}`;
+const profitTone = value => Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : 'neutral';
 const prizeRows = value => Object.entries(value?.prizes || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 20);
 
 async function refresh() { try { status.value = await props.host.callApi('/lottery/status'); } catch (_) {} }
@@ -158,8 +162,14 @@ return (_ctx, _cache) => {
             _cache[24] || (_cache[24] = _createElementVNode$4("h3", null, "当前任务", -1)),
             _createElementVNode$4("span", null, _toDisplayString$3(formatNumber(currentStats.value.count)) + " 次 · 消耗 " + _toDisplayString$3(formatNumber(currentStats.value.cost)), 1)
           ]),
+          _createElementVNode$4("div", _hoisted_7$3, [
+            _createElementVNode$4("span", null, "憨豆奖品 " + _toDisplayString$3(formatNumber(currentStats.value.beans)), 1),
+            _createElementVNode$4("b", {
+              class: _normalizeClass$4(["profit", profitTone(currentStats.value.profit)])
+            }, "净盈亏 " + _toDisplayString$3(formatSigned(currentStats.value.profit)), 3)
+          ]),
           (prizeRows(currentStats.value).length)
-            ? (_openBlock$4(), _createElementBlock$4("ul", _hoisted_7$3, [
+            ? (_openBlock$4(), _createElementBlock$4("ul", _hoisted_8$3, [
                 (_openBlock$4(true), _createElementBlock$4(_Fragment$3, null, _renderList$1(prizeRows(currentStats.value), ([name, count]) => {
                   return (_openBlock$4(), _createElementBlock$4("li", { key: name }, [
                     _createElementVNode$4("span", null, _toDisplayString$3(name), 1),
@@ -167,15 +177,21 @@ return (_ctx, _cache) => {
                   ]))
                 }), 128))
               ]))
-            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_8$3, "本轮奖品将在这里实时累积。"))
+            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_9$3, "本轮奖品将在这里实时累积。"))
         ]),
         _createElementVNode$4("section", null, [
-          _createElementVNode$4("div", _hoisted_9$3, [
+          _createElementVNode$4("div", _hoisted_10$2, [
             _cache[25] || (_cache[25] = _createElementVNode$4("h3", null, "累计奖品", -1)),
             _createElementVNode$4("span", null, _toDisplayString$3(formatNumber(cumulativeStats.value.count)) + " 次 · 消耗 " + _toDisplayString$3(formatNumber(cumulativeStats.value.cost)), 1)
           ]),
+          _createElementVNode$4("div", _hoisted_11$2, [
+            _createElementVNode$4("span", null, "憨豆奖品 " + _toDisplayString$3(formatNumber(cumulativeStats.value.beans)), 1),
+            _createElementVNode$4("b", {
+              class: _normalizeClass$4(["profit", profitTone(cumulativeStats.value.profit)])
+            }, "净盈亏 " + _toDisplayString$3(formatSigned(cumulativeStats.value.profit)), 3)
+          ]),
           (prizeRows(cumulativeStats.value).length)
-            ? (_openBlock$4(), _createElementBlock$4("ul", _hoisted_10$2, [
+            ? (_openBlock$4(), _createElementBlock$4("ul", _hoisted_12$2, [
                 (_openBlock$4(true), _createElementBlock$4(_Fragment$3, null, _renderList$1(prizeRows(cumulativeStats.value), ([name, count]) => {
                   return (_openBlock$4(), _createElementBlock$4("li", { key: name }, [
                     _createElementVNode$4("span", null, _toDisplayString$3(name), 1),
@@ -183,14 +199,14 @@ return (_ctx, _cache) => {
                   ]))
                 }), 128))
               ]))
-            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_11$2, "完成第一次抽奖后显示累计记录。"))
+            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_13$2, "完成第一次抽奖后显示累计记录。"))
         ])
       ])
     ]),
-    _createElementVNode$4("div", _hoisted_12$2, [
-      _createElementVNode$4("div", _hoisted_13$2, [
+    _createElementVNode$4("div", _hoisted_14$1, [
+      _createElementVNode$4("div", _hoisted_15$1, [
         _cache[44] || (_cache[44] = _createElementVNode$4("h3", null, "抽奖设置", -1)),
-        _createElementVNode$4("label", _hoisted_14$1, [
+        _createElementVNode$4("label", _hoisted_16$1, [
           _cache[26] || (_cache[26] = _createElementVNode$4("span", null, [
             _createElementVNode$4("b", null, "启用转盘"),
             _createElementVNode$4("small", null, "关闭后不能启动新任务")
@@ -215,7 +231,7 @@ return (_ctx, _cache) => {
           ])
         ]),
         (cfg.lottery_mode === 'fixed')
-          ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_15$1, [
+          ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_17$1, [
               _cache[29] || (_cache[29] = _createElementVNode$4("span", null, "抽奖次数", -1)),
               _withDirectives$3(_createElementVNode$4("input", {
                 "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.lottery_count) = $event)),
@@ -232,7 +248,7 @@ return (_ctx, _cache) => {
               ])
             ]))
           : (cfg.lottery_mode === 'reserve')
-            ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_16$1, [
+            ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_18$1, [
                 _cache[30] || (_cache[30] = _createElementVNode$4("span", null, "保留憨豆", -1)),
                 _withDirectives$3(_createElementVNode$4("input", {
                   "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.reserve_beans) = $event)),
@@ -248,7 +264,7 @@ return (_ctx, _cache) => {
                   ]
                 ])
               ]))
-            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_17$1, "启动时读取憨豆余额和单次消耗，自动计算本次可抽次数。")),
+            : (_openBlock$4(), _createElementBlock$4("p", _hoisted_19$1, "启动时读取憨豆余额和单次消耗，自动计算本次可抽次数。")),
         _createElementVNode$4("label", null, [
           _cache[31] || (_cache[31] = _createElementVNode$4("span", null, "抽奖间隔（秒）", -1)),
           _withDirectives$3(_createElementVNode$4("input", {
@@ -281,7 +297,7 @@ return (_ctx, _cache) => {
             ]
           ])
         ]),
-        _createElementVNode$4("label", _hoisted_18$1, [
+        _createElementVNode$4("label", _hoisted_20$1, [
           _withDirectives$3(_createElementVNode$4("input", {
             "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.auto_clean_lottery_mail) = $event)),
             type: "checkbox"
@@ -290,7 +306,7 @@ return (_ctx, _cache) => {
           ]),
           _cache[33] || (_cache[33] = _createTextVNode$2(" 校准时清理转盘通知", -1))
         ]),
-        _createElementVNode$4("label", _hoisted_19$1, [
+        _createElementVNode$4("label", _hoisted_21$1, [
           _withDirectives$3(_createElementVNode$4("input", {
             "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.scheduled_stop_enabled) = $event)),
             type: "checkbox"
@@ -300,7 +316,7 @@ return (_ctx, _cache) => {
           _cache[34] || (_cache[34] = _createTextVNode$2(" 到指定日期时间自动停止", -1))
         ]),
         (cfg.scheduled_stop_enabled)
-          ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_20$1, [
+          ? (_openBlock$4(), _createElementBlock$4("label", _hoisted_22$1, [
               _cache[35] || (_cache[35] = _createElementVNode$4("span", null, "停止日期时间", -1)),
               _withDirectives$3(_createElementVNode$4("input", {
                 "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((cfg.scheduled_stop_at) = $event)),
@@ -311,9 +327,9 @@ return (_ctx, _cache) => {
             ]))
           : _createCommentVNode$4("", true),
         (cfg.scheduled_stop_enabled)
-          ? (_openBlock$4(), _createElementBlock$4("p", _hoisted_21$1, "任务计划会持久化；平台或插件重启后，将继续剩余抽奖并在此时间停止。"))
+          ? (_openBlock$4(), _createElementBlock$4("p", _hoisted_23$1, "任务计划会持久化；平台或插件重启后，将继续剩余抽奖并在此时间停止。"))
           : _createCommentVNode$4("", true),
-        _createElementVNode$4("label", _hoisted_22$1, [
+        _createElementVNode$4("label", _hoisted_24$1, [
           _withDirectives$3(_createElementVNode$4("input", {
             "onUpdate:modelValue": _cache[9] || (_cache[9] = $event => ((cfg.stop_on_prize) = $event)),
             type: "checkbox"
@@ -323,8 +339,8 @@ return (_ctx, _cache) => {
           _cache[36] || (_cache[36] = _createTextVNode$2(" 命中大奖后自动停止", -1))
         ]),
         (cfg.stop_on_prize)
-          ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_23$1, [
-              _createElementVNode$4("label", _hoisted_24$1, [
+          ? (_openBlock$4(), _createElementBlock$4("div", _hoisted_25$1, [
+              _createElementVNode$4("label", _hoisted_26$1, [
                 _withDirectives$3(_createElementVNode$4("input", {
                   "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((cfg.stop_on_vip) = $event)),
                   type: "checkbox"
@@ -333,7 +349,7 @@ return (_ctx, _cache) => {
                 ]),
                 _cache[37] || (_cache[37] = _createTextVNode$2(" VIP", -1))
               ]),
-              _createElementVNode$4("label", _hoisted_25$1, [
+              _createElementVNode$4("label", _hoisted_27$1, [
                 _withDirectives$3(_createElementVNode$4("input", {
                   "onUpdate:modelValue": _cache[11] || (_cache[11] = $event => ((cfg.stop_on_invite) = $event)),
                   type: "checkbox"
@@ -342,7 +358,7 @@ return (_ctx, _cache) => {
                 ]),
                 _cache[38] || (_cache[38] = _createTextVNode$2(" 邀请", -1))
               ]),
-              _createElementVNode$4("label", _hoisted_26$1, [
+              _createElementVNode$4("label", _hoisted_28$1, [
                 _withDirectives$3(_createElementVNode$4("input", {
                   "onUpdate:modelValue": _cache[12] || (_cache[12] = $event => ((cfg.stop_on_big_beans) = $event)),
                   type: "checkbox"
@@ -379,7 +395,7 @@ return (_ctx, _cache) => {
               ])
             ]))
           : _createCommentVNode$4("", true),
-        _createElementVNode$4("label", _hoisted_27$1, [
+        _createElementVNode$4("label", _hoisted_29$1, [
           _withDirectives$3(_createElementVNode$4("input", {
             "onUpdate:modelValue": _cache[15] || (_cache[15] = $event => ((cfg.notify_result) = $event)),
             type: "checkbox"
@@ -388,7 +404,7 @@ return (_ctx, _cache) => {
           ]),
           _cache[42] || (_cache[42] = _createTextVNode$2(" 完成后推送结果", -1))
         ]),
-        _createElementVNode$4("label", _hoisted_28$1, [
+        _createElementVNode$4("label", _hoisted_30$1, [
           _withDirectives$3(_createElementVNode$4("input", {
             "onUpdate:modelValue": _cache[16] || (_cache[16] = $event => ((cfg.notify_cookie_error) = $event)),
             type: "checkbox"
@@ -401,9 +417,9 @@ return (_ctx, _cache) => {
           class: "secondary",
           disabled: saving.value,
           onClick: _cache[17] || (_cache[17] = $event => (save()))
-        }, _toDisplayString$3(saving.value ? '保存中…' : '保存设置'), 9, _hoisted_29$1)
+        }, _toDisplayString$3(saving.value ? '保存中…' : '保存设置'), 9, _hoisted_31$1)
       ]),
-      _createElementVNode$4("div", _hoisted_30$1, [
+      _createElementVNode$4("div", _hoisted_32$1, [
         _cache[45] || (_cache[45] = _createElementVNode$4("h3", null, "最近结果", -1)),
         _createElementVNode$4("pre", null, _toDisplayString$3(status.value.last_result || '还没有抽奖记录。'), 1)
       ])
@@ -413,29 +429,29 @@ return (_ctx, _cache) => {
         class: "primary",
         disabled: busy.value || status.value.running || !cfg.enabled,
         onClick: _cache[18] || (_cache[18] = $event => (action('run', '/lottery/run')))
-      }, _toDisplayString$3(busy.value === 'run' ? '正在启动…' : '开始抽奖'), 9, _hoisted_31$1),
+      }, _toDisplayString$3(busy.value === 'run' ? '正在启动…' : '开始抽奖'), 9, _hoisted_33$1),
       _createElementVNode$4("button", {
         class: "danger",
         disabled: busy.value || !status.value.running,
         onClick: _cache[19] || (_cache[19] = $event => (action('stop', '/lottery/stop')))
-      }, "停止抽奖", 8, _hoisted_32$1),
+      }, "停止抽奖", 8, _hoisted_34$1),
       _createElementVNode$4("button", {
         class: "secondary",
         disabled: busy.value,
         onClick: _cache[20] || (_cache[20] = $event => (action('cookie', '/lottery/cookie/check', 'GET')))
-      }, "检查 Cookie 与余额", 8, _hoisted_33$1),
+      }, "检查 Cookie 与余额", 8, _hoisted_35$1),
       _createElementVNode$4("button", {
         class: "secondary",
         disabled: busy.value || status.value.running,
         onClick: _cache[21] || (_cache[21] = $event => (action('mail', '/lottery/mail/clean')))
-      }, "清理转盘通知", 8, _hoisted_34$1)
+      }, "清理转盘通知", 8, _hoisted_36$1)
     ])
   ]))
 }
 }
 
 };
-const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-3975d07a"]]);
+const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-4c54ed44"]]);
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$1,normalizeClass:_normalizeClass$3,Fragment:_Fragment$2,normalizeStyle:_normalizeStyle,vModelCheckbox:_vModelCheckbox$1,withDirectives:_withDirectives$2,vModelText:_vModelText$2,renderList:_renderList} = await importShared('vue');
 
