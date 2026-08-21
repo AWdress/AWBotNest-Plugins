@@ -15,11 +15,11 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -103,9 +103,9 @@ _LEADERBOARD_KV_KEY = "welfare_leaderboard_v1"
 _pending_tasks: set = set()
 
 
-def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24) -> list[tuple[str, str, bool, str, float]]:
+def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24) -> list[tuple[str, str, bool, str, float, str]]:
     """解析规则；旧配置自动继承原来的全局匹配方式与冷却时间。"""
-    rules: list[tuple[str, str, bool, str, float]] = []
+    rules: list[tuple[str, str, bool, str, float, str]] = []
     if isinstance(raw, list):
         for d in raw:
             if isinstance(d, dict):
@@ -118,7 +118,10 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
                         cooldown = max(0.0, min(720.0, float(d.get("cooldown_hours", default_cooldown))))
                     except (TypeError, ValueError):
                         cooldown = default_cooldown
-                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown))
+                    trigger_mode = str(d.get("trigger_mode", "any") or "any")
+                    if trigger_mode not in {"any", "reply_to_me"}:
+                        trigger_mode = "any"
+                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown, trigger_mode))
         return rules
     for line in str(raw or "").splitlines():
         line = line.strip()
@@ -127,7 +130,7 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
         keyword, reply = line.split("=", 1)
         keyword, reply = keyword.strip(), reply.strip()
         if keyword and reply:
-            rules.append((keyword, reply, True, default_match, default_cooldown))
+            rules.append((keyword, reply, True, default_match, default_cooldown, "any"))
     return rules
 
 
@@ -135,6 +138,13 @@ def _match(text: str, keyword: str, match_type: str) -> bool:
     if match_type == "exact":
         return text.strip() == keyword
     return keyword in text  # contains
+
+
+def _is_reply_to_me(message) -> bool:
+    """当前消息是否回复了本账号发出的消息。"""
+    replied = getattr(message, "reply_to_message", None)
+    sender = getattr(replied, "from_user", None) if replied else None
+    return bool(sender and getattr(sender, "is_self", False))
 
 
 def _save_cooldowns(ctx) -> None:
@@ -504,8 +514,10 @@ async def setup(ctx):
             delete_after = 0
 
         try:
-            for keyword, reply, cooldown_notify, match_type, cooldown_hours in rules:
+            for keyword, reply, cooldown_notify, match_type, cooldown_hours, trigger_mode in rules:
                 if not _match(text, keyword, match_type):
+                    continue
+                if trigger_mode == "reply_to_me" and not _is_reply_to_me(message):
                     continue
 
                 cooldown_secs = cooldown_hours * 3600
