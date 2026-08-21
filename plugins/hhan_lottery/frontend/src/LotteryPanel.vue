@@ -3,17 +3,19 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: String, host: { type: Object, required: true } })
 const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '', scheduled_stop_enabled: false, scheduled_stop_at: '' })
-const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '' })
-const stats = ref('暂无累计统计')
+const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '', current_stats: {}, cumulative_stats: {} })
 const busy = ref('')
 const saving = ref(false)
 let timer
 
 const progress = computed(() => status.value.target ? Math.min(100, Math.round(status.value.completed / status.value.target * 100)) : 0)
 const stateText = computed(() => status.value.running ? `正在抽奖 ${status.value.completed}/${status.value.target}` : (status.value.detail || '等待开始'))
+const currentStats = computed(() => status.value.current_stats || {})
+const cumulativeStats = computed(() => status.value.cumulative_stats || {})
+const formatNumber = value => new Intl.NumberFormat('zh-CN').format(Number(value) || 0)
+const prizeRows = value => Object.entries(value?.prizes || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 20)
 
 async function refresh() { try { status.value = await props.host.callApi('/lottery/status') } catch (_) {} }
-async function loadStats() { try { stats.value = (await props.host.callApi('/lottery/stats')).text || '暂无累计统计' } catch (_) {} }
 async function save(showToast = true) {
   if (saving.value) return
   saving.value = true
@@ -40,14 +42,14 @@ async function action(name, path, method = 'POST') {
     if (name === 'run') await save(false)
     const result = await props.host.callApi(path, { method, body: method === 'POST' ? {} : undefined })
     ;(result.ok ? props.host.toast.success : props.host.toast.error)(result.message || '操作完成')
-    await refresh(); await loadStats()
+    await refresh()
   } catch (error) { props.host.toast.error(error.message || String(error)) }
   finally { busy.value = '' }
 }
 
 onMounted(async () => {
   Object.assign(cfg, await props.host.getConfig())
-  await Promise.all([refresh(), loadStats()])
+  await refresh()
   timer = setInterval(refresh, 1500)
 })
 onBeforeUnmount(() => clearInterval(timer))
@@ -64,6 +66,18 @@ onBeforeUnmount(() => clearInterval(timer))
       <div class="progress-top"><strong>{{ status.completed }} <small>/ {{ status.target || (cfg.lottery_mode === 'balance' ? '待计算' : cfg.lottery_count) }} 次</small></strong><span>{{ progress }}%</span></div>
       <div class="track"><i :style="{ width: progress + '%' }" /></div>
       <p>{{ status.last_prize ? `最近奖品：${status.last_prize}` : '开始后这里会实时显示进度与最近奖品。' }}</p>
+      <div class="live-stats">
+        <section>
+          <div class="stats-head"><h3>当前任务</h3><span>{{ formatNumber(currentStats.count) }} 次 · 消耗 {{ formatNumber(currentStats.cost) }}</span></div>
+          <ul v-if="prizeRows(currentStats).length"><li v-for="([name, count]) in prizeRows(currentStats)" :key="name"><span>{{ name }}</span><b>× {{ formatNumber(count) }}</b></li></ul>
+          <p v-else class="empty-stat">本轮奖品将在这里实时累积。</p>
+        </section>
+        <section>
+          <div class="stats-head"><h3>累计奖品</h3><span>{{ formatNumber(cumulativeStats.count) }} 次 · 消耗 {{ formatNumber(cumulativeStats.cost) }}</span></div>
+          <ul v-if="prizeRows(cumulativeStats).length"><li v-for="([name, count]) in prizeRows(cumulativeStats)" :key="name"><span>{{ name }}</span><b>× {{ formatNumber(count) }}</b></li></ul>
+          <p v-else class="empty-stat">完成第一次抽奖后显示累计记录。</p>
+        </section>
+      </div>
     </div>
 
     <div class="grid">
@@ -95,8 +109,6 @@ onBeforeUnmount(() => clearInterval(timer))
       <div class="card result">
         <h3>最近结果</h3>
         <pre>{{ status.last_result || '还没有抽奖记录。' }}</pre>
-        <h3>累计统计</h3>
-        <pre>{{ stats }}</pre>
       </div>
     </div>
 
@@ -114,8 +126,9 @@ onBeforeUnmount(() => clearInterval(timer))
 header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:18px; } h2 { margin:2px 0 5px; color:#f4f8fd; font-size:25px; } .eyebrow { margin:0; color:var(--blue); font-size:11px; font-weight:800; letter-spacing:.16em; } .sub { margin:0; color:var(--muted); font-size:13px; }
 .state { display:flex; align-items:center; gap:8px; max-width:280px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; color:#aebdd0; background:#111c2b; font-size:12px; } .state i { width:7px; height:7px; border-radius:50%; background:#64748b; } .state.live i { background:#38d796; box-shadow:0 0 0 5px #38d7961d; }
 .progress-card,.card { border:1px solid var(--line); border-radius:14px; background:#111c2b; } .progress-card { padding:18px 20px; margin-bottom:14px; } .progress-top { display:flex; justify-content:space-between; color:#71adfa; } .progress-top strong { color:#f2f6fc; font-size:25px; } .progress-top small { color:var(--muted); font-size:13px; } .track { height:7px; margin:13px 0 9px; overflow:hidden; border-radius:9px; background:#243349; } .track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#287de7,#55a8ff); } .progress-card p { margin:0; color:var(--muted); font-size:12px; }
+.live-stats{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.live-stats section{min-width:0}.stats-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px}.stats-head h3{margin:0}.stats-head span{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}.live-stats ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px;max-height:164px;overflow:auto;margin:0;padding:0;list-style:none}.live-stats li{display:flex;justify-content:space-between;gap:10px;min-width:0;color:#b9c8da;font-size:12px}.live-stats li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.live-stats li b{flex:none;color:#71adfa;font-variant-numeric:tabular-nums}.progress-card .empty-stat{padding:8px 0;color:#71849c}
 .grid { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(320px,1.2fr); gap:14px; } .card { padding:18px; min-width:0; } h3 { margin:0 0 14px; color:#dfe9f6; font-size:14px; } label:not(.check,.toggle-row) { display:grid; grid-template-columns:1fr 160px; align-items:center; gap:12px; margin:12px 0; color:#bac8d9; font-size:13px; } input[type=number],input[type=datetime-local],select { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; } .toggle-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; } .toggle-row span { display:grid; gap:3px; } .toggle-row small { color:var(--muted); } .mode-note { margin:8px 0 13px; padding:10px 11px; border-radius:8px; color:#8fb5e4; background:#12253d; font-size:12px; line-height:1.55; } .check { display:block; margin:11px 0; color:#aebed0; font-size:13px; } pre { max-height:150px; overflow:auto; white-space:pre-wrap; margin:0 0 17px; color:#9fb1c6; font:12px/1.6 ui-monospace,Consolas,monospace; }
 .stop-box { margin:10px 0; padding:10px 12px; border:1px solid #2e425b; border-radius:9px; background:#0d1827; } .stop-box .check { display:inline-block; margin:3px 12px 3px 0; } input[type=text] { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; }
 footer { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; } button { min-height:40px; padding:0 16px; border-radius:9px; border:1px solid transparent; color:#dce8f7; background:#18263a; font:inherit; font-weight:650; cursor:pointer; } button:disabled { opacity:.45; cursor:not-allowed; } .primary { color:white; background:#287de7; } .danger { color:#ffb0b0; border-color:#7c353d; background:#2a1920; } .secondary { border-color:#344a65; background:#152338; }
-@media(max-width:700px){ header{display:block}.state{margin-top:13px}.grid{grid-template-columns:1fr}.result{min-height:0} footer button{flex:1} }
+@media(max-width:700px){ header{display:block}.state{margin-top:13px}.grid,.live-stats{grid-template-columns:1fr}.live-stats ul{grid-template-columns:1fr}.result{min-height:0} footer button{flex:1} }
 </style>
