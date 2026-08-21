@@ -56,6 +56,7 @@ const cfg = reactive$3({ enabled: true, notify_result: true, notify_cookie_error
 const status = ref$4({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '' });
 const stats = ref$4('暂无累计统计');
 const busy = ref$4('');
+const saving = ref$4(false);
 let timer;
 
 const progress = computed$2(() => status.value.target ? Math.min(100, Math.round(status.value.completed / status.value.target * 100)) : 0);
@@ -64,14 +65,23 @@ const stateText = computed$2(() => status.value.running ? `正在抽奖 ${status
 async function refresh() { try { status.value = await props.host.callApi('/lottery/status'); } catch (_) {} }
 async function loadStats() { try { stats.value = (await props.host.callApi('/lottery/stats')).text || '暂无累计统计'; } catch (_) {} }
 async function save(showToast = true) {
-  cfg.lottery_mode = ['fixed', 'balance', 'reserve'].includes(cfg.lottery_mode) ? cfg.lottery_mode : 'fixed';
-  cfg.lottery_count = Math.max(1, Math.trunc(Number(cfg.lottery_count) || 10));
-  cfg.interval_seconds = Math.max(3, Math.min(Number(cfg.interval_seconds) || 7, 30));
-  cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0));
-  cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)));
-  cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000));
-  await props.host.saveConfig({ ...cfg });
-  if (showToast) props.host.toast.success('转盘配置已保存');
+  if (saving.value) return
+  saving.value = true;
+  try {
+    cfg.lottery_mode = ['fixed', 'balance', 'reserve'].includes(cfg.lottery_mode) ? cfg.lottery_mode : 'fixed';
+    cfg.lottery_count = Math.max(1, Math.trunc(Number(cfg.lottery_count) || 10));
+    cfg.interval_seconds = Math.max(3, Math.min(Number(cfg.interval_seconds) || 7, 30));
+    cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0));
+    cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)));
+    cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000));
+    await props.host.saveConfig({ ...cfg });
+    if (showToast) props.host.toast.success('转盘配置已保存');
+  } catch (error) {
+    if (showToast) props.host.toast.error(error.message || String(error));
+    throw error
+  } finally {
+    saving.value = false;
+  }
 }
 async function action(name, path, method = 'POST') {
   busy.value = name;
@@ -310,9 +320,9 @@ return (_ctx, _cache) => {
         ]),
         _createElementVNode$4("button", {
           class: "secondary",
-          disabled: busy.value,
+          disabled: saving.value,
           onClick: _cache[15] || (_cache[15] = $event => (save()))
-        }, "保存设置", 8, _hoisted_19$1)
+        }, _toDisplayString$3(saving.value ? '保存中…' : '保存设置'), 9, _hoisted_19$1)
       ]),
       _createElementVNode$4("div", _hoisted_20$1, [
         _cache[39] || (_cache[39] = _createElementVNode$4("h3", null, "最近结果", -1)),
@@ -348,7 +358,7 @@ return (_ctx, _cache) => {
 }
 
 };
-const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-f33cab8c"]]);
+const LotteryPanel = /*#__PURE__*/_export_sfc(_sfc_main$4, [['__scopeId',"data-v-1453c576"]]);
 
 const {createElementVNode:_createElementVNode$3,openBlock:_openBlock$3,createElementBlock:_createElementBlock$3,createCommentVNode:_createCommentVNode$3,toDisplayString:_toDisplayString$2,createTextVNode:_createTextVNode$1,normalizeClass:_normalizeClass$3,Fragment:_Fragment$2,normalizeStyle:_normalizeStyle,vModelCheckbox:_vModelCheckbox$1,withDirectives:_withDirectives$2,vModelText:_vModelText$2,renderList:_renderList} = await importShared('vue');
 

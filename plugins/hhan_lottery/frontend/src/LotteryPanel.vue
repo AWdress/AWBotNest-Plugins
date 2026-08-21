@@ -6,6 +6,7 @@ const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: 
 const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '' })
 const stats = ref('暂无累计统计')
 const busy = ref('')
+const saving = ref(false)
 let timer
 
 const progress = computed(() => status.value.target ? Math.min(100, Math.round(status.value.completed / status.value.target * 100)) : 0)
@@ -14,14 +15,23 @@ const stateText = computed(() => status.value.running ? `正在抽奖 ${status.v
 async function refresh() { try { status.value = await props.host.callApi('/lottery/status') } catch (_) {} }
 async function loadStats() { try { stats.value = (await props.host.callApi('/lottery/stats')).text || '暂无累计统计' } catch (_) {} }
 async function save(showToast = true) {
-  cfg.lottery_mode = ['fixed', 'balance', 'reserve'].includes(cfg.lottery_mode) ? cfg.lottery_mode : 'fixed'
-  cfg.lottery_count = Math.max(1, Math.trunc(Number(cfg.lottery_count) || 10))
-  cfg.interval_seconds = Math.max(3, Math.min(Number(cfg.interval_seconds) || 7, 30))
-  cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0))
-  cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)))
-  cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000))
-  await props.host.saveConfig({ ...cfg })
-  if (showToast) props.host.toast.success('转盘配置已保存')
+  if (saving.value) return
+  saving.value = true
+  try {
+    cfg.lottery_mode = ['fixed', 'balance', 'reserve'].includes(cfg.lottery_mode) ? cfg.lottery_mode : 'fixed'
+    cfg.lottery_count = Math.max(1, Math.trunc(Number(cfg.lottery_count) || 10))
+    cfg.interval_seconds = Math.max(3, Math.min(Number(cfg.interval_seconds) || 7, 30))
+    cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0))
+    cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)))
+    cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000))
+    await props.host.saveConfig({ ...cfg })
+    if (showToast) props.host.toast.success('转盘配置已保存')
+  } catch (error) {
+    if (showToast) props.host.toast.error(error.message || String(error))
+    throw error
+  } finally {
+    saving.value = false
+  }
 }
 async function action(name, path, method = 'POST') {
   busy.value = name
@@ -76,7 +86,7 @@ onBeforeUnmount(() => clearInterval(timer))
         </div>
         <label class="check"><input v-model="cfg.notify_result" type="checkbox"> 完成后推送结果</label>
         <label class="check"><input v-model="cfg.notify_cookie_error" type="checkbox"> Cookie 异常时通知</label>
-        <button class="secondary" :disabled="busy" @click="save()">保存设置</button>
+        <button class="secondary" :disabled="saving" @click="save()">{{ saving ? '保存中…' : '保存设置' }}</button>
       </div>
       <div class="card result">
         <h3>最近结果</h3>
