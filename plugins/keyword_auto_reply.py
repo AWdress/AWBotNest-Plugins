@@ -1,5 +1,5 @@
 # =============================================================================
-# AWBotNest 插件：关键词自动回复（keyword_auto_reply）
+# AWBotNest 插件：天天发福利（keyword_auto_reply）
 #
 # 用户账号监听群消息，命中关键词就自动回复。
 # 配置全是普通表单项：规则一行一条「关键词=回复内容」，无需懂 JSON。
@@ -12,13 +12,13 @@ import time
 from datetime import datetime, timedelta
 
 __plugin__ = {
-    "name": "关键词自动回复",
+    "name": "天天发福利",
     "id": "keyword_auto_reply",
-    "version": "1.0.9",
+    "version": "1.1.0",
     "author": "AWdress",
-    "description": "群里有人说到关键词，自动回复一句。规则用列表逐条配置，支持冷却、限群、自动删除。",
+    "description": "按关键词自动发放群福利，支持冷却、限群、自动删除和薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v1.1.0 更名并新增薅羊毛排行榜\n- 插件更名为‘天天发福利’\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -32,6 +32,10 @@ __plugin__ = {
         "midnight_reset": {
             "type": "boolean", "default": False, "label": "冷却每天零点清零",
             "cols": 3, "order": 2, "section": "功能开关",
+        },
+        "leaderboard_enabled": {
+            "type": "boolean", "default": True, "label": "启用薅羊毛排行榜",
+            "cols": 3, "order": 3, "section": "功能开关",
         },
 
         # —— 规则：逐条添加（order:10+）——
@@ -77,12 +81,22 @@ __plugin__ = {
             "order": 23, "section": "范围与冷却",
             "help": "这些用户的消息不触发回复。一行一个或逗号分隔的用户ID。",
         },
+        "leaderboard_command": {
+            "type": "string", "default": ".羊毛榜", "label": "排行榜命令",
+            "order": 30, "section": "薅羊毛排行榜",
+            "help": "群内发送该命令，查看当前群累计领取福利次数。",
+        },
+        "leaderboard_size": {
+            "type": "slider", "default": 10, "label": "显示人数",
+            "min": 3, "max": 30, "step": 1, "order": 31, "section": "薅羊毛排行榜",
+        },
     },
 }
 
 # 冷却记录：{(稳定账号标识, 用户id, 关键词): (最后触发时间戳, 触发日序号)}
 _user_cooldowns: dict[tuple[str, int, str], tuple[float, int]] = {}
 _COOLDOWNS_KV_KEY = "user_cooldowns_v1"
+_LEADERBOARD_KV_KEY = "welfare_leaderboard_v1"
 # 自动删除后台任务，停用时统一取消
 _pending_tasks: set = set()
 
@@ -194,6 +208,59 @@ def _parse_blacklist(raw) -> set[int]:
     return ids
 
 
+def _display_name(user) -> str:
+    if not user:
+        return "未知用户"
+    username = str(getattr(user, "username", "") or "").strip()
+    if username:
+        return f"@{username}"
+    name = " ".join(filter(None, (
+        str(getattr(user, "first_name", "") or "").strip(),
+        str(getattr(user, "last_name", "") or "").strip(),
+    )))
+    return name or f"用户{getattr(user, 'id', '')}"
+
+
+def _record_welfare(ctx, account: str, chat_id: int, user, keyword: str) -> None:
+    if not user:
+        return
+    rows = ctx.kv.get(_LEADERBOARD_KV_KEY, []) or []
+    if not isinstance(rows, list):
+        rows = []
+    user_id = int(user.id)
+    row = next((item for item in rows if isinstance(item, dict)
+                and str(item.get("account")) == account
+                and int(item.get("chat_id", 0)) == chat_id
+                and int(item.get("user_id", 0)) == user_id), None)
+    if row is None:
+        row = {"account": account, "chat_id": chat_id, "user_id": user_id, "count": 0}
+        rows.append(row)
+    row.update({
+        "name": _display_name(user),
+        "count": int(row.get("count", 0) or 0) + 1,
+        "last_keyword": keyword,
+        "last_time": int(time.time()),
+    })
+    ctx.kv.set(_LEADERBOARD_KV_KEY, rows)
+
+
+def _leaderboard_text(ctx, account: str, chat_id: int, limit: int) -> str:
+    rows = ctx.kv.get(_LEADERBOARD_KV_KEY, []) or []
+    selected = [item for item in rows if isinstance(item, dict)
+                and str(item.get("account")) == account
+                and int(item.get("chat_id", 0)) == chat_id]
+    selected.sort(key=lambda item: (-int(item.get("count", 0) or 0), int(item.get("last_time", 0) or 0)))
+    if not selected:
+        return "🐑 薅羊毛排行榜\n\n还没有人领取过福利。"
+    medals = ("🥇", "🥈", "🥉")
+    lines = ["🐑 薅羊毛排行榜", ""]
+    for index, item in enumerate(selected[:max(3, min(30, limit))]):
+        rank = medals[index] if index < 3 else f"{index + 1}."
+        lines.append(f"{rank} {item.get('name') or '未知用户'} — {int(item.get('count', 0) or 0)} 次")
+    lines.extend(["", f"累计上榜 {len(selected)} 人"])
+    return "\n".join(lines)
+
+
 def _render(reply: str, message=None) -> str:
     """渲染回复：a-b 随机数、{uid}/{uname}（昵称做 Markdown 转义）。"""
     pattern = re.compile(r"(?<!\d)(\+?)(\d+)-(\d+)(?!\d)")
@@ -260,10 +327,6 @@ async def setup(ctx):
         if not text:
             return
 
-        rules = _parse_rules(cfg.get("rules_text", ""))
-        if not rules:
-            return
-
         match_type = cfg.get("match_type", "contains")
         chat_ids_str = cfg.get("chat_ids", "")
         chat_id = message.chat.id
@@ -272,6 +335,21 @@ async def setup(ctx):
 
         me = getattr(client, "me", None)
         account_id = str(me.id) if me else str(getattr(ctx, "account_name", "") or "default")
+        leaderboard_command = str(cfg.get("leaderboard_command", ".羊毛榜") or ".羊毛榜").strip()
+        if cfg.get("leaderboard_enabled", True) and leaderboard_command and text.strip() == leaderboard_command:
+            try:
+                limit = int(cfg.get("leaderboard_size", 10) or 10)
+            except (TypeError, ValueError):
+                limit = 10
+            await client.send_message(
+                chat_id, _leaderboard_text(ctx, account_id, chat_id, limit),
+                reply_to_message_id=message.id,
+            )
+            return
+
+        rules = _parse_rules(cfg.get("rules_text", ""))
+        if not rules:
+            return
         midnight_reset = bool(cfg.get("midnight_reset", False))
         blacklist = _parse_blacklist(cfg.get("blacklist_ids", ""))
         # 屏蔽名单用户的消息不触发
@@ -326,6 +404,7 @@ async def setup(ctx):
                 sent = await client.send_message(
                     chat_id, _render(reply, message), reply_to_message_id=message.id
                 )
+                _record_welfare(ctx, account_id, chat_id, message.from_user, keyword)
                 _schedule_delete(ctx, sent, delete_after)
                 chat_name = getattr(message.chat, "title", None) or str(chat_id)
                 ctx.log.info("[关键词回复] 命中 '%s' | 群组 %s (%s)",
