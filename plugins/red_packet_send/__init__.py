@@ -29,7 +29,7 @@ from ._activity import (
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,

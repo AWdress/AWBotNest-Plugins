@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import random
 import re
 import time
@@ -42,7 +43,7 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -796,10 +797,11 @@ def _build_leaderboard(records: list, direction: str, limit: int = _LEADERBOARD_
         uid = rec.get("user_id", 0)
         amt = abs(float(rec.get("amount", 0) or 0))
         name = rec.get("user_name", "") or str(uid)
-        cur = agg.get(uid) or {"name": name, "total": 0.0, "count": 0}
+        cur = agg.get(uid) or {"user_id": uid, "name": name, "total": 0.0, "count": 0}
         cur["total"] += amt
         cur["count"] += 1
         cur["name"] = name
+        cur["user_id"] = uid
         agg[uid] = cur
     ranked = sorted(agg.values(), key=lambda x: x["total"], reverse=True)
     return ranked[:limit]
@@ -874,15 +876,23 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
             rows = []
             for i, e in enumerate(entries):
                 medal = medals[i] if i < 3 else f"{i + 1}"
-                rows.append([medal, e["name"], e["count"], f'{e["total"]:,.0f} 灵石'])
-            await ctx.notify_table(
-                ["排名", "用户", "次数", "累计"],
-                rows,
-                caption=f"{body}\n个人{table_title}总榜 TOP{len(entries)}",
-                level="info",
-                category="转账",
-                account=client,
-                align=["center", "left", "center", "right"],
+                name = html.escape(str(e["name"]), quote=True)
+                uid = int(e.get("user_id", 0) or 0)
+                user = f'<a href="tg://user?id={uid}">{name}</a>' if uid else name
+                rows.append(
+                    f'<tr><td align="center"><b>{medal}</b></td>'
+                    f'<td align="left">{user}</td><td align="center">{e["count"]}</td>'
+                    f'<td align="right"><b>{e["total"]:,.0f} 灵石</b></td></tr>'
+                )
+            rich = (
+                f"<h2>{html.escape(body)}</h2>"
+                f"<p>个人{table_title}总榜 TOP{len(entries)}</p>"
+                '<table bordered striped><tr><th align="center">排名</th>'
+                '<th align="left">用户</th><th align="center">次数</th>'
+                f'<th align="right">累计</th></tr>{"".join(rows)}</table>'
+            )
+            await ctx.notify(
+                rich, level="info", category="转账", account=client, format="rich",
             )
             return
 

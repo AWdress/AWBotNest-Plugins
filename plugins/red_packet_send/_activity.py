@@ -529,12 +529,13 @@ class ActivityManager:
             sorted_p = sorted(participants, key=lambda p: p["amount"], reverse=True)
             medals = ["🥇", "🥈", "🥉"]
             detail_lines = "\n".join(
-                f"{medals[i] if i < 3 else '　•'} {p['username']}　{int(round(p['amount']))} 魔力"
+                f"{medals[i] if i < 3 else '　•'} {p.get('display_name') or build_user_link(p['user_id'], p['username'])}　{int(round(p['amount']))} 魔力"
                 for i, p in enumerate(sorted_p)
             )
             if sorted_p:
                 best = sorted_p[0]
-                lucky_line = f"\n\n🏆 手气最佳：{best['username']}（{int(round(best['amount']))} 魔力）"
+                best_name = best.get("display_name") or build_user_link(best["user_id"], best["username"])
+                lucky_line = f"\n\n🏆 手气最佳：{best_name}（{int(round(best['amount']))} 魔力）"
             else:
                 lucky_line = ""
 
