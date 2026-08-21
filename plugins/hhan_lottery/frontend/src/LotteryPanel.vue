@@ -6,10 +6,11 @@ const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: 
 const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '', current_stats: {}, cumulative_stats: {} })
 const busy = ref('')
 const saving = ref(false)
+const apiError = ref('')
 let timer
 
 const progress = computed(() => status.value.target ? Math.min(100, Math.round(status.value.completed / status.value.target * 100)) : 0)
-const stateText = computed(() => status.value.running ? `正在抽奖 ${status.value.completed}/${status.value.target}` : (status.value.detail || '等待开始'))
+const stateText = computed(() => apiError.value ? '状态连接失败' : (status.value.running ? `正在抽奖 ${status.value.completed}/${status.value.target}` : (status.value.detail || '等待开始')))
 const currentStats = computed(() => status.value.current_stats || {})
 const cumulativeStats = computed(() => status.value.cumulative_stats || {})
 const formatNumber = value => new Intl.NumberFormat('zh-CN').format(Number(value) || 0)
@@ -17,7 +18,16 @@ const formatSigned = value => `${Number(value) > 0 ? '+' : ''}${formatNumber(val
 const profitTone = value => Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : 'neutral'
 const prizeRows = value => Object.entries(value?.prizes || {}).sort((a, b) => Number(b[1]) - Number(a[1])).slice(0, 20)
 
-async function refresh() { try { status.value = await props.host.callApi('/lottery/status') } catch (_) {} }
+async function refresh() {
+  try {
+    const result = await props.host.callApi('/lottery/status')
+    if (!result || typeof result !== 'object') throw new Error('状态接口返回为空')
+    status.value = result
+    apiError.value = String(result.setup_error || '')
+  } catch (error) {
+    apiError.value = error?.message || String(error)
+  }
+}
 async function save(showToast = true) {
   if (saving.value) return
   saving.value = true
@@ -63,6 +73,8 @@ onBeforeUnmount(() => clearInterval(timer))
       <div><p class="eyebrow">HHANCLUB</p><h2>幸运转盘</h2><p class="sub">可指定任意正整数次数，或按当前余额自动抽完。</p></div>
       <span class="state" :class="{ live: status.running }"><i />{{ stateText }}</span>
     </header>
+
+    <p v-if="apiError" class="api-error">无法读取转盘状态：{{ apiError }}。请检查插件后端启动日志或重新加载插件。</p>
 
     <div class="progress-card">
       <div class="progress-top"><strong>{{ status.completed }} <small>/ {{ status.target || (cfg.lottery_mode === 'balance' ? '待计算' : cfg.lottery_count) }} 次</small></strong><span>{{ progress }}%</span></div>
@@ -146,6 +158,7 @@ onBeforeUnmount(() => clearInterval(timer))
 .panel { --line:#26384f; --muted:#8fa1b8; --blue:#3289f5; font-family: "Microsoft YaHei", system-ui, sans-serif; }
 header { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:18px; } h2 { margin:2px 0 5px; color:#f4f8fd; font-size:25px; } .eyebrow { margin:0; color:var(--blue); font-size:11px; font-weight:800; letter-spacing:.16em; } .sub { margin:0; color:var(--muted); font-size:13px; }
 .state { display:flex; align-items:center; gap:8px; max-width:280px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; color:#aebdd0; background:#111c2b; font-size:12px; } .state i { width:7px; height:7px; border-radius:50%; background:#64748b; } .state.live i { background:#38d796; box-shadow:0 0 0 5px #38d7961d; }
+.api-error{margin:0 0 14px;padding:11px 13px;border:1px solid #743b46;border-radius:9px;color:#ffc2c7;background:#291820;font-size:12px;line-height:1.55}
 .progress-card,.card { border:1px solid var(--line); border-radius:14px; background:#111c2b; } .progress-card { padding:18px 20px; margin-bottom:14px; } .progress-top { display:flex; justify-content:space-between; color:#71adfa; } .progress-top strong { color:#f2f6fc; font-size:25px; } .progress-top small { color:var(--muted); font-size:13px; } .track { height:7px; margin:13px 0 9px; overflow:hidden; border-radius:9px; background:#243349; } .track i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#287de7,#55a8ff); } .progress-card p { margin:0; color:var(--muted); font-size:12px; }
 .live-stats{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.live-stats section{min-width:0}.stats-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:7px}.stats-head h3{margin:0}.stats-head span{color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}.balance-line{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px;color:#8fa1b8;font-size:11px;font-variant-numeric:tabular-nums}.profit{font-weight:750}.profit.positive{color:#45cf91}.profit.negative{color:#ef777d}.profit.neutral{color:#a9b8ca}.live-stats ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px;max-height:164px;overflow:auto;margin:0;padding:0;list-style:none}.live-stats li{display:flex;justify-content:space-between;gap:10px;min-width:0;color:#b9c8da;font-size:12px}.live-stats li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.live-stats li b{flex:none;color:#71adfa;font-variant-numeric:tabular-nums}.progress-card .empty-stat{padding:8px 0;color:#71849c}
 .grid { display:grid; grid-template-columns:minmax(600px,1.55fr) minmax(300px,.8fr); align-items:start; gap:14px; } .card { padding:20px; min-width:0; } h3 { margin:0; color:#dfe9f6; font-size:14px; } .card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-bottom:16px;border-bottom:1px solid var(--line)}.card-heading p{margin:5px 0 0;color:var(--muted);font-size:12px}.settings-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;padding-top:18px}.setting-group{min-width:0}.setting-group+ .setting-group{padding-left:28px;border-left:1px solid var(--line)}.setting-group h4{margin:0 0 14px;color:#dfe9f6;font-size:13px}.settings label:not(.check,.toggle-row) { display:grid; grid-template-columns:minmax(90px,1fr) minmax(150px,1.15fr); align-items:center; gap:12px; margin:12px 0; color:#bac8d9; font-size:13px; } input[type=number],input[type=datetime-local],select { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; } .toggle-row { display:flex; flex:none; justify-content:space-between; align-items:center; gap:18px; margin:0; } .toggle-row span { display:grid; gap:3px; } .toggle-row small { color:var(--muted); font-size:11px; } .mode-note { margin:8px 0 13px; padding:10px 11px; border-radius:8px; color:#8fb5e4; background:#12253d; font-size:12px; line-height:1.55; } .check { display:block; margin:11px 0; color:#aebed0; font-size:13px; } .settings-actions{display:flex;justify-content:flex-end;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}

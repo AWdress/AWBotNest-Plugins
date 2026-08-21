@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -798,6 +798,7 @@ async def setup(ctx):
             cumulative = _merge_stats(cumulative, current)
         status["current_stats"] = current
         status["cumulative_stats"] = cumulative
+        status["setup_error"] = str(ctx.kv.get("lottery_setup_error", "") or "")
         return status
 
     @ctx.on_api("/lottery/run", methods=["POST"])
@@ -855,9 +856,17 @@ async def setup(ctx):
                     ctx.kv.set(_PLAN_KEY, {})
             await asyncio.sleep(10)
 
-    _resume_task = ctx.create_task(
-        _resume_supervisor(), name="憨憨转盘续跑守护器", operation="lottery_resume"
-    )
+    supervisor_coro = _resume_supervisor()
+    try:
+        _resume_task = ctx.create_task(
+            supervisor_coro, name="憨憨转盘续跑守护器", operation="lottery"
+        )
+        ctx.kv.set("lottery_setup_error", "")
+    except Exception as exc:  # noqa: BLE001
+        supervisor_coro.close()
+        _resume_task = None
+        ctx.kv.set("lottery_setup_error", f"续跑守护器启动失败：{exc}")
+        ctx.log.exception("[憨憨转盘] 续跑守护器启动失败，接口已保留：%r", exc)
 
 
 async def teardown(ctx):

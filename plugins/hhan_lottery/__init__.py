@@ -17,7 +17,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "2.6.2",
+    "version": "2.6.3",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -483,8 +483,15 @@ async def setup(ctx):
         "started_at": "", "finished_at": "", "stop_requested": False,
     })
 
-    await _lottery.setup(ctx)
-    await _bonus.setup(ctx)
+    try:
+        await _lottery.setup(ctx)
+    except Exception as exc:  # noqa: BLE001
+        ctx.log.exception("[憨憨小助手] 转盘模块初始化失败，其他功能继续加载：%r", exc)
+        ctx.kv.set("lottery_setup_error", str(exc))
+    try:
+        await _bonus.setup(ctx)
+    except Exception as exc:  # noqa: BLE001
+        ctx.log.exception("[憨憨小助手] 赠豆模块初始化失败，其他功能继续加载：%r", exc)
 
     @ctx.on_api("/read/status", methods=["GET"])
     async def api_status(req):

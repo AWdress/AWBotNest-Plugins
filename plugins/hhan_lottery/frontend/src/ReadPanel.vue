@@ -19,6 +19,7 @@ const deleting = ref(false)
 const stopping = ref(false)
 const checking = ref(false)
 const clearing = ref(false)
+const apiError = ref('')
 let timer = null
 
 const phaseLabel = computed(() => ({
@@ -53,8 +54,12 @@ function iconPath(name) {
 }
 
 async function loadStatus() {
-  try { status.value = await props.host.callApi('/read/status') }
-  catch (error) { /* 轮询失败不打断用户 */ }
+  try {
+    const result = await props.host.callApi('/read/status')
+    if (!result || typeof result !== 'object') throw new Error('状态接口返回为空')
+    status.value = result
+    apiError.value = ''
+  } catch (error) { apiError.value = error?.message || String(error) }
 }
 
 async function loadHistory() {
@@ -162,6 +167,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
     </div>
 
     <template v-else>
+      <p v-if="apiError" class="api-error">无法读取消息管理状态：{{ apiError }}。请检查插件是否完整启动。</p>
       <header class="header">
         <div class="title-wrap">
           <svg class="title-icon" viewBox="0 0 24 24" aria-hidden="true" v-html="iconPath('inbox')"></svg>
@@ -264,6 +270,7 @@ onBeforeUnmount(() => { if (timer) window.clearInterval(timer) })
   display: flex; flex-direction: column; gap: 18px; color: var(--text); container-type: inline-size;
 }
 .read-panel * { box-sizing: border-box; }
+.api-error { margin: 0; padding: 11px 13px; border: 1px solid #743b46; border-radius: 9px; color: #ffc2c7; background: #291820; font-size: 12px; line-height: 1.55; }
 .header, .title-wrap, .actions, .section-head, .head-actions, .history-meta { display: flex; align-items: center; }
 .header { justify-content: space-between; gap: 20px; }
 .title-wrap { gap: 12px; min-width: 0; }
