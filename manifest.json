@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.5",
+    "version": "2.5.6",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.5 按真实页面修复签到误报与漏判\n- OurBits 不再把签到奖励规则误判为本次签到成功\n- OurBits 验证程序未加载完成时持续等待，不提前报成功\n- U2 精确识别“感谢，今天已签到”，避免等待不存在的表单\n- TTG 仅按顶部 [已签到] 状态确认\n\nv2.5.4 全面收紧浏览器签到判定",
+    "changelog": "v2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

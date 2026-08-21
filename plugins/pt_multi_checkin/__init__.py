@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.5",
+    "version": "2.5.6",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.5 按真实页面修复签到误报与漏判\n- OurBits 不再把签到奖励规则误判为本次签到成功\n- OurBits 验证程序未加载完成时持续等待，不提前报成功\n- U2 精确识别“感谢，今天已签到”，避免等待不存在的表单\n- TTG 仅按顶部 [已签到] 状态确认\n\nv2.5.4 全面收紧浏览器签到判定",
+    "changelog": "v2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -128,8 +128,16 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     url_host = (parsed.hostname or domain).lower()
     hosts = list(dict.fromkeys((url_host, domain, domain[4:] if domain.startswith("www.") else f"www.{domain}")))
     last_error = ""
+    auth_cookie_missing = False
     for host in hosts:
         try:
+            if key == "opencd":
+                items = await ctx.cookies.get(host, path=path)
+                names = {str(item.get("name") or "").lower() for item in items}
+                tracking_only = names and all(name.startswith(("_ga", "_gid", "_gat")) for name in names)
+                if tracking_only:
+                    auth_cookie_missing = True
+                    continue
             cookie = await ctx.cookies.header(host, path=path)
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
@@ -143,6 +151,13 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
             continue
     for host in hosts:
         try:
+            if key == "opencd":
+                items = await ctx.cookies.get(host, path=path)
+                names = {str(item.get("name") or "").lower() for item in items}
+                tracking_only = names and all(name.startswith(("_ga", "_gid", "_gat")) for name in names)
+                if tracking_only:
+                    auth_cookie_missing = True
+                    continue
             cookie = await ctx.cookies.header(host, path=path)
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
@@ -151,10 +166,12 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
             return cookie, ""
     if last_error:
         return "", f"读取平台 Cookie 失败：{last_error}"
+    if auth_cookie_missing:
+        return "", "平台只有该站统计 Cookie，没有登录会话；请在 CookieCloud 来源浏览器重新登录网站并同步"
     return "", "平台中没有该站 Cookie，请登录网站并同步"
 
 
-async def _refresh_site_cookie(ctx, site: dict) -> tuple[str, str]:
+async def _refresh_site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     """要求平台刷新指定站点 Cookie；不在插件配置或存储中保留 Cookie。"""
     parsed = urlparse(site["url"])
     domain = site["domain"].lower()
@@ -165,7 +182,7 @@ async def _refresh_site_cookie(ctx, site: dict) -> tuple[str, str]:
             await ctx.cookies.request_sync(host)
         except Exception:
             continue
-    return await _site_cookie(ctx, "", site)
+    return await _site_cookie(ctx, key, site)
 
 
 def _page_text(page) -> str:
@@ -507,7 +524,7 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     low = text.lower()
     html = page.content()
     if "login.php" in low or "takelogin.php" in low or 'name="username"' in html.lower():
-        raise RuntimeError("Cookie 已失效，网站返回登录页")
+        raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
     mode = site.get("mode")
     if mode == "interactive":
         if key in {"pt52", "chdbits"}:
@@ -679,7 +696,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
     if any(marker in low for marker in (
         "用户名或密码", "please login", "not logged in", "请先登录",
     )) or 'name="username"' in html or "name='username'" in html or urlparse(page.url).path.lower().endswith(("/login.php", "/takelogin.php")):
-        raise RuntimeError("Cookie 已失效，网站返回登录页")
+        raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
     captcha = _captcha_error(text)
@@ -732,7 +749,7 @@ def _http_guard(response: httpx.Response) -> str:
     )):
         raise _NeedsBrowser(f"HTTP 命中安全验证（{response.status_code}），切换 CloakBrowser")
     if any(marker in low for marker in ('name="username"', "name='username'", "takelogin.php")) or response.url.path.lower().endswith(("/login.php", "/takelogin.php")):
-        raise RuntimeError("Cookie 已失效，网站返回登录页")
+        raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
     if response.status_code >= 400:
         raise RuntimeError(f"HTTP 请求失败：{response.status_code}")
     return text
@@ -1011,7 +1028,7 @@ async def _run(ctx, source: str) -> dict:
                     if attempt < retries and login_expired:
                         _state.update({"phase": "刷新 Cookie", "message": f"{site['name']} 登录状态失效，正在请求平台重新同步"})
                         _browser_cookie_cache.pop(key, None)
-                        refreshed, refresh_error = await _refresh_site_cookie(ctx, site)
+                        refreshed, refresh_error = await _refresh_site_cookie(ctx, key, site)
                         if refreshed:
                             cookie = refreshed
                         elif refresh_error:
