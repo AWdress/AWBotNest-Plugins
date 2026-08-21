@@ -11,7 +11,7 @@ const activeRules = computed(() => cfg.rules_text.filter(rule => rule.keyword?.t
 const scopeText = computed(() => Array.isArray(cfg.chat_ids) && cfg.chat_ids.length ? `${cfg.chat_ids.length} 个群组` : '全部群组')
 
 function normalizeRule(rule = {}) {
-  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false }
+  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true }
 }
 function addRule() { cfg.rules_text.push(normalizeRule()); openRule.value = cfg.rules_text.length - 1 }
 function duplicateRule(index) { cfg.rules_text.splice(index + 1, 0, normalizeRule(cfg.rules_text[index])); openRule.value = index + 1 }
@@ -40,7 +40,8 @@ onMounted(async () => {
     Object.assign(cfg, saved || {})
     const fallbackMatch = ['exact', 'contains'].includes(saved?.match_type) ? saved.match_type : 'contains'
     const fallbackCooldown = Number(saved?.cooldown_hours ?? 24) || 24
-    cfg.rules_text = Array.isArray(saved?.rules_text) ? saved.rules_text.map(rule => normalizeRule({ match_type: fallbackMatch, cooldown_hours: fallbackCooldown, ...rule })) : []
+    const fallbackMidnight = saved?.midnight_reset === true
+    cfg.rules_text = Array.isArray(saved?.rules_text) ? saved.rules_text.map(rule => normalizeRule({ match_type: fallbackMatch, cooldown_hours: fallbackCooldown, reset_at_midnight: fallbackMidnight, ...rule })) : []
   } catch (error) { props.host.toast.error(error.message || String(error)) }
   finally { loading.value = false }
 })
@@ -66,14 +67,15 @@ onMounted(async () => {
           <li v-for="(rule, index) in cfg.rules_text" :key="index" :class="{ open: openRule === index }">
             <button class="rule-summary" @click="openRule = openRule === index ? -1 : index">
               <span class="order">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="summary-copy"><b>{{ rule.keyword || '未填写关键词' }}</b><small>{{ rule.match_type === 'exact' ? '完全匹配' : '包含匹配' }} · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通关键词' }} · {{ rule.cooldown_hours ? `${rule.cooldown_hours} 小时冷却` : '无冷却' }}</small></span>
+              <span class="summary-copy"><b>{{ rule.keyword || '未填写关键词' }}</b><small>{{ rule.match_type === 'exact' ? '完全匹配' : '包含匹配' }} · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通关键词' }} · {{ rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却' }}</small></span>
               <span class="chevron">{{ openRule === index ? '收起' : '编辑' }}</span>
             </button>
             <div v-if="openRule === index" class="editor">
               <div class="field-grid"><label><span>关键词</span><input v-model="rule.keyword" placeholder="例如：签到福利"></label><label><span>匹配方式</span><select v-model="rule.match_type"><option value="contains">消息包含关键词</option><option value="exact">消息完全等于关键词</option></select></label></div>
               <label><span>触发方式</span><select v-model="rule.trigger_mode"><option value="any">普通关键词（不要求回复我）</option><option value="reply_to_me">回复我的消息才触发</option></select><small class="field-help">选择“回复我的消息”后，只有别人回复本账号发出的消息并命中关键词时才执行。</small></label>
               <label><span>回复内容</span><textarea v-model="rule.reply" rows="4" placeholder="支持 {uname}、{uid} 和 10-100 随机数"></textarea></label>
-              <div class="field-grid"><label><span>此规则冷却（小时）</span><input v-model.number="rule.cooldown_hours" type="number" min="0" max="720" step="0.5"></label><label class="check"><input v-model="rule.cooldown_notify" type="checkbox"><span>冷却中回复剩余时间</span></label></div>
+              <div class="field-grid"><label><span>此规则冷却（小时）</span><input v-model.number="rule.cooldown_hours" type="number" min="0" max="720" step="0.5"></label><label><span>冷却计算方式</span><select v-model="rule.reset_at_midnight"><option :value="false">按小时滚动计算</option><option :value="true">每天零点重置</option></select></label></div>
+              <label class="check"><input v-model="rule.cooldown_notify" type="checkbox"><span>冷却中回复剩余时间</span></label>
               <div class="rule-actions"><button @click="move(index,-1)" :disabled="index===0">上移</button><button @click="move(index,1)" :disabled="index===cfg.rules_text.length-1">下移</button><button @click="duplicateRule(index)">复制</button><button class="remove" @click="removeRule(index)">删除</button></div>
             </div>
           </li>
@@ -81,7 +83,7 @@ onMounted(async () => {
       </section>
 
       <aside class="settings-pane">
-        <section><h3>范围与清理</h3><label><span>生效群组 ID</span><textarea :value="Array.isArray(cfg.chat_ids) ? cfg.chat_ids.join('\n') : cfg.chat_ids" @input="cfg.chat_ids=$event.target.value.split(/[\s,]+/).filter(Boolean)" rows="4" placeholder="留空表示全部群组"></textarea></label><label><span>回复自动删除（秒）</span><input v-model.number="cfg.delete_after" type="number" min="0" max="3600"></label><label><span>屏蔽用户 ID</span><textarea v-model="cfg.blacklist_ids" rows="3" placeholder="逗号或换行分隔"></textarea></label><label class="check"><input v-model="cfg.midnight_reset" type="checkbox"><span>冷却每天零点重置</span></label></section>
+        <section><h3>范围与清理</h3><label><span>生效群组 ID</span><textarea :value="Array.isArray(cfg.chat_ids) ? cfg.chat_ids.join('\n') : cfg.chat_ids" @input="cfg.chat_ids=$event.target.value.split(/[\s,]+/).filter(Boolean)" rows="4" placeholder="留空表示全部群组"></textarea></label><label><span>回复自动删除（秒）</span><input v-model.number="cfg.delete_after" type="number" min="0" max="3600"></label><label><span>屏蔽用户 ID</span><textarea v-model="cfg.blacklist_ids" rows="3" placeholder="逗号或换行分隔"></textarea></label></section>
         <section><h3>薅羊毛排行榜</h3><label class="check"><input v-model="cfg.leaderboard_enabled" type="checkbox"><span>启用排行榜</span></label><template v-if="cfg.leaderboard_enabled"><label><span>本人查询命令</span><input v-model="cfg.leaderboard_command"></label><label><span>显示人数</span><input v-model.number="cfg.leaderboard_size" type="number" min="3" max="30"></label><p class="note">Premium 使用富文本表格，普通账号自动回退文本。</p></template></section>
       </aside>
     </div>

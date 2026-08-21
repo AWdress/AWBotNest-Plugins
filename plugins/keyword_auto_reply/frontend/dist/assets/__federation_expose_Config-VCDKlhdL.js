@@ -41,16 +41,16 @@ const _hoisted_18 = ["onUpdate:modelValue"];
 const _hoisted_19 = ["onUpdate:modelValue"];
 const _hoisted_20 = { class: "field-grid" };
 const _hoisted_21 = ["onUpdate:modelValue"];
-const _hoisted_22 = { class: "check" };
-const _hoisted_23 = ["onUpdate:modelValue"];
-const _hoisted_24 = { class: "rule-actions" };
-const _hoisted_25 = ["onClick", "disabled"];
+const _hoisted_22 = ["onUpdate:modelValue"];
+const _hoisted_23 = { class: "check" };
+const _hoisted_24 = ["onUpdate:modelValue"];
+const _hoisted_25 = { class: "rule-actions" };
 const _hoisted_26 = ["onClick", "disabled"];
-const _hoisted_27 = ["onClick"];
+const _hoisted_27 = ["onClick", "disabled"];
 const _hoisted_28 = ["onClick"];
-const _hoisted_29 = { class: "settings-pane" };
-const _hoisted_30 = ["value"];
-const _hoisted_31 = { class: "check" };
+const _hoisted_29 = ["onClick"];
+const _hoisted_30 = { class: "settings-pane" };
+const _hoisted_31 = ["value"];
 const _hoisted_32 = { class: "check" };
 
 const {computed,onMounted,reactive,ref} = await importShared('vue');
@@ -72,7 +72,7 @@ const activeRules = computed(() => cfg.rules_text.filter(rule => rule.keyword?.t
 const scopeText = computed(() => Array.isArray(cfg.chat_ids) && cfg.chat_ids.length ? `${cfg.chat_ids.length} 个群组` : '全部群组');
 
 function normalizeRule(rule = {}) {
-  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false }
+  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true }
 }
 function addRule() { cfg.rules_text.push(normalizeRule()); openRule.value = cfg.rules_text.length - 1; }
 function duplicateRule(index) { cfg.rules_text.splice(index + 1, 0, normalizeRule(cfg.rules_text[index])); openRule.value = index + 1; }
@@ -101,7 +101,8 @@ onMounted(async () => {
     Object.assign(cfg, saved || {});
     const fallbackMatch = ['exact', 'contains'].includes(saved?.match_type) ? saved.match_type : 'contains';
     const fallbackCooldown = Number(saved?.cooldown_hours ?? 24) || 24;
-    cfg.rules_text = Array.isArray(saved?.rules_text) ? saved.rules_text.map(rule => normalizeRule({ match_type: fallbackMatch, cooldown_hours: fallbackCooldown, ...rule })) : [];
+    const fallbackMidnight = saved?.midnight_reset === true;
+    cfg.rules_text = Array.isArray(saved?.rules_text) ? saved.rules_text.map(rule => normalizeRule({ match_type: fallbackMatch, cooldown_hours: fallbackCooldown, reset_at_midnight: fallbackMidnight, ...rule })) : [];
   } catch (error) { props.host.toast.error(error.message || String(error)); }
   finally { loading.value = false; }
 });
@@ -112,7 +113,7 @@ return (_ctx, _cache) => {
     "aria-busy": loading.value
   }, [
     _createElementVNode("header", _hoisted_2, [
-      _cache[8] || (_cache[8] = _createElementVNode("div", null, [
+      _cache[7] || (_cache[7] = _createElementVNode("div", null, [
         _createElementVNode("h2", null, "关键词互动助手"),
         _createElementVNode("p", null, "把触发条件、回复和冷却策略收进每一条规则。")
       ], -1)),
@@ -132,20 +133,20 @@ return (_ctx, _cache) => {
         ]),
         _createElementVNode("span", null, [
           _createElementVNode("b", null, _toDisplayString(cfg.enabled ? '互动已启用' : '互动已暂停'), 1),
-          _cache[9] || (_cache[9] = _createElementVNode("small", null, "关闭后保留规则与统计", -1))
+          _cache[8] || (_cache[8] = _createElementVNode("small", null, "关闭后保留规则与统计", -1))
         ])
       ]),
       _createElementVNode("dl", null, [
         _createElementVNode("div", null, [
-          _cache[10] || (_cache[10] = _createElementVNode("dt", null, "有效规则", -1)),
+          _cache[9] || (_cache[9] = _createElementVNode("dt", null, "有效规则", -1)),
           _createElementVNode("dd", null, _toDisplayString(activeRules.value), 1)
         ]),
         _createElementVNode("div", null, [
-          _cache[11] || (_cache[11] = _createElementVNode("dt", null, "生效范围", -1)),
+          _cache[10] || (_cache[10] = _createElementVNode("dt", null, "生效范围", -1)),
           _createElementVNode("dd", null, _toDisplayString(scopeText.value), 1)
         ]),
         _createElementVNode("div", null, [
-          _cache[12] || (_cache[12] = _createElementVNode("dt", null, "回复清理", -1)),
+          _cache[11] || (_cache[11] = _createElementVNode("dt", null, "回复清理", -1)),
           _createElementVNode("dd", null, _toDisplayString(cfg.delete_after ? `${cfg.delete_after} 秒` : '不删除'), 1)
         ])
       ])
@@ -153,7 +154,7 @@ return (_ctx, _cache) => {
     _createElementVNode("div", _hoisted_6, [
       _createElementVNode("section", _hoisted_7, [
         _createElementVNode("div", { class: "section-head" }, [
-          _cache[13] || (_cache[13] = _createElementVNode("div", null, [
+          _cache[12] || (_cache[12] = _createElementVNode("div", null, [
             _createElementVNode("h3", null, "互动规则"),
             _createElementVNode("p", null, "从上到下匹配，单条消息只执行第一条命中规则。")
           ], -1)),
@@ -164,8 +165,8 @@ return (_ctx, _cache) => {
         ]),
         (!cfg.rules_text.length)
           ? (_openBlock(), _createElementBlock("div", _hoisted_8, [
-              _cache[14] || (_cache[14] = _createElementVNode("strong", null, "还没有规则", -1)),
-              _cache[15] || (_cache[15] = _createElementVNode("p", null, "新增第一条规则，设置关键词、匹配方式与独立冷却。", -1)),
+              _cache[13] || (_cache[13] = _createElementVNode("strong", null, "还没有规则", -1)),
+              _cache[14] || (_cache[14] = _createElementVNode("p", null, "新增第一条规则，设置关键词、匹配方式与独立冷却。", -1)),
               _createElementVNode("button", {
                 class: "add",
                 onClick: addRule
@@ -184,7 +185,7 @@ return (_ctx, _cache) => {
                     _createElementVNode("span", _hoisted_11, _toDisplayString(String(index + 1).padStart(2, '0')), 1),
                     _createElementVNode("span", _hoisted_12, [
                       _createElementVNode("b", null, _toDisplayString(rule.keyword || '未填写关键词'), 1),
-                      _createElementVNode("small", null, _toDisplayString(rule.match_type === 'exact' ? '完全匹配' : '包含匹配') + " · " + _toDisplayString(rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通关键词') + " · " + _toDisplayString(rule.cooldown_hours ? `${rule.cooldown_hours} 小时冷却` : '无冷却'), 1)
+                      _createElementVNode("small", null, _toDisplayString(rule.match_type === 'exact' ? '完全匹配' : '包含匹配') + " · " + _toDisplayString(rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通关键词') + " · " + _toDisplayString(rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却'), 1)
                     ]),
                     _createElementVNode("span", _hoisted_13, _toDisplayString(openRule.value === index ? '收起' : '编辑'), 1)
                   ], 8, _hoisted_10),
@@ -192,7 +193,7 @@ return (_ctx, _cache) => {
                     ? (_openBlock(), _createElementBlock("div", _hoisted_14, [
                         _createElementVNode("div", _hoisted_15, [
                           _createElementVNode("label", null, [
-                            _cache[16] || (_cache[16] = _createElementVNode("span", null, "关键词", -1)),
+                            _cache[15] || (_cache[15] = _createElementVNode("span", null, "关键词", -1)),
                             _withDirectives(_createElementVNode("input", {
                               "onUpdate:modelValue": $event => ((rule.keyword) = $event),
                               placeholder: "例如：签到福利"
@@ -201,10 +202,10 @@ return (_ctx, _cache) => {
                             ])
                           ]),
                           _createElementVNode("label", null, [
-                            _cache[18] || (_cache[18] = _createElementVNode("span", null, "匹配方式", -1)),
+                            _cache[17] || (_cache[17] = _createElementVNode("span", null, "匹配方式", -1)),
                             _withDirectives(_createElementVNode("select", {
                               "onUpdate:modelValue": $event => ((rule.match_type) = $event)
-                            }, [...(_cache[17] || (_cache[17] = [
+                            }, [...(_cache[16] || (_cache[16] = [
                               _createElementVNode("option", { value: "contains" }, "消息包含关键词", -1),
                               _createElementVNode("option", { value: "exact" }, "消息完全等于关键词", -1)
                             ]))], 8, _hoisted_17), [
@@ -213,19 +214,19 @@ return (_ctx, _cache) => {
                           ])
                         ]),
                         _createElementVNode("label", null, [
-                          _cache[20] || (_cache[20] = _createElementVNode("span", null, "触发方式", -1)),
+                          _cache[19] || (_cache[19] = _createElementVNode("span", null, "触发方式", -1)),
                           _withDirectives(_createElementVNode("select", {
                             "onUpdate:modelValue": $event => ((rule.trigger_mode) = $event)
-                          }, [...(_cache[19] || (_cache[19] = [
+                          }, [...(_cache[18] || (_cache[18] = [
                             _createElementVNode("option", { value: "any" }, "普通关键词（不要求回复我）", -1),
                             _createElementVNode("option", { value: "reply_to_me" }, "回复我的消息才触发", -1)
                           ]))], 8, _hoisted_18), [
                             [_vModelSelect, rule.trigger_mode]
                           ]),
-                          _cache[21] || (_cache[21] = _createElementVNode("small", { class: "field-help" }, "选择“回复我的消息”后，只有别人回复本账号发出的消息并命中关键词时才执行。", -1))
+                          _cache[20] || (_cache[20] = _createElementVNode("small", { class: "field-help" }, "选择“回复我的消息”后，只有别人回复本账号发出的消息并命中关键词时才执行。", -1))
                         ]),
                         _createElementVNode("label", null, [
-                          _cache[22] || (_cache[22] = _createElementVNode("span", null, "回复内容", -1)),
+                          _cache[21] || (_cache[21] = _createElementVNode("span", null, "回复内容", -1)),
                           _withDirectives(_createElementVNode("textarea", {
                             "onUpdate:modelValue": $event => ((rule.reply) = $event),
                             rows: "4",
@@ -236,7 +237,7 @@ return (_ctx, _cache) => {
                         ]),
                         _createElementVNode("div", _hoisted_20, [
                           _createElementVNode("label", null, [
-                            _cache[23] || (_cache[23] = _createElementVNode("span", null, "此规则冷却（小时）", -1)),
+                            _cache[22] || (_cache[22] = _createElementVNode("span", null, "此规则冷却（小时）", -1)),
                             _withDirectives(_createElementVNode("input", {
                               "onUpdate:modelValue": $event => ((rule.cooldown_hours) = $event),
                               type: "number",
@@ -252,32 +253,43 @@ return (_ctx, _cache) => {
                               ]
                             ])
                           ]),
-                          _createElementVNode("label", _hoisted_22, [
-                            _withDirectives(_createElementVNode("input", {
-                              "onUpdate:modelValue": $event => ((rule.cooldown_notify) = $event),
-                              type: "checkbox"
-                            }, null, 8, _hoisted_23), [
-                              [_vModelCheckbox, rule.cooldown_notify]
-                            ]),
-                            _cache[24] || (_cache[24] = _createElementVNode("span", null, "冷却中回复剩余时间", -1))
+                          _createElementVNode("label", null, [
+                            _cache[24] || (_cache[24] = _createElementVNode("span", null, "冷却计算方式", -1)),
+                            _withDirectives(_createElementVNode("select", {
+                              "onUpdate:modelValue": $event => ((rule.reset_at_midnight) = $event)
+                            }, [...(_cache[23] || (_cache[23] = [
+                              _createElementVNode("option", { value: false }, "按小时滚动计算", -1),
+                              _createElementVNode("option", { value: true }, "每天零点重置", -1)
+                            ]))], 8, _hoisted_22), [
+                              [_vModelSelect, rule.reset_at_midnight]
+                            ])
                           ])
                         ]),
-                        _createElementVNode("div", _hoisted_24, [
+                        _createElementVNode("label", _hoisted_23, [
+                          _withDirectives(_createElementVNode("input", {
+                            "onUpdate:modelValue": $event => ((rule.cooldown_notify) = $event),
+                            type: "checkbox"
+                          }, null, 8, _hoisted_24), [
+                            [_vModelCheckbox, rule.cooldown_notify]
+                          ]),
+                          _cache[25] || (_cache[25] = _createElementVNode("span", null, "冷却中回复剩余时间", -1))
+                        ]),
+                        _createElementVNode("div", _hoisted_25, [
                           _createElementVNode("button", {
                             onClick: $event => (move(index,-1)),
                             disabled: index===0
-                          }, "上移", 8, _hoisted_25),
+                          }, "上移", 8, _hoisted_26),
                           _createElementVNode("button", {
                             onClick: $event => (move(index,1)),
                             disabled: index===cfg.rules_text.length-1
-                          }, "下移", 8, _hoisted_26),
+                          }, "下移", 8, _hoisted_27),
                           _createElementVNode("button", {
                             onClick: $event => (duplicateRule(index))
-                          }, "复制", 8, _hoisted_27),
+                          }, "复制", 8, _hoisted_28),
                           _createElementVNode("button", {
                             class: "remove",
                             onClick: $event => (removeRule(index))
-                          }, "删除", 8, _hoisted_28)
+                          }, "删除", 8, _hoisted_29)
                         ])
                       ]))
                     : _createCommentVNode("", true)
@@ -285,20 +297,20 @@ return (_ctx, _cache) => {
               }), 128))
             ]))
       ]),
-      _createElementVNode("aside", _hoisted_29, [
+      _createElementVNode("aside", _hoisted_30, [
         _createElementVNode("section", null, [
           _cache[29] || (_cache[29] = _createElementVNode("h3", null, "范围与清理", -1)),
           _createElementVNode("label", null, [
-            _cache[25] || (_cache[25] = _createElementVNode("span", null, "生效群组 ID", -1)),
+            _cache[26] || (_cache[26] = _createElementVNode("span", null, "生效群组 ID", -1)),
             _createElementVNode("textarea", {
               value: Array.isArray(cfg.chat_ids) ? cfg.chat_ids.join('\n') : cfg.chat_ids,
               onInput: _cache[1] || (_cache[1] = $event => (cfg.chat_ids=$event.target.value.split(/[\s,]+/).filter(Boolean))),
               rows: "4",
               placeholder: "留空表示全部群组"
-            }, null, 40, _hoisted_30)
+            }, null, 40, _hoisted_31)
           ]),
           _createElementVNode("label", null, [
-            _cache[26] || (_cache[26] = _createElementVNode("span", null, "回复自动删除（秒）", -1)),
+            _cache[27] || (_cache[27] = _createElementVNode("span", null, "回复自动删除（秒）", -1)),
             _withDirectives(_createElementVNode("input", {
               "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.delete_after) = $event)),
               type: "number",
@@ -314,7 +326,7 @@ return (_ctx, _cache) => {
             ])
           ]),
           _createElementVNode("label", null, [
-            _cache[27] || (_cache[27] = _createElementVNode("span", null, "屏蔽用户 ID", -1)),
+            _cache[28] || (_cache[28] = _createElementVNode("span", null, "屏蔽用户 ID", -1)),
             _withDirectives(_createElementVNode("textarea", {
               "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.blacklist_ids) = $event)),
               rows: "3",
@@ -322,22 +334,13 @@ return (_ctx, _cache) => {
             }, null, 512), [
               [_vModelText, cfg.blacklist_ids]
             ])
-          ]),
-          _createElementVNode("label", _hoisted_31, [
-            _withDirectives(_createElementVNode("input", {
-              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.midnight_reset) = $event)),
-              type: "checkbox"
-            }, null, 512), [
-              [_vModelCheckbox, cfg.midnight_reset]
-            ]),
-            _cache[28] || (_cache[28] = _createElementVNode("span", null, "冷却每天零点重置", -1))
           ])
         ]),
         _createElementVNode("section", null, [
           _cache[34] || (_cache[34] = _createElementVNode("h3", null, "薅羊毛排行榜", -1)),
           _createElementVNode("label", _hoisted_32, [
             _withDirectives(_createElementVNode("input", {
-              "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((cfg.leaderboard_enabled) = $event)),
+              "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.leaderboard_enabled) = $event)),
               type: "checkbox"
             }, null, 512), [
               [_vModelCheckbox, cfg.leaderboard_enabled]
@@ -349,7 +352,7 @@ return (_ctx, _cache) => {
                 _createElementVNode("label", null, [
                   _cache[31] || (_cache[31] = _createElementVNode("span", null, "本人查询命令", -1)),
                   _withDirectives(_createElementVNode("input", {
-                    "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.leaderboard_command) = $event))
+                    "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((cfg.leaderboard_command) = $event))
                   }, null, 512), [
                     [_vModelText, cfg.leaderboard_command]
                   ])
@@ -357,7 +360,7 @@ return (_ctx, _cache) => {
                 _createElementVNode("label", null, [
                   _cache[32] || (_cache[32] = _createElementVNode("span", null, "显示人数", -1)),
                   _withDirectives(_createElementVNode("input", {
-                    "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.leaderboard_size) = $event)),
+                    "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.leaderboard_size) = $event)),
                     type: "number",
                     min: "3",
                     max: "30"
@@ -381,6 +384,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0c30dcbd"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-612c77ce"]]);
 
 export { Config as default };

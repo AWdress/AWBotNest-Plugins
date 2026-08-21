@@ -15,11 +15,11 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v2.0.2 恢复逐规则零点重置\n- 冷却计算方式移入每条规则，可选滚动小时或每日零点重置\n- 旧版全局零点重置设置自动迁移到已有规则\n\nv2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -103,9 +103,9 @@ _LEADERBOARD_KV_KEY = "welfare_leaderboard_v1"
 _pending_tasks: set = set()
 
 
-def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24) -> list[tuple[str, str, bool, str, float, str]]:
+def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24, default_midnight: bool = False) -> list[tuple[str, str, bool, str, float, str, bool]]:
     """解析规则；旧配置自动继承原来的全局匹配方式与冷却时间。"""
-    rules: list[tuple[str, str, bool, str, float, str]] = []
+    rules: list[tuple[str, str, bool, str, float, str, bool]] = []
     if isinstance(raw, list):
         for d in raw:
             if isinstance(d, dict):
@@ -121,7 +121,8 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
                     trigger_mode = str(d.get("trigger_mode", "any") or "any")
                     if trigger_mode not in {"any", "reply_to_me"}:
                         trigger_mode = "any"
-                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown, trigger_mode))
+                    reset_at_midnight = bool(d.get("reset_at_midnight", default_midnight))
+                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown, trigger_mode, reset_at_midnight))
         return rules
     for line in str(raw or "").splitlines():
         line = line.strip()
@@ -130,7 +131,7 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
         keyword, reply = line.split("=", 1)
         keyword, reply = keyword.strip(), reply.strip()
         if keyword and reply:
-            rules.append((keyword, reply, True, default_match, default_cooldown, "any"))
+            rules.append((keyword, reply, True, default_match, default_cooldown, "any", default_midnight))
     return rules
 
 
@@ -180,8 +181,10 @@ def _restore_cooldowns(ctx) -> None:
         cfg.get("rules_text", []),
         default_match=str(cfg.get("match_type", "contains")),
         default_cooldown=default_cooldown,
+        default_midnight=midnight_reset,
     )
     cooldown_secs = max((rule[4] for rule in rules), default=0) * 3600
+    has_midnight_rule = any(rule[6] and rule[4] > 0 for rule in rules)
     now = time.time()
     today = datetime.now().date().toordinal()
 
@@ -198,9 +201,8 @@ def _restore_cooldowns(ctx) -> None:
             continue
         if not account or not keyword or last_time <= 0:
             continue
-        valid = last_day == today if midnight_reset else (
-            cooldown_secs > 0 and now - last_time < cooldown_secs
-        )
+        valid = ((has_midnight_rule and last_day == today) or
+                 (cooldown_secs > 0 and now - last_time < cooldown_secs))
         if valid:
             _user_cooldowns[(account, user_id, keyword)] = (last_time, last_day)
 
@@ -500,10 +502,10 @@ async def setup(ctx):
             cfg.get("rules_text", []),
             default_match=str(cfg.get("match_type", "contains")),
             default_cooldown=default_cooldown,
+            default_midnight=bool(cfg.get("midnight_reset", False)),
         )
         if not rules:
             return
-        midnight_reset = bool(cfg.get("midnight_reset", False))
         blacklist = _parse_blacklist(cfg.get("blacklist_ids", ""))
         # 屏蔽名单用户的消息不触发
         if message.from_user and message.from_user.id in blacklist:
@@ -514,7 +516,7 @@ async def setup(ctx):
             delete_after = 0
 
         try:
-            for keyword, reply, cooldown_notify, match_type, cooldown_hours, trigger_mode in rules:
+            for keyword, reply, cooldown_notify, match_type, cooldown_hours, trigger_mode, reset_at_midnight in rules:
                 if not _match(text, keyword, match_type):
                     continue
                 if trigger_mode == "reply_to_me" and not _is_reply_to_me(message):
@@ -532,11 +534,11 @@ async def setup(ctx):
                         last_time, last_day = record
                     else:
                         last_time, last_day = float(record or 0.0), today
-                    if midnight_reset and last_time > 0 and last_day != today:
+                    if reset_at_midnight and last_time > 0 and last_day != today:
                         last_time = 0.0
                     if time.time() - last_time < cooldown_secs:
                         if cooldown_notify:
-                            if midnight_reset:
+                            if reset_at_midnight:
                                 now_dt = datetime.now()
                                 next_midnight = datetime.combine(
                                     now_dt.date() + timedelta(days=1), datetime.min.time()
