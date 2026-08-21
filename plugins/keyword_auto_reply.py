@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -329,6 +329,34 @@ def _schedule_delete(ctx, message, delay: int):
     task.add_done_callback(_pending_tasks.discard)
 
 
+def _schedule_delete_rich(ctx, client, chat_id: int, sent_at: float, delay: int):
+    """原生 Rich Message 不返回消息对象时，按发送时间回查并撤回。"""
+    if delay <= 0:
+        return
+
+    async def _runner():
+        try:
+            await asyncio.sleep(delay)
+            async for item in client.get_chat_history(chat_id, limit=30):
+                date = getattr(item, "date", None)
+                timestamp = date.timestamp() if date else 0
+                if timestamp < sent_at - 3:
+                    break
+                if abs(timestamp - sent_at) > 10 or not getattr(item, "outgoing", False):
+                    continue
+                content = str(getattr(item, "text", "") or getattr(item, "caption", "") or "")
+                if content and "薅羊毛排行榜" not in content:
+                    continue
+                await item.delete()
+                return
+        except Exception as exc:  # noqa: BLE001 - 自动删除失败不影响主流程
+            ctx.log.warning("[羊毛榜] 富文本自动删除失败：%r", exc)
+
+    task = ctx.create_task(_runner(), name="羊毛榜富文本自动删除", operation="auto_delete")
+    _pending_tasks.add(task)
+    task.add_done_callback(_pending_tasks.discard)
+
+
 def _fmt_remaining(seconds: float) -> str:
     """把剩余冷却时间格式化为易读文本，向上取整避免显示 0 秒。"""
     seconds = max(1, int(seconds + 0.999))
@@ -377,19 +405,26 @@ async def setup(ctx):
             except (TypeError, ValueError):
                 leaderboard_delete_after = 0
             sent = None
+            rich_sent = False
+            rich_sent_at = 0.0
             try:
                 if ctx.user and await ctx.user.supports_native_rich():
+                    rich_sent_at = time.time()
                     sent = await ctx.user.send_rich(
                         chat_id, _leaderboard_rich(ctx, account_id, chat_id, limit), format="html"
                     )
+                    rich_sent = True
             except Exception as exc:  # noqa: BLE001 - Premium 不可用时回退普通文本
                 ctx.log.warning("[羊毛榜] 富文本发送失败，回退普通文本：%r", exc)
-            if sent is None:
+            if not rich_sent:
                 sent = await client.send_message(
                     chat_id, _leaderboard_text(ctx, account_id, chat_id, limit),
                     reply_to_message_id=message.id,
                 )
-            _schedule_delete(ctx, sent, leaderboard_delete_after)
+            if rich_sent and sent is None:
+                _schedule_delete_rich(ctx, client, chat_id, rich_sent_at, leaderboard_delete_after)
+            else:
+                _schedule_delete(ctx, sent, leaderboard_delete_after)
             return
 
         rules = _parse_rules(cfg.get("rules_text", ""))
