@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.8",
+    "version": "1.3.9",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -105,6 +105,8 @@ _PLAN_KEY = "lottery_resume_plan"
 _MAILBOX_URL = "https://hhanclub.net/messages.php?action=viewmailbox&box=1&page=0"
 _MAIL_KEYWORD = "幸运大转盘"
 _REDIRECT_CODES = {301, 302, 303, 307, 308}
+_SEGMENT_MAX_DRAWS = 150
+_SEGMENT_MAX_SECONDS = 1200
 _active_task: asyncio.Task | None = None
 _resume_task: asyncio.Task | None = None
 _stop_event: asyncio.Event | None = None
@@ -596,6 +598,8 @@ async def setup(ctx):
         dynamic_interval = interval
         consecutive_retry = 0
         stop_detail = ""
+        segment_started = asyncio.get_running_loop().time()
+        segment_draws = 0
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=15.0)) as client:
                 while base_completed + len(prizes) < target:
@@ -608,8 +612,12 @@ async def setup(ctx):
                     if estimated_balance - cost < reserve:
                         stop_detail = f"已到保留余额 {reserve:,} 憨豆，自动停止"
                         break
+                    if segment_draws >= _SEGMENT_MAX_DRAWS or asyncio.get_running_loop().time() - segment_started >= _SEGMENT_MAX_SECONDS:
+                        stop_detail = "后台任务分段续跑"
+                        break
                     success, result, retryable = await _draw(client, cookie)
                     if success:
+                        segment_draws += 1
                         before_balance = estimated_balance
                         estimated_balance = max(0, before_balance - cost + _bean_value(result))
                         if re.search(r"\bVIP\b", result, re.IGNORECASE) and _bean_value(result) == 0:
@@ -683,8 +691,8 @@ async def setup(ctx):
                 "count": completed, "cost": current_cost,
                 "beans": current_beans, "prizes": dict(current_counts),
             }
-            restarting = stop_detail.startswith("平台或插件正在重启")
-            if completed and not restarting:
+            continuing = stop_detail.startswith("平台或插件正在重启") or stop_detail == "后台任务分段续跑"
+            if completed and not continuing:
                 _save_stats_payload(ctx, current_payload)
             title = "🎉 憨憨转盘完成" if completed == target else "🛑 憨憨转盘已停止"
             if count is not None and remaining_target < count and not stop_detail:
@@ -692,17 +700,21 @@ async def setup(ctx):
             if mail_cleaned:
                 stop_detail = f"{stop_detail + '；' if stop_detail else ''}已清理 {mail_cleaned} 封转盘通知"
             result_text = _summary_payload(title, current_payload, start_balance, stop_detail)
-            ctx.kv.set(_LAST_RESULT_KEY, result_text)
+            if not continuing:
+                ctx.kv.set(_LAST_RESULT_KEY, result_text)
             ctx.kv.set(_STATUS_KEY, {
                 "running": False, "completed": completed, "target": target,
-                "detail": stop_detail,
+                "detail": "正在切换下一段后台任务" if stop_detail == "后台任务分段续跑" else stop_detail,
                 "last_prize": prizes[-1] if prizes else "",
                 "current_stats": current_payload,
             })
-            await _push_result(result_text, success=completed == target)
+            if not continuing:
+                await _push_result(result_text, success=completed == target)
             _active_task = None
-            if not restarting:
+            if not continuing:
                 ctx.kv.set(_PLAN_KEY, {})
+            elif stop_detail == "后台任务分段续跑":
+                _schedule_resume()
             if _stop_event:
                 _stop_event.clear()
 
@@ -860,12 +872,18 @@ async def setup(ctx):
             finally:
                 if _active_task is asyncio.current_task():
                     _active_task = None
+            if _resume_task is not asyncio.current_task():
+                break
             if not (ctx.kv.get(_PLAN_KEY, {}) or {}).get("active"):
                 break
             await asyncio.sleep(10)
 
-    pending_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
-    if pending_plan.get("active"):
+    def _schedule_resume():
+        """为持久化计划创建下一段托管任务；同一时刻最多保留一个。"""
+        global _resume_task
+        current = asyncio.current_task()
+        if _resume_task and not _resume_task.done() and _resume_task is not current:
+            return
         supervisor_coro = _resume_supervisor()
         try:
             _resume_task = ctx.create_task(
@@ -877,6 +895,10 @@ async def setup(ctx):
             _resume_task = None
             ctx.kv.set("lottery_setup_error", f"续跑任务启动失败：{exc}")
             ctx.log.exception("[憨憨转盘] 续跑任务启动失败，接口已保留：%r", exc)
+
+    pending_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+    if pending_plan.get("active"):
+        _schedule_resume()
     else:
         ctx.kv.set("lottery_setup_error", "")
 
