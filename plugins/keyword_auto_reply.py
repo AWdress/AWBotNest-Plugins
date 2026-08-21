@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 __plugin__ = {
     "name": "关键词互动助手",
     "id": "keyword_auto_reply",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "author": "AWdress",
     "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
@@ -212,14 +212,42 @@ def _parse_blacklist(raw) -> set[int]:
 def _display_name(user) -> str:
     if not user:
         return "未知用户"
-    username = str(getattr(user, "username", "") or "").strip()
-    if username:
-        return f"@{username}"
     name = " ".join(filter(None, (
         str(getattr(user, "first_name", "") or "").strip(),
         str(getattr(user, "last_name", "") or "").strip(),
     )))
-    return name or f"用户{getattr(user, 'id', '')}"
+    if name:
+        return name
+    username = str(getattr(user, "username", "") or "").strip()
+    return f"@{username}" if username else f"用户{getattr(user, 'id', '')}"
+
+
+async def _refresh_leaderboard_names(ctx, client, account: str, chat_id: int) -> None:
+    """查询榜单时刷新旧记录昵称，链接仍始终使用稳定用户 ID。"""
+    rows = ctx.kv.get(_LEADERBOARD_KV_KEY, []) or []
+    if not isinstance(rows, list):
+        return
+    targets = [item for item in rows if isinstance(item, dict)
+               and str(item.get("account")) == account
+               and int(item.get("chat_id", 0)) == chat_id
+               and int(item.get("user_id", 0))]
+    if not targets:
+        return
+    try:
+        users = await client.get_users([int(item["user_id"]) for item in targets])
+        if not isinstance(users, list):
+            users = [users]
+        by_id = {int(user.id): user for user in users if user}
+        changed = False
+        for item in targets:
+            user = by_id.get(int(item["user_id"]))
+            if user and item.get("name") != _display_name(user):
+                item["name"] = _display_name(user)
+                changed = True
+        if changed:
+            ctx.kv.set(_LEADERBOARD_KV_KEY, rows)
+    except Exception as exc:  # noqa: BLE001 - 昵称刷新失败继续使用已保存名称
+        ctx.log.debug("[羊毛榜] 刷新用户昵称失败：%r", exc)
 
 
 def _record_welfare(ctx, account: str, chat_id: int, user, keyword: str) -> None:
@@ -396,6 +424,7 @@ async def setup(ctx):
         account_id = str(me.id) if me else str(getattr(ctx, "account_name", "") or "default")
         leaderboard_command = str(cfg.get("leaderboard_command", ".羊毛榜") or ".羊毛榜").strip()
         if cfg.get("leaderboard_enabled", True) and leaderboard_command and text.strip() == leaderboard_command:
+            await _refresh_leaderboard_names(ctx, client, account_id, chat_id)
             try:
                 limit = int(cfg.get("leaderboard_size", 10) or 10)
             except (TypeError, ValueError):
