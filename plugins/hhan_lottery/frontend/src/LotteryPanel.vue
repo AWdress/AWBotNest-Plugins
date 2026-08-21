@@ -20,8 +20,8 @@ const prizeRows = value => Object.entries(value?.prizes || {}).sort((a, b) => Nu
 
 async function refresh() {
   try {
-    const result = await props.host.callApi('/lottery/status')
-    if (!result || typeof result !== 'object') throw new Error('状态接口返回为空')
+    const result = await props.host.callApi('/lottery/status', { method: 'POST', body: {} })
+    if (!result || typeof result !== 'object' || !Object.hasOwn(result, 'running') || !Object.hasOwn(result, 'current_stats')) throw new Error('状态接口响应缺少运行字段')
     status.value = result
     apiError.value = String(result.setup_error || '')
   } catch (error) {

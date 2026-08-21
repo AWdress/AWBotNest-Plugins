@@ -17,7 +17,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "2.6.3",
+    "version": "2.6.4",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -493,9 +493,9 @@ async def setup(ctx):
     except Exception as exc:  # noqa: BLE001
         ctx.log.exception("[憨憨小助手] 赠豆模块初始化失败，其他功能继续加载：%r", exc)
 
-    @ctx.on_api("/read/status", methods=["GET"])
+    @ctx.on_api("/read/status", methods=["GET", "POST"])
     async def api_status(req):
-        return {**_state}
+        return {**_state, "updated_at": _now()}
 
     @ctx.on_api("/auth/check", methods=["GET"])
     async def api_auth_check(req):
@@ -540,7 +540,7 @@ async def setup(ctx):
         _state.update({"stop_requested": True, "message": "已请求停止，当前请求结束后退出"})
         return {"ok": True, "message": "已请求停止"}
 
-    @ctx.on_api("/read/history", methods=["GET"])
+    @ctx.on_api("/read/history", methods=["GET", "POST"])
     async def api_history(req):
         return {"ok": True, "items": _history(ctx)}
 

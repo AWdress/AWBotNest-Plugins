@@ -55,15 +55,15 @@ function iconPath(name) {
 
 async function loadStatus() {
   try {
-    const result = await props.host.callApi('/read/status')
-    if (!result || typeof result !== 'object') throw new Error('状态接口返回为空')
+    const result = await props.host.callApi('/read/status', { method: 'POST', body: {} })
+    if (!result || typeof result !== 'object' || !Object.hasOwn(result, 'running') || !Object.hasOwn(result, 'phase')) throw new Error('状态接口响应缺少运行字段')
     status.value = result
     apiError.value = ''
   } catch (error) { apiError.value = error?.message || String(error) }
 }
 
 async function loadHistory() {
-  try { history.value = (await props.host.callApi('/read/history')).items || [] }
+  try { history.value = (await props.host.callApi('/read/history', { method: 'POST', body: {} })).items || [] }
   catch (error) { props.host.toast.error('读取运行记录失败：' + (error.message || error)) }
 }
 

@@ -2,8 +2,8 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-D_kSU_WC.css"], false, './Config');
-      return __federation_import('/api/plugins/hhan_lottery/fe/assets/__federation_expose_Config-BQ0OJ3uj.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Config-BMKrPFi2.css"], false, './Config');
+      return __federation_import('/api/plugins/hhan_lottery/fe/assets/__federation_expose_Config-D8apIlES.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

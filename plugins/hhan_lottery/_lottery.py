@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.6",
+    "version": "1.3.7",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -785,7 +785,7 @@ async def setup(ctx):
     async def view_stats():
         return {"ok": True, "message": _stats_text(_load_stats(ctx))}
 
-    @ctx.on_api("/lottery/status", methods=["GET"])
+    @ctx.on_api("/lottery/status", methods=["GET", "POST"])
     async def lottery_status(_request=None):
         status = dict(ctx.kv.get(_STATUS_KEY, {}) or {})
         status["running"] = bool(_active_task and not _active_task.done())
@@ -799,6 +799,7 @@ async def setup(ctx):
         status["current_stats"] = current
         status["cumulative_stats"] = cumulative
         status["setup_error"] = str(ctx.kv.get("lottery_setup_error", "") or "")
+        status["updated_at"] = datetime.now().isoformat(timespec="seconds")
         return status
 
     @ctx.on_api("/lottery/run", methods=["POST"])
@@ -817,7 +818,7 @@ async def setup(ctx):
     async def lottery_mail_clean(_request=None):
         return await clean_lottery_mail()
 
-    @ctx.on_api("/lottery/stats", methods=["GET"])
+    @ctx.on_api("/lottery/stats", methods=["GET", "POST"])
     async def lottery_stats(_request=None):
         stats = _load_stats(ctx)
         return {"ok": True, "text": _stats_text(stats), "stats": stats}
