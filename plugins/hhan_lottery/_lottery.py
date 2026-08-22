@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.3.10",
+    "version": "1.4.0",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -278,6 +278,20 @@ def _stop_target(prize: str, cfg: dict) -> str:
     return next((f"关键词：{item}" for item in keywords if item in prize), "")
 
 
+def _notify_target(prize: str, cfg: dict) -> str:
+    if not cfg.get("prize_notify_enabled", True):
+        return ""
+    if cfg.get("prize_notify_vip", True) and re.search(r"\bVIP\b", prize, re.IGNORECASE):
+        return "VIP"
+    if cfg.get("prize_notify_invite", True) and "邀请" in prize:
+        return "邀请"
+    threshold = _int(cfg.get("big_bean_threshold"), 500_000, 1)
+    if cfg.get("prize_notify_big_beans", True) and _bean_value(prize) >= threshold:
+        return f"大额憨豆（≥{threshold:,}）"
+    keywords = [item.strip() for item in re.split(r"[,，\n]", str(cfg.get("prize_notify_keywords", "") or "")) if item.strip()]
+    return next((f"关键词：{item}" for item in keywords if item in prize), "")
+
+
 async def _clean_lottery_mail(ctx, *, max_rounds: int = 20) -> int:
     """只删除标题包含“幸运大转盘”的通知，保留其他站内信。"""
     cookie, error = await _cookie_header(ctx)
@@ -480,6 +494,45 @@ async def setup(ctx):
         except Exception as exc:  # noqa: BLE001
             ctx.log.warning("[憨憨转盘] 推送结果失败：%r", exc)
 
+    async def _push_prize_notice(hit: str, prize: str, completed: int, target: int, current: dict, *, will_stop: bool):
+        """立即发送富文本大奖表格；平台会为不支持富文本的渠道自动降级。"""
+        current = _stats_payload(current)
+        rows = [
+            ("命中类型", hit),
+            ("奖品", prize),
+            ("当前进度", f"{completed:,} / {target:,}"),
+            ("本轮消耗", f"{current['cost']:,} 憨豆"),
+            ("当前净盈亏", f"{current['profit']:+,} 憨豆"),
+            ("任务状态", "已触发止损并停止" if will_stop else "继续运行"),
+        ]
+        rich_rows = "".join(
+            f'<tr><th align="left">{html.escape(label)}</th><td>{html.escape(value)}</td></tr>'
+            for label, value in rows
+        )
+        rich = (
+            "<p><b>🎉 憨憨转盘命中大奖</b></p>"
+            f"<table bordered striped>{rich_rows}</table>"
+        )
+        try:
+            await ctx.notify(rich, level="success", category="憨憨转盘大奖", format="rich")
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("[憨憨转盘] 实时大奖通知失败，不影响抽奖：%r", exc)
+
+    def _claim_prize_notice(plan: dict, hit: str, prize: str) -> tuple[bool, dict]:
+        """原子更新计划内的通知冷却记录，分段和重启后仍可去重。"""
+        now = datetime.now().timestamp()
+        cooldown = _int(ctx.config.get("prize_notify_cooldown"), 300)
+        history = dict(plan.get("prize_notifications", {}) or {})
+        key = f"{hit}|{prize}"
+        previous = float(history.get(key) or 0)
+        if cooldown and now - previous < cooldown:
+            return False, plan
+        history[key] = now
+        if len(history) > 50:
+            history = dict(sorted(history.items(), key=lambda item: float(item[1] or 0), reverse=True)[:50])
+        plan["prize_notifications"] = history
+        return True, plan
+
     async def _run(count: int | None, *, resumed: bool = False):
         global _active_task
         prizes: list[str] = []
@@ -657,9 +710,20 @@ async def setup(ctx):
                             "current_stats": current_payload,
                         })
                         ctx.log.info("[憨憨转盘] %s/%s prize=%s", completed, target, result)
-                        hit = _stop_target(result, cfg)
-                        if hit:
-                            stop_detail = f"命中止损目标“{hit}”：{result}"
+                        stop_hit = _stop_target(result, cfg)
+                        notice_hit = _notify_target(result, cfg)
+                        if notice_hit:
+                            latest_plan = dict(ctx.kv.get(_PLAN_KEY, {}) or {})
+                            claimed, latest_plan = _claim_prize_notice(latest_plan, notice_hit, result)
+                            if claimed:
+                                if latest_plan.get("active"):
+                                    ctx.kv.set(_PLAN_KEY, latest_plan)
+                                await _push_prize_notice(
+                                    notice_hit, result, completed, target, current_payload,
+                                    will_stop=bool(stop_hit),
+                                )
+                        if stop_hit:
+                            stop_detail = f"命中止损目标“{stop_hit}”：{result}"
                             break
                         if completed % sync_every == 0:
                             live_ok, _, live_balance, live_cost = await _page_info(ctx)

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: String, host: { type: Object, required: true } })
-const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '', scheduled_stop_enabled: false, scheduled_stop_at: '' })
+const cfg = reactive({ enabled: true, notify_result: true, notify_cookie_error: true, lottery_mode: 'fixed', lottery_count: 10, interval_seconds: 7, reserve_beans: 0, sync_every_draws: 20, auto_clean_lottery_mail: false, prize_notify_enabled: true, prize_notify_vip: true, prize_notify_invite: true, prize_notify_big_beans: true, prize_notify_keywords: '', prize_notify_cooldown: 300, stop_on_prize: false, stop_on_vip: true, stop_on_invite: true, stop_on_big_beans: true, big_bean_threshold: 500000, stop_prize_keywords: '', scheduled_stop_enabled: false, scheduled_stop_at: '' })
 const status = ref({ running: false, completed: 0, target: 0, detail: '', last_prize: '', last_result: '', current_stats: {}, cumulative_stats: {} })
 const busy = ref('')
 const saving = ref(false)
@@ -38,6 +38,7 @@ async function save(showToast = true) {
     cfg.reserve_beans = Math.max(0, Math.trunc(Number(cfg.reserve_beans) || 0))
     cfg.sync_every_draws = Math.max(1, Math.min(200, Math.trunc(Number(cfg.sync_every_draws) || 20)))
     cfg.big_bean_threshold = Math.max(1, Math.trunc(Number(cfg.big_bean_threshold) || 500000))
+    cfg.prize_notify_cooldown = Math.max(0, Math.min(86400, Math.trunc(Number(cfg.prize_notify_cooldown) || 300)))
     cfg.scheduled_stop_at = String(cfg.scheduled_stop_at || '')
     await props.host.saveConfig({ ...cfg })
     if (showToast) props.host.toast.success('转盘配置已保存')
@@ -120,6 +121,17 @@ onBeforeUnmount(() => clearInterval(timer))
             <label class="check"><input v-model="cfg.scheduled_stop_enabled" type="checkbox"> 到指定日期时间自动停止</label>
             <label v-if="cfg.scheduled_stop_enabled"><span>停止日期时间</span><input v-model="cfg.scheduled_stop_at" type="datetime-local"></label>
             <p v-if="cfg.scheduled_stop_enabled" class="mode-note">计划会持久化，平台重启后继续剩余任务，并按时停止。</p>
+            <label class="check"><input v-model="cfg.prize_notify_enabled" type="checkbox"> 实时大奖通知</label>
+            <div v-if="cfg.prize_notify_enabled" class="stop-box">
+              <div class="prize-options">
+                <label class="check"><input v-model="cfg.prize_notify_vip" type="checkbox"> VIP</label>
+                <label class="check"><input v-model="cfg.prize_notify_invite" type="checkbox"> 邀请</label>
+                <label class="check"><input v-model="cfg.prize_notify_big_beans" type="checkbox"> 大额憨豆</label>
+              </div>
+              <label><span>大额门槛</span><input v-model.number="cfg.big_bean_threshold" type="number" min="1" step="10000"></label>
+              <label><span>通知关键词</span><input v-model="cfg.prize_notify_keywords" type="text" placeholder="逗号分隔"></label>
+              <label><span>相同奖品冷却</span><div class="input-unit"><input v-model.number="cfg.prize_notify_cooldown" type="number" min="0" max="86400"><em>秒</em></div></label>
+            </div>
             <label class="check"><input v-model="cfg.stop_on_prize" type="checkbox"> 命中大奖后自动停止</label>
             <div v-if="cfg.stop_on_prize" class="stop-box">
               <div class="prize-options">
@@ -164,6 +176,7 @@ header { display:flex; justify-content:space-between; gap:20px; align-items:flex
 .grid { display:grid; grid-template-columns:minmax(600px,1.55fr) minmax(300px,.8fr); align-items:start; gap:14px; } .card { padding:20px; min-width:0; } h3 { margin:0; color:#dfe9f6; font-size:14px; } .card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding-bottom:16px;border-bottom:1px solid var(--line)}.card-heading p{margin:5px 0 0;color:var(--muted);font-size:12px}.settings-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;padding-top:18px}.setting-group{min-width:0}.setting-group+ .setting-group{padding-left:28px;border-left:1px solid var(--line)}.setting-group h4{margin:0 0 14px;color:#dfe9f6;font-size:13px}.settings label:not(.check,.toggle-row) { display:grid; grid-template-columns:minmax(90px,1fr) minmax(150px,1.15fr); align-items:center; gap:12px; margin:12px 0; color:#bac8d9; font-size:13px; } input[type=number],input[type=datetime-local],select { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; } .toggle-row { display:flex; flex:none; justify-content:space-between; align-items:center; gap:18px; margin:0; } .toggle-row span { display:grid; gap:3px; } .toggle-row small { color:var(--muted); font-size:11px; } .mode-note { margin:8px 0 13px; padding:10px 11px; border-radius:8px; color:#8fb5e4; background:#12253d; font-size:12px; line-height:1.55; } .check { display:block; margin:11px 0; color:#aebed0; font-size:13px; } .settings-actions{display:flex;justify-content:flex-end;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
 .result{align-self:start}.result-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}.result-heading span{color:#71849c;font-size:11px}.result pre { min-height:180px; max-height:380px; overflow:auto; white-space:pre-wrap; margin:0; padding:14px; border-radius:9px; color:#aebdd0; background:#0d1725; font:12px/1.7 ui-monospace,Consolas,monospace; scrollbar-color:#344a65 transparent; }
 .stop-box { margin:10px 0; padding:10px 12px; border:1px solid #2e425b; border-radius:9px; background:#0d1827; } .prize-options{display:flex;flex-wrap:wrap;gap:4px 14px}.stop-box .check { margin:3px 0; } .notification-options{display:grid;grid-template-columns:1fr 1fr;gap:0 14px;margin-top:12px} input[type=text] { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #344861; border-radius:8px; color:#edf4fc; background:#0d1725; font:inherit; }
+.input-unit{display:flex;align-items:center;min-width:0;border:1px solid #344861;border-radius:8px;background:#0d1725}.input-unit:focus-within{border-color:var(--blue)}.input-unit input{min-width:0;border:0}.input-unit em{padding-right:10px;color:var(--muted);font-size:11px;font-style:normal}
 footer { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; } button { min-height:40px; padding:0 16px; border-radius:9px; border:1px solid transparent; color:#dce8f7; background:#18263a; font:inherit; font-weight:650; cursor:pointer; } button:disabled { opacity:.45; cursor:not-allowed; } .primary { color:white; background:#287de7; } .danger { color:#ffb0b0; border-color:#7c353d; background:#2a1920; } .secondary { border-color:#344a65; background:#152338; }
 @media(max-width:1050px){.grid{grid-template-columns:1fr}.result pre{min-height:120px}.settings-columns{gap:22px}.setting-group+ .setting-group{padding-left:22px}}
 @media(max-width:700px){ header{display:block}.state{margin-top:13px}.live-stats,.settings-columns{grid-template-columns:1fr}.live-stats ul,.notification-options{grid-template-columns:1fr}.setting-group+ .setting-group{padding:18px 0 0;border-left:0;border-top:1px solid var(--line)}.card-heading{display:grid}.toggle-row{width:100%}.settings label:not(.check,.toggle-row){grid-template-columns:1fr}.result{min-height:0} footer button{flex:1} }
