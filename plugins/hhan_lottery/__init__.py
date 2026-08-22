@@ -17,7 +17,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "2.7.1",
+    "version": "2.7.2",
     "author": "AWdress",
     "description": "HHanClub 综合助手：赠豆命令、幸运转盘、全部已读和收件箱消息删除。",
     "icon": "https://hhanclub.net/favicon.ico",
