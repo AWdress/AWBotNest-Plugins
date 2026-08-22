@@ -18,7 +18,7 @@ from ._auth import cookie_header
 __plugin__ = {
     "name": "憨憨转盘",
     "id": "hhan_lottery",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "author": "AWdress",
     "description": "读取平台同步的 HHCLUB Cookie，通过配置页控制自动抽取幸运转盘并推送、保存结果。",
     "icon": "https://hhanclub.net/favicon.ico",
@@ -737,6 +737,13 @@ async def setup(ctx):
                     elif retryable:
                         consecutive_retry += 1
                         ctx.log.warning("[憨憨转盘] 可重试错误：%s", result)
+                        if consecutive_retry == 1:
+                            ctx.log.info("[憨憨转盘] 首次临时错误，立即重试")
+                            await asyncio.sleep(0)
+                            continue
+                        if consecutive_retry == 2:
+                            await asyncio.sleep(1)
+                            continue
                         if consecutive_retry >= 3:
                             dynamic_interval = min(30, max(interval, int(dynamic_interval * 1.5)))
                         if consecutive_retry >= 12:
