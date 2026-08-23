@@ -405,7 +405,7 @@ async def setup(ctx):
 
 | 插件 | id | 触发 | scope | 说明 |
 |------|----|------|-------|------|
-| 关键词自动回复 | `keyword_auto_reply` | 监听群消息 | user | 一行一条「关键词=回复」，支持冷却、限群、自动删除、模板变量 |
+| 聊天互动助手 | `keyword_auto_reply` | 监听群消息 | user | 无需关键词即可按概率回复，支持逐规则冷却、限群、自动删除、模板变量 |
 | 定时自动回复 | `custom_auto_reply` | 定时 | user | 每个会话单独设时间和内容（定点 / 间隔 / cron） |
 | 自动报时昵称 | `auto_changename` | 定时 | user | 定时把昵称改成当前时间，支持自定义模板 |
 | 自动换头像 | `auto_avatar` | 定时 / `.avataradd` 等 | user | 定时随机换头像，回复图片 `.avataradd` 入池，`.avatarlist/.avatarclear` 管理 |

@@ -7,12 +7,12 @@ const loading = ref(true)
 const saving = ref(false)
 const openRule = ref(0)
 
-const activeRules = computed(() => cfg.rules_text.filter(rule => rule.keyword?.trim() && rule.reply?.trim()).length)
+const activeRules = computed(() => cfg.rules_text.filter(rule => rule.reply?.trim() && Number(rule.trigger_chance) > 0).length)
 const leaderboardRuleCount = computed(() => cfg.rules_text.filter(rule => rule.count_for_leaderboard !== false).length)
 const scopeText = computed(() => Array.isArray(cfg.chat_ids) && cfg.chat_ids.length ? `${cfg.chat_ids.length} 个群组` : '全部群组')
 
 function normalizeRule(rule = {}) {
-  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || '') }
+  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', trigger_chance: Math.max(0, Math.min(100, Number(rule.trigger_chance ?? 100))), cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || '') }
 }
 function addRule() { cfg.rules_text.push(normalizeRule()); openRule.value = cfg.rules_text.length - 1 }
 function duplicateRule(index) { cfg.rules_text.splice(index + 1, 0, normalizeRule(cfg.rules_text[index])); openRule.value = index + 1 }
@@ -20,9 +20,9 @@ function removeRule(index) { cfg.rules_text.splice(index, 1); openRule.value = M
 function move(index, delta) { const next = index + delta; if (next < 0 || next >= cfg.rules_text.length) return; const [rule] = cfg.rules_text.splice(index, 1); cfg.rules_text.splice(next, 0, rule); openRule.value = next }
 
 async function save() {
-  const invalid = cfg.rules_text.findIndex(rule => !rule.keyword.trim() || !rule.reply.trim())
-  if (invalid >= 0) { openRule.value = invalid; props.host.toast.error(`第 ${invalid + 1} 条规则需要填写关键词和回复内容`); return }
-  const keys = cfg.rules_text.map(rule => rule.keyword.trim())
+  const invalid = cfg.rules_text.findIndex(rule => !rule.reply.trim())
+  if (invalid >= 0) { openRule.value = invalid; props.host.toast.error(`第 ${invalid + 1} 条规则需要填写回复内容`); return }
+  const keys = cfg.rules_text.map(rule => rule.keyword.trim()).filter(Boolean)
   if (new Set(keys).size !== keys.length) { props.host.toast.error('关键词不能重复'); return }
   const missingFun = cfg.rules_text.findIndex(rule => rule.fun_reply_chance > 0 && !rule.fun_replies.trim())
   if (missingFun >= 0) { openRule.value = missingFun; props.host.toast.error(`第 ${missingFun + 1} 条规则设置了趣味概率，请至少填写一条趣味文字`); return }
@@ -32,7 +32,7 @@ async function save() {
     cfg.delete_after = Math.max(0, Math.min(3600, Math.trunc(Number(cfg.delete_after) || 0)))
     cfg.leaderboard_size = Math.max(3, Math.min(30, Math.trunc(Number(cfg.leaderboard_size) || 10)))
     await props.host.saveConfig({ ...cfg })
-    props.host.toast.success('关键词互动配置已保存')
+    props.host.toast.success('聊天互动助手配置已保存')
   } catch (error) { props.host.toast.error(error.message || String(error)) }
   finally { saving.value = false }
 }
@@ -53,7 +53,7 @@ onMounted(async () => {
 <template>
   <main class="surface" :aria-busy="loading">
     <header class="masthead">
-      <div><h2>关键词互动助手</h2><p>把触发条件、回复和冷却策略收进每一条规则。</p></div>
+      <div><h2>聊天互动助手</h2><p>无需关键词也能按概率参与群聊，每条规则独立控制触发与冷却。</p></div>
       <button class="save" :disabled="loading || saving" @click="save">{{ saving ? '保存中…' : '保存并应用' }}</button>
     </header>
 
@@ -64,18 +64,19 @@ onMounted(async () => {
 
     <div class="workspace">
       <section class="rules-pane">
-        <div class="section-head"><div><h3>互动规则</h3><p>从上到下匹配，单条消息只执行第一条命中规则。</p></div><button class="add" @click="addRule">新增规则</button></div>
-        <div v-if="!cfg.rules_text.length" class="empty"><strong>还没有规则</strong><p>新增第一条规则，设置关键词、匹配方式与独立冷却。</p><button class="add" @click="addRule">创建第一条规则</button></div>
+        <div class="section-head"><div><h3>互动规则</h3><p>从上到下判断；概率未命中时继续尝试下一条规则。</p></div><button class="add" @click="addRule">新增规则</button></div>
+        <div v-if="!cfg.rules_text.length" class="empty"><strong>还没有规则</strong><p>新增第一条规则，设置回复内容、触发概率与独立冷却。</p><button class="add" @click="addRule">创建第一条规则</button></div>
         <ol v-else class="rule-list">
           <li v-for="(rule, index) in cfg.rules_text" :key="index" :class="{ open: openRule === index }">
             <button class="rule-summary" @click="openRule = openRule === index ? -1 : index">
               <span class="order">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="summary-copy"><b>{{ rule.keyword || '未填写关键词' }}</b><small>{{ rule.match_type === 'exact' ? '完全匹配' : '包含匹配' }} · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通关键词' }} · {{ rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却' }}{{ rule.fun_reply_chance ? ` · ${rule.fun_reply_chance}% 彩蛋` : '' }}</small></span>
+              <span class="summary-copy"><b>{{ rule.keyword || '任意消息' }}</b><small>{{ rule.keyword ? (rule.match_type === 'exact' ? '完全匹配' : '包含匹配') : '无需关键词' }} · {{ rule.trigger_chance }}% 触发 · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通消息' }} · {{ rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却' }}{{ rule.fun_reply_chance ? ` · ${rule.fun_reply_chance}% 彩蛋` : '' }}</small></span>
               <span class="chevron">{{ openRule === index ? '收起' : '编辑' }}</span>
             </button>
             <div v-if="openRule === index" class="editor">
-              <div class="field-grid"><label><span>关键词</span><input v-model="rule.keyword" placeholder="例如：签到福利"></label><label><span>匹配方式</span><select v-model="rule.match_type"><option value="contains">消息包含关键词</option><option value="exact">消息完全等于关键词</option></select></label></div>
-              <label><span>触发方式</span><select v-model="rule.trigger_mode"><option value="any">普通关键词（不要求回复我）</option><option value="reply_to_me">回复我的消息才触发</option></select><small class="field-help">选择“回复我的消息”后，只有别人回复本账号发出的消息并命中关键词时才执行。</small></label>
+              <div class="field-grid"><label><span>关键词（可选）</span><input v-model="rule.keyword" placeholder="留空则匹配任意消息"><small class="field-help">不填写关键词时，每条群消息都会进入概率判断。</small></label><label><span>匹配方式</span><select v-model="rule.match_type" :disabled="!rule.keyword.trim()"><option value="contains">消息包含关键词</option><option value="exact">消息完全等于关键词</option></select></label></div>
+              <label><span>触发概率（%）</span><input v-model.number="rule.trigger_chance" type="number" min="0" max="100" step="1"><small class="field-help">100 表示每次满足条件都触发，0 表示暂停此规则。</small></label>
+              <label><span>触发方式</span><select v-model="rule.trigger_mode"><option value="any">普通消息（不要求回复我）</option><option value="reply_to_me">回复我的消息才触发</option></select><small class="field-help">选择“回复我的消息”后，只有别人回复本账号发出的消息且满足关键词条件时才执行。</small></label>
               <label><span>回复内容</span><textarea v-model="rule.reply" rows="4" placeholder="支持 {uname}、{uid} 和 10-100 随机数"></textarea></label>
               <div class="field-grid"><label><span>此规则冷却（小时）</span><input v-model.number="rule.cooldown_hours" type="number" min="0" max="720" step="0.5"></label><label><span>冷却计算方式</span><select v-model="rule.reset_at_midnight"><option :value="false">按小时滚动计算</option><option :value="true">每天零点重置</option></select></label></div>
               <div class="option-row"><label class="check"><input v-model="rule.cooldown_notify" type="checkbox"><span>冷却中回复剩余时间</span></label><label class="check"><input v-model="rule.count_for_leaderboard" type="checkbox"><span>命中后计入羊毛榜</span></label></div>

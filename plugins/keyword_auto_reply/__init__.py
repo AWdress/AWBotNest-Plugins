@@ -1,8 +1,7 @@
 # =============================================================================
-# AWBotNest 插件：关键词互动助手（keyword_auto_reply）
+# AWBotNest 插件：聊天互动助手（keyword_auto_reply）
 #
-# 用户账号监听群消息，命中关键词就自动回复。
-# 配置全是普通表单项：规则一行一条「关键词=回复内容」，无需懂 JSON。
+# 用户账号监听群消息，按规则概率自动回复；关键词留空时可匹配任意消息。
 # =============================================================================
 
 import asyncio
@@ -13,13 +12,13 @@ import time
 from datetime import datetime, timedelta
 
 __plugin__ = {
-    "name": "关键词互动助手",
+    "name": "聊天互动助手",
     "id": "keyword_auto_reply",
-    "version": "2.1.1",
+    "version": "2.2.0",
     "author": "AWdress",
-    "description": "群消息命中关键词后自动回复，支持冷却、限群、自动删除及可选薅羊毛排行榜。",
+    "description": "按可配置概率自动回复群消息，关键词可选，并支持冷却、限群、自动删除及排行榜。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
-    "changelog": "v2.1.1 支持多行趣味回复\n- 趣味文案按完整段落发送并保留原有换行\n- 多条随机文案改用单独一行 --- 分隔\n\nv2.1.0 新增逐规则榜单统计与趣味回复\n- 每条规则可独立选择是否计入薅羊毛排行榜\n- 支持设置趣味文字出现概率，并从多条文案中随机回复\n- 未命中趣味概率时继续发送原标准回复\n\nv2.0.2 恢复逐规则零点重置\n- 冷却计算方式移入每条规则，可选滚动小时或每日零点重置\n- 旧版全局零点重置设置自动迁移到已有规则\n\nv2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
+    "changelog": "v2.2.0 支持无关键词概率触发\n- 关键词改为可选，留空时匹配任意群消息\n- 每条规则可独立设置触发概率\n- 插件更名为‘聊天互动助手’\n\nv2.1.1 支持多行趣味回复\n- 趣味文案按完整段落发送并保留原有换行\n- 多条随机文案改用单独一行 --- 分隔\n\nv2.1.0 新增逐规则榜单统计与趣味回复\n- 每条规则可独立选择是否计入薅羊毛排行榜\n- 支持设置趣味文字出现概率，并从多条文案中随机回复\n- 未命中趣味概率时继续发送原标准回复\n\nv2.0.2 恢复逐规则零点重置\n- 冷却计算方式移入每条规则，可选滚动小时或每日零点重置\n- 旧版全局零点重置设置自动迁移到已有规则\n\nv2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -28,7 +27,7 @@ __plugin__ = {
     "config_schema": {
         # —— 功能开关（最上方，cols:3, order:1-4）——
         "enabled": {
-            "type": "boolean", "default": True, "label": "启用关键词互动",
+            "type": "boolean", "default": True, "label": "启用聊天互动助手",
             "cols": 3, "order": 1, "section": "功能开关",
         },
         "midnight_reset": {
@@ -42,16 +41,17 @@ __plugin__ = {
 
         # —— 规则：逐条添加（order:10+）——
         "rules_text": {
-            "type": "list", "default": [], "label": "关键词规则", "item_label": "规则",
+            "type": "list", "default": [], "label": "互动规则", "item_label": "规则",
             "order": 10, "section": "规则",
             "fields": {
-                "keyword": {"type": "string", "label": "关键词"},
+                "keyword": {"type": "string", "label": "关键词（可选）"},
                 "reply": {"type": "string", "label": "回复内容"},
+                "trigger_chance": {"type": "number", "label": "触发概率（%）", "default": 100},
                 "cooldown_notify": {
                     "type": "boolean", "label": "冷却时提示", "default": True,
                 },
             },
-            "help": "命中关键词自动回复，可用于提示、互动或发福利。回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。",
+            "help": "关键词留空时任意消息均可参与概率判断。回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。",
         },
         "match_type": {
             "type": "select", "default": "contains", "label": "匹配方式",
@@ -103,14 +103,14 @@ _LEADERBOARD_KV_KEY = "welfare_leaderboard_v1"
 _pending_tasks: set = set()
 
 
-def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24, default_midnight: bool = False) -> list[tuple[str, str, bool, str, float, str, bool, bool, float, list[str]]]:
+def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: float = 24, default_midnight: bool = False) -> list[tuple[str, str, bool, str, float, str, bool, bool, float, list[str], float]]:
     """解析规则；旧配置自动继承原来的全局匹配方式与冷却时间。"""
-    rules: list[tuple[str, str, bool, str, float, str, bool, bool, float, list[str]]] = []
+    rules: list[tuple[str, str, bool, str, float, str, bool, bool, float, list[str], float]] = []
     if isinstance(raw, list):
         for d in raw:
             if isinstance(d, dict):
                 keyword, reply = str(d.get("keyword", "")).strip(), str(d.get("reply", "")).strip()
-                if keyword and reply:
+                if reply:
                     match_type = str(d.get("match_type", default_match) or default_match)
                     if match_type not in {"contains", "exact"}:
                         match_type = default_match
@@ -134,7 +134,11 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
                         fun_replies = [block.strip() for block in re.split(
                             r"(?m)^\s*---\s*$", str(raw_fun_replies or "")
                         ) if block.strip()]
-                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown, trigger_mode, reset_at_midnight, count_for_leaderboard, fun_reply_chance, fun_replies))
+                    try:
+                        trigger_chance = max(0.0, min(100.0, float(d.get("trigger_chance", 100))))
+                    except (TypeError, ValueError):
+                        trigger_chance = 100.0
+                    rules.append((keyword, reply, bool(d.get("cooldown_notify", True)), match_type, cooldown, trigger_mode, reset_at_midnight, count_for_leaderboard, fun_reply_chance, fun_replies, trigger_chance))
         return rules
     for line in str(raw or "").splitlines():
         line = line.strip()
@@ -143,11 +147,13 @@ def _parse_rules(raw, *, default_match: str = "contains", default_cooldown: floa
         keyword, reply = line.split("=", 1)
         keyword, reply = keyword.strip(), reply.strip()
         if keyword and reply:
-            rules.append((keyword, reply, True, default_match, default_cooldown, "any", default_midnight, True, 0.0, []))
+            rules.append((keyword, reply, True, default_match, default_cooldown, "any", default_midnight, True, 0.0, [], 100.0))
     return rules
 
 
 def _match(text: str, keyword: str, match_type: str) -> bool:
+    if not keyword:
+        return True
     if match_type == "exact":
         return text.strip() == keyword
     return keyword in text  # contains
@@ -211,7 +217,7 @@ def _restore_cooldowns(ctx) -> None:
             last_day = int(item.get("last_day", today))
         except (KeyError, TypeError, ValueError):
             continue
-        if not account or not keyword or last_time <= 0:
+        if not account or last_time <= 0:
             continue
         valid = ((has_midnight_rule and last_day == today) or
                  (cooldown_secs > 0 and now - last_time < cooldown_secs))
@@ -513,6 +519,10 @@ async def setup(ctx):
                 ctx.log.warning("[羊毛榜] 查询命令删除失败：%r", exc)
             return
 
+        # 规则只响应群友消息，避免“任意消息”规则被自己发出的回复再次触发。
+        if getattr(message, "outgoing", False):
+            return
+
         try:
             default_cooldown = float(cfg.get("cooldown_hours", 24) or 24)
         except (TypeError, ValueError):
@@ -535,10 +545,12 @@ async def setup(ctx):
             delete_after = 0
 
         try:
-            for keyword, reply, cooldown_notify, match_type, cooldown_hours, trigger_mode, reset_at_midnight, count_for_leaderboard, fun_reply_chance, fun_replies in rules:
+            for keyword, reply, cooldown_notify, match_type, cooldown_hours, trigger_mode, reset_at_midnight, count_for_leaderboard, fun_reply_chance, fun_replies, trigger_chance in rules:
                 if not _match(text, keyword, match_type):
                     continue
                 if trigger_mode == "reply_to_me" and not _is_reply_to_me(message):
+                    continue
+                if trigger_chance <= 0 or random.random() * 100 >= trigger_chance:
                     continue
 
                 cooldown_secs = cooldown_hours * 3600
@@ -583,8 +595,8 @@ async def setup(ctx):
                     _record_welfare(ctx, account_id, chat_id, message.from_user, keyword)
                 _schedule_delete(ctx, sent, delete_after)
                 chat_name = getattr(message.chat, "title", None) or str(chat_id)
-                ctx.log.info("[关键词回复] 命中 '%s' | 群组 %s (%s)",
-                             keyword, chat_name, chat_id)
+                ctx.log.info("[聊天互动助手] 触发 '%s' | 群组 %s (%s)",
+                             keyword or "任意消息", chat_name, chat_id)
                 break  # 一条消息只回第一个命中的规则
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[关键词回复] 处理消息出错: %r", e)
