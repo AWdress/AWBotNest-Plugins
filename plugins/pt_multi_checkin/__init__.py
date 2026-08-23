@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.7",
+    "version": "2.5.9",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.7 修复天空已签到漏判\n- 识别首页导航中的‘[已签到]’明确状态，已签到时不再重复请求验证码\n- 签到接口回执无法识别时回查首页最终状态，避免实际成功却通知失败\n\nv2.5.6 修复登录 Cookie 可用性检查\n- OpenCD 只有统计 Cookie 时不再误报 Cookie 可用\n- 站点拒绝登录会话时明确提示在 CookieCloud 来源浏览器重新登录并同步\n- PigGo 已验证排除旧 cf_clearance 后仍拒绝当前登录会话，避免无效重试误导\n\nv2.5.5 按真实页面修复签到误报与漏判",
+    "changelog": "v2.5.9 修复 Audiences 与 U2 最终状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执，避免实际成功却通知失败\n- U2 以顶部‘[已签到]’作为最终确认，不再误读‘[立即签到]’或 Show Up 菜单\n\nv2.5.8 修复 Docker 环境签到确认\n- PigGo 改为优先使用平台 Cookie 轻量签到，命中安全挑战时才降级 CloakBrowser\n- U2/TTG 提交后回查服务端最终状态，兼容不同语言和 JSON 回执\n- 未确认成功时仍保持失败，避免假签到",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -238,8 +238,40 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     )):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
-        "本次签到获得", "此次签到获得", "签到所得", "今日签到排名",
+        "签到成功", "本次签到获得", "此次签到获得", "签到所得", "今日签到排名",
+        "本次签到获得了", "签到已得", "已连续签到",
     )) or re.search(r"这是您的(?:首次|第\d+次)签到", compact):
+        return "success", "签到成功"
+    return None
+
+
+def _u2_result_state(text: str) -> tuple[str, str] | None:
+    """识别 U2 的最终签到状态；不把未签到时的 Show Up 菜单当成成功。"""
+    raw = text or ""
+    compact = re.sub(r"\s+", "", _html_visible_text(raw)).lower()
+    if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", raw, re.IGNORECASE) or any(marker in compact for marker in (
+        "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
+        "alreadyshoweduptoday", "alreadycheckedintoday",
+    )):
+        return "already", "今天已经签到"
+    if any(marker in compact for marker in (
+        "签到成功", "簽到成功", "showupsuccess", "check-insuccess",
+    )) or re.search(r"window\.location(?:\.href)?\s*=\s*['\"]showup\.php", raw, re.IGNORECASE):
+        return "success", "签到成功"
+    return None
+
+
+def _ttg_result_state(text: str) -> tuple[str, str] | None:
+    """兼容 TTG HTML、纯文本和 JSON 三类签到回执。"""
+    raw = text or ""
+    compact = re.sub(r"\s+", "", _html_visible_text(raw)).lower()
+    if re.search(r"\[\s*已签到\s*\]", raw, re.IGNORECASE) or any(marker in compact for marker in (
+        "今天已签到过", "今日已签到", "今天已经签到", "alreadysigned",
+    )):
+        return "already", "今天已经签到"
+    if any(marker in compact for marker in (
+        "您已连续签到", "签到成功", "簽到成功", "signsuccess", "signedsuccessfully",
+    )) or re.search(r'"(?:success|status|code)"\s*:\s*(?:true|1|200)', raw, re.IGNORECASE):
         return "success", "签到成功"
     return None
 
@@ -570,11 +602,9 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         if key == "u2":
             if datetime.now().hour < 9:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
-            if "感谢，今天已签到" in text or re.search(
-                r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|已簽到)\s*</a>',
-                html, re.IGNORECASE,
-            ):
-                return {"status": "already", "message": "今天已经签到"}
+            initial = _u2_result_state(html)
+            if initial:
+                return {"status": initial[0], "message": initial[1]}
             form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
             req = form.locator('input[name="req"]').get_attribute("value")
             hash_value = form.locator('input[name="hash"]').get_attribute("value")
@@ -588,12 +618,14 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
                 str(submit.get_attribute("name")): str(submit.get_attribute("value")),
             })
             body = result.get("text", "")
-            if re.search(r"window\.location\.href\s*=\s*['\"]showup\.php['\"]", body, re.IGNORECASE):
-                return {"status": "success", "message": "签到成功"}
+            posted = _u2_result_state(body)
+            if posted:
+                return {"status": "success", "message": posted[1]}
             page.goto("https://u2.dmhy.org/showup.php", wait_until="domcontentloaded", timeout=60_000)
             confirmed = page.content()
-            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', confirmed, re.IGNORECASE):
-                return {"status": "success", "message": "签到成功"}
+            final = _u2_result_state(confirmed)
+            if final:
+                return {"status": "success", "message": "签到成功（页面状态已确认）"}
             raise RuntimeError("U2 签到提交后仍未确认已签到")
         raise RuntimeError("暂不支持该站点的自动验证")
     if mode == "visit":
@@ -639,14 +671,22 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     if mode == "pterclub":
         return _response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过"))
     if mode == "ttg":
-        if re.search(r"\[\s*已签到\s*\]", text):
-            return {"status": "already", "message": "今天已经签到"}
+        initial = _ttg_result_state(html)
+        if initial:
+            return {"status": initial[0], "message": initial[1]}
         timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', html)
         token = re.search(r'signed_token:\s*["\']([^"\']+)', html)
         if not timestamp or not token:
             raise RuntimeError("未获取到 TTG 签到参数")
         result = _fetch_same_origin(page, "https://totheglory.im/signed.php", method="POST", data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)})
-        return _response_result(result.get("text", ""), success=("您已连续签到",), already=("今天已签到过",))
+        posted = _ttg_result_state(result.get("text", ""))
+        if posted:
+            return {"status": posted[0], "message": posted[1]}
+        page.goto(site["url"], wait_until="domcontentloaded", timeout=60_000)
+        final = _ttg_result_state(page.content())
+        if final:
+            return {"status": "success", "message": "签到成功（首页状态已确认）"}
+        raise RuntimeError("TTG 签到提交后仍未确认已签到")
     if mode == "yema":
         return _response_result(text, success=('"success":true', '"success": true'), already=("already", "已签到"))
     if mode == "zhuque":
@@ -880,14 +920,26 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         if mode == "pterclub":
             return {**_response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过")), "engine": "http"}
         if mode == "ttg":
-            if "已签到" in text:
-                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            initial = _ttg_result_state(text)
+            if initial:
+                return {"status": initial[0], "message": initial[1], "engine": "http"}
             timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', text)
             token = re.search(r'signed_token:\s*["\']([^"\']+)', text)
             if not timestamp or not token:
                 raise _NeedsBrowser("HTTP 未取得 TTG 动态参数，切换 CloakBrowser")
-            _, body = await post("https://totheglory.im/signed.php", data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)})
-            return {**_response_result(body, success=("您已连续签到",), already=("今天已签到过",)), "engine": "http"}
+            _, body = await post(
+                "https://totheglory.im/signed.php",
+                data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)},
+                extra_headers={"Referer": str(response.url), "X-Requested-With": "XMLHttpRequest"},
+            )
+            posted = _ttg_result_state(body)
+            if posted:
+                return {"status": posted[0], "message": posted[1], "engine": "http"}
+            _, confirmed = await get(site["url"])
+            final = _ttg_result_state(confirmed)
+            if final:
+                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
+            raise _NeedsBrowser("TTG HTTP 提交后未确认最终状态，切换 CloakBrowser 回查")
         if mode == "yema":
             return {**_response_result(text, success=('"success":true', '"success": true'), already=("already", "已签到")), "engine": "http"}
         if mode == "zhuque":
@@ -956,21 +1008,28 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         if key == "u2":
             if datetime.now().hour < 9:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
+            initial = _u2_result_state(text)
+            if initial:
+                return {"status": initial[0], "message": initial[1], "engine": "http"}
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
             submits = soup.select('input[type="submit"][name]')
             if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
-            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', text, re.IGNORECASE):
-                return {"status": "already", "message": "今天已经签到", "engine": "http"}
             submit = submits[secrets.randbelow(len(submits))]
-            _, body = await post("https://u2.dmhy.org/showup.php?action=show", data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")})
-            if re.search(r"window\.location\.href\s*=\s*['\"]showup\.php['\"]", body, re.IGNORECASE):
-                return {"status": "success", "message": "签到成功", "engine": "http"}
+            _, body = await post(
+                "https://u2.dmhy.org/showup.php?action=show",
+                data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")},
+                extra_headers={"Referer": str(response.url)},
+            )
+            posted = _u2_result_state(body)
+            if posted:
+                return {"status": "success", "message": posted[1], "engine": "http"}
             _, confirmed = await get("https://u2.dmhy.org/showup.php")
-            if re.search(r'<a[^>]+href=["\']showup\.php["\'][^>]*>\s*(?:已签到|Show Up|Показать|已簽到)\s*</a>', confirmed, re.IGNORECASE):
-                return {"status": "success", "message": "签到成功", "engine": "http"}
-            raise RuntimeError("U2 签到提交后仍未确认已签到")
+            final = _u2_result_state(confirmed)
+            if final:
+                return {"status": "success", "message": "签到成功（页面状态已确认）", "engine": "http"}
+            raise _NeedsBrowser("U2 HTTP 提交后未确认最终状态，切换 CloakBrowser 回查")
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
 
@@ -1010,14 +1069,12 @@ async def _run(ctx, source: str) -> dict:
                 try:
                     outcome = None
                     browser_reason = ""
-                    if key not in {"piggo", "tjupt"}:
+                    if key != "tjupt":
                         _state.update({"phase": "HTTP 请求", "message": f"{site['name']} 正在使用轻量 HTTP 签到"})
                         try:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
                             browser_reason = str(fallback)
-                    elif key == "piggo":
-                        browser_reason = "PigGo 会话会轮换，直接使用 CloakBrowser"
                     else:
                         browser_reason = "TJUPT 需要页面交互验证"
 

@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.6",
+    "version": "1.1.7",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.6 使用签到接口确认结果\n- 监听 GPT-GOD 官方 POST /user/checkin 响应并优先采用服务端结果\n- 修复 SPA 按钮未及时刷新时实际签到成功却被误报失败的问题\n- 明确失败响应不再盲目重复提交\n\nv1.1.5 适配平台后台任务治理\n- 立即签到改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明浏览器长任务资源配额，避免并发签到占满运行资源\n\nv1.1.4 使用平台结构化汇总通知\n- 多账号签到结果直接提交结构化数据，由平台自动生成表格\n- 普通账号及非 Telegram 渠道由平台自动回退为清晰文本\n\nv1.1.3 增加签到失败自动重试\n- 每个账号失败后独立重试，不影响其他账号继续签到\n- 支持配置重试次数和间隔，默认失败后再尝试 2 次\n- 区分账号密码错误等不可重试问题，并优化浏览器运行时缺失提示\n\nv1.1.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 浏览器签到、定时任务和通知功能保持不变\n\nv1.1.1 立即签到改为后台执行\n- 点击按钮后立即返回任务已开始，不再等待全部账号执行完成\n- 签到失败仅写运行日志并按通知设置汇报，不再触发平台动作错误弹框\n- 防止重复点击创建多个并发签到任务\n\nv1.1.0 支持多账号签到\n- 账号列表依次签到、独立复用 Cookie，移除积分读取并兼容旧配置\n\nv1.0.14 修复 Docker 会话复用\n- 延长缓存会话等待并区分 Cookie 被拒绝与页面渲染缓慢\n\nv1.0.12 增加分步骤运行日志\n- 记录浏览器、登录、积分页、状态识别和签到点击步骤\n\nv1.0.0 初始版本\n- 支持网站原生登录、定时签到、立即签到和结果通知",
+    "changelog": "v1.1.7 适配 GPT-GOD 新版签到回执\n- 官网当前仍使用 POST /user/checkin，兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的签到误报失败\n- 增加新版‘签到 领取 N 积分’按钮和即时成功提示确认\n\nv1.1.6 使用签到接口确认结果\n- 监听 GPT-GOD 官方 POST /user/checkin 响应并优先采用服务端结果\n- 修复 SPA 按钮未及时刷新时实际签到成功却被误报失败的问题\n- 明确失败响应不再盲目重复提交",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -284,6 +284,7 @@ def _visible_checkin_state(page) -> str | None:
             if (
                 text in {"签到", "check-in", "checkin"}
                 or text.startswith("签到领取")
+                or text.startswith("check-infor")
             ):
                 return "claim"
         except Exception:  # noqa: BLE001 - 尝试下一个按钮
@@ -355,11 +356,20 @@ def _classify_checkin_response(response) -> tuple[str, str] | None:
         if "/user/checkin" not in url:
             return None
         status = int(getattr(response, "status", 0) or 0)
-        payload = response.json()
-    except Exception:  # noqa: BLE001 - 非 JSON 响应交给页面状态兜底
+    except Exception:  # noqa: BLE001 - 无法读取响应元数据时交给页面状态兜底
         return None
 
-    text = str(payload)
+    payload = None
+    raw_text = ""
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001 - 新版接口可能返回空响应或纯文本
+        try:
+            raw_text = str(response.text() or "")
+        except Exception:  # noqa: BLE001 - 仍可使用 HTTP 状态判断
+            raw_text = ""
+
+    text = str(payload) if payload is not None else raw_text
     message = ""
     if isinstance(payload, dict):
         message = str(payload.get("message") or payload.get("msg") or "").strip()
@@ -375,6 +385,11 @@ def _classify_checkin_response(response) -> tuple[str, str] | None:
             return "failure", message or f"签到接口返回失败（code={code}）"
         if success is True or code in (0, 200, "0", "200"):
             return "success", message or "签到接口已确认成功"
+    lowered = text.casefold()
+    if any(marker in lowered for marker in ("already", "已签到", "重复签到")):
+        return "already", text.strip() or "今天已经签到"
+    if any(marker in lowered for marker in ("签到成功", "check-in successful", "checkin success")):
+        return "success", text.strip() or "签到接口已确认成功"
     if 200 <= status < 300:
         return "success", message or "签到接口已确认成功"
     return "failure", message or f"签到接口返回 HTTP {status}"
@@ -476,6 +491,15 @@ def _finish_checkin(page, email: str, trace=None) -> dict:
             if api_state == "already":
                 return _checkin_result(page, "already", f"账号 {account} 今天已经签到，无需重复领取", trace)
             raise RuntimeError(api_message or "签到接口返回失败")
+
+        # 新版 SPA 的接口事件在极慢容器中可能早于监听器挂载完成；成功提示
+        # 与按钮状态均来自服务端响应，可作为提交后的即时确认。
+        immediate_text = "".join(_page_text(page).split()).casefold()
+        if any(marker in immediate_text for marker in (
+            "签到成功", "获得积分", "check-insuccessful", "receivedpoints",
+        )) or _visible_checkin_state(page) == "already":
+            trace("页面即时状态已确认签到成功")
+            return _checkin_result(page, "success", f"账号 {account} 签到成功，页面状态已确认", trace)
     finally:
         _stop_checkin_response_watch(page, watch)
 
