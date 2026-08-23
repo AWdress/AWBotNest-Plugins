@@ -85,7 +85,7 @@ const leaderboardRuleCount = computed(() => cfg.rules_text.filter(rule => rule.c
 const scopeText = computed(() => Array.isArray(cfg.chat_ids) && cfg.chat_ids.length ? `${cfg.chat_ids.length} 个群组` : '全部群组');
 
 function normalizeRule(rule = {}) {
-  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', trigger_chance: Math.max(0, Math.min(100, Number(rule.trigger_chance ?? 100))), cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || ''), extra_reply_enabled: rule.extra_reply_enabled === true, extra_reply: String(rule.extra_reply ?? '叮！恭喜你喜提特等奖掉落。') }
+  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', trigger_chance: Math.max(0, Math.min(100, Number(rule.trigger_chance ?? 100))), cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || ''), extra_reply_enabled: rule.extra_reply_enabled === true, extra_reply: String(rule.extra_reply ?? '叮！恭喜你喜提特等奖掉落。掉落 {number} 茉莉') }
 }
 function addRule() { cfg.rules_text.push(normalizeRule()); openRule.value = cfg.rules_text.length - 1; }
 function duplicateRule(index) { cfg.rules_text.splice(index + 1, 0, normalizeRule(cfg.rules_text[index])); openRule.value = index + 1; }
@@ -287,11 +287,11 @@ return (_ctx, _cache) => {
                               _withDirectives(_createElementVNode("textarea", {
                                 "onUpdate:modelValue": $event => ((rule.extra_reply) = $event),
                                 rows: "3",
-                                placeholder: "叮！恭喜你喜提特等奖掉落。"
+                                placeholder: "叮！恭喜你喜提特等奖掉落。掉落 {number} 茉莉"
                               }, null, 8, _hoisted_24), [
                                 [_vModelText, rule.extra_reply]
                               ]),
-                              _cache[27] || (_cache[27] = _createElementVNode("small", { class: "field-help" }, "标准回复发出后，再单独发送此消息；同样支持 {uname}、{uid} 和随机数。", -1))
+                              _cache[27] || (_cache[27] = _createElementVNode("small", { class: "field-help" }, "仅标准回复命中时发送，趣味文字不会追加。{number} 会复用标准回复中第一个随机数。", -1))
                             ]))
                           : _createCommentVNode("", true),
                         _createElementVNode("div", _hoisted_25, [
@@ -485,6 +485,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8dd19fa4"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-db78f34a"]]);
 
 export { Config as default };
