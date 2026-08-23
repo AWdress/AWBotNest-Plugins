@@ -12,7 +12,7 @@ const leaderboardRuleCount = computed(() => cfg.rules_text.filter(rule => rule.c
 const scopeText = computed(() => Array.isArray(cfg.chat_ids) && cfg.chat_ids.length ? `${cfg.chat_ids.length} 个群组` : '全部群组')
 
 function normalizeRule(rule = {}) {
-  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', trigger_chance: Math.max(0, Math.min(100, Number(rule.trigger_chance ?? 100))), cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || '') }
+  return { keyword: String(rule.keyword || ''), reply: String(rule.reply || ''), match_type: ['exact', 'contains'].includes(rule.match_type) ? rule.match_type : 'contains', trigger_mode: ['any', 'reply_to_me'].includes(rule.trigger_mode) ? rule.trigger_mode : 'any', trigger_chance: Math.max(0, Math.min(100, Number(rule.trigger_chance ?? 100))), cooldown_hours: Math.max(0, Number(rule.cooldown_hours ?? 24) || 0), cooldown_notify: rule.cooldown_notify !== false, reset_at_midnight: rule.reset_at_midnight === true, count_for_leaderboard: rule.count_for_leaderboard !== false, fun_reply_chance: Math.max(0, Math.min(100, Number(rule.fun_reply_chance) || 0)), fun_replies: Array.isArray(rule.fun_replies) ? rule.fun_replies.join('\n---\n') : String(rule.fun_replies || ''), extra_reply_enabled: rule.extra_reply_enabled === true, extra_reply: String(rule.extra_reply ?? '叮！恭喜你喜提特等奖掉落。') }
 }
 function addRule() { cfg.rules_text.push(normalizeRule()); openRule.value = cfg.rules_text.length - 1 }
 function duplicateRule(index) { cfg.rules_text.splice(index + 1, 0, normalizeRule(cfg.rules_text[index])); openRule.value = index + 1 }
@@ -26,6 +26,8 @@ async function save() {
   if (new Set(keys).size !== keys.length) { props.host.toast.error('关键词不能重复'); return }
   const missingFun = cfg.rules_text.findIndex(rule => rule.fun_reply_chance > 0 && !rule.fun_replies.trim())
   if (missingFun >= 0) { openRule.value = missingFun; props.host.toast.error(`第 ${missingFun + 1} 条规则设置了趣味概率，请至少填写一条趣味文字`); return }
+  const missingExtra = cfg.rules_text.findIndex(rule => rule.extra_reply_enabled && !rule.extra_reply.trim())
+  if (missingExtra >= 0) { openRule.value = missingExtra; props.host.toast.error(`第 ${missingExtra + 1} 条规则已开启追加回复，请填写追加回复内容`); return }
   saving.value = true
   try {
     cfg.rules_text = cfg.rules_text.map(normalizeRule)
@@ -70,7 +72,7 @@ onMounted(async () => {
           <li v-for="(rule, index) in cfg.rules_text" :key="index" :class="{ open: openRule === index }">
             <button class="rule-summary" @click="openRule = openRule === index ? -1 : index">
               <span class="order">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="summary-copy"><b>{{ rule.keyword || '任意消息' }}</b><small>{{ rule.keyword ? (rule.match_type === 'exact' ? '完全匹配' : '包含匹配') : '无需关键词' }} · {{ rule.trigger_chance }}% 触发 · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通消息' }} · {{ rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却' }}{{ rule.fun_reply_chance ? ` · ${rule.fun_reply_chance}% 彩蛋` : '' }}</small></span>
+              <span class="summary-copy"><b>{{ rule.keyword || '任意消息' }}</b><small>{{ rule.keyword ? (rule.match_type === 'exact' ? '完全匹配' : '包含匹配') : '无需关键词' }} · {{ rule.trigger_chance }}% 触发 · {{ rule.trigger_mode === 'reply_to_me' ? '需回复我的消息' : '普通消息' }} · {{ rule.cooldown_hours ? (rule.reset_at_midnight ? '每日零点重置' : `${rule.cooldown_hours} 小时冷却`) : '无冷却' }}{{ rule.extra_reply_enabled ? ' · 追加回复' : '' }}{{ rule.fun_reply_chance ? ` · ${rule.fun_reply_chance}% 彩蛋` : '' }}</small></span>
               <span class="chevron">{{ openRule === index ? '收起' : '编辑' }}</span>
             </button>
             <div v-if="openRule === index" class="editor">
@@ -78,6 +80,8 @@ onMounted(async () => {
               <label><span>触发概率（%）</span><input v-model.number="rule.trigger_chance" type="number" min="0" max="100" step="1"><small class="field-help">100 表示每次满足条件都触发，0 表示暂停此规则。</small></label>
               <label><span>触发方式</span><select v-model="rule.trigger_mode"><option value="any">普通消息（不要求回复我）</option><option value="reply_to_me">回复我的消息才触发</option></select><small class="field-help">选择“回复我的消息”后，只有别人回复本账号发出的消息且满足关键词条件时才执行。</small></label>
               <label><span>回复内容</span><textarea v-model="rule.reply" rows="4" placeholder="支持 {uname}、{uid} 和 10-100 随机数"></textarea></label>
+              <label class="check"><input v-model="rule.extra_reply_enabled" type="checkbox"><span>发送一条追加回复</span></label>
+              <label v-if="rule.extra_reply_enabled"><span>追加回复内容</span><textarea v-model="rule.extra_reply" rows="3" placeholder="叮！恭喜你喜提特等奖掉落。"></textarea><small class="field-help">标准回复发出后，再单独发送此消息；同样支持 {uname}、{uid} 和随机数。</small></label>
               <div class="field-grid"><label><span>此规则冷却（小时）</span><input v-model.number="rule.cooldown_hours" type="number" min="0" max="720" step="0.5"></label><label><span>冷却计算方式</span><select v-model="rule.reset_at_midnight"><option :value="false">按小时滚动计算</option><option :value="true">每天零点重置</option></select></label></div>
               <div class="option-row"><label class="check"><input v-model="rule.cooldown_notify" type="checkbox"><span>冷却中回复剩余时间</span></label><label class="check"><input v-model="rule.count_for_leaderboard" type="checkbox"><span>命中后计入羊毛榜</span></label></div>
               <div class="field-grid"><label><span>趣味文字概率（%）</span><input v-model.number="rule.fun_reply_chance" type="number" min="0" max="100" step="1"><small class="field-help">设为 0 表示始终发送标准回复。</small></label><label><span>趣味回复文案</span><textarea v-model="rule.fun_replies" rows="7" placeholder="【系统提示】：该 NPC 暂无掉落物。&#10;建议获取途径：&#10;&#10;1、日常任务：老实做种；&#10;&#10;2、隐藏副本：去隔壁群乞讨。"></textarea><small class="field-help">一整段会完整发送并保留换行；配置多条随机文案时，用单独一行 --- 分隔。</small></label></div>
