@@ -18,11 +18,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.9",
+    "version": "2.5.10",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.9 修复 Audiences 与 U2 最终状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执，避免实际成功却通知失败\n- U2 以顶部‘[已签到]’作为最终确认，不再误读‘[立即签到]’或 Show Up 菜单\n\nv2.5.8 修复 Docker 环境签到确认\n- PigGo 改为优先使用平台 Cookie 轻量签到，命中安全挑战时才降级 CloakBrowser\n- U2/TTG 提交后回查服务端最终状态，兼容不同语言和 JSON 回执\n- 未确认成功时仍保持失败，避免假签到",
+    "changelog": "v2.5.10 修复 U2 与 TTG 提交后的最终确认\n- U2 改为在提交前后回查首页顶部‘[已签到]’，不再错误检查 showup.php\n- HTTP 提交后切换浏览器前先确认首页，避免已经成功后重复提交\n- TTG 兼容 JSON/纯文本回执并以首页‘[已签到]’作为最终依据\n\nv2.5.9 修复 Audiences 与 U2 状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执\n- U2 不再误读‘[立即签到]’或 Show Up 菜单",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -265,13 +265,18 @@ def _ttg_result_state(text: str) -> tuple[str, str] | None:
     """兼容 TTG HTML、纯文本和 JSON 三类签到回执。"""
     raw = text or ""
     compact = re.sub(r"\s+", "", _html_visible_text(raw)).lower()
+    if any(marker in compact for marker in (
+        "签到失败", "簽到失敗", "操作频繁", "请稍后再试", "signfailed",
+    )):
+        return "failed", "网站返回签到失败"
     if re.search(r"\[\s*已签到\s*\]", raw, re.IGNORECASE) or any(marker in compact for marker in (
         "今天已签到过", "今日已签到", "今天已经签到", "alreadysigned",
     )):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
         "您已连续签到", "签到成功", "簽到成功", "signsuccess", "signedsuccessfully",
-    )) or re.search(r'"(?:success|status|code)"\s*:\s*(?:true|1|200)', raw, re.IGNORECASE):
+    )) or re.search(r'"(?:success|status)"\s*:\s*(?:true|1|200)', raw, re.IGNORECASE) \
+            or re.search(r'"code"\s*:\s*(?:0|200)', raw, re.IGNORECASE):
         return "success", "签到成功"
     return None
 
@@ -605,6 +610,14 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             initial = _u2_result_state(html)
             if initial:
                 return {"status": initial[0], "message": initial[1]}
+            # U2 的权威状态位于首页顶部：[立即签到] 成功后变为 [已签到]。
+            # showup.php 本身可能继续显示表单，因此必须先查首页，避免重复提交。
+            page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
+            home_state = _u2_result_state(page.content())
+            if home_state:
+                return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
+            page.goto(site["url"], wait_until="domcontentloaded", timeout=60_000)
+            html = page.content()
             form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
             req = form.locator('input[name="req"]').get_attribute("value")
             hash_value = form.locator('input[name="hash"]').get_attribute("value")
@@ -621,11 +634,11 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             posted = _u2_result_state(body)
             if posted:
                 return {"status": "success", "message": posted[1]}
-            page.goto("https://u2.dmhy.org/showup.php", wait_until="domcontentloaded", timeout=60_000)
+            page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
             confirmed = page.content()
             final = _u2_result_state(confirmed)
             if final:
-                return {"status": "success", "message": "签到成功（页面状态已确认）"}
+                return {"status": "success", "message": "签到成功（首页状态已确认）"}
             raise RuntimeError("U2 签到提交后仍未确认已签到")
         raise RuntimeError("暂不支持该站点的自动验证")
     if mode == "visit":
@@ -673,6 +686,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     if mode == "ttg":
         initial = _ttg_result_state(html)
         if initial:
+            if initial[0] == "failed":
+                raise RuntimeError(initial[1])
             return {"status": initial[0], "message": initial[1]}
         timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', html)
         token = re.search(r'signed_token:\s*["\']([^"\']+)', html)
@@ -681,6 +696,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         result = _fetch_same_origin(page, "https://totheglory.im/signed.php", method="POST", data={"signed_timestamp": timestamp.group(1), "signed_token": token.group(1)})
         posted = _ttg_result_state(result.get("text", ""))
         if posted:
+            if posted[0] == "failed":
+                raise RuntimeError(posted[1])
             return {"status": posted[0], "message": posted[1]}
         page.goto(site["url"], wait_until="domcontentloaded", timeout=60_000)
         final = _ttg_result_state(page.content())
@@ -922,6 +939,8 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         if mode == "ttg":
             initial = _ttg_result_state(text)
             if initial:
+                if initial[0] == "failed":
+                    raise RuntimeError(initial[1])
                 return {"status": initial[0], "message": initial[1], "engine": "http"}
             timestamp = re.search(r'signed_timestamp:\s*["\'](\d{10})', text)
             token = re.search(r'signed_token:\s*["\']([^"\']+)', text)
@@ -934,6 +953,8 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             )
             posted = _ttg_result_state(body)
             if posted:
+                if posted[0] == "failed":
+                    raise RuntimeError(posted[1])
                 return {"status": posted[0], "message": posted[1], "engine": "http"}
             _, confirmed = await get(site["url"])
             final = _ttg_result_state(confirmed)
@@ -1011,6 +1032,11 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             initial = _u2_result_state(text)
             if initial:
                 return {"status": initial[0], "message": initial[1], "engine": "http"}
+            # 签到状态只在首页顶部可靠展示；先确认首页再解析/提交表单。
+            _, home = await get("https://u2.dmhy.org/")
+            home_state = _u2_result_state(home)
+            if home_state:
+                return {"status": "already", "message": "今天已经签到（首页状态已确认）", "engine": "http"}
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
             submits = soup.select('input[type="submit"][name]')
@@ -1025,10 +1051,10 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             posted = _u2_result_state(body)
             if posted:
                 return {"status": "success", "message": posted[1], "engine": "http"}
-            _, confirmed = await get("https://u2.dmhy.org/showup.php")
+            _, confirmed = await get("https://u2.dmhy.org/")
             final = _u2_result_state(confirmed)
             if final:
-                return {"status": "success", "message": "签到成功（页面状态已确认）", "engine": "http"}
+                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             raise _NeedsBrowser("U2 HTTP 提交后未确认最终状态，切换 CloakBrowser 回查")
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
@@ -1097,6 +1123,8 @@ async def _run(ctx, source: str) -> dict:
                             timeout=720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150),
                         )
                     status = str((outcome or {}).get("status") or "success")
+                    if status == "failed":
+                        raise RuntimeError(str((outcome or {}).get("message") or "网站返回签到失败"))
                     engine = str((outcome or {}).get("engine") or "browser")
                     item = {
                         "key": key, "site": site["name"], "ok": True, "status": status,

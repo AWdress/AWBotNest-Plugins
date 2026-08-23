@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.9",
+    "version": "2.5.10",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.9 修复 Audiences 与 U2 最终状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执，避免实际成功却通知失败\n- U2 以顶部‘[已签到]’作为最终确认，不再误读‘[立即签到]’或 Show Up 菜单\n\nv2.5.8 修复 Docker 环境签到确认\n- PigGo 改为优先使用平台 Cookie 轻量签到，命中安全挑战时才降级 CloakBrowser\n- U2/TTG 提交后回查服务端最终状态，兼容不同语言和 JSON 回执\n- 未确认成功时仍保持失败，避免假签到",
+    "changelog": "v2.5.10 修复 U2 与 TTG 提交后的最终确认\n- U2 改为在提交前后回查首页顶部‘[已签到]’，不再错误检查 showup.php\n- HTTP 提交后切换浏览器前先确认首页，避免已经成功后重复提交\n- TTG 兼容 JSON/纯文本回执并以首页‘[已签到]’作为最终依据\n\nv2.5.9 修复 Audiences 与 U2 状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执\n- U2 不再误读‘[立即签到]’或 Show Up 菜单",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
