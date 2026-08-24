@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.7",
+    "version": "1.1.8",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.7 适配 GPT-GOD 新版签到回执\n- 官网当前仍使用 POST /user/checkin，兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的签到误报失败\n- 增加新版‘签到 领取 N 积分’按钮和即时成功提示确认\n\nv1.1.6 使用签到接口确认结果\n- 监听 GPT-GOD 官方 POST /user/checkin 响应并优先采用服务端结果\n- 修复 SPA 按钮未及时刷新时实际签到成功却被误报失败的问题\n- 明确失败响应不再盲目重复提交",
+    "changelog": "v1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -317,16 +317,25 @@ def _visible_checkin_state(page) -> str | None:
 
 
 def _click_checkin(page) -> bool:
-    if _click_first_visible(page, (
-        'button:has-text("签到领取")',
-        'button:has-text("签到")',
-        '[role="button"]:has-text("签到领取")',
-        '[role="button"]:has-text("签到")',
-        'button:has-text("Check-in")',
-        '[role="button"]:has-text("Check-in")',
-    ), require_enabled=True):
-        return True
-    # 末级兼容：只点击可见、可交互且文字明确为签到的元素。
+    """严格点击领取按钮，避免误点同页“签到 / 兑换码”快捷入口。"""
+    try:
+        candidates = page.locator('button, [role="button"], .ant-btn')
+        for index in range(min(candidates.count(), 100)):
+            candidate = candidates.nth(index)
+            if not candidate.is_visible(timeout=500) or not candidate.is_enabled():
+                continue
+            text = "".join(candidate.inner_text().split()).lower()
+            if not (
+                text in {"签到", "check-in", "checkin"}
+                or re.fullmatch(r"签到领取[\d,.]+积分", text)
+                or re.fullmatch(r"check-infor[\d,.]+points", text)
+            ):
+                continue
+            candidate.click()
+            return True
+    except Exception:  # noqa: BLE001 - 交给 DOM 事件兜底
+        pass
+    # 末级兼容同样使用严格全文规则，不使用 :has-text() 的包含匹配。
     try:
         return bool(page.evaluate("""() => {
             const nodes = [...document.querySelectorAll('button,[role="button"],a,.ant-btn')];
@@ -337,8 +346,9 @@ def _click_checkin(page) -> bool:
                     && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
                 const enabled = !node.disabled && node.getAttribute('aria-disabled') !== 'true';
                 return visible && enabled && (
-                    text === '签到' || text.startsWith('签到领取')
+                    text === '签到' || /^签到领取[\d,.]+积分$/.test(text)
                     || text === 'check-in' || text === 'checkin'
+                    || /^check-infor[\d,.]+points$/.test(text)
                 );
             });
             if (!target) return false;
