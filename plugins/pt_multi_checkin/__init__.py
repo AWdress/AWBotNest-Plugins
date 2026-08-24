@@ -10,6 +10,7 @@ import re
 import secrets
 import threading
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
@@ -18,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.10",
+    "version": "2.5.11",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.10 修复 U2 与 TTG 提交后的最终确认\n- U2 改为在提交前后回查首页顶部‘[已签到]’，不再错误检查 showup.php\n- HTTP 提交后切换浏览器前先确认首页，避免已经成功后重复提交\n- TTG 兼容 JSON/纯文本回执并以首页‘[已签到]’作为最终依据\n\nv2.5.9 修复 Audiences 与 U2 状态识别\n- Audiences 兼容新版‘签到成功/签到已得’回执\n- U2 不再误读‘[立即签到]’或 Show Up 菜单",
+    "changelog": "v2.5.11 修复 U2 已签到状态误判、签到时区并增强验证码识别稳定性\n- U2 改为匹配剔除脚本后的可见文本，兼容方括号与文字被 HTML 标签分隔的页面\n- U2 的 09:00 签到限制固定按 Asia/Shanghai 判断，不受服务器系统时区影响\n- HTTP 连接超时或传输异常时自动切换 CloakBrowser，不再直接判定失败\n- OpenCD 等验证码站点遇到视觉模型临时故障时自动有限重试\n- 异常没有文本时显示异常类型，不再推送空白失败原因\n\nv2.5.10 修复 U2 与 TTG 提交后的最终确认\n- U2 改为在提交前后回查首页顶部‘[已签到]’，不再错误检查 showup.php\n- HTTP 提交后切换浏览器前先确认首页，避免已经成功后重复提交\n- TTG 兼容 JSON/纯文本回执并以首页‘[已签到]’作为最终依据",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -93,6 +94,7 @@ _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
 _browser_cookie_cache: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
+_CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _cfg(ctx) -> dict:
@@ -248,8 +250,9 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
 def _u2_result_state(text: str) -> tuple[str, str] | None:
     """识别 U2 的最终签到状态；不把未签到时的 Show Up 菜单当成成功。"""
     raw = text or ""
-    compact = re.sub(r"\s+", "", _html_visible_text(raw)).lower()
-    if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", raw, re.IGNORECASE) or any(marker in compact for marker in (
+    visible = _html_visible_text(raw)
+    compact = re.sub(r"\s+", "", visible).lower()
+    if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
         "alreadyshoweduptoday", "alreadycheckedintoday",
     )):
@@ -529,9 +532,18 @@ def _ai_choice(ctx, loop, question: str, options: list[str]) -> int:
 
 
 def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
-    answer = _ai_call(ctx, loop, "vision", image=image, prompt=(
-        f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。"
-    ))
+    answer = ""
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            answer = _ai_call(ctx, loop, "vision", image=image, prompt=(
+                f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。"
+            ))
+            break
+        except Exception as exc:  # noqa: BLE001 - 模型上游偶发失败时有限重试
+            last_error = exc
+    else:
+        raise RuntimeError(f"视觉模型连续调用失败：{type(last_error).__name__}") from last_error
     if "UNKNOWN" in answer.upper():
         raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
     candidates = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
@@ -605,8 +617,6 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             result = _fetch_same_origin(page, "https://www.open.cd/plugin_sign-in.php?cmd=signin", method="POST", data={"imagehash": image_hash, "imagestring": captcha})
             return _response_result(result.get("text", ""), success=('"state":"success"', '"state":true'), already=("已签到",))
         if key == "u2":
-            if datetime.now().hour < 9:
-                raise RuntimeError("U2 站点规则要求 09:00 后签到")
             initial = _u2_result_state(html)
             if initial:
                 return {"status": initial[0], "message": initial[1]}
@@ -616,6 +626,8 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             home_state = _u2_result_state(page.content())
             if home_state:
                 return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
+            if datetime.now(_CHINA_TZ).hour < 9:
+                raise RuntimeError("U2 站点规则要求 09:00 后签到")
             page.goto(site["url"], wait_until="domcontentloaded", timeout=60_000)
             html = page.content()
             form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
@@ -843,10 +855,19 @@ async def _http_ai_choice(ctx, question: str, options: list[str]) -> int:
 async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
     if not _ai_available(ctx, "vision"):
         raise RuntimeError("平台未配置视觉模型，无法识别签到验证码")
-    answer = str(await ctx.ai.vision(
-        image=image, prompt=f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。",
-        system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。",
-    ) or "").strip()
+    answer = ""
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            answer = str(await ctx.ai.vision(
+                image=image, prompt=f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。",
+                system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。",
+            ) or "").strip()
+            break
+        except Exception as exc:  # noqa: BLE001 - 模型上游偶发失败时有限重试
+            last_error = exc
+    else:
+        raise RuntimeError(f"视觉模型连续调用失败：{type(last_error).__name__}") from last_error
     if "UNKNOWN" in answer.upper():
         raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
     matches = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
@@ -1027,8 +1048,6 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             _, body = await post("https://www.open.cd/plugin_sign-in.php?cmd=signin", data={"imagehash": hash_node.get("value"), "imagestring": captcha})
             return {**_response_result(body, success=('"state":"success"', '"state":true'), already=("已签到",)), "engine": "http"}
         if key == "u2":
-            if datetime.now().hour < 9:
-                raise RuntimeError("U2 站点规则要求 09:00 后签到")
             initial = _u2_result_state(text)
             if initial:
                 return {"status": initial[0], "message": initial[1], "engine": "http"}
@@ -1037,6 +1056,8 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             home_state = _u2_result_state(home)
             if home_state:
                 return {"status": "already", "message": "今天已经签到（首页状态已确认）", "engine": "http"}
+            if datetime.now(_CHINA_TZ).hour < 9:
+                raise RuntimeError("U2 站点规则要求 09:00 后签到")
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
             submits = soup.select('input[type="submit"][name]')
@@ -1101,6 +1122,8 @@ async def _run(ctx, source: str) -> dict:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
                             browser_reason = str(fallback)
+                        except httpx.RequestError as fallback:
+                            browser_reason = f"HTTP 网络异常（{type(fallback).__name__}），切换 CloakBrowser"
                     else:
                         browser_reason = "TJUPT 需要页面交互验证"
 
@@ -1146,7 +1169,8 @@ async def _run(ctx, source: str) -> dict:
                     elif attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)
                     else:
-                        item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": str(exc)}
+                        message = str(exc).strip() or type(exc).__name__
+                        item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": message}
                         break
             results.append(item)
             _state["completed"] += 1
