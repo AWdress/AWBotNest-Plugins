@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.13",
+    "version": "2.5.14",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.13 修复签到运行时配置页、状态与日志接口全部阻塞\n- 插件资源并发从 1 调整为 8，允许签到后台运行时同时读取配置、状态、历史和日志\n- 签到任务仍由运行锁保证单实例执行，不会因提高接口并发而重复签到\n\nv2.5.12 修复配置页无限加载并新增实时运行日志\n- 配置与接口请求增加超时、错误提示和重新加载，不再永久停在读取状态\n- 签到过程记录准备、HTTP、浏览器降级、成功与失败事件，配置页实时展示\n- 运行日志保留最近 200 条，可手动清空",
+    "changelog": "v2.5.14 补全浏览器等待日志并同步到平台日志\n- 每条签到运行记录同时通过 ctx.log 写入平台运行日志，可按插件名筛选\n- CloakBrowser 安全验证或页面等待期间每 10 秒输出一次阶段与累计耗时，不再看似卡死\n- 浏览器任务取消时同步取消底层等待，避免残留后台操作\n\nv2.5.13 修复签到运行时配置页、状态与日志接口全部阻塞\n- 插件资源并发从 1 调整为 8，允许签到后台运行时同时读取配置、状态、历史和日志\n- 签到任务仍由运行锁保证单实例执行，不会因提高接口并发而重复签到",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -98,7 +98,7 @@ _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
 
 
-def _runtime_log(message: str, *, level: str = "info", site: str = "") -> None:
+def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> None:
     _runtime_logs.append({
         "time": datetime.now(_CHINA_TZ).strftime("%H:%M:%S"),
         "level": level,
@@ -106,6 +106,30 @@ def _runtime_log(message: str, *, level: str = "info", site: str = "") -> None:
         "message": str(message),
     })
     del _runtime_logs[:-200]
+    try:
+        logger = getattr(ctx, "log", None)
+        method = "warning" if level == "warning" else ("error" if level == "error" else "info")
+        if logger is not None:
+            getattr(logger, method)("%s%s", f"[{site}] " if site else "", message)
+    except Exception:
+        pass
+
+
+async def _with_heartbeat(awaitable, ctx, site: str, message: str, interval: int = 10):
+    """等待长浏览器任务时持续写入插件页与平台日志。"""
+    task = asyncio.create_task(awaitable)
+    elapsed = 0
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=interval)
+            if done:
+                return task.result()
+            elapsed += interval
+            _runtime_log(ctx, f"{message}，已等待 {elapsed} 秒", level="warning", site=site)
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 def _cfg(ctx) -> dict:
@@ -1110,17 +1134,17 @@ async def _run(ctx, source: str) -> dict:
             "finished_at": "", "current": "", "phase": "准备", "message": "正在准备签到任务",
             "completed": 0, "total": len(enabled),
         })
-        _runtime_log(f"开始{source}签到，共 {len(enabled)} 个站点")
+        _runtime_log(ctx, f"开始{source}签到，共 {len(enabled)} 个站点")
         results = []
         retries = _bounded(cfg.get("retry_count"), 2, 0, 5)
         interval = _bounded(cfg.get("retry_interval"), 20, 5, 300)
         loop = asyncio.get_running_loop()
         for key, site in enabled:
             _state.update({"current": site["name"], "phase": "读取 Cookie", "message": f"正在读取 {site['name']} 平台 Cookie"})
-            _runtime_log("读取平台 Cookie", site=site["name"])
+            _runtime_log(ctx, "读取平台 Cookie", site=site["name"])
             cookie, error = await _site_cookie(ctx, key, site)
             if error:
-                _runtime_log(error, level="error", site=site["name"])
+                _runtime_log(ctx, error, level="error", site=site["name"])
                 results.append({"key": key, "site": site["name"], "ok": False, "status": "failed", "message": error})
                 _state["completed"] += 1
                 continue
@@ -1132,7 +1156,7 @@ async def _run(ctx, source: str) -> dict:
                     browser_reason = ""
                     if key != "tjupt":
                         _state.update({"phase": "HTTP 请求", "message": f"{site['name']} 正在使用轻量 HTTP 签到"})
-                        _runtime_log("使用轻量 HTTP 检查签到状态", site=site["name"])
+                        _runtime_log(ctx, "使用轻量 HTTP 检查签到状态", site=site["name"])
                         try:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
@@ -1144,7 +1168,7 @@ async def _run(ctx, source: str) -> dict:
 
                     if outcome is None:
                         _state.update({"phase": "浏览器降级", "message": f"{site['name']}：{browser_reason}"})
-                        _runtime_log(browser_reason, level="warning", site=site["name"])
+                        _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
                         def action(page, site_key=key, current_site=site):
                             if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
@@ -1156,10 +1180,13 @@ async def _run(ctx, source: str) -> dict:
                                 return result
                             return _special_checkin(page, site_key, current_site, ctx, loop)
 
-                        outcome = await ctx.browser.run(
-                            site["url"], action, cookies=cookie,
-                            headless=bool(cfg.get("headless", True)),
-                            timeout=720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150),
+                        outcome = await _with_heartbeat(
+                            ctx.browser.run(
+                                site["url"], action, cookies=cookie,
+                                headless=bool(cfg.get("headless", True)),
+                                timeout=720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150),
+                            ),
+                            ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
                         )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
@@ -1169,7 +1196,7 @@ async def _run(ctx, source: str) -> dict:
                         "key": key, "site": site["name"], "ok": True, "status": status,
                         "engine": engine, "message": str((outcome or {}).get("message") or "签到完成"),
                     }
-                    _runtime_log(item["message"], level="success", site=site["name"])
+                    _runtime_log(ctx, item["message"], level="success", site=site["name"])
                     break
                 except Exception as exc:  # noqa: BLE001
                     login_expired = "Cookie 已失效" in str(exc) or "网站返回登录页" in str(exc)
@@ -1181,7 +1208,7 @@ async def _run(ctx, source: str) -> dict:
                             cookie = refreshed
                         elif refresh_error:
                             item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": refresh_error}
-                            _runtime_log(refresh_error, level="error", site=site["name"])
+                            _runtime_log(ctx, refresh_error, level="error", site=site["name"])
                             break
                         await asyncio.sleep(min(interval, 5))
                     elif attempt < retries and _retryable_error(exc):
@@ -1189,7 +1216,7 @@ async def _run(ctx, source: str) -> dict:
                     else:
                         message = str(exc).strip() or type(exc).__name__
                         item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": message}
-                        _runtime_log(message, level="error", site=site["name"])
+                        _runtime_log(ctx, message, level="error", site=site["name"])
                         break
             results.append(item)
             _state["completed"] += 1
@@ -1213,7 +1240,7 @@ async def _run(ctx, source: str) -> dict:
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("签到结果推送失败：%r", exc)
         _state.update({"running": False, "finished_at": stamp, "current": "", "phase": "完成", "message": summary})
-        _runtime_log(summary, level="success" if success == len(results) else "warning")
+        _runtime_log(ctx, summary, level="success" if success == len(results) else "warning")
         return {"ok": success == len(results), "message": text, "results": results}
 
 
@@ -1222,7 +1249,7 @@ async def setup(ctx):
     _run_lock = asyncio.Lock()
     _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0})
     _runtime_logs.clear()
-    _runtime_log("插件已加载，等待签到任务")
+    _runtime_log(ctx, "插件已加载，等待签到任务")
 
     @ctx.on_api("/meta", methods=["GET"])
     async def api_meta(req):
@@ -1262,7 +1289,7 @@ async def setup(ctx):
     @ctx.on_api("/logs/clear", methods=["POST"])
     async def api_logs_clear(req):
         _runtime_logs.clear()
-        _runtime_log("运行日志已清空")
+        _runtime_log(ctx, "运行日志已清空")
         return {"ok": True, "message": "运行日志已清空"}
 
     @ctx.on_api("/cookies/check", methods=["POST"])
