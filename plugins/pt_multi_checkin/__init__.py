@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.12",
+    "version": "2.5.13",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.12 修复配置页无限加载并新增实时运行日志\n- 配置与接口请求增加超时、错误提示和重新加载，不再永久停在读取状态\n- 签到过程记录准备、HTTP、浏览器降级、成功与失败事件，配置页实时展示\n- 运行日志保留最近 200 条，可手动清空\n\nv2.5.11 修复 U2 已签到状态误判、签到时区并增强验证码识别稳定性\n- U2 改为匹配剔除脚本后的可见文本，兼容方括号与文字被 HTML 标签分隔的页面\n- U2 的 09:00 签到限制固定按 Asia/Shanghai 判断，不受服务器系统时区影响\n- HTTP 连接超时或传输异常时自动切换 CloakBrowser，不再直接判定失败\n- OpenCD 等验证码站点遇到视觉模型临时故障时自动有限重试\n- 异常没有文本时显示异常类型，不再推送空白失败原因",
+    "changelog": "v2.5.13 修复签到运行时配置页、状态与日志接口全部阻塞\n- 插件资源并发从 1 调整为 8，允许签到后台运行时同时读取配置、状态、历史和日志\n- 签到任务仍由运行锁保证单实例执行，不会因提高接口并发而重复签到\n\nv2.5.12 修复配置页无限加载并新增实时运行日志\n- 配置与接口请求增加超时、错误提示和重新加载，不再永久停在读取状态\n- 签到过程记录准备、HTTP、浏览器降级、成功与失败事件，配置页实时展示\n- 运行日志保留最近 200 条，可手动清空",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -45,7 +45,7 @@ __plugin__ = {
     "default_enabled": False,
     "render_mode": "vue",
     "resources": {
-        "timeout_seconds": 1800, "max_concurrency": 1, "max_background_tasks": 3,
+        "timeout_seconds": 1800, "max_concurrency": 8, "max_background_tasks": 3,
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
