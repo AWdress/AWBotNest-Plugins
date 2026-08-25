@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.14",
+    "version": "2.5.15",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.14 补全浏览器等待日志并同步到平台日志\n- 每条签到运行记录同时通过 ctx.log 写入平台运行日志，可按插件名筛选\n- CloakBrowser 安全验证或页面等待期间每 10 秒输出一次阶段与累计耗时，不再看似卡死\n- 浏览器任务取消时同步取消底层等待，避免残留后台操作\n\nv2.5.13 修复签到运行时配置页、状态与日志接口全部阻塞\n- 插件资源并发从 1 调整为 8，允许签到后台运行时同时读取配置、状态、历史和日志\n- 签到任务仍由运行锁保证单实例执行，不会因提高接口并发而重复签到",
+    "changelog": "v2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程\n\nv2.5.14 补全浏览器等待日志并同步到平台日志\n- 每条签到运行记录同时通过 ctx.log 写入平台运行日志，可按插件名筛选\n- CloakBrowser 安全验证或页面等待期间每 10 秒输出一次阶段与累计耗时，不再看似卡死\n- 浏览器任务取消时同步取消底层等待，避免残留后台操作",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -115,7 +115,7 @@ def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> N
         pass
 
 
-async def _with_heartbeat(awaitable, ctx, site: str, message: str, interval: int = 10):
+async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: int = 10, max_wait: int = 600):
     """等待长浏览器任务时持续写入插件页与平台日志。"""
     task = asyncio.create_task(awaitable)
     elapsed = 0
@@ -126,6 +126,11 @@ async def _with_heartbeat(awaitable, ctx, site: str, message: str, interval: int
                 return task.result()
             elapsed += interval
             _runtime_log(ctx, f"{message}，已等待 {elapsed} 秒", level="warning", site=site)
+            if elapsed >= max_wait:
+                raise RuntimeError(
+                    f"CloakBrowser 等待超过 {max_wait} 秒，已终止本轮签到；"
+                    "若日志曾长时间停在浏览器等待，请重启平台以释放底层浏览器线程"
+                )
     finally:
         if not task.done():
             task.cancel()
@@ -369,7 +374,7 @@ def _retryable_error(exc: Exception) -> bool:
     permanent = (
         "cookie", "登录页", "人工签到", "人工处理", "验证码", "没有访问权限",
         "非预期域名", "格式不正确", "bot 未连接", "主人 id",
-        "等待 telegram", "签到选项", "验证题已变化",
+        "等待 telegram", "签到选项", "验证题已变化", "cloakbrowser 等待超过", "本轮跳过",
     )
     return not any(marker in text for marker in permanent)
 
@@ -1161,6 +1166,11 @@ async def _run(ctx, source: str) -> dict:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
                             browser_reason = str(fallback)
+                            if key == "ourbits" and "安全验证" in browser_reason:
+                                raise RuntimeError(
+                                    "OurBits 命中 HTTP 安全验证（403），为避免 CloakBrowser 无限等待，本轮跳过；"
+                                    "请稍后重试或在 CookieCloud 来源浏览器完成站点验证后重新同步"
+                                ) from fallback
                         except httpx.RequestError as fallback:
                             browser_reason = f"HTTP 网络异常（{type(fallback).__name__}），切换 CloakBrowser"
                     else:
@@ -1180,13 +1190,15 @@ async def _run(ctx, source: str) -> dict:
                                 return result
                             return _special_checkin(page, site_key, current_site, ctx, loop)
 
+                        browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
                         outcome = await _with_heartbeat(
                             ctx.browser.run(
                                 site["url"], action, cookies=cookie,
                                 headless=bool(cfg.get("headless", True)),
-                                timeout=720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150),
+                                timeout=browser_timeout,
                             ),
                             ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
+                            max_wait=browser_timeout + 30,
                         )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
