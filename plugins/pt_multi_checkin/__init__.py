@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.15",
+    "version": "2.5.16",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程\n\nv2.5.14 补全浏览器等待日志并同步到平台日志\n- 每条签到运行记录同时通过 ctx.log 写入平台运行日志，可按插件名筛选\n- CloakBrowser 安全验证或页面等待期间每 10 秒输出一次阶段与累计耗时，不再看似卡死\n- 浏览器任务取消时同步取消底层等待，避免残留后台操作",
+    "changelog": "v2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果\n\nv2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -173,11 +173,15 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     auth_cookie_missing = False
     for host in hosts:
         try:
-            if key == "opencd":
+            if key in {"opencd", "ourbits", "piggo"}:
                 items = await ctx.cookies.get(host, path=path)
                 names = {str(item.get("name") or "").lower() for item in items}
-                tracking_only = names and all(name.startswith(("_ga", "_gid", "_gat")) for name in names)
-                if tracking_only:
+                non_login = names and all(
+                    name.startswith(("_ga", "_gid", "_gat", "_fbp"))
+                    or name in {"cf_clearance", "__cf_bm", "cf_chl_2", "sl-session", "sl-challenge-server"}
+                    for name in names
+                )
+                if non_login:
                     auth_cookie_missing = True
                     continue
             cookie = await ctx.cookies.header(host, path=path)
@@ -193,11 +197,15 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
             continue
     for host in hosts:
         try:
-            if key == "opencd":
+            if key in {"opencd", "ourbits", "piggo"}:
                 items = await ctx.cookies.get(host, path=path)
                 names = {str(item.get("name") or "").lower() for item in items}
-                tracking_only = names and all(name.startswith(("_ga", "_gid", "_gat")) for name in names)
-                if tracking_only:
+                non_login = names and all(
+                    name.startswith(("_ga", "_gid", "_gat", "_fbp"))
+                    or name in {"cf_clearance", "__cf_bm", "cf_chl_2", "sl-session", "sl-challenge-server"}
+                    for name in names
+                )
+                if non_login:
                     auth_cookie_missing = True
                     continue
             cookie = await ctx.cookies.header(host, path=path)
@@ -209,7 +217,7 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     if last_error:
         return "", f"读取平台 Cookie 失败：{last_error}"
     if auth_cookie_missing:
-        return "", "平台只有该站统计 Cookie，没有登录会话；请在 CookieCloud 来源浏览器重新登录网站并同步"
+        return "", "平台只有该站安全验证/统计 Cookie，没有登录会话；请在 CookieCloud 来源浏览器重新登录网站并同步"
     return "", "平台中没有该站 Cookie，请登录网站并同步"
 
 
@@ -356,6 +364,19 @@ def _refreshed_cookie_header(page, expected_domain: str) -> str:
     return "; ".join(pairs)
 
 
+def _seed_browser_cookie_jar(page, cookie_header: str, url: str) -> None:
+    """把平台 Cookie Header 写入浏览器 Cookie Jar，确保安全验证跳转后仍保留登录态。"""
+    items = []
+    for part in str(cookie_header or "").split(";"):
+        name, separator, value = part.strip().partition("=")
+        if separator and name:
+            items.append({"name": name, "value": value, "url": url})
+    if not items:
+        return
+    page.context.add_cookies(items)
+    page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+
+
 def _captcha_error(text: str) -> str:
     low = (text or "").lower()
     if any(marker in low for marker in (
@@ -480,6 +501,10 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
     """刷新确认服务端状态；绝不为确认结果而再次点击签到按钮。"""
     for attempt in range(attempts):
         text = _page_text(page)
+        path = (urlparse(page.url).path or "/").lower()
+        html = page.content().lower()
+        if path.endswith(("/login.php", "/takelogin.php")) or 'name="username"' in html or "name='username'" in html:
+            raise RuntimeError("Cookie 已失效：签到后网站跳转到登录页，请在 CookieCloud 来源浏览器重新登录并同步")
         captcha = _captcha_error(text)
         if captcha:
             raise RuntimeError(captcha)
@@ -864,11 +889,20 @@ class _NeedsBrowser(RuntimeError):
 def _http_guard(response: httpx.Response) -> str:
     text = response.text or ""
     low = text.lower()
-    if response.status_code in {403, 429, 468, 503, 521, 522, 525} or any(marker in low for marker in (
+    # TTG 的正常首页会携带 Cloudflare 相关脚本字样；动态签到参数同时存在时
+    # 说明业务页已完整返回，不能仅凭脚本文案误判为挑战页。
+    trusted_ttg_page = (
+        response.status_code == 200
+        and "signed_timestamp" in text
+        and "signed_token" in text
+    )
+    if low.strip() in {"err cookie", "cookie error", "invalid cookie"}:
+        raise RuntimeError("Cookie 已失效：网站签到接口拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
+    if not trusted_ttg_page and (response.status_code in {403, 429, 468, 503, 521, 522, 525} or any(marker in low for marker in (
         "cf-chl-", "cloudflare ray id", "just a moment", "checking your browser",
         "turnstile", "雷池 waf", "安全检测能力由 雷池", "验证您是否是真人",
         "verification completed", "challenge-platform",
-    )):
+    ))):
         raise _NeedsBrowser(f"HTTP 命中安全验证（{response.status_code}），切换 CloakBrowser")
     if any(marker in low for marker in ('name="username"', "name='username'", "takelogin.php")) or response.url.path.lower().endswith(("/login.php", "/takelogin.php")):
         raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
@@ -1181,6 +1215,7 @@ async def _run(ctx, source: str) -> dict:
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
                         def action(page, site_key=key, current_site=site):
+                            _seed_browser_cookie_jar(page, cookie, current_site["url"])
                             if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
                                 result = _browser_checkin(page, current_site["domain"], ctx, loop)
                                 if site_key == "piggo":

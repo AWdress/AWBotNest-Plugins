@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.15",
+    "version": "2.5.16",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程\n\nv2.5.14 补全浏览器等待日志并同步到平台日志\n- 每条签到运行记录同时通过 ctx.log 写入平台运行日志，可按插件名筛选\n- CloakBrowser 安全验证或页面等待期间每 10 秒输出一次阶段与累计耗时，不再看似卡死\n- 浏览器任务取消时同步取消底层等待，避免残留后台操作",
+    "changelog": "v2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果\n\nv2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
