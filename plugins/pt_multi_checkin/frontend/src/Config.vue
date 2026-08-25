@@ -3,26 +3,40 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
 const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] })
-const sites = ref([]), history = ref([]), cookieState = reactive({})
+const sites = ref([]), history = ref([]), logs = ref([]), cookieState = reactive({})
 const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' })
-const loading = ref(true), saving = ref(false), checking = ref(false)
+const loading = ref(true), loadingError = ref(''), saving = ref(false), checking = ref(false)
 let timer
 const groups = computed(() => Object.entries(sites.value.reduce((all, site) => ((all[site.group] ||= []).push(site), all), {})))
 const progress = computed(() => status.total ? Math.round(status.completed / status.total * 100) : 0)
 
+function withTimeout(promise, label, timeout = 12000) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${label}超时，请确认插件已启用并重新加载`)), timeout))])
+}
 async function refresh() {
-  Object.assign(status, await props.host.callApi('/status'))
-  const data = await props.host.callApi('/history'); history.value = data.items || []
+  const [statusResult, historyResult, logsResult] = await Promise.allSettled([
+    withTimeout(props.host.callApi('/status'), '读取运行状态'),
+    withTimeout(props.host.callApi('/history'), '读取运行记录'),
+    withTimeout(props.host.callApi('/logs'), '读取运行日志'),
+  ])
+  if (statusResult.status === 'fulfilled') Object.assign(status, statusResult.value)
+  if (historyResult.status === 'fulfilled') history.value = historyResult.value.items || []
+  if (logsResult.status === 'fulfilled') logs.value = logsResult.value.items || []
+  if (status.running && !timer) timer = setInterval(refresh, 2500)
   if (!status.running && timer) { clearInterval(timer); timer = null }
 }
 async function load() {
+  loading.value = true; loadingError.value = ''
   try {
-    const [saved, meta] = await Promise.all([props.host.getConfig(), props.host.callApi('/meta')])
+    const [saved, meta] = await Promise.all([
+      withTimeout(props.host.getConfig(), '读取插件配置'),
+      withTimeout(props.host.callApi('/meta'), '读取签到站点'),
+    ])
     Object.assign(config, meta.defaults || {}, saved || {})
     sites.value = meta.sites || []
     if (!Array.isArray(config.selected_sites)) config.selected_sites = sites.value.map(site => site.key)
     await refresh()
-  } catch (error) { props.host.toast.error(`读取失败：${error.message || error}`) }
+  } catch (error) { loadingError.value = error.message || String(error); props.host.toast.error(`读取失败：${loadingError.value}`) }
   finally { loading.value = false }
 }
 async function save() {
@@ -49,12 +63,13 @@ async function checkCookies() {
 }
 function toggleGroup(items, enabled) { const keys = new Set(config.selected_sites); items.forEach(site => enabled ? keys.add(site.key) : keys.delete(site.key)); config.selected_sites = [...keys] }
 async function clearHistory() { const result = await props.host.callApi('/history/clear', { method: 'POST' }); if (result.ok) { history.value = []; props.host.toast.success(result.message) } }
+async function clearLogs() { const result = await props.host.callApi('/logs/clear', { method: 'POST' }); if (result.ok) { props.host.toast.success(result.message); await refresh() } }
 onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
 </script>
 
 <template>
   <!-- THESIS: Fast PT operations through glanceable controls and tactile checked labels, refusing spreadsheet-like site rows. OWN-WORLD: Ink-blue surfaces, crisp blue selection outlines, compact square checks, quiet cyan status. STORY: Choose sites, confirm platform cookies, save, and run with progress always visible. FIRST VIEWPORT: Title and actions lead; schedule controls sit in one rail; site chips fill grouped fields below. FORM: Compact operator console, seed PT-CHECK-CHIPS-3. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. -->
-  <main class="console" v-if="!loading">
+  <main class="console" v-if="!loading && !loadingError">
     <header class="mast">
       <div class="title-block"><span class="brand-mark" aria-hidden="true">PT</span><div><h2>多站签到</h2><p>平台 Cookie 自动同步 · 已选择 <b>{{ config.selected_sites.length }}</b> / {{ sites.length }} 个站点</p></div></div>
       <div class="mast-actions"><button class="button quiet" :disabled="checking || !config.selected_sites.length" @click="checkCookies"><span class="button-icon" aria-hidden="true"></span>{{ checking ? '正在检查' : '检查 Cookie' }}</button><button class="button primary" :disabled="status.running || !config.selected_sites.length" @click="run"><span class="play" aria-hidden="true"></span>{{ status.running ? '签到进行中' : '立即签到' }}</button></div>
@@ -99,8 +114,15 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
       <div class="history" v-if="history.length"><details v-for="item in history" :key="item.time"><summary><span :class="['result-mark', item.ok ? 'success' : 'failed']"></span><b>{{ item.summary }}</b><time>{{ item.time }}</time><span class="chevron"></span></summary><ul><li v-for="site in item.sites" :key="site.key || site.site"><span>{{ site.site }}</span><em :class="site.ok ? 'success-text' : 'failed-text'">{{ site.message }}</em></li></ul></details></div>
       <div v-else class="empty"><span class="empty-mark"></span><b>等待第一次签到</b><p>运行完成后，站点结果会显示在这里。</p></div>
     </section>
+
+    <section class="history-panel log-panel">
+      <div class="section-head"><div><h3>运行日志</h3><p>实时显示本次签到过程，最多保留 200 条。</p></div><button class="link-button danger" :disabled="!logs.length" @click="clearLogs">清空日志</button></div>
+      <div class="runtime-logs" v-if="logs.length"><div v-for="(item, index) in logs" :key="`${item.time}-${index}`" :class="['log-row', item.level]"><time>{{ item.time }}</time><b>{{ item.site || '系统' }}</b><span>{{ item.message }}</span></div></div>
+      <div v-else class="empty"><b>暂无运行日志</b><p>启动签到后，执行过程会实时显示在这里。</p></div>
+    </section>
   </main>
-  <div v-else class="loading">正在读取签到配置…</div>
+  <div v-else-if="loading" class="loading">正在读取签到配置…</div>
+  <div v-else class="load-error"><b>签到配置读取失败</b><p>{{ loadingError }}</p><button class="button primary" @click="load">重新加载</button></div>
 </template>
 
 <style scoped>
@@ -117,4 +139,5 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
 @media(max-width:620px){.control-rail>.toggles{width:100%!important;min-width:0!important}.control-rail>.schedule-fields{flex-basis:100%!important}}
 
 .site-name{display:flex;align-items:center;gap:6px;min-width:0}.site-name>b{min-width:0}.site-name>em{flex:0 0 auto;padding:1px 5px;border:1px solid #9b6b2b;border-radius:5px;color:#ffc56c;background:#302413;font-size:9px;font-style:normal;font-weight:750;line-height:15px}
+.runtime-logs{max-height:320px;overflow:auto;font:12px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace}.log-row{display:grid;grid-template-columns:64px 110px 1fr;gap:12px;padding:8px 18px;border-top:1px solid var(--line-soft);color:#aebdd0}.log-row:first-child{border-top:0}.log-row time{color:#7188a1}.log-row b{overflow:hidden;color:#8ebce9;text-overflow:ellipsis;white-space:nowrap}.log-row.success span{color:var(--green)}.log-row.warning span{color:#ffc56c}.log-row.error span{color:var(--red)}.load-error{padding:40px;border:1px solid #713845;border-radius:14px;color:#d9e5f2;background:#101b2a;text-align:center}.load-error b{font-size:17px}.load-error p{margin:8px auto 18px;max-width:620px;color:#ff9da6}.load-error .button{margin:auto}@media(max-width:620px){.log-row{grid-template-columns:58px 80px 1fr;padding-inline:12px;gap:8px}}
 </style>

@@ -12,6 +12,6 @@ export default defineConfig({
       shared: { vue: { singleton: true, requiredVersion: false, generate: false } }, format: 'esm',
     }),
   ],
-  build: { target: 'esnext', minify: false, cssCodeSplit: true },
+  build: { target: 'esnext', minify: false, cssCodeSplit: true, emptyOutDir: false },
   server: { port: 5014, cors: true },
 })
