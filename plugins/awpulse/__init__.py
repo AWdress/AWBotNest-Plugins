@@ -28,10 +28,10 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "1.1.8",
+    "version": "1.1.9",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
-    "changelog": "v1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
+    "changelog": "v1.1.9 优化计划任务名称\n- 计划任务明确显示“色花堂自动化”，便于在平台任务列表中辨认\n\nv1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
     "scope": "standalone",
     "default_enabled": False,
     "render_mode": "vue",
@@ -378,7 +378,7 @@ def _cron_specs(cfg: dict):
     timezone = scheduler.timezone
     expr = str(cfg.get("schedule_cron") or "").strip()
     if expr:
-        return [(CronTrigger.from_crontab(expr, timezone=timezone), "定时运行(%s)" % expr)]
+        return [(CronTrigger.from_crontab(expr, timezone=timezone), "色花堂自动化 · Cron (%s)" % expr)]
     times = cfg.get("schedule_times") or ([cfg.get("schedule_time")] if cfg.get("schedule_time") else [])
     specs = []
     seen = set()
@@ -391,7 +391,7 @@ def _cron_specs(cfg: dict):
             seen.add((hh, mm))
             specs.append((
                 CronTrigger(hour=hh, minute=mm, timezone=timezone),
-                "每日 %02d:%02d 运行" % (hh, mm),
+                "色花堂自动化 · 每日 %02d:%02d" % (hh, mm),
             ))
         except Exception:
             continue
