@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.20",
+    "version": "2.5.21",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择\n- HTTP 与 CloakBrowser 路径均提交满足站点长度要求的签到留言\n- 避免把页面里的操作说明误判成签到失败\n\nv2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功",
+    "changelog": "v2.5.21 修复 HHanClub 重复签到误报\n- 不再把站点重复展示的最近一次奖励文案当成本次签到成功\n- 根据当天签到记录的创建时间区分刚签到与今天已签到\n- 找不到当天记录时不再猜测成功\n\nv2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -293,6 +293,23 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     )) or re.search(r"这是您的(?:首次|第\d+次)签到", compact):
         return "success", "签到成功"
     return None
+
+
+def _hhan_result_state(html: str) -> tuple[str, str] | None:
+    """HHanClub 会反复展示最近一次奖励，须以当天记录创建时间区分本次与已签到。"""
+    today = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d")
+    match = re.search(rf'"{re.escape(today)}"\s*:\s*(\{{[^}}]+\}})', html or "")
+    if not match:
+        return None
+    try:
+        record = json.loads(match.group(1))
+        created = datetime.strptime(str(record.get("created_at") or ""), "%Y-%m-%d %H:%M:%S").replace(tzinfo=_CHINA_TZ)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    age = (datetime.now(_CHINA_TZ) - created).total_seconds()
+    if -30 <= age <= 180:
+        return "success", "签到成功"
+    return "already", "今天已经签到"
 
 
 def _u2_result_state(text: str) -> tuple[str, str] | None:
@@ -931,6 +948,11 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
             return _tjupt_challenge(ctx, page, loop)
         raise RuntimeError(captcha)
+    if expected_domain.lower() == "hhanclub.net":
+        state = _hhan_result_state(html)
+        if state:
+            return {"status": state[0], "message": state[1]}
+        raise RuntimeError("HHanClub 页面未找到当天签到记录，未计为成功")
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1079,6 +1101,11 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         mode = site.get("mode")
         response, text = await get(site["url"])
         visible_text = _html_visible_text(text)
+        if key == "hhan":
+            state = _hhan_result_state(text)
+            if state:
+                return {"status": state[0], "message": state[1], "engine": "http"}
+            raise _NeedsBrowser("HTTP 未找到 HHanClub 当天签到记录，切换 CloakBrowser 确认")
         if key in {"audiences", "ourbits", "piggo", "hhan"}:
             # 标准 attendance.php 通常 GET 即完成；未知页面交给浏览器识别动态按钮。
             state = _site_result_state(visible_text, site["domain"], confirmed=True)

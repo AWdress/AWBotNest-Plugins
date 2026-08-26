@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.20",
+    "version": "2.5.21",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择\n- HTTP 与 CloakBrowser 路径均提交满足站点长度要求的签到留言\n- 避免把页面里的操作说明误判成签到失败\n\nv2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功",
+    "changelog": "v2.5.21 修复 HHanClub 重复签到误报\n- 不再把站点重复展示的最近一次奖励文案当成本次签到成功\n- 根据当天签到记录的创建时间区分刚签到与今天已签到\n- 找不到当天记录时不再猜测成功\n\nv2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
