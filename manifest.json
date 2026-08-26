@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.17",
+    "version": "2.5.18",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次\n\nv2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果",
+    "changelog": "v2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别\n\nv2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

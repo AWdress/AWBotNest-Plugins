@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.17",
+    "version": "2.5.18",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次\n\nv2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果",
+    "changelog": "v2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别\n\nv2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -302,11 +302,13 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     compact = re.sub(r"\s+", "", visible).lower()
     if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
-        "alreadyshoweduptoday", "alreadycheckedintoday",
+        "今日已签到", "今日已簽到", "已完成签到", "已完成簽到",
+        "alreadyshoweduptoday", "alreadycheckedintoday", "youhaveshoweduptoday",
     )):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
-        "签到成功", "簽到成功", "showupsuccess", "check-insuccess",
+        "签到成功", "簽到成功", "成功签到", "成功簽到", "showupsuccess", "check-insuccess",
+        "thankyouforshowingup", "thanksforshowingup",
     )) or re.search(r"window\.location(?:\.href)?\s*=\s*['\"]showup\.php", raw, re.IGNORECASE):
         return "success", "签到成功"
     return None
@@ -712,6 +714,9 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             posted = _u2_result_state(body)
             if posted:
                 return {"status": "success", "message": posted[1]}
+            result_path = (urlparse(str(result.get("url") or "")).path or "").lower()
+            if result.get("status") == 200 and result_path not in {"/showup.php", "showup.php"}:
+                return {"status": "success", "message": "签到成功（提交后跳转已确认）"}
             page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
             confirmed = page.content()
             final = _u2_result_state(confirmed)
@@ -978,6 +983,12 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
                 return {"status": state[0], "message": state[1], "engine": "http"}
             if state and state[0] == "failed":
                 raise RuntimeError(state[1])
+            # Audiences 的 attendance.php 在 Docker/CF 链路中会完成签到后返回无回执的站点模板。
+            # 此处仅接受已通过登录与安全页检查的 2xx 同站请求，避免把登录页或挑战页误报为成功。
+            response_domain = (urlparse(str(response.url)).hostname or "").lower()
+            if key == "audiences" and response.status_code < 300 \
+                    and _same_site_domain(response_domain, site["domain"]):
+                return {"status": "success", "message": "签到请求已完成（站点未返回文字回执）", "engine": "http"}
             raise _NeedsBrowser("HTTP 页面没有明确签到结果，切换 CloakBrowser 确认")
 
         if mode == "visit":
@@ -1114,7 +1125,10 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
                 raise _NeedsBrowser("HTTP 未解析到 OpenCD 验证码，切换 CloakBrowser")
             image_url = str(response.url.join(str(image_node.get("src") or "")))
             image_response = await client.get(image_url)
-            captcha = await _http_ai_ocr(ctx, image_response.content)
+            try:
+                captcha = await _http_ai_ocr(ctx, image_response.content)
+            except RuntimeError as exc:
+                raise _NeedsBrowser("OpenCD HTTP 验证码无法确认，切换 CloakBrowser 获取新验证码") from exc
             _, body = await post("https://www.open.cd/plugin_sign-in.php?cmd=signin", data={"imagehash": hash_node.get("value"), "imagestring": captcha})
             return {**_response_result(body, success=('"state":"success"', '"state":true'), already=("已签到",)), "engine": "http"}
         if key == "u2":
@@ -1134,7 +1148,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
             submit = submits[secrets.randbelow(len(submits))]
-            _, body = await post(
+            post_response, body = await post(
                 "https://u2.dmhy.org/showup.php?action=show",
                 data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")},
                 extra_headers={"Referer": str(response.url)},
@@ -1142,6 +1156,9 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             posted = _u2_result_state(body)
             if posted:
                 return {"status": "success", "message": posted[1], "engine": "http"}
+            response_path = (urlparse(str(post_response.url)).path or "").lower()
+            if post_response.status_code < 300 and response_path not in {"/showup.php", "showup.php"}:
+                return {"status": "success", "message": "签到成功（提交后跳转已确认）", "engine": "http"}
             _, confirmed = await get("https://u2.dmhy.org/")
             final = _u2_result_state(confirmed)
             if final:
