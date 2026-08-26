@@ -28,10 +28,10 @@ from datetime import datetime
 __plugin__ = {
     "name": "AWPulse 色花堂助手",
     "id": "awpulse",
-    "version": "1.1.9",
+    "version": "1.2.0",
     "author": "AWdress",
     "description": "色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
-    "changelog": "v1.1.9 优化计划任务名称\n- 计划任务明确显示“色花堂自动化”，便于在平台任务列表中辨认\n\nv1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
+    "changelog": "v1.2.0 修复定时任务结束后仍显示运行中\n- 定时触发只负责投递平台托管后台任务，计划任务状态会立即正常结束\n- 通知增加 30 秒超时，任务取消时强制复位 Vue 运行状态\n\nv1.1.9 优化计划任务名称\n- 计划任务明确显示“色花堂自动化”，便于在平台任务列表中辨认\n\nv1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
     "scope": "standalone",
     "default_enabled": False,
     "render_mode": "vue",
@@ -42,6 +42,13 @@ __plugin__ = {
         "cloakbrowser>=0.4.9",
         "requests>=2.32.0",
     ],
+    "resources": {
+        "timeout_seconds": 7200,
+        "max_concurrency": 1,
+        "max_background_tasks": 2,
+        "failure_threshold": 3,
+        "recovery_seconds": 120,
+    },
 }
 
 # ── 配置默认值（vue 模式无 config_schema，默认集中在此，供后端/定时任务读取；
@@ -249,7 +256,10 @@ async def _run(ctx, label: str) -> str:
         _RUN.update(task=label, started_at=now, finished_at=now, last_result=msg)
         if cfg.get("notify", True):
             try:
-                await ctx.notify("AWPulse · %s：%s" % (label, msg), level="warning", category="AWPulse")
+                await asyncio.wait_for(
+                    ctx.notify("AWPulse · %s：%s" % (label, msg), level="warning", category="AWPulse"),
+                    timeout=30,
+                )
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[AWPulse] 跳过通知投递失败：%r", e)
         return msg
@@ -269,7 +279,10 @@ async def _run(ctx, label: str) -> str:
                     last_result="运行异常：%s" % e)
         if cfg.get("notify", True):
             try:
-                await ctx.notify("AWPulse 运行异常：%s" % e, level="error", category="AWPulse")
+                await asyncio.wait_for(
+                    ctx.notify("AWPulse 运行异常：%s" % e, level="error", category="AWPulse"),
+                    timeout=30,
+                )
             except Exception:
                 pass
         return "运行异常：%s" % e
@@ -293,7 +306,10 @@ async def _run(ctx, label: str) -> str:
     ctx.update_config({"last_run": _RUN["finished_at"]})
     if cfg.get("notify", True):
         try:
-            await ctx.notify(summary, level="success" if ok else "error", category="AWPulse")
+            await asyncio.wait_for(
+                ctx.notify(summary, level="success" if ok else "error", category="AWPulse"),
+                timeout=30,
+            )
         except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
             ctx.log.warning("[AWPulse] 结果通知投递失败（不影响运行）：%r", e)
     ctx.log.info("[AWPulse] 完成(%s)：%s", label, "成功" if ok else "失败")
@@ -458,7 +474,14 @@ async def setup(ctx):
                 await _run(ctx, "手动")
             except Exception as e:  # noqa: BLE001
                 ctx.log.error("[AWPulse] 手动运行后台异常：%s\n%s", e, traceback.format_exc())
-        asyncio.create_task(_bg())
+            finally:
+                if _RUN["running"]:
+                    _RUN.update(
+                        running=False,
+                        finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        last_result=_RUN["last_result"] or "任务已结束或被平台取消",
+                    )
+        ctx.create_task(_bg(), name="AWPulse 手动运行", operation="manual_run")
         return {"ok": True, "started": True,
                 "message": "已在后台开始运行。可在「运行状态 / 日志」查看进度，完成后推送通知。"}
 
@@ -557,7 +580,24 @@ async def setup(ctx):
     # 循环，create_task 会抛 "no running event loop"，任务看似注册了却永远不触发。
     async def _scheduled_run():
         ctx.log.info("[AWPulse] 定时任务已触发")
-        await _run(ctx, "定时")
+        if _RUN["running"]:
+            ctx.log.warning("[AWPulse] 已有任务运行，跳过本次定时触发")
+            return
+
+        async def _bg():
+            try:
+                await _run(ctx, "定时")
+            finally:
+                # 即使平台取消后台任务，也不能让 Vue 状态永久停留在“运行中”。
+                if _RUN["running"]:
+                    _RUN.update(
+                        running=False,
+                        finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        last_result=_RUN["last_result"] or "任务已结束或被平台取消",
+                    )
+
+        ctx.create_task(_bg(), name="AWPulse 定时运行", operation="scheduled_run")
+        ctx.log.info("[AWPulse] 定时任务已投递后台执行")
 
     cfg = _effective_cfg(ctx)
     specs = []

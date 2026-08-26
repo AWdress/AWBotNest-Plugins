@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.8",
+    "version": "1.1.9",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
+    "changelog": "v1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -826,7 +826,10 @@ async def _run(ctx, source: str) -> dict:
                     }
                     for item in result.get("accounts", [])
                 ]
-                await ctx.notify(rows or result["message"], level=level, category="GPT-GOD 签到")
+                await asyncio.wait_for(
+                    ctx.notify(rows or result["message"], level=level, category="GPT-GOD 签到"),
+                    timeout=30,
+                )
             except Exception as exc:  # noqa: BLE001 - 通知失败不改变签到结果
                 ctx.log.warning("签到结果通知失败：%r", exc)
         ctx.log.info("%s", result["message"])
@@ -856,7 +859,13 @@ async def setup(ctx):
 
         async def _scheduled_checkin():
             ctx.log.info("定时任务已触发")
-            await _run(ctx, "定时")
+            if _run_lock and _run_lock.locked():
+                ctx.log.warning("已有签到任务运行，跳过本次定时触发")
+                return
+            ctx.create_task(
+                _run(ctx, "定时"), name="GPT-GOD 定时签到", operation="scheduled_checkin"
+            )
+            ctx.log.info("定时签到已投递后台执行")
 
         ctx.schedule(
             _scheduled_checkin,
