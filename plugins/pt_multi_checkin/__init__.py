@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.19",
+    "version": "2.5.20",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功\n- 明确识别 U2 登录失效、请求过期、频率限制等失败回执，避免误报\n\nv2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别",
+    "changelog": "v2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择\n- HTTP 与 CloakBrowser 路径均提交满足站点长度要求的签到留言\n- 避免把页面里的操作说明误判成签到失败\n\nv2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -300,11 +300,6 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     raw = text or ""
     visible = _html_visible_text(raw)
     compact = re.sub(r"\s+", "", visible).lower()
-    if any(marker in compact for marker in (
-        "签到失败", "簽到失敗", "请求已过期", "請求已過期", "操作频繁", "操作頻繁",
-        "请稍后再试", "請稍後再試", "invalidrequest", "requestexpired", "ratelimit",
-    )):
-        return "failed", "U2 返回签到失败、请求过期或操作频繁"
     if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
         "今日已签到", "今日已簽到", "已完成签到", "已完成簽到",
@@ -584,11 +579,15 @@ def _response_result(text: str, *, success: tuple[str, ...], already: tuple[str,
     raise RuntimeError("签到接口返回未识别结果，未计为成功")
 
 
-def _ai_call(ctx, loop, capability: str, *, prompt: str, image: bytes | None = None) -> str:
+def _ai_call(ctx, loop, capability: str, *, prompt: str, image: bytes | None = None,
+             system: str | None = None) -> str:
     if not _ai_available(ctx, capability):
         raise RuntimeError(f"平台未配置可用的 AI {capability} 能力，无法自动识别签到验证")
     if capability == "vision":
-        coro = ctx.ai.vision(image=image, prompt=prompt, system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。")
+        coro = ctx.ai.vision(
+            image=image, prompt=prompt,
+            system=system or "你是谨慎的验证码识别器，只输出请求的答案，不要解释。",
+        )
     else:
         coro = ctx.ai.chat(prompt=prompt, system="你是谨慎的 PT 签到答题助手，只输出答案编号，不要解释。", temperature=0)
     try:
@@ -623,6 +622,67 @@ def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
         except Exception as exc:  # noqa: BLE001 - 模型上游偶发失败时有限重试
             last_error = exc
     raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
+
+
+def _ai_image_choice(ctx, loop, image: bytes, options: list[str]) -> int:
+    image, marker = _highlight_u2_marker(image)
+    prompt = (
+        "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
+        "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
+        "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
+        f"程序预定位结果：{marker}；图上如有红圈和十字，它们精确标出了目标圆点。"
+        "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
+        + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
+    )
+    for _ in range(3):
+        answer = _ai_call(
+            ctx, loop, "vision", image=image, prompt=prompt,
+            system="先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。",
+        )
+        match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer, re.IGNORECASE)
+        index = int(match.group(1)) - 1 if match else -1
+        if 0 <= index < len(options):
+            return index
+    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到")
+
+
+def _highlight_u2_marker(image: bytes) -> tuple[bytes, str]:
+    """定位半透明圆点并高亮；OpenCV 不可用或置信度不足时安全回退原图。"""
+    try:
+        import cv2  # 平台 ddddocr 运行环境已提供，保持插件无额外强制依赖
+        import numpy as np
+
+        frame = cv2.imdecode(np.frombuffer(image, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return image, "未能预定位，请直接观察半透明圆点"
+        gray = cv2.medianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 5)
+        height, width = gray.shape[:2]
+        shortest = min(height, width)
+        circles = cv2.HoughCircles(
+            gray, cv2.HOUGH_GRADIENT, dp=1.2, minDist=max(30, shortest // 10),
+            param1=80, param2=28,
+            minRadius=max(12, int(shortest * 0.035)), maxRadius=max(24, int(shortest * 0.085)),
+        )
+        if circles is None:
+            return image, "未能预定位，请直接观察半透明圆点"
+        yy, xx = np.ogrid[:height, :width]
+        ranked = []
+        for raw_x, raw_y, raw_r in circles[0]:
+            mask = (xx - raw_x) ** 2 + (yy - raw_y) ** 2 <= (raw_r * 0.72) ** 2
+            ranked.append((float(gray[mask].std()), int(round(raw_x)), int(round(raw_y)), int(round(raw_r))))
+        deviation, x, y, radius = min(ranked)
+        if deviation > 24:
+            return image, "预定位置信度不足，请直接观察半透明圆点"
+        cv2.circle(frame, (x, y), radius + 7, (0, 0, 255), 4)
+        cv2.line(frame, (max(0, x - radius - 12), y), (min(width - 1, x + radius + 12), y), (0, 0, 255), 2)
+        cv2.line(frame, (x, max(0, y - radius - 12)), (x, min(height - 1, y + radius + 12)), (0, 0, 255), 2)
+        ok, encoded = cv2.imencode(".png", frame)
+        horizontal = "左侧" if x < width * 0.45 else ("右侧" if x > width * 0.55 else "水平中央")
+        vertical = "上方" if y < height * 0.4 else ("下方" if y > height * 0.6 else "垂直中央")
+        marker = f"圆点中心在整图{horizontal}{vertical}（x={x}/{width}, y={y}/{height}）"
+        return (bytes(encoded) if ok else image), marker
+    except Exception:
+        return image, "未能预定位，请直接观察半透明圆点"
 
 
 def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
@@ -708,11 +768,15 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             hash_value = form.locator('input[name="hash"]').get_attribute("value")
             form_value = form.locator('input[name="form"]').get_attribute("value")
             submits = form.locator('input[type="submit"]')
+            captcha_image = form.locator('img[alt="captcha"], img[src*="image.php"]')
             if not req or not hash_value or not form_value or submits.count() < 1:
                 raise RuntimeError("U2 未解析到签到表单")
-            submit = submits.nth(secrets.randbelow(submits.count()))
+            if captcha_image.count() < 1:
+                raise RuntimeError("U2 未解析到验证图片")
+            options = [str(submits.nth(i).get_attribute("value") or "") for i in range(submits.count())]
+            submit = submits.nth(_ai_image_choice(ctx, loop, captcha_image.first.screenshot(), options))
             result = _fetch_same_origin(page, "https://u2.dmhy.org/showup.php?action=show", method="POST", data={
-                "req": req, "hash": hash_value, "form": form_value, "message": "自动签到",
+                "req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到",
                 str(submit.get_attribute("name")): str(submit.get_attribute("value")),
             })
             body = result.get("text", "")
@@ -961,6 +1025,35 @@ async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
     raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
 
 
+async def _http_ai_image_choice(ctx, image: bytes, options: list[str]) -> int:
+    if not _ai_available(ctx, "vision"):
+        raise RuntimeError("平台未配置视觉模型，无法识别 U2 签到验证")
+    image, marker = _highlight_u2_marker(image)
+    prompt = (
+        "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
+        "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
+        "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
+        f"程序预定位结果：{marker}；图上如有红圈和十字，它们精确标出了目标圆点。"
+        "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
+        + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
+    )
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            answer = str(await ctx.ai.vision(
+                image=image, prompt=prompt,
+                system="先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。",
+            ) or "").strip()
+            match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer, re.IGNORECASE)
+            index = int(match.group(1)) - 1 if match else -1
+            if 0 <= index < len(options):
+                return index
+            last_error = RuntimeError("模型未返回有效选项编号")
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到") from last_error
+
+
 def _soup_value(soup: BeautifulSoup, name: str) -> str:
     node = soup.select_one(f'input[name="{name}"]')
     return str(node.get("value") or "") if node else ""
@@ -1155,12 +1248,18 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
             submits = soup.select('input[type="submit"][name]')
-            if not req or not hash_value or not form_value or not submits:
+            captcha_node = soup.select_one('form[action*="showup.php"] img[alt="captcha"], form[action*="showup.php"] img[src*="image.php"]')
+            if not req or not hash_value or not form_value or not submits or not captcha_node:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
-            submit = submits[secrets.randbelow(len(submits))]
+            image_url = str(response.url.join(str(captcha_node.get("src") or "")))
+            image_response = await client.get(image_url)
+            if image_response.status_code >= 400:
+                raise _NeedsBrowser("HTTP 下载 U2 验证图片失败，切换 CloakBrowser")
+            options = [str(node.get("value") or "") for node in submits]
+            submit = submits[await _http_ai_image_choice(ctx, image_response.content, options)]
             post_response, body = await post(
                 "https://u2.dmhy.org/showup.php?action=show",
-                data={"req": req, "hash": hash_value, "form": form_value, "message": "自动签到", submit.get("name"): submit.get("value")},
+                data={"req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到", submit.get("name"): submit.get("value")},
                 extra_headers={"Referer": str(response.url)},
             )
             posted = _u2_result_state(body)
