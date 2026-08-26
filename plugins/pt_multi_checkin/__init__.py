@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.16",
+    "version": "2.5.17",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果\n\nv2.5.15 修复 CloakBrowser 安全验证无限等待\n- OurBits 的 HTTP 403 安全验证不再进入可能卡死的浏览器线程，本轮记录失败后继续其他站点\n- 所有浏览器任务增加硬性总时限，达到上限立即结束等待且不再重试\n- 超时日志明确提示重启平台释放底层浏览器线程",
+    "changelog": "v2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次\n\nv2.5.16 修复 TTG 误判、PigGo 跳转丢 Cookie 与失效会话识别\n- TTG 正常业务页即使含 Cloudflare 脚本也按动态签到参数继续 HTTP 签到，不再错误切浏览器\n- 浏览器降级前把平台 Cookie 写入 Cookie Jar，PigGo 雷池跳转后仍保留登录态\n- OurBits/PigGo/OpenCD 仅有安全验证或统计 Cookie 时直接提示缺登录会话\n- PTTime 等接口返回 err cookie 时准确识别为登录失效，不再误报未知结果",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -517,9 +517,15 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         if attempt + 1 < attempts:
             page.wait_for_timeout(2_000 * (attempt + 1))
             page.reload(wait_until="domcontentloaded", timeout=60_000)
-    # PigGo 的 attendance.php 在 Cloudflare 之后可能只剩页脚；真实签到状态在首顶导航。
-    if expected_domain.lower() == "piggo.me":
-        page.goto("https://piggo.me/", wait_until="domcontentloaded", timeout=60_000)
+    # 部分 NexusPHP 站点的 attendance.php 在验证/跳转后只剩页脚，真实状态显示在首页导航。
+    home_url = {
+        "audiences.me": "https://audiences.me/",
+        "ourbits.club": "https://ourbits.club/",
+        "piggo.me": "https://piggo.me/",
+        "hhanclub.net": "https://hhanclub.net/",
+    }.get(expected_domain.lower())
+    if home_url:
+        page.goto(home_url, wait_until="domcontentloaded", timeout=60_000)
         for _ in range(15):
             home_text = _page_text(page)
             state = _nexus_result_state(home_text)
@@ -597,24 +603,19 @@ def _ai_choice(ctx, loop, question: str, options: list[str]) -> int:
 
 
 def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
-    answer = ""
     last_error: Exception | None = None
     for _ in range(3):
         try:
             answer = _ai_call(ctx, loop, "vision", image=image, prompt=(
                 f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。"
             ))
-            break
+            candidates = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
+            if "UNKNOWN" not in answer.upper() and candidates:
+                return candidates[0]
+            last_error = RuntimeError("模型返回 UNKNOWN 或验证码格式不正确")
         except Exception as exc:  # noqa: BLE001 - 模型上游偶发失败时有限重试
             last_error = exc
-    else:
-        raise RuntimeError(f"视觉模型连续调用失败：{type(last_error).__name__}") from last_error
-    if "UNKNOWN" in answer.upper():
-        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
-    candidates = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
-    if not candidates:
-        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
-    return candidates[0]
+    raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
 
 
 def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
@@ -929,7 +930,6 @@ async def _http_ai_choice(ctx, question: str, options: list[str]) -> int:
 async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
     if not _ai_available(ctx, "vision"):
         raise RuntimeError("平台未配置视觉模型，无法识别签到验证码")
-    answer = ""
     last_error: Exception | None = None
     for _ in range(3):
         try:
@@ -937,17 +937,13 @@ async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
                 image=image, prompt=f"读取图片中的 {length} 位验证码。只输出验证码本身；无法确认时输出 UNKNOWN。",
                 system="你是谨慎的验证码识别器，只输出请求的答案，不要解释。",
             ) or "").strip()
-            break
+            matches = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
+            if "UNKNOWN" not in answer.upper() and matches:
+                return matches[0]
+            last_error = RuntimeError("模型返回 UNKNOWN 或验证码格式不正确")
         except Exception as exc:  # noqa: BLE001 - 模型上游偶发失败时有限重试
             last_error = exc
-    else:
-        raise RuntimeError(f"视觉模型连续调用失败：{type(last_error).__name__}") from last_error
-    if "UNKNOWN" in answer.upper():
-        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
-    matches = re.findall(rf"(?<![A-Za-z0-9])[A-Za-z0-9]{{{length}}}(?![A-Za-z0-9])", answer)
-    if not matches:
-        raise RuntimeError("AI 未能可靠识别验证码，未提交签到")
-    return matches[0]
+    raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
 
 
 def _soup_value(soup: BeautifulSoup, name: str) -> str:
@@ -1200,11 +1196,6 @@ async def _run(ctx, source: str) -> dict:
                             outcome = await _http_checkin(ctx, key, site, cookie)
                         except _NeedsBrowser as fallback:
                             browser_reason = str(fallback)
-                            if key == "ourbits" and "安全验证" in browser_reason:
-                                raise RuntimeError(
-                                    "OurBits 命中 HTTP 安全验证（403），为避免 CloakBrowser 无限等待，本轮跳过；"
-                                    "请稍后重试或在 CookieCloud 来源浏览器完成站点验证后重新同步"
-                                ) from fallback
                         except httpx.RequestError as fallback:
                             browser_reason = f"HTTP 网络异常（{type(fallback).__name__}），切换 CloakBrowser"
                     else:
