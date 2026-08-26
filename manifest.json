@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.18",
+    "version": "2.5.19",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别\n\nv2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次",
+    "changelog": "v2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功\n- 明确识别 U2 登录失效、请求过期、频率限制等失败回执，避免误报\n\nv2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

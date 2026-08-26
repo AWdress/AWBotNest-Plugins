@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.18",
+    "version": "2.5.19",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别\n\nv2.5.17 修复 Docker 浏览器降级签到\n- Audiences 等 NexusPHP 站点在签到页结果不完整时回首页确认真实签到状态\n- OurBits 命中 403 后携带 Cookie 进入受限时长的 CloakBrowser 验证，不再直接跳过\n- OpenCD 验证码识别返回 UNKNOWN 或格式错误时最多重试 3 次",
+    "changelog": "v2.5.19 修复 U2 无文字成功回执\n- U2 已登录并提交完整动态表单后，接受无错误的 2xx 同站响应为签到成功\n- 明确识别 U2 登录失效、请求过期、频率限制等失败回执，避免误报\n\nv2.5.18 兼容 Docker 中的站点实际回执\n- Audiences 已登录并完成 attendance 请求但返回空模板时按请求完成处理\n- OpenCD HTTP 验证码无法确认时切换浏览器并重新获取验证码\n- U2 增加繁体、英文签到回执及成功跳转识别",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -300,6 +300,11 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     raw = text or ""
     visible = _html_visible_text(raw)
     compact = re.sub(r"\s+", "", visible).lower()
+    if any(marker in compact for marker in (
+        "签到失败", "簽到失敗", "请求已过期", "請求已過期", "操作频繁", "操作頻繁",
+        "请稍后再试", "請稍後再試", "invalidrequest", "requestexpired", "ratelimit",
+    )):
+        return "failed", "U2 返回签到失败、请求过期或操作频繁"
     if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
         "今日已签到", "今日已簽到", "已完成签到", "已完成簽到",
@@ -713,10 +718,15 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             body = result.get("text", "")
             posted = _u2_result_state(body)
             if posted:
+                if posted[0] == "failed":
+                    raise RuntimeError(posted[1])
                 return {"status": "success", "message": posted[1]}
             result_path = (urlparse(str(result.get("url") or "")).path or "").lower()
-            if result.get("status") == 200 and result_path not in {"/showup.php", "showup.php"}:
-                return {"status": "success", "message": "签到成功（提交后跳转已确认）"}
+            result_domain = (urlparse(str(result.get("url") or "")).hostname or "").lower()
+            if result.get("status") == 200 and _same_site_domain(result_domain, site["domain"]) \
+                    and "name=\"username\"" not in body.lower():
+                suffix = "提交后跳转已确认" if result_path not in {"/showup.php", "showup.php"} else "站点接受签到表单"
+                return {"status": "success", "message": f"签到成功（{suffix}）"}
             page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
             confirmed = page.content()
             final = _u2_result_state(confirmed)
@@ -1155,10 +1165,14 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             )
             posted = _u2_result_state(body)
             if posted:
+                if posted[0] == "failed":
+                    raise RuntimeError(posted[1])
                 return {"status": "success", "message": posted[1], "engine": "http"}
             response_path = (urlparse(str(post_response.url)).path or "").lower()
-            if post_response.status_code < 300 and response_path not in {"/showup.php", "showup.php"}:
-                return {"status": "success", "message": "签到成功（提交后跳转已确认）", "engine": "http"}
+            response_domain = (urlparse(str(post_response.url)).hostname or "").lower()
+            if post_response.status_code < 300 and _same_site_domain(response_domain, site["domain"]):
+                suffix = "提交后跳转已确认" if response_path not in {"/showup.php", "showup.php"} else "站点接受签到表单"
+                return {"status": "success", "message": f"签到成功（{suffix}）", "engine": "http"}
             _, confirmed = await get("https://u2.dmhy.org/")
             final = _u2_result_state(confirmed)
             if final:
