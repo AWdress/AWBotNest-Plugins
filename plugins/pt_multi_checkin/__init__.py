@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.21",
+    "version": "2.5.22",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.21 修复 HHanClub 重复签到误报\n- 不再把站点重复展示的最近一次奖励文案当成本次签到成功\n- 根据当天签到记录的创建时间区分刚签到与今天已签到\n- 找不到当天记录时不再猜测成功\n\nv2.5.20 修复 U2 图片选项验证\n- 自动定位并高亮半透明圆点，使用平台视觉 AI 匹配正确作品，不再随机选择",
+    "changelog": "v2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态\n- 只有本次确实进入签到页完成操作才返回签到成功\n- HTTP 与 CloakBrowser 路径统一使用真实状态判定\n\nv2.5.21 修复 HHanClub 重复签到误报\n- 根据当天签到记录的创建时间区分刚签到与今天已签到",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -889,7 +889,7 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
-def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
+def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
     challenge_reload_done = False
@@ -953,6 +953,16 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None) -> dict:
         if state:
             return {"status": state[0], "message": state[1]}
         raise RuntimeError("HHanClub 页面未找到当天签到记录，未计为成功")
+    if expected_domain.lower() == "piggo.me":
+        signed_badge = bool(re.search(r"签到\s*已得\s*[\d,.]+", text))
+        if signed_badge:
+            return {
+                "status": "success" if piggo_submitted else "already",
+                "message": "签到成功" if piggo_submitted else "今天已经签到",
+            }
+        if not path.lower().endswith("/attendance.php"):
+            page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
+            return _browser_checkin(page, expected_domain, ctx, loop, piggo_submitted=True)
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1099,13 +1109,18 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             return response, _http_guard(response)
 
         mode = site.get("mode")
-        response, text = await get(site["url"])
+        response, text = await get("https://piggo.me/" if key == "piggo" else site["url"])
         visible_text = _html_visible_text(text)
         if key == "hhan":
             state = _hhan_result_state(text)
             if state:
                 return {"status": state[0], "message": state[1], "engine": "http"}
             raise _NeedsBrowser("HTTP 未找到 HHanClub 当天签到记录，切换 CloakBrowser 确认")
+        if key == "piggo":
+            if re.search(r"签到\s*已得\s*[\d,.]+", visible_text):
+                return {"status": "already", "message": "今天已经签到", "engine": "http"}
+            response, text = await get(site["url"])
+            visible_text = _html_visible_text(text)
         if key in {"audiences", "ourbits", "piggo", "hhan"}:
             # 标准 attendance.php 通常 GET 即完成；未知页面交给浏览器识别动态按钮。
             state = _site_result_state(visible_text, site["domain"], confirmed=True)
@@ -1363,7 +1378,8 @@ async def _run(ctx, source: str) -> dict:
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
                         def action(page, site_key=key, current_site=site):
-                            _seed_browser_cookie_jar(page, cookie, current_site["url"])
+                            seed_url = "https://piggo.me/" if site_key == "piggo" else current_site["url"]
+                            _seed_browser_cookie_jar(page, cookie, seed_url)
                             if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
                                 result = _browser_checkin(page, current_site["domain"], ctx, loop)
                                 if site_key == "piggo":
