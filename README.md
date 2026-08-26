@@ -50,6 +50,9 @@ __plugin__ = {
     "requirements": [          # 可选：第三方依赖（PEP 508），平台启用时自动代装
         "httpx>=0.27",
     ],
+    "requires_plugins": [],       # 可选：必须先启用的其它插件 ID
+    "requires_capabilities": [],  # 可选：依赖的平台抽象能力
+    "provides_capabilities": [],  # 可选：本插件实际注册并提供的能力
 }
 
 # ② 启用时调用：在这里注册处理器（可 async 可同步）
@@ -325,6 +328,22 @@ await ctx.notify_table(
 - 注意目标平台的 **Python 版本**：选依赖时确认它支持平台所用版本（平台当前跑 Python 3.13），否则会因无兼容版本装不上而启用失败。
 - 缺失依赖是否致命由插件自己决定：若设计成「缺了就降级」，import 处要容错（参考 `yingchao_redpacket/_ocr.py`：OCR 库缺失时降级，不影响基础功能）。
 - **出站请求自动走平台代理**：系统设置里启用代理后，平台会导出 `HTTP(S)_PROXY`/`ALL_PROXY` 环境变量，`httpx`/`requests`/`aiohttp`（默认 `trust_env=True`）自动走代理，插件无需手动配置（`localhost`/`127.0.0.1` 已排除）；若手动关了 `trust_env`，请自行读取这些环境变量。
+
+#### 依赖声明不要混用
+
+平台“插件依赖关系”页面会同时展示以下声明：
+
+| 元数据字段 | 表示什么 | 示例 |
+|---|---|---|
+| `requirements` | Python 第三方包，启用插件时由平台检查或安装 | `"cloakbrowser>=0.4.9"` |
+| `requires_plugins` | 必须先启用的其它插件 ID | `"base_plugin"` |
+| `requires_capabilities` | 必须存在的平台抽象能力 | `"ocr"` |
+| `provides_capabilities` | 本插件通过 `ctx.provide_capability(...)` 实际提供的能力 | `"ocr"` |
+
+- Python 包只能写进 `requirements`，不能写进 `requires_plugins`。
+- 只有真实的跨插件前置关系才声明 `requires_plugins`，不要为了让页面“不显示无依赖”而机械添加。
+- 平台内置的 `ctx`、通知、调度、Cookie、浏览器、存储和发送代理是基础接口，不属于插件依赖，无需声明。
+- 插件确实不需要额外 Python 包、其它插件或抽象能力时，依赖关系页面显示“无依赖”是正常结果。
 
 ### 5.5 Webhook（接收外部回调）
 
