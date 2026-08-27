@@ -22,6 +22,8 @@ import json
 import os
 import re
 import time
+from collections import deque
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -29,12 +31,13 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.3.2",
+    "version": "1.4.0",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.3.2 适配平台后台任务治理\n- 配置页手动维护任务改由 ctx.create_task 托管\n- 声明长任务资源配额，停用或重载时由平台安全回收\n\nv1.1.5 优化定时任务显示\n- 定时服务页使用中文名称‘Emby 工具箱定时维护’\n- 不再显示内部函数名 scheduled_task\n\nv1.1.4 操作按钮改为后台运行\n- 点击扫描、修复、刮削等长时操作后立即返回，不再卡住配置页\n- 后台执行完成后更新状态摘要并写入插件日志\n- 同一时间只运行一个手动维护任务，防止重复点击并发修改 Emby\n\nv1.1.3 改为独立运行\n- 移除非必要的 Telegram 命令入口和命令自动删除设置\n- 扫描与维护功能继续通过配置页按钮或定时任务执行\n- 插件不再依赖 Telegram 用户账号\n\nv1.1.2 补充运行标签\n- 插件市场卡片显示‘用户账号’标签\n- 保留 Telegram 命令入口、配置操作和定时维护功能\n\nv1.1.1 优化定时功能\n- 定时执行功能选项改为中文并增加说明\n- 每个功能都有清晰的用途描述\n\nv1.1.0 增强版\n- 新增定时自动执行功能（支持 Cron 表达式）\n- 新增完整日志系统（27 处日志记录）\n- 修复类型注解兼容性（支持 Python 3.7+）\n- 修复 JSON 解析与网络请求异常处理\n- 所有功能函数增加进度日志与错误记录\n\nv1.0.0 初始版本\n- 集成剧集季集校验/修复、Genre 处理、季名刮削、国家语言标签、别名写入、STRM 刷新、元数据缺失检查\n- 每个功能提供独立开关与独立 action 按钮",
+    "changelog": "v1.4.0 迁移 Vue 媒体维护控制台\n- 重做连接、功能、策略、定时与运行记录界面\n- 新增实时任务状态、历史记录和后台 API\n- 修复默认值丢失、定时阻塞与手动全部执行超时\n- 保留旧版已保存配置，升级无需重新填写",
     "scope": "standalone",
+    "render_mode": "vue",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
     "default_enabled": False,
@@ -45,198 +48,6 @@ __plugin__ = {
         "max_background_tasks": 2,
         "failure_threshold": 3,
         "recovery_seconds": 120,
-    },
-    "config_schema": {
-        "enable_episode_fix": {
-            "type": "boolean", "default": True, "label": "剧集季集校验/修复",
-            "section": "功能开关", "cols": 3, "order": 10,
-            "help": "按文件名修正季集号",
-        },
-        "enable_delete_episode_genre": {
-            "type": "boolean", "default": False, "label": "删除单集 Genre",
-            "section": "功能开关", "cols": 3, "order": 11,
-            "help": "清理剧集单集的 Genre",
-        },
-        "enable_genre_mapper": {
-            "type": "boolean", "default": False, "label": "Genre 映射",
-            "section": "功能开关", "cols": 3, "order": 12,
-            "help": "替换/删除指定 Genre",
-        },
-        "enable_season_renamer": {
-            "type": "boolean", "default": False, "label": "季名刮削",
-            "section": "功能开关", "cols": 3, "order": 13,
-            "help": "从 TMDB 获取季名",
-        },
-        "enable_country_scraper": {
-            "type": "boolean", "default": False, "label": "国家/语言标签",
-            "section": "功能开关", "cols": 3, "order": 14,
-            "help": "转换为标签",
-        },
-        "enable_alt_renamer": {
-            "type": "boolean", "default": False, "label": "别名写入",
-            "section": "功能开关", "cols": 3, "order": 15,
-            "help": "写入中文别名",
-        },
-        "enable_strm_mediainfo": {
-            "type": "boolean", "default": False, "label": "STRM 刷新",
-            "section": "功能开关", "cols": 3, "order": 16,
-            "help": "刷新媒体信息",
-        },
-        "enable_damaged_check": {
-            "type": "boolean", "default": False, "label": "元数据检查",
-            "section": "功能开关", "cols": 3, "order": 17,
-            "help": "检测缺失元数据",
-        },
-
-        "emby_server": {
-            "type": "string", "default": "", "label": "Emby 地址",
-            "section": "基础配置", "order": 20,
-            "help": "例如：https://v.awdys.cn/",
-            "required": True,
-        },
-        "api_key": {
-            "type": "password", "default": "", "label": "Emby API Key",
-            "section": "基础配置", "order": 21,
-            "required": True,
-        },
-        "user_id": {
-            "type": "string", "default": "", "label": "Emby 用户 ID（可选）",
-            "section": "基础配置", "order": 22,
-            "help": "留空时自动取第一个用户。",
-        },
-        "tmdb_key": {
-            "type": "password", "default": "", "label": "TMDB API Key（季名/国家/别名功能用）",
-            "section": "基础配置", "order": 23,
-            "show_if": {"enable_season_renamer": True},
-        },
-        "library_names": {
-            "type": "text", "default": "", "label": "媒体库名称列表",
-            "section": "基础配置", "order": 24,
-            "help": "一行一个，或逗号分隔。用于 Genre/季名/Tag/别名/STRM/缺失检查。",
-        },
-
-        "fix_lock_data": {
-            "type": "boolean", "default": True, "label": "修复后锁定条目数据",
-            "section": "修复策略", "cols": 4, "order": 30,
-        },
-        "max_output": {
-            "type": "slider", "default": 50, "label": "输出条目上限",
-            "min": 5, "max": 200, "step": 5,
-            "section": "修复策略", "order": 31,
-        },
-        "genre_mapping_json": {
-            "type": "text", "default": '{\n  "Sci-Fi & Fantasy": "科幻",\n  "War & Politics": "战争"\n}',
-            "label": "Genre 映射 JSON",
-            "section": "修复策略", "order": 32,
-            "show_if": {"enable_genre_mapper": True},
-            "help": "格式：旧 Genre -> 新 Genre 名称。",
-        },
-        "genre_remove_list": {
-            "type": "text", "default": "", "label": "要删除的 Genre（每行一个）",
-            "section": "修复策略", "order": 33,
-            "show_if": {"enable_genre_mapper": True},
-        },
-        "add_hant_title": {
-            "type": "boolean", "default": True, "label": "别名写入时包含繁中标题",
-            "section": "修复策略", "cols": 4, "order": 34,
-            "show_if": {"enable_alt_renamer": True},
-        },
-        "strm_delay": {
-            "type": "slider", "default": 3, "label": "STRM 刷新间隔秒数",
-            "min": 0, "max": 30, "step": 1,
-            "section": "修复策略", "order": 35,
-            "show_if": {"enable_strm_mediainfo": True},
-        },
-
-        "enable_auto_schedule": {
-            "type": "boolean", "default": False, "label": "启用定时自动执行",
-            "section": "定时执行", "cols": 4, "order": 60,
-            "help": "开启后会按配置的时间自动执行选中的功能。",
-        },
-        "schedule_cron": {
-            "type": "string", "default": "0 3 * * *", "label": "定时执行时间（Cron）",
-            "section": "定时执行", "order": 61,
-            "help": "例如：0 3 * * * 表示每天凌晨3点。",
-            "show_if": {"enable_auto_schedule": True},
-        },
-        "schedule_functions": {
-            "type": "multiselect", "default": [], "label": "定时执行功能",
-            "section": "定时执行", "order": 62,
-            "options": [
-                {"value": "episode_fix", "label": "剧集季集修复", "help": "按文件名中的 SxxExx 修正 Emby 识别错误"},
-                {"value": "delete_episode_genre", "label": "删除单集 Genre", "help": "清理所有剧集单集的 Genre 字段"},
-                {"value": "genre_mapper", "label": "Genre 映射替换", "help": "批量替换或删除指定的 Genre"},
-                {"value": "season_renamer", "label": "季名刮削", "help": "从 TMDB 获取季名并写入 Emby"},
-                {"value": "country_scraper", "label": "国家语言标签", "help": "从 TMDB 获取国家/语言并转为标签"},
-                {"value": "alt_renamer", "label": "别名写入", "help": "从 TMDB 获取中文别名写入 SortName"},
-                {"value": "strm_mediainfo", "label": "STRM 媒体信息", "help": "强制刷新 STRM 文件的 MediaInfo"},
-                {"value": "damaged_check", "label": "元数据缺失检查", "help": "检测缺失 Overview/年份等关键元数据"}
-            ],
-            "help": "选择需要定时自动执行的功能。",
-            "show_if": {"enable_auto_schedule": True},
-        },
-
-        "run_all_scheduled": {
-            "type": "action", "label": "🚀 立即执行所有定时功能", "action": "run_all_scheduled",
-            "section": "操作", "order": 202,
-            "help": "立即执行所有在定时任务中选中的功能",
-        },
-
-        "test_connection": {
-            "type": "action", "label": "测试连接", "action": "test_connection",
-            "section": "操作", "order": 40,
-        },
-        "scan_episode_mismatch": {
-            "type": "action", "label": "扫描剧集季集不匹配", "action": "scan_episode_mismatch",
-            "section": "操作", "order": 41,
-            "show_if": {"enable_episode_fix": True},
-        },
-        "fix_episode_mismatch": {
-            "type": "action", "label": "按文件名修复剧集季集", "action": "fix_episode_mismatch",
-            "section": "操作", "order": 42,
-            "danger": True,
-            "show_if": {"enable_episode_fix": True},
-        },
-        "run_delete_episode_genre": {
-            "type": "action", "label": "删除所有单集 Genre", "action": "run_delete_episode_genre",
-            "section": "操作", "order": 43,
-            "danger": True,
-            "show_if": {"enable_delete_episode_genre": True},
-        },
-        "run_genre_mapper": {
-            "type": "action", "label": "执行 Genre 映射", "action": "run_genre_mapper",
-            "section": "操作", "order": 44,
-            "danger": True,
-            "show_if": {"enable_genre_mapper": True},
-        },
-        "run_season_renamer": {
-            "type": "action", "label": "执行季名刮削", "action": "run_season_renamer",
-            "section": "操作", "order": 45,
-            "show_if": {"enable_season_renamer": True},
-        },
-        "run_country_scraper": {
-            "type": "action", "label": "执行国家/语言 Tag", "action": "run_country_scraper",
-            "section": "操作", "order": 46,
-            "show_if": {"enable_country_scraper": True},
-        },
-        "run_alt_renamer": {
-            "type": "action", "label": "执行别名写入", "action": "run_alt_renamer",
-            "section": "操作", "order": 47,
-            "show_if": {"enable_alt_renamer": True},
-        },
-        "run_strm_mediainfo": {
-            "type": "action", "label": "执行 STRM MediaInfo 刷新", "action": "run_strm_mediainfo",
-            "section": "操作", "order": 48,
-            "show_if": {"enable_strm_mediainfo": True},
-        },
-        "run_damaged_check": {
-            "type": "action", "label": "执行元数据缺失检查", "action": "run_damaged_check",
-            "section": "操作", "order": 49,
-            "show_if": {"enable_damaged_check": True},
-        },
-        "last_summary": {
-            "type": "info", "label": "最近执行结果", "text": "尚未执行", "section": "状态", "order": 50,
-        },
     },
 }
 
@@ -256,9 +67,43 @@ LANGUAGE_DICT = {
 DEFAULT_COUNTRY = '其他国家'
 DEFAULT_LANGUAGE = '其他语种'
 
+DEFAULTS: Dict[str, Any] = {
+    'emby_server': '', 'api_key': '', 'user_id': '', 'tmdb_key': '',
+    'library_names': '', 'fix_lock_data': True, 'max_output': 50,
+    'genre_mapping_json': '{\n  "Sci-Fi & Fantasy": "科幻",\n  "War & Politics": "战争"\n}',
+    'genre_remove_list': '', 'add_hant_title': True, 'strm_delay': 3,
+    'enable_episode_fix': True, 'enable_delete_episode_genre': False,
+    'enable_genre_mapper': False, 'enable_season_renamer': False,
+    'enable_country_scraper': False, 'enable_alt_renamer': False,
+    'enable_strm_mediainfo': False, 'enable_damaged_check': False,
+    'enable_auto_schedule': False, 'schedule_cron': '0 3 * * *',
+    'schedule_functions': [],
+}
+
+FEATURES = {
+    'episode_fix': ('剧集季集修复', '_episode_fix', False),
+    'delete_episode_genre': ('删除单集 Genre', '_delete_episode_genre', False),
+    'genre_mapper': ('Genre 映射', '_genre_mapper', False),
+    'season_renamer': ('季名刮削', '_season_renamer', True),
+    'country_scraper': ('国家/语言标签', '_country_scraper', True),
+    'alt_renamer': ('别名写入', '_alt_renamer', True),
+    'strm_mediainfo': ('STRM 媒体信息', '_strm_mediainfo', False),
+    'damaged_check': ('元数据缺失检查', '_damaged_check', False),
+}
+
+_RUNTIME: Dict[str, Any] = {
+    'running': False, 'task': '', 'source': '', 'started_at': '',
+    'finished_at': '', 'last_result': '', 'last_ok': None,
+}
+_RECENT = deque(maxlen=30)
+
+
+def _now() -> str:
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
 
 def _cfg(ctx) -> Dict[str, Any]:
-    c = ctx.config
+    c = {**DEFAULTS, **dict(ctx.config or {})}
     return {
         'emby_server': str(c.get('emby_server', '') or '').strip(),
         'api_key': str(c.get('api_key', '') or '').strip(),
@@ -945,7 +790,7 @@ def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
     return '\n'.join(lines)
 
 
-async def setup(ctx):
+async def _legacy_setup(ctx):
     active_action_task = None
 
     def _cancel_active_action():
@@ -1149,5 +994,187 @@ async def setup(ctx):
     async def action_damaged_check():
         return await _start_action('执行元数据缺失检查', lambda cfg: _damaged_check(cfg, ctx))
 
-async def teardown(ctx):
+async def _legacy_teardown(ctx):
     ctx.log.info('[emby_toolbox] 插件已停用')
+
+
+def _worker_for(key: str, cfg: Dict[str, Any], ctx):
+    workers = {
+        'episode_fix': lambda: _episode_fix(cfg, ctx),
+        'delete_episode_genre': lambda: _delete_episode_genre(cfg, ctx),
+        'genre_mapper': lambda: _genre_mapper(cfg, ctx),
+        'season_renamer': lambda: _season_renamer(cfg, ctx),
+        'country_scraper': lambda: _country_scraper(cfg, ctx),
+        'alt_renamer': lambda: _alt_renamer(cfg, ctx),
+        'strm_mediainfo': lambda: _strm_mediainfo(cfg, ctx),
+        'damaged_check': lambda: _damaged_check(cfg, ctx),
+        'scan_episode_mismatch': lambda: _episode_summary(*_episode_collect(cfg), cfg['max_output']),
+    }
+    if key not in workers:
+        raise ValueError(f'未知功能：{key}')
+    return workers[key]()
+
+
+async def setup(ctx):
+    """Vue 模式：配置交给前端，所有长任务由平台后台托管。"""
+    active_task = None
+    scheduled_jobs = []
+
+    def _persist_history(row: Dict[str, Any]):
+        _RECENT.appendleft(row)
+        try:
+            saved = list(ctx.kv.get('run_history', []) or [])
+            saved.insert(0, row)
+            ctx.kv.set('run_history', saved[:30])
+        except Exception:
+            pass
+
+    async def _execute(keys: List[str], source: str, label: str):
+        nonlocal active_task
+        cfg = _cfg(ctx)
+        _RUNTIME.update(running=True, task=label, source=source, started_at=_now(),
+                        finished_at='', last_result='', last_ok=None)
+        results, success = [], True
+        try:
+            for key in keys:
+                title = FEATURES.get(key, (key, '', False))[0] if key != 'scan_episode_mismatch' else '扫描剧集季集'
+                need_tmdb = FEATURES.get(key, ('', '', False))[2]
+                ok, message = _validate_basic(cfg, need_tmdb=need_tmdb)
+                if not ok:
+                    raise ValueError(message)
+                ctx.log.info('[emby_toolbox] 开始：%s', title)
+                try:
+                    result = await asyncio.to_thread(_worker_for, key, cfg, ctx)
+                    results.append(f'{title}\n{result}')
+                except Exception as exc:
+                    success = False
+                    results.append(f'{title}\n失败：{exc}')
+                    ctx.log.exception('[emby_toolbox] %s 失败', title)
+            summary = '\n\n'.join(results) or '未执行任何功能'
+            _set_last_summary(ctx, summary)
+            _RUNTIME.update(last_result=summary, last_ok=success)
+            _persist_history({'time': _now(), 'source': source, 'task': label,
+                              'ok': success, 'summary': summary})
+            if source == '定时':
+                try:
+                    await asyncio.wait_for(ctx.notify(
+                        f'[Emby工具箱] {label}完成\n{summary}', category='Emby工具箱'
+                    ), timeout=30)
+                except Exception:
+                    ctx.log.warning('[emby_toolbox] 结果通知发送失败', exc_info=True)
+        except asyncio.CancelledError:
+            _RUNTIME.update(last_result='任务因插件停用或重载而取消', last_ok=False)
+            raise
+        except Exception as exc:
+            success = False
+            summary = f'{label}失败：{exc}'
+            _RUNTIME.update(last_result=summary, last_ok=False)
+            _persist_history({'time': _now(), 'source': source, 'task': label,
+                              'ok': False, 'summary': summary})
+            ctx.log.exception('[emby_toolbox] %s', summary)
+        finally:
+            _RUNTIME.update(running=False, finished_at=_now())
+            active_task = None
+
+    def _dispatch(keys: List[str], source: str, label: str):
+        nonlocal active_task
+        if active_task is not None and not active_task.done():
+            return False
+        active_task = ctx.create_task(
+            _execute(keys, source, label),
+            name=f'Emby 工具箱：{label}', operation='emby_maintenance',
+        )
+        return True
+
+    def _cleanup():
+        if active_task is not None and not active_task.done():
+            active_task.cancel()
+
+    ctx.add_cleanup(_cleanup)
+
+    @ctx.on_api('/status', methods=['GET'])
+    async def api_status(req):
+        history = list(ctx.kv.get('run_history', []) or [])
+        return {**_RUNTIME, 'history': history[:8],
+                'schedule': _cfg(ctx)['schedule_cron'],
+                'scheduled': bool(scheduled_jobs)}
+
+    @ctx.on_api('/test', methods=['POST'])
+    async def api_test(req):
+        cfg = _cfg(ctx)
+        ok, msg = _validate_basic(cfg)
+        if not ok:
+            return {'ok': False, 'message': msg}
+        try:
+            def _test():
+                uid = _resolve_user_id(cfg)
+                response = requests.get(
+                    f"{_base_url(cfg['emby_server'])}/emby/Users/{uid}",
+                    headers=_headers(cfg['api_key']), params={'api_key': cfg['api_key']}, timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json() if response.content else {}
+                return uid, data.get('Name', '')
+            uid, name = await asyncio.to_thread(_test)
+            return {'ok': True, 'message': f'连接成功：{name or uid}', 'user_id': uid}
+        except Exception as exc:
+            return {'ok': False, 'message': f'连接失败：{exc}'}
+
+    @ctx.on_api('/run', methods=['POST'])
+    async def api_run(req):
+        data = req.json or {}
+        key = str(data.get('action') or '').strip()
+        if key == 'scheduled':
+            keys = list(_cfg(ctx).get('schedule_functions') or [])
+            label = '手动执行计划'
+        else:
+            keys = [key]
+            label = FEATURES.get(key, ('扫描剧集季集', '', False))[0]
+        if not keys or any(k not in FEATURES and k != 'scan_episode_mismatch' for k in keys):
+            return {'ok': False, 'message': '请先选择要执行的功能'}
+        if not _dispatch(keys, '手动', label):
+            return {'ok': False, 'message': '已有维护任务正在运行'}
+        return {'ok': True, 'started': True, 'message': f'已在后台开始“{label}”'}
+
+    @ctx.on_api('/history', methods=['GET'])
+    async def api_history(req):
+        return {'ok': True, 'items': list(ctx.kv.get('run_history', []) or [])[:30]}
+
+    @ctx.on_api('/history/clear', methods=['POST'])
+    async def api_history_clear(req):
+        ctx.kv.set('run_history', [])
+        _RECENT.clear()
+        return {'ok': True}
+
+    cfg = _cfg(ctx)
+    if cfg.get('enable_auto_schedule'):
+        cron = str(cfg.get('schedule_cron') or '').split()
+        if len(cron) == 5:
+            async def _scheduled_dispatch():
+                keys = list(_cfg(ctx).get('schedule_functions') or [])
+                if keys and _dispatch(keys, '定时', '定时媒体维护'):
+                    ctx.log.info('[emby_toolbox] 定时任务已投递后台执行')
+            try:
+                kwargs = {}
+                for name, value in zip(('minute', 'hour', 'day', 'month', 'day_of_week'), cron):
+                    if value != '*':
+                        kwargs[name] = int(value)
+                scheduled_jobs.append(ctx.schedule(
+                    _scheduled_dispatch, 'cron', id='Emby 工具箱·媒体维护', **kwargs
+                ))
+            except Exception:
+                ctx.log.exception('[emby_toolbox] 定时表达式注册失败：%s', cfg.get('schedule_cron'))
+
+
+async def teardown(ctx):
+    _RUNTIME.update(running=False, task='', source='', finished_at=_now())
+    ctx.log.info('[emby_toolbox] 插件已停用')
+
+
+async def self_check(ctx):
+    cfg = _cfg(ctx)
+    ok, message = _validate_basic(cfg)
+    return {
+        'id': 'emby_configuration', 'name': 'Emby 连接配置', 'ok': ok,
+        'detail': '服务地址与 API Key 已配置' if ok else message,
+    }

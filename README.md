@@ -461,6 +461,7 @@ curl -X POST 'https://你的平台/api/v1/plugin/webhook_bridge/webhook?apikey=�
 | 多站点转账 | `transfer` | 监听多站点转账bot | user | 记录转入/转出并生成排行榜，站点群组/bot 内置 |
 | 朱雀 | `zhuque_lottery` | 命令 / 定时 | user | 朱雀PT站自动化：查询、大劫、红包雨、转盘、转账、投注、魔法卡、倍投 |
 | AWEmbyPush | `awembypush` | Emby/Jellyfin Webhook | standalone | 监听入库 Webhook，TMDB 增强 + 剧集合并 + 去重后，推送 Telegram/企业微信/Bark 通知（自 MoviePilot 移植） |
+| Emby 工具箱 | `emby_toolbox` | 定时 / Vue 维护台 | standalone | 剧集季集修复、Genre 清理与映射、TMDB 刮削、STRM 刷新和元数据健康检查；支持实时状态与运行历史 |
 | 自动订阅助手 | `auto_subscribe` | 定时 / Vue 配置界面 | standalone | 聚合豆瓣/Mikan新番/奈飞/猫眼榜单，按全局或每源过滤后自动订阅到 NextFind；自带 Vue 管理界面（自 MoviePilot 移植） |
 | GPT-GOD 自动签到 | `gptgod_checkin` | 定时 / 立即签到 | standalone | 使用平台托管浏览器登录 GPT-GOD，按网站原生动态校验流程每日领取签到积分 |
 | AWBlackJack | `awblackjack` | 后台自动运行 | standalone | SpringSunday 21 点单账号挂机；各实例通过统一 MQTT Broker 同步对局、协调开局并协助平局 |
