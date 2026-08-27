@@ -115,7 +115,7 @@ onMounted(load);onBeforeUnmount(()=>clearInterval(timer));
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createElementVNode("header", _hoisted_2, [
-      _cache[20] || (_cache[20] = _createStaticVNode("<div class=\"brand\" data-v-8eb1d66d><div class=\"mark\" data-v-8eb1d66d><svg viewBox=\"0 0 32 32\" data-v-8eb1d66d><path d=\"M8 5h11a6 6 0 0 1 0 12H8zM8 17h13a5 5 0 0 1 0 10H8z\" data-v-8eb1d66d></path></svg></div><div data-v-8eb1d66d><span class=\"eyebrow\" data-v-8eb1d66d>MEDIA OPERATIONS</span><h1 data-v-8eb1d66d>Emby 工具箱</h1><p data-v-8eb1d66d>把扫描、修复和刮削收进一个可观测的维护工作台。</p></div></div>", 1)),
+      _cache[20] || (_cache[20] = _createStaticVNode("<div class=\"brand\" data-v-ac2a94d3><div class=\"mark\" data-v-ac2a94d3><svg viewBox=\"0 0 32 32\" data-v-ac2a94d3><path d=\"M8 5h11a6 6 0 0 1 0 12H8zM8 17h13a5 5 0 0 1 0 10H8z\" data-v-ac2a94d3></path></svg></div><div data-v-ac2a94d3><span class=\"eyebrow\" data-v-ac2a94d3>MEDIA OPERATIONS</span><h1 data-v-ac2a94d3>Emby 工具箱</h1><p data-v-ac2a94d3>把扫描、修复和刮削收进一个可观测的维护工作台。</p></div></div>", 1)),
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("span", {
           class: _normalizeClass(["state", {live:status.running}])
@@ -446,6 +446,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-8eb1d66d"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ac2a94d3"]]);
 
 export { Config as default };
