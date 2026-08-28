@@ -5,13 +5,9 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import json
-import os
 from pathlib import Path
 import re
 import secrets
-import shutil
-import subprocess
-import sys
 import threading
 import time
 from urllib.parse import urlparse
@@ -24,15 +20,15 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.30",
+    "version": "2.5.31",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.30 修复 Audiences 验证框未真正点击\n- 优先按 .cf-turnstile 容器内的复选框坐标点击\n- 增加验证框点击日志，便于确认是否执行\n- 本地有头浏览器移到屏幕外并最小化，不再弹窗干扰\n\nv2.5.29 修复 Windows/macOS 有头浏览器启动判断",
+    "changelog": "v2.5.31 恢复 Audiences 旧版成功的平台浏览器链路\n- 撤销独立 cloakbrowser.launch 与插件自管 Xvfb\n- Audiences 重新使用平台 ctx.browser.run 和静默运行配置\n- 保留 Turnstile 精确点击、token 提交和真实结果校验\n\nv2.5.30 修复 Audiences 验证框点击定位",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.4.9"],
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -101,8 +97,6 @@ _browser_cookie_cache: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
-_xvfb_process: subprocess.Popen | None = None
-_xvfb_lock = threading.Lock()
 
 
 def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> None:
@@ -980,104 +974,6 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
     raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
 
 
-def _headed_browser_env() -> dict[str, str]:
-    """为 Audiences 有头浏览器提供可用 DISPLAY；不修改平台进程的全局环境。"""
-    global _xvfb_process
-    # Windows/macOS 的有头浏览器使用系统图形会话，不依赖 X11 DISPLAY。
-    if os.name == "nt" or sys.platform == "darwin":
-        return dict(os.environ)
-    current = str(os.environ.get("DISPLAY") or "").strip()
-    current_number = current[1:].split(".", 1)[0] if current.startswith(":") else ""
-    if current and (not current_number.isdigit() or Path(f"/tmp/.X11-unix/X{current_number}").exists()):
-        return {**os.environ, "DISPLAY": current}
-    executable = shutil.which("Xvfb")
-    if not executable:
-        raise RuntimeError("Docker 中未找到 Xvfb；请更新到包含 Xvfb/xauth 的平台镜像")
-    with _xvfb_lock:
-        if _xvfb_process is not None and _xvfb_process.poll() is None:
-            display = str(getattr(_xvfb_process, "_aw_display", ":99"))
-            return {**os.environ, "DISPLAY": display}
-        display = ""
-        for number in range(99, 110):
-            if not Path(f"/tmp/.X11-unix/X{number}").exists():
-                display = f":{number}"
-                break
-        if not display:
-            raise RuntimeError("Xvfb 无可用显示器编号（:99-:109 均已占用）")
-        process = subprocess.Popen(
-            [executable, display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp", "-ac"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            close_fds=True,
-        )
-        setattr(process, "_aw_display", display)
-        socket_path = Path(f"/tmp/.X11-unix/X{display[1:]}")
-        for _ in range(50):
-            if process.poll() is not None:
-                raise RuntimeError(f"Xvfb 启动失败（退出码 {process.returncode}）")
-            if socket_path.exists():
-                _xvfb_process = process
-                return {**os.environ, "DISPLAY": display}
-            time.sleep(0.1)
-        process.terminate()
-        raise RuntimeError("Xvfb 启动后 5 秒内未创建显示器套接字")
-
-
-def _audiences_cloak_checkin(ctx, cookie: str) -> dict:
-    """使用与 AWPulse 相同的独立 CloakBrowser 指纹和持久状态完成 Audiences 签到。"""
-    import cloakbrowser
-
-    # v3 状态从 Xvfb 有头模式开始建立，不复用旧版 headless 指纹的验证 Cookie。
-    state_path = Path(ctx.data_dir) / "audiences_storage_state_v3.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    browser = context = page = None
-    try:
-        browser_env = _headed_browser_env()
-        browser_args = [
-            "--disable-blink-features=AutomationControlled",
-            "--disable-dev-shm-usage",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-        ]
-        if os.name == "nt":
-            browser_args.extend(["--start-minimized", "--window-position=-32000,-32000", "--window-size=1920,1080"])
-        browser = cloakbrowser.launch(
-            headless=False,
-            env=browser_env,
-            args=browser_args,
-            locale="zh-CN",
-            timezone="Asia/Shanghai",
-        )
-        context_options = {
-            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-            "viewport": {"width": 1920, "height": 1080},
-            "locale": "zh-CN",
-            "timezone_id": "Asia/Shanghai",
-            "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
-        }
-        has_saved_state = state_path.exists()
-        if has_saved_state:
-            context_options["storage_state"] = str(state_path)
-        context = browser.new_context(**context_options)
-        page = context.new_page()
-        page.set_default_timeout(20_000)
-        # add_cookies 按名称/域覆盖：CookieCloud 若有更新的 cf_clearance，必须让它
-        # 覆盖保存状态里的旧值；若没有，原持久状态仍会保留。
-        _seed_browser_cookie_jar(page, cookie, "https://audiences.me/attendance.php")
-        return _browser_checkin(page, "audiences.me", ctx, None)
-    finally:
-        if context is not None:
-            try:
-                context.storage_state(path=str(state_path))
-            except Exception:
-                pass
-        for item in (page, context, browser):
-            if item is not None:
-                try:
-                    item.close()
-                except Exception:
-                    pass
-
-
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
@@ -1572,16 +1468,6 @@ async def _run(ctx, source: str) -> dict:
                         _state.update({"phase": "浏览器降级", "message": f"{site['name']}：{browser_reason}"})
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
-                        if key == "audiences":
-                            _runtime_log(ctx, "使用持久 CloakBrowser 会话处理 Turnstile", site=site["name"])
-                            outcome = await _with_heartbeat(
-                                asyncio.to_thread(
-                                    _audiences_cloak_checkin, ctx, cookie,
-                                ),
-                                ctx, site["name"], "持久 CloakBrowser 正在等待 Turnstile 或签到结果",
-                                max_wait=210,
-                            )
-
                         if outcome is None:
                             def action(page, site_key=key, current_site=site):
                                 seed_url = "https://piggo.me/" if site_key == "piggo" else current_site["url"]
@@ -1595,7 +1481,7 @@ async def _run(ctx, source: str) -> dict:
                                     return result
                                 return _special_checkin(page, site_key, current_site, ctx, loop)
 
-                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"ourbits", "piggo", "hhan"} else 150)
+                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
                             outcome = await _with_heartbeat(
                                 ctx.browser.run(
                                     site["url"], action, cookies=cookie,
@@ -1771,7 +1657,6 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    global _xvfb_process
     _state.update({"running": False, "current": "", "phase": "", "message": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
@@ -1785,11 +1670,3 @@ async def teardown(ctx):
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
-    with _xvfb_lock:
-        if _xvfb_process is not None and _xvfb_process.poll() is None:
-            _xvfb_process.terminate()
-            try:
-                _xvfb_process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                _xvfb_process.kill()
-        _xvfb_process = None

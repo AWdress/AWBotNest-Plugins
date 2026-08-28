@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.30",
+    "version": "2.5.31",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.30 修复 Audiences 验证框未真正点击\n- 优先按 .cf-turnstile 容器内的复选框坐标点击\n- 增加验证框点击日志，便于确认是否执行\n- 本地有头浏览器移到屏幕外并最小化，不再弹窗干扰\n\nv2.5.29 修复 Windows/macOS 有头浏览器启动判断",
+    "changelog": "v2.5.31 恢复 Audiences 旧版成功的平台浏览器链路\n- 撤销独立 cloakbrowser.launch 与插件自管 Xvfb\n- Audiences 重新使用平台 ctx.browser.run 和静默运行配置\n- 保留 Turnstile 精确点击、token 提交和真实结果校验\n\nv2.5.30 修复 Audiences 验证框点击定位",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
