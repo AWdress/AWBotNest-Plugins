@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.29",
+    "version": "2.5.30",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.29 修复本地有头浏览器被误判为 Docker\n- Windows/macOS 直接启动 headless=False，不再要求 Xvfb\n- 仅 Linux/Docker 在 DISPLAY 不可用时自动启动 Xvfb\n\nv2.5.28 修复 Audiences Turnstile 通过后未提交\n- 点击验证区并在获得 token 后主动提交签到表单",
+    "changelog": "v2.5.30 修复 Audiences 验证框未真正点击\n- 优先按 .cf-turnstile 容器内的复选框坐标点击\n- 增加验证框点击日志，便于确认是否执行\n- 本地有头浏览器移到屏幕外并最小化，不再弹窗干扰\n\nv2.5.29 修复 Windows/macOS 有头浏览器启动判断",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -897,10 +897,11 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
-def _audiences_turnstile_checkin(page) -> dict:
+def _audiences_turnstile_checkin(page, ctx=None) -> dict:
     """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
     deadline = time.monotonic() + 180
     last_click = 0.0
+    click_count = 0
     while time.monotonic() < deadline:
         text = _page_text(page)
         html = page.content()
@@ -948,14 +949,30 @@ def _audiences_turnstile_checkin(page) -> dict:
                     continue
             if not clicked:
                 try:
+                    widget = page.locator("#attendance-form .cf-turnstile").first
+                    if widget.count() and widget.is_visible():
+                        box = widget.bounding_box()
+                        if box and box["width"] >= 80 and box["height"] >= 40:
+                            page.mouse.click(box["x"] + min(42, box["width"] / 4), box["y"] + box["height"] / 2)
+                            last_click = now
+                            clicked = True
+                except Exception:
+                    pass
+            if not clicked:
+                try:
                     iframe = page.locator('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]').first
                     if iframe.count() and iframe.is_visible():
                         box = iframe.bounding_box()
                         if box and box["width"] >= 40 and box["height"] >= 40:
                             page.mouse.click(box["x"] + min(30, box["width"] / 2), box["y"] + box["height"] / 2)
                             last_click = now
+                            clicked = True
                 except Exception:
                     pass
+            if clicked:
+                click_count += 1
+                if ctx is not None and click_count in {1, 3, 6}:
+                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次）", site="Audiences")
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
@@ -1015,15 +1032,18 @@ def _audiences_cloak_checkin(ctx, cookie: str) -> dict:
     browser = context = page = None
     try:
         browser_env = _headed_browser_env()
+        browser_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ]
+        if os.name == "nt":
+            browser_args.extend(["--start-minimized", "--window-position=-32000,-32000", "--window-size=1920,1080"])
         browser = cloakbrowser.launch(
             headless=False,
             env=browser_env,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-            ],
+            args=browser_args,
             locale="zh-CN",
             timezone="Asia/Shanghai",
         )
@@ -1113,7 +1133,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
     if expected_domain.lower() == "audiences.me" and page.locator("#attendance-form .cf-turnstile").count() > 0:
-        return _audiences_turnstile_checkin(page)
+        return _audiences_turnstile_checkin(page, ctx)
     captcha = _captcha_error(text)
     if captcha:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
