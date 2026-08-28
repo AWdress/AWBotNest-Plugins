@@ -20,11 +20,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.25",
+    "version": "2.5.26",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.25 修复 Docker 中 Audiences Turnstile 会话失效\n- 固定 CloakBrowser User-Agent，避免持久验证 Cookie 与下次指纹不匹配\n- CookieCloud 的新验证 Cookie 可覆盖持久会话中的旧值\n- 尝试触发可交互的 Turnstile 复选框，并严格按 180 秒截止\n\nv2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state",
+    "changelog": "v2.5.26 使用 Docker Xvfb 处理 Audiences 验证\n- Audiences 独立 CloakBrowser 固定使用 headless=False\n- 通过平台的 1920×1080×24 虚拟显示器运行有头浏览器\n- 其他站点及平台原有 headless=True 流程不受影响\n\nv2.5.25 修复 Docker 中 Audiences Turnstile 会话失效\n- 固定 CloakBrowser User-Agent 并允许新验证 Cookie 覆盖旧值",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -927,17 +927,17 @@ def _audiences_turnstile_checkin(page) -> dict:
     raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
 
 
-def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
+def _audiences_cloak_checkin(ctx, cookie: str) -> dict:
     """使用与 AWPulse 相同的独立 CloakBrowser 指纹和持久状态完成 Audiences 签到。"""
     import cloakbrowser
 
-    # v2 状态从固定 UA 开始建立，不复用旧版随机指纹下的验证 Cookie。
-    state_path = Path(ctx.data_dir) / "audiences_storage_state_v2.json"
+    # v3 状态从 Xvfb 有头模式开始建立，不复用旧版 headless 指纹的验证 Cookie。
+    state_path = Path(ctx.data_dir) / "audiences_storage_state_v3.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     browser = context = page = None
     try:
         browser = cloakbrowser.launch(
-            headless=headless,
+            headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
@@ -1477,7 +1477,6 @@ async def _run(ctx, source: str) -> dict:
                             outcome = await _with_heartbeat(
                                 asyncio.to_thread(
                                     _audiences_cloak_checkin, ctx, cookie,
-                                    bool(cfg.get("headless", True)),
                                 ),
                                 ctx, site["name"], "持久 CloakBrowser 正在等待 Turnstile 或签到结果",
                                 max_wait=210,
