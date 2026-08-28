@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
 import secrets
+import shutil
+import subprocess
 import threading
 import time
 from urllib.parse import urlparse
@@ -20,11 +23,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.26",
+    "version": "2.5.27",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.26 使用 Docker Xvfb 处理 Audiences 验证\n- Audiences 独立 CloakBrowser 固定使用 headless=False\n- 通过平台的 1920×1080×24 虚拟显示器运行有头浏览器\n- 其他站点及平台原有 headless=True 流程不受影响\n\nv2.5.25 修复 Docker 中 Audiences Turnstile 会话失效\n- 固定 CloakBrowser User-Agent 并允许新验证 Cookie 覆盖旧值",
+    "changelog": "v2.5.27 修复 Docker 未启动 X Server\n- Audiences 启动前检测 DISPLAY，缺失时由插件启动 Xvfb\n- 虚拟屏幕固定为 1920×1080×24 并禁止 TCP 监听\n- DISPLAY 仅传给 Audiences 浏览器，插件卸载时回收 Xvfb\n\nv2.5.26 使用 Docker Xvfb 处理 Audiences 验证\n- Audiences 独立 CloakBrowser 固定使用 headless=False",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -97,6 +100,8 @@ _browser_cookie_cache: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
+_xvfb_process: subprocess.Popen | None = None
+_xvfb_lock = threading.Lock()
 
 
 def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> None:
@@ -927,6 +932,45 @@ def _audiences_turnstile_checkin(page) -> dict:
     raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
 
 
+def _headed_browser_env() -> dict[str, str]:
+    """为 Audiences 有头浏览器提供可用 DISPLAY；不修改平台进程的全局环境。"""
+    global _xvfb_process
+    current = str(os.environ.get("DISPLAY") or "").strip()
+    current_number = current[1:].split(".", 1)[0] if current.startswith(":") else ""
+    if current and (not current_number.isdigit() or Path(f"/tmp/.X11-unix/X{current_number}").exists()):
+        return {**os.environ, "DISPLAY": current}
+    executable = shutil.which("Xvfb")
+    if not executable:
+        raise RuntimeError("Docker 中未找到 Xvfb；请更新到包含 Xvfb/xauth 的平台镜像")
+    with _xvfb_lock:
+        if _xvfb_process is not None and _xvfb_process.poll() is None:
+            display = str(getattr(_xvfb_process, "_aw_display", ":99"))
+            return {**os.environ, "DISPLAY": display}
+        display = ""
+        for number in range(99, 110):
+            if not Path(f"/tmp/.X11-unix/X{number}").exists():
+                display = f":{number}"
+                break
+        if not display:
+            raise RuntimeError("Xvfb 无可用显示器编号（:99-:109 均已占用）")
+        process = subprocess.Popen(
+            [executable, display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp", "-ac"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+        setattr(process, "_aw_display", display)
+        socket_path = Path(f"/tmp/.X11-unix/X{display[1:]}")
+        for _ in range(50):
+            if process.poll() is not None:
+                raise RuntimeError(f"Xvfb 启动失败（退出码 {process.returncode}）")
+            if socket_path.exists():
+                _xvfb_process = process
+                return {**os.environ, "DISPLAY": display}
+            time.sleep(0.1)
+        process.terminate()
+        raise RuntimeError("Xvfb 启动后 5 秒内未创建显示器套接字")
+
+
 def _audiences_cloak_checkin(ctx, cookie: str) -> dict:
     """使用与 AWPulse 相同的独立 CloakBrowser 指纹和持久状态完成 Audiences 签到。"""
     import cloakbrowser
@@ -936,8 +980,10 @@ def _audiences_cloak_checkin(ctx, cookie: str) -> dict:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     browser = context = page = None
     try:
+        browser_env = _headed_browser_env()
         browser = cloakbrowser.launch(
             headless=False,
+            env=browser_env,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
@@ -1671,6 +1717,7 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _xvfb_process
     _state.update({"running": False, "current": "", "phase": "", "message": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
@@ -1684,3 +1731,11 @@ async def teardown(ctx):
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+    with _xvfb_lock:
+        if _xvfb_process is not None and _xvfb_process.poll() is None:
+            _xvfb_process.terminate()
+            try:
+                _xvfb_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                _xvfb_process.kill()
+        _xvfb_process = None
