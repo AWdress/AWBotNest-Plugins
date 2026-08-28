@@ -23,11 +23,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.27",
+    "version": "2.5.28",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.27 修复 Docker 未启动 X Server\n- Audiences 启动前检测 DISPLAY，缺失时由插件启动 Xvfb\n- 虚拟屏幕固定为 1920×1080×24 并禁止 TCP 监听\n- DISPLAY 仅传给 Audiences 浏览器，插件卸载时回收 Xvfb\n\nv2.5.26 使用 Docker Xvfb 处理 Audiences 验证\n- Audiences 独立 CloakBrowser 固定使用 headless=False",
+    "changelog": "v2.5.28 修复 Audiences Turnstile 通过后未提交\n- 在有头浏览器中点击 Turnstile iframe 的可视复选区\n- 检测到验证 token 后主动 requestSubmit 签到表单\n- 修正心跳计时越过超时上限的显示问题\n\nv2.5.27 修复 Docker 未启动 X Server\n- 插件自动启动 1920×1080×24 Xvfb 并禁止 TCP 监听",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -126,17 +126,17 @@ async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: 
     task = asyncio.create_task(awaitable)
     elapsed = 0
     try:
-        while True:
-            done, _ = await asyncio.wait({task}, timeout=interval)
+        while elapsed < max_wait:
+            wait_for = min(interval, max_wait - elapsed)
+            done, _ = await asyncio.wait({task}, timeout=wait_for)
             if done:
                 return task.result()
-            elapsed += interval
+            elapsed += wait_for
             _runtime_log(ctx, f"{message}，已等待 {elapsed} 秒", level="warning", site=site)
-            if elapsed >= max_wait:
-                raise RuntimeError(
-                    f"CloakBrowser 等待超过 {max_wait} 秒，已终止本轮签到；"
-                    "若日志曾长时间停在浏览器等待，请重启平台以释放底层浏览器线程"
-                )
+        raise RuntimeError(
+            f"CloakBrowser 等待超过 {max_wait} 秒，已终止本轮签到；"
+            "若日志曾长时间停在浏览器等待，请重启平台以释放底层浏览器线程"
+        )
     finally:
         if not task.done():
             task.cancel()
@@ -912,19 +912,49 @@ def _audiences_turnstile_checkin(page) -> dict:
         turnstile_present = page.locator("#attendance-form .cf-turnstile").count() > 0
         if not form_present and not turnstile_present:
             return _confirm_result(page, attempts=2, expected_domain="audiences.me")
-        # Managed Turnstile 在有些 Docker 指纹下会显示可交互复选框，
-        # 不会像无感模式一样自动回调。只在复选框真实可见时尝试一次点击。
+        token = page.evaluate("""() => {
+            const names = ['cf-turnstile-response', 'cf-token'];
+            for (const name of names) {
+                const input = document.querySelector(`[name="${name}"]`);
+                if (input && String(input.value || '').trim()) return String(input.value).trim();
+            }
+            return '';
+        }""")
+        if token:
+            page.evaluate("""() => {
+                const form = document.querySelector('#attendance-form');
+                if (!form || form.dataset.awSubmitted === '1') return;
+                form.dataset.awSubmitted = '1';
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.submit();
+            }""")
+            page.wait_for_timeout(2_000)
+            continue
+        # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
+        # 先访问 frame 内的原生复选框，再以 iframe 可视坐标作为兜底。
         now = time.monotonic()
         if now - last_click >= 5:
+            clicked = False
             for frame in page.frames:
                 try:
                     checkbox = frame.locator('input[type="checkbox"]')
                     if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
                         checkbox.first.click(timeout=3_000)
                         last_click = now
+                        clicked = True
                         break
                 except Exception:
                     continue
+            if not clicked:
+                try:
+                    iframe = page.locator('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]').first
+                    if iframe.count() and iframe.is_visible():
+                        box = iframe.bounding_box()
+                        if box and box["width"] >= 40 and box["height"] >= 40:
+                            page.mouse.click(box["x"] + min(30, box["width"] / 2), box["y"] + box["height"] / 2)
+                            last_click = now
+                except Exception:
+                    pass
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
