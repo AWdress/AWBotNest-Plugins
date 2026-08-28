@@ -11,6 +11,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from urllib.parse import urlparse
@@ -23,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.28",
+    "version": "2.5.29",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.28 修复 Audiences Turnstile 通过后未提交\n- 在有头浏览器中点击 Turnstile iframe 的可视复选区\n- 检测到验证 token 后主动 requestSubmit 签到表单\n- 修正心跳计时越过超时上限的显示问题\n\nv2.5.27 修复 Docker 未启动 X Server\n- 插件自动启动 1920×1080×24 Xvfb 并禁止 TCP 监听",
+    "changelog": "v2.5.29 修复本地有头浏览器被误判为 Docker\n- Windows/macOS 直接启动 headless=False，不再要求 Xvfb\n- 仅 Linux/Docker 在 DISPLAY 不可用时自动启动 Xvfb\n\nv2.5.28 修复 Audiences Turnstile 通过后未提交\n- 点击验证区并在获得 token 后主动提交签到表单",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -965,6 +966,9 @@ def _audiences_turnstile_checkin(page) -> dict:
 def _headed_browser_env() -> dict[str, str]:
     """为 Audiences 有头浏览器提供可用 DISPLAY；不修改平台进程的全局环境。"""
     global _xvfb_process
+    # Windows/macOS 的有头浏览器使用系统图形会话，不依赖 X11 DISPLAY。
+    if os.name == "nt" or sys.platform == "darwin":
+        return dict(os.environ)
     current = str(os.environ.get("DISPLAY") or "").strip()
     current_number = current[1:].split(".", 1)[0] if current.startswith(":") else ""
     if current and (not current_number.isdigit() or Path(f"/tmp/.X11-unix/X{current_number}").exists()):
