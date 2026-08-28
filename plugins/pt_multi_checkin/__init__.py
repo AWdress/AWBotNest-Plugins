@@ -19,15 +19,15 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.23",
+    "version": "2.5.24",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.23 适配 Audiences 新版签到验证\n- 识别新的 Cloudflare Turnstile 签到表单并切换 CloakBrowser\n- 等待验证回调自动提交后再确认真实签到结果\n- 验证超时返回明确提示，不再误报页面结构未识别\n\nv2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态",
+    "changelog": "v2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state\n- 固定中文区域、上海时区和 1920×1080 视口，持续复用验证会话\n- Turnstile 超时不再重复等待三轮\n\nv2.5.23 适配 Audiences 新版签到验证\n- 等待验证回调自动提交后确认真实签到结果",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12"],
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.4.9"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -415,6 +415,7 @@ def _retryable_error(exc: Exception) -> bool:
         "cookie", "登录页", "人工签到", "人工处理", "验证码", "没有访问权限",
         "非预期域名", "格式不正确", "bot 未连接", "主人 id",
         "等待 telegram", "签到选项", "验证题已变化", "cloakbrowser 等待超过", "本轮跳过",
+        "turnstile",
     )
     return not any(marker in text for marker in permanent)
 
@@ -907,7 +908,63 @@ def _audiences_turnstile_checkin(page) -> dict:
             page.wait_for_timeout(2_000)
         else:
             page.wait_for_timeout(1_000)
-    raise RuntimeError("Audiences Turnstile 人机验证未在 180 秒内自动通过；请关闭静默运行后人工完成验证")
+    raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
+
+
+def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
+    """使用与 AWPulse 相同的独立 CloakBrowser 指纹和持久状态完成 Audiences 签到。"""
+    import cloakbrowser
+
+    state_path = Path(ctx.data_dir) / "audiences_storage_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    browser = context = page = None
+    try:
+        browser = cloakbrowser.launch(
+            headless=headless,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ],
+            locale="zh-CN",
+            timezone="Asia/Shanghai",
+        )
+        context_options = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "zh-CN",
+            "timezone_id": "Asia/Shanghai",
+            "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
+        }
+        has_saved_state = state_path.exists()
+        if has_saved_state:
+            context_options["storage_state"] = str(state_path)
+        context = browser.new_context(**context_options)
+        page = context.new_page()
+        page.set_default_timeout(20_000)
+        seed_cookie = cookie
+        if has_saved_state:
+            # 保留持久会话里更新后的 Cloudflare Cookie，CookieCloud 仅覆盖站点登录 Cookie。
+            seed_cookie = "; ".join(
+                part.strip() for part in cookie.split(";")
+                if part.strip().partition("=")[0].lower() not in {
+                    "cf_clearance", "__cf_bm", "cf_chl_2", "sl-session", "sl-challenge-server",
+                }
+            )
+        _seed_browser_cookie_jar(page, seed_cookie, "https://audiences.me/attendance.php")
+        return _browser_checkin(page, "audiences.me", ctx, None)
+    finally:
+        if context is not None:
+            try:
+                context.storage_state(path=str(state_path))
+            except Exception:
+                pass
+        for item in (page, context, browser):
+            if item is not None:
+                try:
+                    item.close()
+                except Exception:
+                    pass
 
 
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
@@ -1404,28 +1461,40 @@ async def _run(ctx, source: str) -> dict:
                         _state.update({"phase": "浏览器降级", "message": f"{site['name']}：{browser_reason}"})
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
-                        def action(page, site_key=key, current_site=site):
-                            seed_url = "https://piggo.me/" if site_key == "piggo" else current_site["url"]
-                            _seed_browser_cookie_jar(page, cookie, seed_url)
-                            if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
-                                result = _browser_checkin(page, current_site["domain"], ctx, loop)
-                                if site_key == "piggo":
-                                    refreshed = _refreshed_cookie_header(page, current_site["domain"])
-                                    if refreshed:
-                                        _browser_cookie_cache[site_key] = refreshed
-                                return result
-                            return _special_checkin(page, site_key, current_site, ctx, loop)
+                        if key == "audiences":
+                            _runtime_log(ctx, "使用持久 CloakBrowser 会话处理 Turnstile", site=site["name"])
+                            outcome = await _with_heartbeat(
+                                asyncio.to_thread(
+                                    _audiences_cloak_checkin, ctx, cookie,
+                                    bool(cfg.get("headless", True)),
+                                ),
+                                ctx, site["name"], "持久 CloakBrowser 正在等待 Turnstile 或签到结果",
+                                max_wait=210,
+                            )
 
-                        browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
-                        outcome = await _with_heartbeat(
-                            ctx.browser.run(
-                                site["url"], action, cookies=cookie,
-                                headless=bool(cfg.get("headless", True)),
-                                timeout=browser_timeout,
-                            ),
-                            ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
-                            max_wait=browser_timeout + 30,
-                        )
+                        if outcome is None:
+                            def action(page, site_key=key, current_site=site):
+                                seed_url = "https://piggo.me/" if site_key == "piggo" else current_site["url"]
+                                _seed_browser_cookie_jar(page, cookie, seed_url)
+                                if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
+                                    result = _browser_checkin(page, current_site["domain"], ctx, loop)
+                                    if site_key == "piggo":
+                                        refreshed = _refreshed_cookie_header(page, current_site["domain"])
+                                        if refreshed:
+                                            _browser_cookie_cache[site_key] = refreshed
+                                    return result
+                                return _special_checkin(page, site_key, current_site, ctx, loop)
+
+                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"ourbits", "piggo", "hhan"} else 150)
+                            outcome = await _with_heartbeat(
+                                ctx.browser.run(
+                                    site["url"], action, cookies=cookie,
+                                    headless=bool(cfg.get("headless", True)),
+                                    timeout=browser_timeout,
+                                ),
+                                ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
+                                max_wait=browser_timeout + 30,
+                            )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
                         raise RuntimeError(str((outcome or {}).get("message") or "网站返回签到失败"))

@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.23",
+    "version": "2.5.24",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.23 适配 Audiences 新版签到验证\n- 识别新的 Cloudflare Turnstile 签到表单并切换 CloakBrowser\n- 等待验证回调自动提交后再确认真实签到结果\n- 验证超时返回明确提示，不再误报页面结构未识别\n\nv2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态",
+    "changelog": "v2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state\n- 固定中文区域、上海时区和 1920×1080 视口，持续复用验证会话\n- Turnstile 超时不再重复等待三轮\n\nv2.5.23 适配 Audiences 新版签到验证\n- 等待验证回调自动提交后确认真实签到结果",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
