@@ -19,11 +19,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.22",
+    "version": "2.5.23",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态\n- 只有本次确实进入签到页完成操作才返回签到成功\n- HTTP 与 CloakBrowser 路径统一使用真实状态判定\n\nv2.5.21 修复 HHanClub 重复签到误报\n- 根据当天签到记录的创建时间区分刚签到与今天已签到",
+    "changelog": "v2.5.23 适配 Audiences 新版签到验证\n- 识别新的 Cloudflare Turnstile 签到表单并切换 CloakBrowser\n- 等待验证回调自动提交后再确认真实签到结果\n- 验证超时返回明确提示，不再误报页面结构未识别\n\nv2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -889,6 +889,27 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
+def _audiences_turnstile_checkin(page) -> dict:
+    """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
+    for _ in range(90):
+        text = _page_text(page)
+        html = page.content()
+        state = _nexus_result_state(text)
+        if state:
+            if state[0] == "failed":
+                raise RuntimeError(state[1])
+            return {"status": state[0], "message": state[1]}
+        form_present = page.locator("#attendance-form").count() > 0
+        turnstile_present = page.locator("#attendance-form .cf-turnstile").count() > 0
+        if not form_present and not turnstile_present:
+            return _confirm_result(page, attempts=2, expected_domain="audiences.me")
+        if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
+            page.wait_for_timeout(2_000)
+        else:
+            page.wait_for_timeout(1_000)
+    raise RuntimeError("Audiences Turnstile 人机验证未在 180 秒内自动通过；请关闭静默运行后人工完成验证")
+
+
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
@@ -943,6 +964,8 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
         raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
+    if expected_domain.lower() == "audiences.me" and page.locator("#attendance-form .cf-turnstile").count() > 0:
+        return _audiences_turnstile_checkin(page)
     captcha = _captcha_error(text)
     if captcha:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
@@ -1116,6 +1139,10 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             if state:
                 return {"status": state[0], "message": state[1], "engine": "http"}
             raise _NeedsBrowser("HTTP 未找到 HHanClub 当天签到记录，切换 CloakBrowser 确认")
+        if key == "audiences":
+            soup = BeautifulSoup(text, "html.parser")
+            if soup.select_one("#attendance-form .cf-turnstile"):
+                raise _NeedsBrowser("Audiences 需要 Turnstile 人机验证，切换 CloakBrowser 等待自动验证")
         if key == "piggo":
             if re.search(r"签到\s*已得\s*[\d,.]+", visible_text):
                 return {"status": "already", "message": "今天已经签到", "engine": "http"}

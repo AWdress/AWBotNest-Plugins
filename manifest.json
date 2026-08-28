@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.22",
+    "version": "2.5.23",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态\n- 只有本次确实进入签到页完成操作才返回签到成功\n- HTTP 与 CloakBrowser 路径统一使用真实状态判定\n\nv2.5.21 修复 HHanClub 重复签到误报\n- 根据当天签到记录的创建时间区分刚签到与今天已签到",
+    "changelog": "v2.5.23 适配 Audiences 新版签到验证\n- 识别新的 Cloudflare Turnstile 签到表单并切换 CloakBrowser\n- 等待验证回调自动提交后再确认真实签到结果\n- 验证超时返回明确提示，不再误报页面结构未识别\n\nv2.5.22 修复 PigGo 重复签到误报\n- 签到前先检查首页的“签到已得”状态",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
