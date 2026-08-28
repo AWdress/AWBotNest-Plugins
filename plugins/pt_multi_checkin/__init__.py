@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import secrets
 import threading
+import time
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -19,11 +20,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.24",
+    "version": "2.5.25",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state\n- 固定中文区域、上海时区和 1920×1080 视口，持续复用验证会话\n- Turnstile 超时不再重复等待三轮\n\nv2.5.23 适配 Audiences 新版签到验证\n- 等待验证回调自动提交后确认真实签到结果",
+    "changelog": "v2.5.25 修复 Docker 中 Audiences Turnstile 会话失效\n- 固定 CloakBrowser User-Agent，避免持久验证 Cookie 与下次指纹不匹配\n- CookieCloud 的新验证 Cookie 可覆盖持久会话中的旧值\n- 尝试触发可交互的 Turnstile 复选框，并严格按 180 秒截止\n\nv2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -892,7 +893,9 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
 
 def _audiences_turnstile_checkin(page) -> dict:
     """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
-    for _ in range(90):
+    deadline = time.monotonic() + 180
+    last_click = 0.0
+    while time.monotonic() < deadline:
         text = _page_text(page)
         html = page.content()
         state = _nexus_result_state(text)
@@ -904,10 +907,23 @@ def _audiences_turnstile_checkin(page) -> dict:
         turnstile_present = page.locator("#attendance-form .cf-turnstile").count() > 0
         if not form_present and not turnstile_present:
             return _confirm_result(page, attempts=2, expected_domain="audiences.me")
+        # Managed Turnstile 在有些 Docker 指纹下会显示可交互复选框，
+        # 不会像无感模式一样自动回调。只在复选框真实可见时尝试一次点击。
+        now = time.monotonic()
+        if now - last_click >= 5:
+            for frame in page.frames:
+                try:
+                    checkbox = frame.locator('input[type="checkbox"]')
+                    if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
+                        checkbox.first.click(timeout=3_000)
+                        last_click = now
+                        break
+                except Exception:
+                    continue
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
-            page.wait_for_timeout(1_000)
+            page.wait_for_timeout(min(1_000, max(1, int((deadline - time.monotonic()) * 1000))))
     raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
 
 
@@ -915,7 +931,8 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
     """使用与 AWPulse 相同的独立 CloakBrowser 指纹和持久状态完成 Audiences 签到。"""
     import cloakbrowser
 
-    state_path = Path(ctx.data_dir) / "audiences_storage_state.json"
+    # v2 状态从固定 UA 开始建立，不复用旧版随机指纹下的验证 Cookie。
+    state_path = Path(ctx.data_dir) / "audiences_storage_state_v2.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     browser = context = page = None
     try:
@@ -931,6 +948,7 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
             timezone="Asia/Shanghai",
         )
         context_options = {
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
             "viewport": {"width": 1920, "height": 1080},
             "locale": "zh-CN",
             "timezone_id": "Asia/Shanghai",
@@ -942,16 +960,9 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
         context = browser.new_context(**context_options)
         page = context.new_page()
         page.set_default_timeout(20_000)
-        seed_cookie = cookie
-        if has_saved_state:
-            # 保留持久会话里更新后的 Cloudflare Cookie，CookieCloud 仅覆盖站点登录 Cookie。
-            seed_cookie = "; ".join(
-                part.strip() for part in cookie.split(";")
-                if part.strip().partition("=")[0].lower() not in {
-                    "cf_clearance", "__cf_bm", "cf_chl_2", "sl-session", "sl-challenge-server",
-                }
-            )
-        _seed_browser_cookie_jar(page, seed_cookie, "https://audiences.me/attendance.php")
+        # add_cookies 按名称/域覆盖：CookieCloud 若有更新的 cf_clearance，必须让它
+        # 覆盖保存状态里的旧值；若没有，原持久状态仍会保留。
+        _seed_browser_cookie_jar(page, cookie, "https://audiences.me/attendance.php")
         return _browser_checkin(page, "audiences.me", ctx, None)
     finally:
         if context is not None:

@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.24",
+    "version": "2.5.25",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state\n- 固定中文区域、上海时区和 1920×1080 视口，持续复用验证会话\n- Turnstile 超时不再重复等待三轮\n\nv2.5.23 适配 Audiences 新版签到验证\n- 等待验证回调自动提交后确认真实签到结果",
+    "changelog": "v2.5.25 修复 Docker 中 Audiences Turnstile 会话失效\n- 固定 CloakBrowser User-Agent，避免持久验证 Cookie 与下次指纹不匹配\n- CookieCloud 的新验证 Cookie 可覆盖持久会话中的旧值\n- 尝试触发可交互的 Turnstile 复选框，并严格按 180 秒截止\n\nv2.5.24 增强 Docker 中的 Audiences 验证\n- 参照 AWPulse 使用独立 CloakBrowser 指纹参数与持久 storage_state",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {
