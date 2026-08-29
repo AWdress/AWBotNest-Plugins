@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: String, host: { type: Object, required: true } })
-const cfg = reactive({ bonus_enabled: true, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90 })
+const cfg = reactive({ bonus_enabled: true, auto_confirm_bonus_transfer: false, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90 })
 const loading = ref(true)
 const saving = ref(false)
 const checking = ref(false)
@@ -49,6 +49,7 @@ onMounted(async () => {
         <section class="card">
           <div class="section-head"><div><h3>命令设置</h3><p>修改后立即保存，下一条消息开始生效。</p></div><button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存设置' }}</button></div>
           <label class="switch-row"><span><b>启用赠豆命令</b><small>监听用户账号发出的匹配命令</small></span><input v-model="cfg.bonus_enabled" type="checkbox" role="switch"></label>
+          <label class="switch-row"><span><b>自动确认憨豆转赠</b><small>仅确认官方机器人 8780479105 对本账号赠豆命令发出的二次确认</small></span><input v-model="cfg.auto_confirm_bonus_transfer" type="checkbox" role="switch"></label>
           <label class="switch-row"><span><b>Cookie 异常时通知</b><small>登录态失效时通过平台通知提醒</small></span><input v-model="cfg.notify_cookie_error" type="checkbox" role="switch"></label>
           <div class="fields">
             <label><span>单人命令</span><input v-model="cfg.single_command" type="text" placeholder=".hh"></label>
@@ -62,7 +63,7 @@ onMounted(async () => {
           <h3>命令格式</h3>
           <div class="example"><span>单人赠送</span><code>{{ cfg.single_command || '.hh' }} Alice 100 感谢分享</code></div>
           <div class="example"><span>批量赠送</span><code>{{ cfg.batch_command || '.hhs' }} Alice Bob 100 感谢</code></div>
-          <ul><li>站点最低赠送 100 憨豆</li><li>批量任务最多 50 位用户</li><li>接收方会按站点规则扣除税费</li><li>批量留言不能包含空格</li></ul>
+          <ul><li>站点最低赠送 100 憨豆</li><li>批量任务最多 50 位用户</li><li>接收方会按站点规则扣除税费</li><li>自动确认只识别官方机器人和“确认赠送”按钮</li></ul>
           <button class="secondary" :disabled="checking" @click="checkCookie">{{ checking ? '检查中…' : '检查平台 Cookie' }}</button>
         </aside>
       </div>

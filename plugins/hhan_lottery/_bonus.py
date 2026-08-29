@@ -444,6 +444,43 @@ async def setup(ctx):
             sent = await status.edit(plain)
         _schedule_delete(sent, delete_after)
 
+    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=-10)
+    async def auto_confirm_transfer(client, message):
+        """仅自动确认官方机器人对本账号赠豆命令发出的二次确认。"""
+        if not ctx.config.get("auto_confirm_bonus_transfer", False):
+            return
+        sender = getattr(message, "from_user", None)
+        if not sender or int(getattr(sender, "id", 0) or 0) != 8780479105:
+            return
+        replied = getattr(message, "reply_to_message", None)
+        replied_sender = getattr(replied, "from_user", None) if replied else None
+        if not replied_sender or not getattr(replied_sender, "is_self", False):
+            return
+        text = str(getattr(message, "text", "") or "")
+        required = ("确认憨豆转赠", "接收人", "转出", "手续费", "实际到账", "2 分钟内确认")
+        if not all(marker in text for marker in required):
+            return
+        markup = getattr(message, "reply_markup", None)
+        rows = getattr(markup, "inline_keyboard", None) if markup else None
+        confirm_position = None
+        for row_index, row in enumerate(rows or []):
+            for column_index, button in enumerate(row):
+                label = "".join(str(getattr(button, "text", "") or "").split())
+                if label in {"确认赠送", "✅确认赠送", "☑️确认赠送"}:
+                    confirm_position = (row_index, column_index)
+                    break
+            if confirm_position is not None:
+                break
+        if confirm_position is None:
+            ctx.log.warning("[憨憨赠豆] 收到官方转赠确认消息，但未找到精确的“确认赠送”按钮")
+            return
+        try:
+            result = await message.click(x=confirm_position[1], y=confirm_position[0], timeout=10)
+            detail = getattr(result, "message", None) or getattr(result, "text", None) or str(result or "已提交")
+            ctx.log.info("[憨憨赠豆] 已自动确认转赠：msg=%s result=%s", message.id, detail)
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("[憨憨赠豆] 自动确认转赠失败：msg=%s error=%r", message.id, exc)
+
 
 async def teardown(ctx):
     pass
