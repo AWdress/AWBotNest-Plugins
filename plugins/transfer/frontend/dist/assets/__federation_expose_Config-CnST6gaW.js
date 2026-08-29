@@ -114,6 +114,7 @@ const SITES = [
   { key: 'site_zm', label: 'ZmPT', bonus: '电力', note: '致谢/榜单自动延后约11秒发出' },
   { key: 'site_springsunday', label: 'SpringSunday', bonus: '茉莉', note: '含两个群' },
   { key: 'site_hdsky', label: 'HDSky', bonus: '银元' },
+  { key: 'site_hhanclub', label: 'HHanClub', bonus: '憨豆', note: '仅记录官方机器人确认成功的赠送' },
   { key: 'site_mocktest', label: 'MockTest', bonus: '测试', note: '默认关' },
 ];
 const TOGGLES = [
@@ -134,6 +135,7 @@ const DEFAULTS = {
   site_zm: ['on', 'notify', 'lb_in', 'lb_out'],
   site_springsunday: ['on', 'notify', 'lb_in', 'lb_out'],
   site_hdsky: ['on', 'notify', 'lb_in', 'lb_out'],
+  site_hhanclub: ['on', 'notify', 'lb_in', 'lb_out'],
   site_mocktest: [],
   rank_output: 'image', rank_size: 10, rank_command: '转账排行',
   notify_delay_min: 0, notify_delay_max: 0,
@@ -561,6 +563,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-2905ab51"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-966d9271"]]);
 
 export { Config as default };

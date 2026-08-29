@@ -44,7 +44,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.0.30",
+    "version": "1.1.0",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -63,6 +63,7 @@ DEFAULTS = {
     "site_zm": ["on", "notify", "lb_in", "lb_out"],
     "site_springsunday": ["on", "notify", "lb_in", "lb_out"],
     "site_hdsky": ["on", "notify", "lb_in", "lb_out"],
+    "site_hhanclub": ["on", "notify", "lb_in", "lb_out"],
     "site_mocktest": [],
     "rank_output": "image", "rank_size": 10, "rank_command": "转账排行",
     "notify_delay_min": 0, "notify_delay_max": 0,
@@ -305,7 +306,7 @@ async def teardown(ctx):
 # 若不排除，bot 回复的「请确认你的转账 / 转账失败」会被误记成一笔转账。
 _TRANSFER_SKIP_KEYWORDS = (
     "转账金额过大", "余额不足", "转账失败", "请确认你的转账", "确认你的转账",
-    "请输入正确数量", "限额", "失败", "不足", "错误",
+    "请确认憨豆转赠", "请输入正确数量", "限额", "失败", "不足", "错误",
 )
 
 # 按站点写死的「发致谢/榜单前」延迟（秒）。某些群有发消息延迟（慢速模式），
@@ -335,7 +336,7 @@ async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
     if amount_str is None:
         return
     try:
-        amount = float(amount_str)
+        amount = float(amount_str.replace(",", ""))
     except ValueError:
         return
     if amount <= 0:
