@@ -291,11 +291,11 @@
   },
   "pt_multi_checkin": {
     "name": "PT站自动签到",
-    "version": "2.5.32",
+    "version": "2.5.33",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.32 修复 Docker 中反复点击干扰 Audiences Turnstile 验证\n- 首次点击后等待验证完成，不再每 5 秒重复点击\n- 仅在长时间无结果时有限重试并记录重试原因\n\nv2.5.31 恢复 Audiences 旧版成功的平台浏览器链路",
+    "changelog": "v2.5.33 Docker 中 Audiences 自动使用 Xvfb 虚拟有头浏览器\n- 避免 Docker 无头指纹被 Turnstile 持续拒绝\n- 虚拟显示器不会向用户弹出浏览器窗口\n- 修正浏览器隔离上下文已保存的误导性报错\n\nv2.5.32 限制 Turnstile 重复点击频率",
     "path": "plugins/pt_multi_checkin/"
   },
   "pterclub_bonus": {

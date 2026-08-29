@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import json
+import os
 from pathlib import Path
 import re
 import secrets
@@ -20,11 +21,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.32",
+    "version": "2.5.33",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.32 修复 Docker 中反复点击干扰 Audiences Turnstile 验证\n- 首次点击后等待验证完成，不再每 5 秒重复点击\n- 仅在长时间无结果时有限重试并记录重试原因\n\nv2.5.31 恢复 Audiences 旧版成功的平台浏览器链路",
+    "changelog": "v2.5.33 Docker 中 Audiences 自动使用 Xvfb 虚拟有头浏览器\n- 避免 Docker 无头指纹被 Turnstile 持续拒绝\n- 虚拟显示器不会向用户弹出浏览器窗口\n- 修正浏览器隔离上下文已保存的误导性报错\n\nv2.5.32 限制 Turnstile 重复点击频率",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -974,7 +975,7 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
             page.wait_for_timeout(min(1_000, max(1, int((deadline - time.monotonic()) * 1000))))
-    raise RuntimeError("Audiences Turnstile 未在 180 秒内通过，已保存本次 CloakBrowser 会话供下次复用")
+    raise RuntimeError("Audiences Turnstile 未在 180 秒内签发有效验证令牌；当前浏览器隔离上下文将被关闭")
 
 
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
@@ -1485,10 +1486,30 @@ async def _run(ctx, source: str) -> dict:
                                 return _special_checkin(page, site_key, current_site, ctx, loop)
 
                             browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
+                            browser_headless = bool(cfg.get("headless", True))
+                            if key == "audiences" and os.path.exists("/.dockerenv"):
+                                display = os.environ.get("DISPLAY")
+                                if display:
+                                    # Docker 镜像由 xvfb-run 提供不可见的虚拟显示器。Turnstile 对
+                                    # Linux 无头指纹更敏感，因此 Audiences 在容器内自动使用虚拟
+                                    # 有头模式；窗口仅存在于 Xvfb，不会显示到用户桌面。
+                                    browser_headless = False
+                                    _runtime_log(
+                                        ctx,
+                                        f"Docker 虚拟显示器 {display} 已就绪，使用虚拟有头 CloakBrowser",
+                                        site=site["name"],
+                                    )
+                                else:
+                                    _runtime_log(
+                                        ctx,
+                                        "Docker 未检测到 DISPLAY，无法启用 Turnstile 所需的虚拟有头模式；请更新并重建平台镜像",
+                                        level="warning",
+                                        site=site["name"],
+                                    )
                             outcome = await _with_heartbeat(
                                 ctx.browser.run(
                                     site["url"], action, cookies=cookie,
-                                    headless=bool(cfg.get("headless", True)),
+                                    headless=browser_headless,
                                     timeout=browser_timeout,
                                 ),
                                 ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
