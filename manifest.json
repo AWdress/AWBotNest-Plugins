@@ -282,11 +282,11 @@
   },
   "hhan_lottery": {
     "name": "憨憨小助手",
-    "version": "2.8.0",
+    "version": "2.9.0",
     "author": "AWdress",
-    "description": "HHanClub 综合助手：赠豆命令与自动确认、幸运转盘、全部已读和收件箱消息删除。",
+    "description": "HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v2.8.0 新增憨豆转赠自动确认\n- 可在赠豆设置中独立开启\n- 首版仅接受官方机器人 8780479105\n- 仅确认回复本账号赠豆命令且结构完整的转赠消息\n- 按钮必须精确匹配“确认赠送”，不会点击取消",
+    "changelog": "v2.9.0 新增 HHanClub 随机红包自动参与\n- 仅监听官方机器人 8780479105\n- 自动解析“发送口令「…」领取”并在原群发送\n- 支持配置最短与最长随机延迟\n- 按账号、群组和红包消息持久化去重\n\nv2.8.0 新增憨豆转赠自动确认",
     "path": "plugins/hhan_lottery/"
   },
   "pt_multi_checkin": {

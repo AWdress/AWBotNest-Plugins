@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: String, host: { type: Object, required: true } })
-const cfg = reactive({ bonus_enabled: true, auto_confirm_bonus_transfer: false, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90 })
+const cfg = reactive({ bonus_enabled: true, auto_confirm_bonus_transfer: false, auto_grab_random_packet: false, random_packet_delay_min: 1, random_packet_delay_max: 5, notify_cookie_error: true, single_command: '.hh', batch_command: '.hhs', cooldown_seconds: 10, result_delete: 90 })
 const loading = ref(true)
 const saving = ref(false)
 const checking = ref(false)
@@ -14,6 +14,9 @@ async function save() {
     cfg.batch_command = String(cfg.batch_command || '.hhs').trim() || '.hhs'
     cfg.cooldown_seconds = Math.max(0, Math.min(Number(cfg.cooldown_seconds) || 0, 600))
     cfg.result_delete = Math.max(10, Math.min(Number(cfg.result_delete) || 90, 600))
+    cfg.random_packet_delay_min = Math.max(0, Math.min(Number(cfg.random_packet_delay_min) || 0, 3600))
+    cfg.random_packet_delay_max = Math.max(0, Math.min(Number(cfg.random_packet_delay_max) || 0, 3600))
+    if (cfg.random_packet_delay_min > cfg.random_packet_delay_max) [cfg.random_packet_delay_min, cfg.random_packet_delay_max] = [cfg.random_packet_delay_max, cfg.random_packet_delay_min]
     await props.host.saveConfig({ ...cfg })
     props.host.toast.success('赠豆配置已保存')
   } catch (error) { props.host.toast.error('保存失败：' + (error.message || error)) }
@@ -50,12 +53,15 @@ onMounted(async () => {
           <div class="section-head"><div><h3>命令设置</h3><p>修改后立即保存，下一条消息开始生效。</p></div><button class="primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存设置' }}</button></div>
           <label class="switch-row"><span><b>启用赠豆命令</b><small>监听用户账号发出的匹配命令</small></span><input v-model="cfg.bonus_enabled" type="checkbox" role="switch"></label>
           <label class="switch-row"><span><b>自动确认憨豆转赠</b><small>仅确认官方机器人 8780479105 对本账号赠豆命令发出的二次确认</small></span><input v-model="cfg.auto_confirm_bonus_transfer" type="checkbox" role="switch"></label>
+          <label class="switch-row"><span><b>自动领取随机红包</b><small>解析官方机器人 8780479105 发布的口令红包，随机等待后发送口令</small></span><input v-model="cfg.auto_grab_random_packet" type="checkbox" role="switch"></label>
           <label class="switch-row"><span><b>Cookie 异常时通知</b><small>登录态失效时通过平台通知提醒</small></span><input v-model="cfg.notify_cookie_error" type="checkbox" role="switch"></label>
           <div class="fields">
             <label><span>单人命令</span><input v-model="cfg.single_command" type="text" placeholder=".hh"></label>
             <label><span>批量命令</span><input v-model="cfg.batch_command" type="text" placeholder=".hhs"></label>
             <label><span>赠送冷却</span><div><input v-model.number="cfg.cooldown_seconds" type="number" min="0" max="600"><em>秒</em></div></label>
             <label><span>结果保留</span><div><input v-model.number="cfg.result_delete" type="number" min="10" max="600"><em>秒</em></div></label>
+            <label><span>红包最短延迟</span><div><input v-model.number="cfg.random_packet_delay_min" type="number" min="0" max="3600" step="0.5"><em>秒</em></div></label>
+            <label><span>红包最长延迟</span><div><input v-model.number="cfg.random_packet_delay_max" type="number" min="0" max="3600" step="0.5"><em>秒</em></div></label>
           </div>
         </section>
 
@@ -63,7 +69,7 @@ onMounted(async () => {
           <h3>命令格式</h3>
           <div class="example"><span>单人赠送</span><code>{{ cfg.single_command || '.hh' }} Alice 100 感谢分享</code></div>
           <div class="example"><span>批量赠送</span><code>{{ cfg.batch_command || '.hhs' }} Alice Bob 100 感谢</code></div>
-          <ul><li>站点最低赠送 100 憨豆</li><li>批量任务最多 50 位用户</li><li>接收方会按站点规则扣除税费</li><li>自动确认只识别官方机器人和“确认赠送”按钮</li></ul>
+          <ul><li>站点最低赠送 100 憨豆</li><li>批量任务最多 50 位用户</li><li>自动确认只识别官方机器人和“确认赠送”按钮</li><li>随机红包按账号、群组和消息去重，不会重复发送口令</li></ul>
           <button class="secondary" :disabled="checking" @click="checkCookie">{{ checking ? '检查中…' : '检查平台 Cookie' }}</button>
         </aside>
       </div>
