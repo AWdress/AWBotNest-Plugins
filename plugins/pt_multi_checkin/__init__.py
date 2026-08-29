@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shutil
+import subprocess
 import threading
 import time
 from urllib.parse import urlparse
@@ -21,11 +23,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.33",
+    "version": "2.5.34",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.33 Docker 中 Audiences 自动使用 Xvfb 虚拟有头浏览器\n- 避免 Docker 无头指纹被 Turnstile 持续拒绝\n- 虚拟显示器不会向用户弹出浏览器窗口\n- 修正浏览器隔离上下文已保存的误导性报错\n\nv2.5.32 限制 Turnstile 重复点击频率",
+    "changelog": "v2.5.34 Docker 主进程缺少 DISPLAY 时由插件自动启动 Xvfb\n- 不再依赖容器是否通过 xvfb-run 启动\n- 明确区分 Xvfb 未启动与镜像未安装 Xvfb\n\nv2.5.33 Audiences 在 Docker 使用虚拟有头浏览器",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -95,6 +97,8 @@ _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
 _browser_cookie_cache: dict[str, str] = {}
+_xvfb_lock = threading.Lock()
+_xvfb_process: subprocess.Popen | None = None
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
@@ -115,6 +119,72 @@ def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> N
             getattr(logger, method)("%s%s", f"[{site}] " if site else "", message)
     except Exception:
         pass
+
+
+def _ensure_docker_display(ctx) -> str:
+    """确保 Docker 内存在仅供浏览器使用的本地 Xvfb 显示器。"""
+    global _xvfb_process
+    current = str(os.environ.get("DISPLAY") or "").strip()
+    if current or not os.path.exists("/.dockerenv"):
+        return current
+    with _xvfb_lock:
+        current = str(os.environ.get("DISPLAY") or "").strip()
+        if current:
+            return current
+
+        # xvfb-run 可能启动了显示器但调用方清除了 DISPLAY；优先复用现有 socket。
+        socket_dir = Path("/tmp/.X11-unix")
+        if socket_dir.is_dir():
+            for socket_path in sorted(socket_dir.glob("X*")):
+                suffix = socket_path.name[1:]
+                if suffix.isdigit():
+                    current = f":{suffix}"
+                    os.environ["DISPLAY"] = current
+                    _runtime_log(ctx, f"发现现有 Xvfb 显示器 {current}，已恢复 DISPLAY", site="Audiences")
+                    return current
+
+        executable = shutil.which("Xvfb")
+        if not executable:
+            _runtime_log(
+                ctx,
+                "容器未安装 Xvfb，无法为 Audiences 启用虚拟有头模式；当前运行的 latest 镜像不包含仓库中的浏览器依赖",
+                level="error",
+                site="Audiences",
+            )
+            return ""
+
+        display_number = next(
+            (number for number in range(90, 111) if not (socket_dir / f"X{number}").exists()),
+            None,
+        )
+        if display_number is None:
+            _runtime_log(ctx, "没有可用的 Xvfb 显示器编号", level="error", site="Audiences")
+            return ""
+        current = f":{display_number}"
+        try:
+            process = subprocess.Popen(
+                [executable, current, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            deadline = time.monotonic() + 5
+            socket_path = socket_dir / f"X{display_number}"
+            while time.monotonic() < deadline and process.poll() is None and not socket_path.exists():
+                time.sleep(0.1)
+            if process.poll() is not None or not socket_path.exists():
+                if process.poll() is None:
+                    process.terminate()
+                _runtime_log(ctx, "Xvfb 启动失败，未创建显示器 socket", level="error", site="Audiences")
+                return ""
+            _xvfb_process = process
+            os.environ["DISPLAY"] = current
+            _runtime_log(ctx, f"插件已启动 Xvfb 虚拟显示器 {current}", site="Audiences")
+            return current
+        except Exception as exc:  # noqa: BLE001
+            _runtime_log(ctx, f"Xvfb 启动异常：{type(exc).__name__}", level="error", site="Audiences")
+            return ""
 
 
 async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: int = 10, max_wait: int = 600):
@@ -1488,7 +1558,7 @@ async def _run(ctx, source: str) -> dict:
                             browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
                             browser_headless = bool(cfg.get("headless", True))
                             if key == "audiences" and os.path.exists("/.dockerenv"):
-                                display = os.environ.get("DISPLAY")
+                                display = _ensure_docker_display(ctx)
                                 if display:
                                     # Docker 镜像由 xvfb-run 提供不可见的虚拟显示器。Turnstile 对
                                     # Linux 无头指纹更敏感，因此 Audiences 在容器内自动使用虚拟
@@ -1502,7 +1572,7 @@ async def _run(ctx, source: str) -> dict:
                                 else:
                                     _runtime_log(
                                         ctx,
-                                        "Docker 未检测到 DISPLAY，无法启用 Turnstile 所需的虚拟有头模式；请更新并重建平台镜像",
+                                        "Docker 无可用 DISPLAY，Audiences 只能回退无头模式",
                                         level="warning",
                                         site=site["name"],
                                     )
