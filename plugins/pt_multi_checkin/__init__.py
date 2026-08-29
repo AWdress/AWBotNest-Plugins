@@ -23,11 +23,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.34",
+    "version": "2.5.35",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.34 Docker 主进程缺少 DISPLAY 时由插件自动启动 Xvfb\n- 不再依赖容器是否通过 xvfb-run 启动\n- 明确区分 Xvfb 未启动与镜像未安装 Xvfb\n\nv2.5.33 Audiences 在 Docker 使用虚拟有头浏览器",
+    "changelog": "v2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -1007,40 +1007,45 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
         should_click = click_count < len(retry_after) and elapsed >= retry_after[click_count]
         if should_click:
             clicked = False
+            click_detail = ""
             for frame in page.frames:
                 try:
                     checkbox = frame.locator('input[type="checkbox"]')
                     if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
                         checkbox.first.click(timeout=3_000)
                         clicked = True
+                        click_detail = "iframe 内原生 checkbox"
                         break
                 except Exception:
                     continue
+            if not clicked:
+                try:
+                    iframe = page.locator('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]').first
+                    if iframe.count() and iframe.is_visible():
+                        box = iframe.bounding_box()
+                        if box and box["width"] >= 80 and box["height"] >= 40:
+                            # Managed Turnstile 复选框位于 iframe 左侧约 30px 处。
+                            page.mouse.click(box["x"] + min(32, box["width"] / 4), box["y"] + box["height"] / 2)
+                            clicked = True
+                            click_detail = f"Cloudflare iframe 坐标，尺寸 {round(box['width'])}x{round(box['height'])}"
+                except Exception:
+                    pass
             if not clicked:
                 try:
                     widget = page.locator("#attendance-form .cf-turnstile").first
                     if widget.count() and widget.is_visible():
                         box = widget.bounding_box()
                         if box and box["width"] >= 80 and box["height"] >= 40:
-                            page.mouse.click(box["x"] + min(42, box["width"] / 4), box["y"] + box["height"] / 2)
+                            page.mouse.click(box["x"] + min(32, box["width"] / 4), box["y"] + min(32, box["height"] / 2))
                             clicked = True
-                except Exception:
-                    pass
-            if not clicked:
-                try:
-                    iframe = page.locator('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]').first
-                    if iframe.count() and iframe.is_visible():
-                        box = iframe.bounding_box()
-                        if box and box["width"] >= 40 and box["height"] >= 40:
-                            page.mouse.click(box["x"] + min(30, box["width"] / 2), box["y"] + box["height"] / 2)
-                            clicked = True
+                            click_detail = f"Turnstile 外层容器兜底，尺寸 {round(box['width'])}x{round(box['height'])}"
                 except Exception:
                     pass
             if clicked:
                 click_count += 1
                 if ctx is not None:
                     suffix = "，等待验证完成" if click_count == 1 else "，此前验证长时间无结果"
-                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次{suffix}）", site="Audiences")
+                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次；{click_detail}{suffix}）", site="Audiences")
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
