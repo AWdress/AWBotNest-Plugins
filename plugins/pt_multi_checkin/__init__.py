@@ -20,11 +20,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.31",
+    "version": "2.5.32",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.31 恢复 Audiences 旧版成功的平台浏览器链路\n- 撤销独立 cloakbrowser.launch 与插件自管 Xvfb\n- Audiences 重新使用平台 ctx.browser.run 和静默运行配置\n- 保留 Turnstile 精确点击、token 提交和真实结果校验\n\nv2.5.30 修复 Audiences 验证框点击定位",
+    "changelog": "v2.5.32 修复 Docker 中反复点击干扰 Audiences Turnstile 验证\n- 首次点击后等待验证完成，不再每 5 秒重复点击\n- 仅在长时间无结果时有限重试并记录重试原因\n\nv2.5.31 恢复 Audiences 旧版成功的平台浏览器链路",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -894,8 +894,11 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
 def _audiences_turnstile_checkin(page, ctx=None) -> dict:
     """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
     deadline = time.monotonic() + 180
-    last_click = 0.0
+    started_at = time.monotonic()
     click_count = 0
+    # Docker 中 Turnstile 的验证时间明显长于本地。短间隔反复点击会干扰甚至
+    # 重置正在执行的 challenge，因此只在首次及长时间无结果时有限重试。
+    retry_after = (0, 60, 120)
     while time.monotonic() < deadline:
         text = _page_text(page)
         html = page.content()
@@ -929,14 +932,15 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
         # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
         # 先访问 frame 内的原生复选框，再以 iframe 可视坐标作为兜底。
         now = time.monotonic()
-        if now - last_click >= 5:
+        elapsed = now - started_at
+        should_click = click_count < len(retry_after) and elapsed >= retry_after[click_count]
+        if should_click:
             clicked = False
             for frame in page.frames:
                 try:
                     checkbox = frame.locator('input[type="checkbox"]')
                     if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
                         checkbox.first.click(timeout=3_000)
-                        last_click = now
                         clicked = True
                         break
                 except Exception:
@@ -948,7 +952,6 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
                         box = widget.bounding_box()
                         if box and box["width"] >= 80 and box["height"] >= 40:
                             page.mouse.click(box["x"] + min(42, box["width"] / 4), box["y"] + box["height"] / 2)
-                            last_click = now
                             clicked = True
                 except Exception:
                     pass
@@ -959,14 +962,14 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
                         box = iframe.bounding_box()
                         if box and box["width"] >= 40 and box["height"] >= 40:
                             page.mouse.click(box["x"] + min(30, box["width"] / 2), box["y"] + box["height"] / 2)
-                            last_click = now
                             clicked = True
                 except Exception:
                     pass
             if clicked:
                 click_count += 1
-                if ctx is not None and click_count in {1, 3, 6}:
-                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次）", site="Audiences")
+                if ctx is not None:
+                    suffix = "，等待验证完成" if click_count == 1 else "，此前验证长时间无结果"
+                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次{suffix}）", site="Audiences")
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
