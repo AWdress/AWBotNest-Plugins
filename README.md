@@ -29,6 +29,13 @@
 
 ## 插件规范
 
+### AWBotNest 1 / 2 双版本发布
+
+- `plugins/` + `manifest.json`：保留 AWBotNest 1 版本，现有用户可继续更新，配置与数据不变。
+- `plugins_v2/` + `manifest_v2.json`：AWBotNest 2 发布包，入口使用 Telethon 单参数事件、V2 调度、后台任务和生命周期托管。
+- V2 当前未提供 V1 的插件 Vue API/模块联邦加载能力，因此 V2 发布包使用平台原生 `config_schema` 表单；V1 Vue 管理界面仍完整保留。
+- `python tools/build_v2_plugins.py` 会从受维护的 V1 源码重建全部 V2 自包含目录；`python tools/check_v2_plugins.py` 检查元数据、清单和启用/停用生命周期。
+
 ### 1. 三段式契约
 
 每个插件必须有这三段（`teardown` 可选）：

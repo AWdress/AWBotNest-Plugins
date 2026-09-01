@@ -1,0 +1,206 @@
+"""Build self-contained AWBotNest 2 packages without changing V1 plugins."""
+from __future__ import annotations
+
+import ast
+import json
+import pprint
+import re
+import shutil
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = ROOT / "plugins"
+OUTPUT = ROOT / "plugins_v2"
+COMPAT = ROOT / "tools" / "v2_compat_runtime.py"
+SKIP_NAMES = {"node_modules", ".npm-cache", "__pycache__", "frontend"}
+
+
+def entries():
+    yield from sorted(p for p in SOURCE.glob("*.py") if not p.name.startswith("_"))
+    yield from sorted(
+        p / "__init__.py" for p in SOURCE.iterdir()
+        if p.is_dir() and not p.name.startswith("_") and (p / "__init__.py").exists()
+    )
+
+
+def literal(tree, name, default=None):
+    for node in tree.body:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(isinstance(target, ast.Name) and target.id == name for target in targets):
+                try:
+                    return ast.literal_eval(node.value)
+                except Exception:
+                    return default
+    return default
+
+
+def inferred_schema(defaults):
+    schema = {
+        "v2_compat_notice": {
+            "type": "info", "title": "AWBotNest 2 兼容模式",
+            "text": "V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。",
+            "section": "兼容性", "order": -100,
+        }
+    }
+    for index, (key, value) in enumerate((defaults or {}).items(), start=1):
+        if key.startswith("_") or key in {"last_result", "last_summary", "history"}:
+            continue
+        field = {"title": key.replace("_", " "), "section": "V2 配置", "order": index}
+        lowered = key.lower()
+        if any(word in lowered for word in ("password", "passwd", "secret", "token", "api_key", "cookie")):
+            field.update(type="password", default="")
+        elif isinstance(value, bool):
+            field.update(type="boolean", default=value)
+        elif isinstance(value, (int, float)):
+            field.update(type="number", default=value)
+        elif isinstance(value, list):
+            field.update(type="text", default="\n".join(map(str, value)), help="每行一项")
+        elif isinstance(value, dict):
+            field.update(type="text", default=json.dumps(value, ensure_ascii=False, indent=2))
+        else:
+            field.update(type="string", default=value if value is not None else "")
+        schema[key] = field
+    return schema
+
+
+def declared_config_keys(entry):
+    files = [entry] if entry.name != "__init__.py" else list(entry.parent.rglob("*.py"))
+    keys = set()
+    patterns = [
+        r"ctx\.config\.get\(\s*['\"]([^'\"]+)",
+        r"ctx\.config\[\s*['\"]([^'\"]+)",
+        r"ctx\.update_config\(\s*\{\s*['\"]([^'\"]+)",
+    ]
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        for pattern in patterns:
+            keys.update(re.findall(pattern, text))
+    return keys
+
+
+def complete_schema(schema, entry):
+    schema = dict(schema or {})
+    for index, key in enumerate(sorted(declared_config_keys(entry)), start=9000):
+        if key in schema:
+            continue
+        lowered = key.lower()
+        sensitive = any(word in lowered for word in ("password", "passwd", "secret", "token", "api_key", "cookie"))
+        schema[key] = {
+            "type": "password" if sensitive else "string", "default": "",
+            "title": key.replace("_", " "), "section": "V2 兼容字段", "order": index,
+        }
+    return schema
+
+
+def copy_source(entry, target):
+    if entry.name != "__init__.py":
+        shutil.copy2(entry, target / "_legacy.py")
+        return "._legacy"
+    legacy = target / "_legacy"
+    source_dir = entry.parent
+    shutil.copytree(
+        source_dir, legacy,
+        ignore=lambda _dir, names: [name for name in names if name in SKIP_NAMES],
+    )
+    legacy_entry = legacy / "__init__.py"
+    if entry.parent.name == "awrelay":
+        text = legacy_entry.read_text(encoding="utf-8")
+        text = text.replace(
+            "from pyrogram import raw\nfrom pyrogram.enums import ParseMode\nfrom pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters",
+            "from .._compat import raw, ParseMode, InlineKeyboardButton, InlineKeyboardMarkup, ReplyParameters",
+        )
+        legacy_entry.write_text(text, encoding="utf-8")
+    elif entry.parent.name == "human_lottery":
+        text = legacy_entry.read_text(encoding="utf-8").replace(
+            "from pyrogram.enums import ParseMode", "from .._compat import ParseMode"
+        )
+        legacy_entry.write_text(text, encoding="utf-8")
+    return "._legacy"
+
+
+def build_one(entry):
+    source = entry.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(entry))
+    metadata = dict(literal(tree, "__plugin__", {}) or {})
+    plugin_id = str(metadata.get("id") or (entry.parent.name if entry.name == "__init__.py" else entry.stem))
+    if not plugin_id:
+        raise ValueError(f"missing plugin id: {entry}")
+    target = OUTPUT / plugin_id
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True)
+    shutil.copy2(COMPAT, target / "_compat.py")
+    module = copy_source(entry, target)
+
+    metadata.pop("render_mode", None)
+    metadata.pop("plugin_api_version", None)
+    metadata.pop("min_platform_version", None)
+    metadata.pop("default_enabled", None)
+    if not isinstance(metadata.get("config_schema"), dict):
+        metadata["config_schema"] = inferred_schema(literal(tree, "DEFAULTS", {}))
+    metadata["config_schema"] = complete_schema(metadata["config_schema"], entry)
+    metadata["changelog"] = (
+        "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n"
+        "- 保留 AWBotNest 1 版本与原有数据\n\n" + str(metadata.get("changelog") or "")
+    )
+    metadata["v1_compatible_version"] = str(metadata.get("version") or "")
+    metadata["v2_adapter"] = "telethon"
+
+    wrapper = f'''"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+from __future__ import annotations
+
+from ._compat import adapt
+from {module} import setup as _legacy_setup
+try:
+    from {module} import DEFAULTS as _legacy_defaults
+except ImportError:
+    _legacy_defaults = {{}}
+try:
+    from {module} import teardown as _legacy_teardown
+except ImportError:
+    _legacy_teardown = None
+
+__plugin__ = {pprint.pformat(metadata, width=110, sort_dicts=False)}
+_active_context = None
+
+
+async def setup(ctx):
+    global _active_context
+    _active_context = adapt(ctx, _legacy_defaults)
+    await _legacy_setup(_active_context)
+
+
+async def teardown(ctx):
+    global _active_context
+    adapted = _active_context
+    _active_context = None
+    if adapted is not None and _legacy_teardown is not None:
+        await _legacy_teardown(adapted)
+    if adapted is not None:
+        await adapted.close()
+'''
+    (target / "__init__.py").write_text(wrapper, encoding="utf-8")
+    return plugin_id, metadata, target
+
+
+def main():
+    if OUTPUT.exists():
+        shutil.rmtree(OUTPUT)
+    OUTPUT.mkdir()
+    manifest = {"plugins": {}}
+    for entry in entries():
+        plugin_id, metadata, target = build_one(entry)
+        manifest["plugins"][plugin_id] = {
+            key: metadata.get(key, "")
+            for key in ("name", "version", "author", "description", "changelog", "icon", "scope")
+        }
+        manifest["plugins"][plugin_id]["path"] = target.relative_to(ROOT).as_posix() + "/"
+    (ROOT / "manifest_v2.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(f"built {len(manifest['plugins'])} V2 packages")
+
+
+if __name__ == "__main__":
+    main()
