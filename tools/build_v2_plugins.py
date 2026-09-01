@@ -123,6 +123,14 @@ def default_tags(plugin_id, metadata):
     return tags[:4] or ["工具"]
 
 
+def bump_patch_version(value):
+    """Increment the V2 package patch version without changing the V1 source."""
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(.*)", str(value or "0.0.0"))
+    if not match:
+        return str(value or "0.0.1")
+    return f"{match.group(1)}.{match.group(2)}.{int(match.group(3)) + 1}{match.group(4)}"
+
+
 def copy_source(entry, target):
     if entry.name != "__init__.py":
         shutil.copy2(entry, target / "_legacy.py")
@@ -180,6 +188,7 @@ def build_one(entry):
         "- 保留 AWBotNest 1 版本与原有数据\n\n" + str(metadata.get("changelog") or "")
     )
     metadata["v1_compatible_version"] = str(metadata.get("version") or "")
+    metadata["version"] = bump_patch_version(metadata.get("version"))
     metadata["v2_adapter"] = "telethon"
     metadata["tags"] = default_tags(plugin_id, metadata)
     if entry.name == "__init__.py" and any((entry.parent / "frontend" / "dist" / name).is_file() for name in ("remoteEntry.js", "assets/remoteEntry.js")):

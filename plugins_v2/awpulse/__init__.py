@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- 'version': '1.2.0',
+ 'version': '1.2.1',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
  'changelog': 'AWBotNest 2 兼容发布\n'

@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '1.4.1',
+ 'version': '1.4.2',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',

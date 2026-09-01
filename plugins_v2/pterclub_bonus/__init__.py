@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '猫站赠粮',
  'id': 'pterclub_bonus',
- 'version': '1.0.0',
+ 'version': '1.0.1',
  'author': 'AWdress',
  'description': '使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。',
  'icon': 'https://pterclub.net/favicon.ico',

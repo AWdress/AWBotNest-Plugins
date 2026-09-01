@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '自动订阅助手',
  'id': 'auto_subscribe',
- 'version': '1.3.3',
+ 'version': '1.3.4',
  'author': 'AWdress',
  'description': '聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png',

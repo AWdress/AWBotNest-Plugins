@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'P站图片',
  'id': 'zpr',
- 'version': '1.0.3',
+ 'version': '1.0.4',
  'author': 'AWdress',
  'description': '发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',

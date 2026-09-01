@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'Webhook 通知桥',
  'id': 'webhook_bridge',
- 'version': '1.0.1',
+ 'version': '1.0.2',
  'author': 'AWdress',
  'description': '接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。',
  'changelog': 'AWBotNest 2 兼容发布\n'

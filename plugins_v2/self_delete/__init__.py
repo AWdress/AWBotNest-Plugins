@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '删除自己消息',
  'id': 'self_delete',
- 'version': '1.0.4',
+ 'version': '1.0.5',
  'author': 'AWdress',
  'description': '发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png',

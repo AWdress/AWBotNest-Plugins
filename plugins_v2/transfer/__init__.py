@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '1.1.0',
+ 'version': '1.1.1',
  'author': 'AWdress',
  'scope': 'user',
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',

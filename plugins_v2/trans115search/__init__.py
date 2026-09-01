@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '115搜索结果转发',
  'id': 'trans115search',
- 'version': '1.0.5',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png',

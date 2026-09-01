@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '影巢口令红包（测试）',
  'id': 'yingchao_redpacket',
- 'version': '1.0.5',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'scope': 'user',
  'description': '影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。',
