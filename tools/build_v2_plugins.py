@@ -120,7 +120,7 @@ def default_tags(plugin_id, metadata):
         "msg_forward": ["消息转发", "规则路由", "跨群同步"], "probe": ["网络探测", "延迟测试", "服务监控"],
         "pterclub_bonus": ["PterClub赠魔", "魔力转赠", "Cookie登录"], "self_delete": ["消息自删", "延时删除", "群组清理"],
         "trans115search": ["115资源搜索", "网盘检索", "磁链转换"], "u2_dmhy": ["U2赠魔", "魔力转赠", "站点Cookie"],
-        "webhook_bridge": ["Webhook桥接", "外部通知", "签名校验"], "xjj": ["小鸡签到", "站点自动化", "签到提醒"],
+        "webhook_bridge": ["Webhook桥接", "外部通知", "签名校验"], "xjj": ["随机短视频", "视频发送", "群组娱乐"],
         "zf": ["转发助手", "消息过滤", "频道同步"], "zpr": ["桌面提醒", "定时通知", "消息推送"],
         "ai": ["AI对话", "智能回复", "主动搭话"], "auto_lottery": ["自动抽奖", "中奖统计", "奖品发放"],
         "auto_subscribe": ["自动订阅", "影视搜索", "订阅管理"], "awblackjack": ["二十一点", "Telegram游戏", "积分下注"],
