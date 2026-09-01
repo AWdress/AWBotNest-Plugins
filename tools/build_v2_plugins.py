@@ -193,7 +193,7 @@ def main():
         plugin_id, metadata, target = build_one(entry)
         manifest["plugins"][plugin_id] = {
             key: metadata.get(key, "")
-            for key in ("name", "version", "author", "description", "changelog", "icon", "scope")
+            for key in ("name", "version", "author", "description", "changelog", "icon", "tags", "scope")
         }
         manifest["plugins"][plugin_id]["path"] = target.relative_to(ROOT).as_posix() + "/"
     (ROOT / "manifest_v2.json").write_text(
