@@ -8,7 +8,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -22,7 +23,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 修复报时定时\n- 修复用 cron 分钟通配实现整点报时不准确，改为按分钟间隔调度\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -36,7 +38,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.7 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.6 更新插件 Logo\n- 使用通用抽奖专属图片作为插件卡片与市场图标",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -50,7 +53,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.12 显示会话名称\n- 保存 UID 后在设置顶部显示群组/频道名称\n- 注册、发送和通知日志显示名称并保留 UID\n\nv1.0.11 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.10 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
       "tags": [
-        "消息处理"
+        "自动回复",
+        "关键词",
+        "定时任务"
       ],
       "scope": "user",
       "render_mode": "",
@@ -64,7 +69,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.0 初始版本\n- 扫描 Emby Episode 与文件名中的 SxxExx 是否一致\n- 支持测试连接、扫描检查、按文件名自动修复\n- 自动修复后可再次校验确认结果",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
       "tags": [
-        "媒体"
+        "媒体",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -78,7 +84,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -92,7 +99,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
       "icon": "https://gptgod.online/favicon.ico",
       "tags": [
-        "自动化"
+        "自动签到",
+        "多账号",
+        "网页自动化"
       ],
       "scope": "standalone",
       "render_mode": "",
@@ -106,7 +115,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.5 更新插件 Logo\n- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -120,7 +130,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.5 修复用户名显示\n- 修复无 username 时取错字段导致显示为空，改为优先 username、回退昵称\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -134,7 +145,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -148,7 +160,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.3 显示群组/频道名称\n- 转发日志同时显示来源和目标会话名称，保留 ID 便于排查\n- 配置保存后自动解析已填写的会话 ID，在设置页显示名称\n\nv1.0.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -162,7 +175,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "both",
       "render_mode": "",
@@ -176,7 +190,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.0 初始版本\n- 支持 .pm 单人赠粮与 .pms 批量赠粮\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 按猫站规则校验每份 25–50,000 猫粮并显示 10% 税后到账\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
       "icon": "https://pterclub.net/favicon.ico",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -190,7 +205,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -204,7 +220,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.5 显示会话名称\n- 保存 UID 后在设置顶部显示来源和目标会话名称\n- 转发日志显示群组/频道名称并保留 UID\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
       "tags": [
-        "媒体"
+        "媒体",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -218,7 +235,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.7 修复 U2 站内跳转\n- 正确处理赠送后的 HTTP 302 站内跳转，不再直接判定失败\n- 识别 Cookie 失效登录页、Cloudflare 验证和异常跨站跳转\n- 记录跳转目标日志，便于区分正常提交与登录失效\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -232,7 +250,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.1 加固首次加载配置兜底\n- 配置尚未持久化时仍使用内置字段提取与敏感字段过滤默认值\n- 防止完整载荷兜底通知意外包含令牌、密码等敏感字段\n\nv1.0.0 初始版本\n- 支持 GET、JSON、表单与纯文本事件\n- 支持自动字段提取、模板、去重和限流\n- 提供测试通知、统计查看与状态清理动作",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "standalone",
       "render_mode": "",
@@ -246,7 +265,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -260,7 +280,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -274,7 +295,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -288,7 +310,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.3.3 修复平台 AI 调用\n- 清理遗留的插件 API Key 校验，不再误报未配置 API Key\n- 对话、解释、主动搭话和生图均按平台统一 AI 能力判断\n- 清理前端与后端遗留的旧接口配置字段\n\nv1.3.2 修复插件解析失败\n- 修复版本日志中的未转义引号导致 __init__.py 语法错误\n- 插件更新后可正常重新加载\n\nv1.3.1 前端移除自带 API 配置字段\n- 删除接口分组，移除 api_key/base_url/model 配置界面\n- 移除生图模型字段和测试连接功能\n- 配置界面仅保留功能开关和业务参数\n\nv1.3.0 改为仅使用平台统一 AI\n- 移除插件自带 OpenAI 配置的回退逻辑，仅调用平台统一 AI\n- 不再需要配置 api_key/base_url/model，统一由平台管理\n- 代码精简，去除 openai 库直接依赖\n\nv1.2.0 接入平台统一 AI 能力\n- 优先使用平台统一配置的 AI 服务（管理员在「系统设置→AI 服务」配置一次，所有插件共享）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n- 无需为每个插件重复填写服务地址和密钥\n\nv1.1.0 新增 AI 生图\n- 新增独立生图模型、尺寸与质量配置，支持任意 OpenAI 兼容生图模型\n- 新增 /生图、.生图、/draw、.draw 命令，生成后直接发送图片到当前会话\n- 兼容接口返回 base64、data URL 或普通图片 URL\n\nv1.0.7 修复异常捕获\n- 修复解析回复时未捕获 ValueError 导致偶发报错中断\n\nv1.0.6 更新插件 Logo\n- 使用 AI 助手专属图片作为插件卡片与市场图标\n\nv1.0.5 修复主动搭话定时任务\n- 未启用主动搭话时不再注册每分钟检查任务",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -302,7 +325,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.12 合并参与群组选择器\n- 「预定义/自定义抽奖群组」合并为单个「参与抽奖群组」\n- 不选 = 全部群组都参与（原为不参与任何群）；旧自定义群组自动并入\n\nv1.0.11 修正奖品匹配语义\n- 默认除陷阱外全部参与，不再按奖品名过滤\n- 「单独匹配」改为自定义奖品名白名单：勾选后只抽命中列表的，且忽略群组列（跨群匹配）\n- 奖品列表支持裸关键词行（无需再写 群组ID|），兼容旧写法\n\nv1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -316,7 +340,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
       "tags": [
-        "媒体"
+        "媒体",
+        "Telegram"
       ],
       "scope": "standalone",
       "render_mode": "vue",
@@ -330,7 +355,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.1 完整性审查与稳定性修复\n- 修复跨零点挂机时段永远不生效\n- 切换站点账号时不再恢复上一账号的等待局和队友状态\n- 工作任务异常时限速重连，避免空转与日志刷屏\n- 加强 MQTT 地址、端口和数值配置校验\n- 停止进程时等待日志读取任务完整回收\n\nv1.0.0 初始迁移\n- 完整迁移 AWBlackJack 单账号挂机、自动抓牌、对战和平局协助逻辑\n- 保留 MQTT 跨实例状态同步，每个插件实例仅运行一个站点账号\n- 配置、日志、运行目录与生命周期接入 AWBotNest 平台\n- 支持连接测试、后台重启、崩溃自动拉起和平台错误通知",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "standalone",
       "render_mode": "",
@@ -344,7 +370,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.5.8 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- Webhook 和原有通知功能保持不变\n\nv1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留",
       "icon": "https://raw.githubusercontent.com/AWdress/MoviePilot-Plugins/main/plugins/awembypush/logo.png",
       "tags": [
-        "媒体"
+        "媒体",
+        "Telegram"
       ],
       "scope": "standalone",
       "render_mode": "vue",
@@ -358,7 +385,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.2.0 修复定时任务结束后仍显示运行中\n- 定时触发只负责投递平台托管后台任务，计划任务状态会立即正常结束\n- 通知增加 30 秒超时，任务取消时强制复位 Vue 运行状态\n\nv1.1.9 优化计划任务名称\n- 计划任务明确显示“色花堂自动化”，便于在平台任务列表中辨认\n\nv1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png",
       "tags": [
-        "自动化"
+        "自动化",
+        "Telegram"
       ],
       "scope": "standalone",
       "render_mode": "vue",
@@ -372,7 +400,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.2.8 修复话题匹配\n- 修复 General 话题（thread_id=0）误命中无 topic_id 的待处理记录\n\nv1.2.7 新增启动通知开关\n- 配置页新增「启动时在中转群发通知」开关，可关闭插件启用时向中转群发送的 AWRelay 已启动通知\n- 默认开启，保持原有行为\n\nv1.2.6 移除 Bot 私聊话题模式\n- 移除不稳定的 Bot 私聊话题创建、核验和消息路由功能\n- 配置界面恢复为仅支持群组论坛话题\n- 已保存的 topic_mode 配置将被忽略，群组转发继续使用话题群组 ID\n\nv1.2.5 修复 Bot 私聊消息未进入对应话题\n- Bot 模式改用 message.copy 并传入 message_thread_id，由 Pyrogram 正确构造私聊话题路由\n- 文本、图片、文件及其他媒体统一投递到用户对应话题\n- 群组模式继续使用原有服务端无署名复制，不改变现有行为\n\nv1.2.4 恢复 Bot 私聊话题删除检测\n- 每次转发前按用户标题查询并核验已保存的私聊话题 ID\n- 话题被删除或关闭后清除旧映射并自动新建，与群组模式一致\n- 存在同用户有效话题时优先复用，查询失败时停止操作以避免重复创建\n\nv1.2.3 修复 Bot 私聊话题投递协议\n- 私聊话题改用 InputReplyToMessage 路由，不再使用群组专用 top_msg_id\n- Bot 模式不再用群组标题结构误判话题已删除\n- 私聊响应缺少 reply_to_top_id 或消息 ID 时按成功处理，避免误报和反复重建\n\nv1.2.2 修复 Bot 私聊重复创建话题\n- 使用 Pyrogram 官方话题创建接口直接解析私聊话题 ID\n- 创建响应异常时先回查实际话题，不再立即重复创建\n- 无法确认话题 ID 时停止转发并给出明确错误，防止连续生成重复话题\n\nv1.2.1 复用管理员 ID 作为私聊目标\n- Bot 私聊话题模式直接使用管理员用户 ID 中的第一个 ID\n- 私聊模式不再显示重复的管理员私聊 ID 输入框\n- 群组模式继续独立保留话题群组 ID 配置\n\nv1.2.0 支持 Bot 私聊话题模式\n- 新增群组论坛话题与 Bot 私聊话题两种中转模式\n- Bot 模式使用 Telegram 私聊话题接口创建、核验和投递用户消息\n- 保留原有群组配置兼容性，并避免管理员私聊消息被当成访客消息转发\n\nv1.1.16 修复并发消息重复创建话题\n- 为每个私聊用户增加独立异步锁，串行执行话题核验、创建和消息发送\n- 同一用户短时间连续发送只会创建一个话题，不同用户仍可并发\n- 媒体组复用相同串行转发路径，避免与普通消息并发重复建话题\n\nv1.1.15 校验实际投递话题并自动纠正\n- 检查 Telegram 发送响应中的真实话题 ID，不再只相信发送参数\n- 发现消息降级到全部时立即撤回误投消息、清除映射并新建话题\n- 强制重建时跳过旧话题扫描缓存，确保不会再次复用已删除话题\n\nv1.1.14 修复已删除话题仍投递到全部\n- 每次转发前向 Telegram 核验本地话题 ID，不再永久信任已校验标记\n- 发现话题已删除、关闭或标题不匹配时立即清除映射并新建话题\n- 消息只在取得有效话题后发送，避免失效 ID 降级进入全部\n\nv1.1.13 对齐 AWRelay 原项目消息复制逻辑\n- 所有消息统一逐条执行 Telegram 服务端 copy，不再区分文本和媒体发送\n- 相册恢复原项目的逐条复制方式，避免批量 RPC 对转发媒体的兼容问题\n- 保留原消息实体、网页预览、说明文字和媒体属性\n\nv1.1.12 修复图片和文件无法转发\n- 非文本消息改由 Telegram 服务器端无署名复制，不再依赖 file_id 二次发送\n- 支持别人转发来的图片、文件、视频、贴纸及其他媒体\n- 媒体组按原顺序批量复制到对应话题并保存回复映射\n\nv1.1.11 修复转发消息丢失与话题误判\n- 优先使用 GetForumTopicsByID 直接核验本地话题，避免数字搜索漏报\n- 旧 v3 映射强制重新核验，确认标题归属后才允许复用\n- 保留文本网页预览，补充动画和特殊转发消息兜底\n\nv1.1.10 修复话题列表拉黑操作\n- 按平台请求规范读取 req.json 属性，修复 /ban API 异常\n- 拉黑与解除统一写入持久化 KV，并返回实际状态\n- 前端校验后端确认结果并同步刷新黑名单计数\n\nv1.1.9 修复私聊投递到错误话题\n- 使用 Telegram 原始 GetForumTopics 按用户 ID 核验真实话题\n- 废弃旧 reconciled_v2 映射并重新校验标题与话题 ID\n- 查询失败时停止转发，避免盲用错误映射或创建重复话题\n\nv1.1.8 修复 Pyrogram 发送结果解析缺陷\n- 文本转发改走底层 Telegram RPC，绕过 Bot Updates 缺少 users 导致的空结果\n- 从原始响应提取已发送消息 ID，恢复消息映射并验证真实送达\n- 媒体空返回降为调试信息，不再产生误导性警告\n\nv1.1.7 修复发送成功误报失败\n- 避开 Message.copy 空返回，改为按内容类型显式发送一次\n- Telegram 不返回消息对象时不再误报失败或重复转发\n\nv1.1.6 修复 Bot 兼容性异常\n- 改从群历史服务消息识别旧话题，绕过 get_forum_topics 解析错误\n- 全部 HTML 消息改用平台当前 Pyrogram 支持的 ParseMode 枚举\n- 话题创建或消息复制返回空值时自动恢复并显式重发\n\nv1.1.5 修复消息落入全部并恢复启动通知\n- 话题发送同时携带 thread 与 top message 参数，确保消息进入对应话题\n- 插件启用时向中转群发送 AWRelay 已启动通知\n\nv1.1.4 修复话题复用与消息转发\n- 使用 message_thread_id 正确投递到论坛话题\n- 自动认领独立版已有话题，重复话题优先复用最早的有效话题\n- 收紧失效话题重建条件，避免转发异常时误建重复话题\n\nv1.1.3 改为按钮式人机验证\n- 随机生成四个答案选项，用户点击即可验证\n- 答错后自动更换题目，并阻止他人代点验证\n\nv1.1.2 补充插件 Logo\n- 迁移 AWRelay 原项目 Logo，并同步插件卡片与市场图标\n\nv1.1.1 修正定时任务显示\n- 旧消息映射清理改为每天凌晨 04:00 执行，避免状态页误显示每 0 秒\n\nv1.1.0 完成核心功能迁移并适配新版平台\n- 修复 Vue 配置保存时报 post 未定义的问题\n- 话题、消息映射、验证状态和黑名单改为持久化存储\n- 修复管理员消息监听与普通话题消息双向路由\n- 增加媒体组聚合、失效话题重建、转发失败提示及黑名单管理\n- 全部运行接口改用 ctx 平台能力\n\nv1.0.3 改为随机人机验证题\n- 每位待验证用户随机生成加减乘算术题\n- 配置页不再要求填写固定问题和答案\n\nv1.0.2 重新发布完整前端构建产物\n- 使用新版本号触发平台重新下载 frontend/dist\n\nv1.0.1 补充插件版本日志与前端构建产物\n- 确保配置界面可由平台正常加载\n\nv1.0.0 初始版本\n- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "bot",
       "render_mode": "vue",
@@ -386,7 +415,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.6 修复 Vue 配置保存\n- 配置读取和保存迁移到新版平台 host 接口\n- 群组名称和游戏记录改用 host.callApi 读取\n- 重新构建并发布前端产物\n\nv1.0.4 修复核心接线错误\n- 修复处理函数调用了不存在的旧版 API 导致插件无法运行\n- 按真实游戏引擎接口重接开局/参与/猜数字/转账确认\n- 转账确认改为失败安全：无法唯一定位参与者时跳过，绝不错记金额\n\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.2 修复配置界面缺失\n- 随插件发布 frontend/dist 前端构建产物",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "both",
       "render_mode": "vue",
@@ -400,7 +430,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.3 支持独立运行插件\n- 源码检查可以识别 standalone 范围\n- 独立运行插件不会自动挂载用户账号或机器人消息处理器\n\nv1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg",
       "tags": [
-        "工具"
+        "工具",
+        "Telegram"
       ],
       "scope": "both",
       "render_mode": "vue",
@@ -414,7 +445,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv2.1.2 修复定时通知与卸载残留任务\n- 定时提醒改用新版平台 ctx.bot.send 接口\n- 卸载后残留的心跳回调会立即停止，不再发送通知或重复处理宠物状态\n- teardown 增加幂等保护，避免重复输出卸载日志\n\nv2.1.1 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv2.1.0 电子宠物终版增强更新\n- 新增全身像视觉系统、动作图、事件图、成长进化立绘\n- 支持三物种差异化成长：电子狗、像素猫、机械龙\n- 新增随机事件、升级奖励、周期播报、背包与道具体系\n- 新增 /档案、/背包、/使用 等命令\n- 新增命令冷却时间与冷却设置配置项\n- 全部命令彻底中文化，玩法说明和配置界面同步完善",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png",
       "tags": [
-        "工具"
+        "电子宠物",
+        "互动玩法",
+        "随机事件"
       ],
       "scope": "user",
       "render_mode": "",
@@ -428,7 +461,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.2.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -442,7 +476,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.4.1 重做 Vue 界面配色\n- 去除大面积墨绿色背景，改为与平台一致的深海军蓝中性层次\n- Emby 青蓝仅用于开关、主按钮和选中状态\n- 重新校正卡片、输入框、次要文字与边框对比度\n\nv1.4.0 迁移 Vue 媒体维护控制台\n- 新增实时任务状态、历史记录和后台 API",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
       "tags": [
-        "媒体"
+        "Emby",
+        "媒体维护",
+        "定时任务"
       ],
       "scope": "standalone",
       "render_mode": "vue",
@@ -456,7 +492,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.9 适配平台后台任务治理\n- 启动时题库同步改由 ctx.create_task 托管\n- 插件停用或重载时由平台统一取消未完成的同步任务\n\nv1.0.8 修复 Vue 配置与管理接口\n- 保存配置改用 host.saveConfig，修复 undefined.post 错误\n- 状态、题库同步、答题记录和群组名称改用 host.callApi\n- 配置页关闭时清理状态轮询定时器\n\nv1.0.6 前端移除自带 API 配置字段\n- 移除大模型兜底的 llm_api_key/llm_base_url/llm_model 配置界面\n- 移除测试大模型功能\n\nv1.0.5 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 llm_api_key/llm_base_url/llm_model\n\nv1.0.4 接入平台统一 AI 能力\n- 大模型兜底优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n\nv1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -470,7 +507,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.5 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -484,7 +522,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv2.9.0 新增 HHanClub 随机红包自动参与\n- 仅监听官方机器人 8780479105\n- 自动解析“发送口令「…」领取”并在原群发送\n- 支持配置最短与最长随机延迟\n- 按账号、群组和红包消息持久化去重\n\nv2.8.0 新增憨豆转赠自动确认",
       "icon": "https://hhanclub.net/favicon.ico",
       "tags": [
-        "福利"
+        "幸运转盘",
+        "赠豆",
+        "消息管理"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -498,7 +538,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.1.1 简化创建格式\n- 删除重复的“每人奖励”参数，奖品即为每位中奖者获得的奖励\n- 自动发奖金额统一从奖品名称中提取\n\nv1.1.0 优化抽奖交互与清理\n- 支持按时间或人数开奖、参与提示、昵称链接、原消息链接和结束清理\n\nv1.0.2 更名并启用原创 Logo\n- 插件名称调整为「幸运抽奖」并使用原创 Logo\n\nv1.0.1 新增自动发奖\n- 开奖后回复中奖者参与消息发送奖励命令\n\nv1.0.0 初始版本\n- 支持用户账号发起、参与、开奖、取消和历史记录",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -512,7 +553,9 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv2.2.2 修正追加回复与随机数复用\n- 趣味文字命中时不再发送追加回复\n- 追加文案支持 {number}，复用标准回复生成的第一个随机数\n- 默认追加文案展示实际掉落茉莉数量\n\nv2.2.1 新增可选追加回复\n- 每条规则可在标准回复后再单独发送一条消息\n- 追加回复支持开关、自定义文案、模板变量和随机数\n- 追加消息沿用回复自动删除设置\n\nv2.2.0 支持无关键词概率触发\n- 关键词改为可选，留空时匹配任意群消息\n- 每条规则可独立设置触发概率\n- 插件更名为‘聊天互动助手’\n\nv2.1.1 支持多行趣味回复\n- 趣味文案按完整段落发送并保留原有换行\n- 多条随机文案改用单独一行 --- 分隔\n\nv2.1.0 新增逐规则榜单统计与趣味回复\n- 每条规则可独立选择是否计入薅羊毛排行榜\n- 支持设置趣味文字出现概率，并从多条文案中随机回复\n- 未命中趣味概率时继续发送原标准回复\n\nv2.0.2 恢复逐规则零点重置\n- 冷却计算方式移入每条规则，可选滚动小时或每日零点重置\n- 旧版全局零点重置设置自动迁移到已有规则\n\nv2.0.1 新增逐规则触发方式\n- 每条规则可选择普通关键词或仅在回复我的消息时触发\n- 旧规则默认保持普通关键词触发，不改变现有行为\n\nv2.0.0 Vue 规则编辑器与独立规则策略\n- 新增 Vue 配置页，规则支持展开编辑、排序和复制\n- 每条规则独立设置匹配方式、冷却时间和冷却提示\n- 旧版全局匹配与冷却配置自动迁移到已有规则\n- 完善空状态、保存校验、移动端布局与键盘焦点\n\nv1.1.1 调整插件定位与名称\n- 更名为‘关键词互动助手’，突出关键词自动回复核心能力\n- 薅羊毛排行榜保留为可选附加功能\n- 配置说明覆盖提示、互动和福利等用途\n\nv1.1.0 新增薅羊毛排行榜\n- 成功发放福利后按账号、群组和用户持久化累计次数\n- 群内发送可配置命令查看当前群薅羊毛排行榜\n\nv1.0.9 持久化关键词冷却\n- 冷却记录写入插件专属 ctx.kv，平台或容器重启后继续生效\n- 插件更新、停用重启后自动恢复有效记录，并清理过期数据\n\nv1.0.8 适配平台后台任务治理\n- 回复与冷却提示的延迟删除任务改由 ctx.create_task 托管\n- 插件停用或重载时不再遗留等待中的删除任务\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.4 恢复冷却提示回复\n- 每条关键词规则重新提供“冷却时提示”开关，现有规则默认开启\n- 冷却命中时回复剩余小时、分钟或秒数，零点重置模式显示距零点时间\n- 冷却提示沿用回复自动删除时间\n\nv1.0.3 优化规则配置\n- 关键词规则改用列表控件，群组范围改用会话选择器",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png",
       "tags": [
-        "消息处理"
+        "关键词回复",
+        "定时规则",
+        "自动删除"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -526,7 +569,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.16 修复 Vue 配置与测试接口\n- 配置读取和保存迁移到新版平台 host 接口\n- 状态、日志、群组名称和连接测试改用 host.callApi\n- 保留旧配置的监控开关兼容性\n\nv1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png",
       "tags": [
-        "媒体"
+        "媒体",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -540,7 +584,10 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
       "tags": [
-        "自动化"
+        "自动签到",
+        "多站点",
+        "Cloudflare",
+        "Cookie"
       ],
       "scope": "standalone",
       "render_mode": "vue",
@@ -554,7 +601,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.10 修复 Vue 配置保存\n- 保存配置改用新版平台 host.saveConfig，修复读取 undefined.post 失败\n- 答题记录和群组名称改用 host.callApi 读取\n- 读取、保存成功与失败统一使用平台提示\n\nv1.0.9 限制开局与答题消息来源\n- 只有插件所用的本人账号发送‘开启答题’或‘开始答题’才会开局\n- 结束命令同样只接受本人账号发送\n- 答案只接收其他群友的入站消息，开局账号不会参与抢答\n\nv1.0.7 前端移除自带 API 配置字段\n- 移除 AI 出题源的 ai_api_key/ai_base_url/ai_model 配置界面\n\nv1.0.6 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 ai_api_key/ai_base_url/ai_model\n\nv1.0.5 接入平台统一 AI 能力\n- AI 出题优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置或天行数据\n\nv1.0.4 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png",
       "tags": [
-        "消息处理"
+        "消息处理",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -568,7 +616,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.2.4 支持正文动态财富密码红包\n- 识别“财富密码：内容”并直接发送完整密码参与\n- 密码可包含中文、英文、数字、标点和空格\n- 红包剩余数量为 0 时自动跳过，避免发送失效密码\n\nv1.2.2 修复复制兜底漏响应\n- 支持群友回复红包消息发送口令，不再仅缓存独立文本\n- 缓存漏记时直接读取中奖确认所回复的原消息，必要时从 Telegram 回查\n- 同时监听新发与编辑后的中奖确认，兼容机器人编辑原消息返回结果\n- 扩展领取成功、获得、到账及内嵌金额确认识别\n- 记录候选口令所属红包，多红包并存时优先精确匹配并增加诊断日志\n\nv1.2.1 支持图片财富密码红包\n- 自动识别“财富密码见图片、发送财富密码即可领取”的拼手气红包\n- 监听红包图片编辑，前一次 OCR 未参与成功时会识别更新后的动态口令\n- 剩余数量为 0 时停止识别，避免红包结束后发送无效口令\n\nv1.2.0 支持正文拼手气红包\n- 自动识别“发送下方口令领取”后的完整口令并立即参与\n- 同时监听新消息与编辑消息，避免后补口令时漏抢\n- 按账号、群组和红包消息去重，结束状态不会重复发送\n\nv1.1.2 修复复制兜底选包\n- 修复多红包并存时按过期时间选包导致口令记错包，改为按确认者匹配对应红包\n\nv1.1.1 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -582,7 +631,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.13 重复参与反馈\n- 用户再次发送当前有效参与口令时，回复重复参与无效提示\n- 提示 8 秒后自动删除，普通聊天不会被误判为重复参与\n\nv1.0.12 显示群组名称\n- 红包监控和历史记录显示群组名称并保留 UID\n- 创建、超时和结算日志显示群组名称\n\nv1.0.11 修复红包金额\n- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n- 总额不足以每个红包至少 1 魔力时拒绝创建",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -596,7 +646,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.30 美化 Premium 富文本排行榜\n- 表格启用 Telegram 原生边框与斑马纹\n- 排名、用户、次数和累计金额按内容统一对齐\n- 前三名用户与名次加粗突出，累计金额右对齐显示\n\nv1.0.29 修复 Premium 富文本发送参数\n- 移除 Kurigram 2.2.24 不支持的 reply_to_message_id 参数\n- 富文本排行榜改为独立消息发送，确保原生表格正常显示\n- 文本回退仍保持回复原消息的行为\n\nv1.0.28 接入平台原生 Rich Message\n- 使用 ctx.user.send_rich() 发送 Premium 富文本表格\n- 发送前通过 supports_native_rich() 检查当前用户账号能力\n- 排行榜命令成功发送富文本后自动删除原命令消息\n- 普通账号或发送失败时继续回退排版文本榜\n\nv1.0.27 修复富文本表格被静默降级\n- 不再把 Rich Message HTML 误发到普通消息接口\n- 当前 Kurigram 未提供用户账号 Rich Message 接口时直接回退正常文本榜\n- 配置页补充 Premium 与平台能力要求\n\nv1.0.26 新增 Premium 富文本表格\n- 排行榜输出新增 Kurigram HTML 富文本表格模式\n- 自动致谢榜与排行榜命令均支持表格输出\n- 表格发送失败时自动回退文本榜\n- 配置页明确标注仅 Telegram Premium 会员可用\n\nv1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",
@@ -610,7 +661,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 修复内存与任务清理\n- 新增过期口令/回复缓存清理，避免长时间运行内存增长\n- 卸载时取消 OCR 超时任务\n\nv1.0.3 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "",
@@ -624,7 +676,8 @@
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.8 接入平台结构化通知表格\n- 灵石转账排行榜改用 ctx.notify_table()\n- Telegram Bot 与 Premium 账号显示原生边框斑马纹表格\n- 普通账号、企业微信和 Bark 由平台自动回退分组文本\n\nv1.0.7 修复抽奖次数校验\n- 修复转盘抽奖未校验次数为正整数，非法次数现在会提示并拦截\n\nv1.0.6 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png",
       "tags": [
-        "福利"
+        "福利",
+        "Telegram"
       ],
       "scope": "user",
       "render_mode": "vue",

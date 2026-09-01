@@ -65,7 +65,7 @@ __plugin__ = {'name': '癫影积分红包',
                                      'help': '抢包前等待的最大秒数。填得比「最小」大即启用随机延迟(每次在最小~最大间随机)；填 0 或不大于最小则退化为固定延迟。'}},
  'v1_compatible_version': '1.2.2',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利', 'Telegram']}
 _active_context = None
 
 

@@ -57,7 +57,7 @@ __plugin__ = {'name': '小姐姐视频',
                                'order': 22}},
  'v1_compatible_version': '1.0.4',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

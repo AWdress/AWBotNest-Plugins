@@ -99,7 +99,7 @@ __plugin__ = {'name': 'PT站自动签到',
                                              'order': 9001}},
  'v1_compatible_version': '2.5.35',
  'v2_adapter': 'telethon',
- 'tags': ['自动化'],
+ 'tags': ['自动签到', '多站点', 'Cloudflare', 'Cookie'],
  'render_mode': 'vue'}
 _active_context = None
 

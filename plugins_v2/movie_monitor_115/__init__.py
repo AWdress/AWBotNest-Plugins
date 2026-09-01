@@ -109,7 +109,7 @@ __plugin__ = {'name': '115频道监控',
                                      'default': ''}},
  'v1_compatible_version': '1.0.16',
  'v2_adapter': 'telethon',
- 'tags': ['媒体'],
+ 'tags': ['媒体', 'Telegram'],
  'render_mode': 'vue'}
 _active_context = None
 

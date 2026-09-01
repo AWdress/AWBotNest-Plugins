@@ -188,7 +188,7 @@ __plugin__ = {'name': 'AWEmbyPush',
                                           'default': ''}},
  'v1_compatible_version': '1.5.9',
  'v2_adapter': 'telethon',
- 'tags': ['媒体'],
+ 'tags': ['媒体', 'Telegram'],
  'render_mode': 'vue'}
 _active_context = None
 

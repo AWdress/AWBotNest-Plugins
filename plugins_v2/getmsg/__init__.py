@@ -44,7 +44,7 @@ __plugin__ = {'name': '取消息结构',
                                'help': '自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。'}},
  'v1_compatible_version': '1.0.6',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理']}
+ 'tags': ['消息处理', 'Telegram']}
 _active_context = None
 
 

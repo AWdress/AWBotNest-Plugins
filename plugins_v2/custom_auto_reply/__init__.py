@@ -123,7 +123,7 @@ __plugin__ = {'name': '定时自动回复',
                                          '1 * *` 每月 1 号 8:30。'}},
  'v1_compatible_version': '1.0.12',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理']}
+ 'tags': ['自动回复', '关键词', '定时任务']}
 _active_context = None
 
 

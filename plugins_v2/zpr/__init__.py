@@ -63,7 +63,7 @@ __plugin__ = {'name': 'P站图片',
                                'help': '单次最多取几张（防止刷屏/超时）。'}},
  'v1_compatible_version': '1.0.3',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

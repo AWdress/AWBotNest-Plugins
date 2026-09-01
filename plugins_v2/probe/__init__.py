@@ -58,7 +58,7 @@ __plugin__ = {'name': '插件开发探针',
                                      'help': '速查区里文本类字段超过该长度会截断（原始结构区不截断）。'}},
  'v1_compatible_version': '1.0.3',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

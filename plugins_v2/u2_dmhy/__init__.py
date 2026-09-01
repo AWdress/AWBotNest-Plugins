@@ -71,7 +71,7 @@ __plugin__ = {'name': 'U2送糖',
                                      'order': 31}},
  'v1_compatible_version': '1.0.7',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

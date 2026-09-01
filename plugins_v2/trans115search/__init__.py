@@ -62,7 +62,7 @@ __plugin__ = {'name': '115搜索结果转发',
                                'cols': 6}},
  'v1_compatible_version': '1.0.5',
  'v2_adapter': 'telethon',
- 'tags': ['媒体']}
+ 'tags': ['媒体', 'Telegram']}
 _active_context = None
 
 

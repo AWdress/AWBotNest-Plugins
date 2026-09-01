@@ -108,9 +108,20 @@ def complete_schema(schema, entry):
 def default_tags(plugin_id, metadata):
     """Supply useful V2 market filters when old V1 metadata had no tags."""
     existing = metadata.get("tags")
-    if isinstance(existing, list) and existing:
+    if isinstance(existing, list) and len(existing) >= 2:
         return [str(item) for item in existing[:4]]
     lowered = plugin_id.lower()
+    curated = {
+        "pt_multi_checkin": ["自动签到", "多站点", "Cloudflare", "Cookie"],
+        "gptgod_checkin": ["自动签到", "多账号", "网页自动化"],
+        "hhan_lottery": ["幸运转盘", "赠豆", "消息管理"],
+        "keyword_auto_reply": ["关键词回复", "定时规则", "自动删除"],
+        "custom_auto_reply": ["自动回复", "关键词", "定时任务"],
+        "emby_toolbox": ["Emby", "媒体维护", "定时任务"],
+        "digital_pet": ["电子宠物", "互动玩法", "随机事件"],
+    }
+    if plugin_id in curated:
+        return curated[plugin_id]
     tags = []
     if any(word in lowered for word in ("checkin", "sign", "pulse")):
         tags.append("自动化")
@@ -120,7 +131,9 @@ def default_tags(plugin_id, metadata):
         tags.append("媒体")
     if any(word in lowered for word in ("reply", "forward", "msg", "ai", "quiz", "game")):
         tags.append("消息处理")
-    return tags[:4] or ["工具"]
+    if len(tags) == 1:
+        tags.append("Telegram")
+    return tags[:4] or ["工具", "Telegram"]
 
 
 def bump_patch_version(value):

@@ -43,7 +43,7 @@ __plugin__ = {'name': '举牌',
                                'order': 11}},
  'v1_compatible_version': '1.0.4',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理']}
+ 'tags': ['消息处理', 'Telegram']}
 _active_context = None
 
 

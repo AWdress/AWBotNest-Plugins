@@ -54,7 +54,7 @@ __plugin__ = {'name': '转发复读',
                                  'help': '单次命令允许的最大转发次数。'}},
  'v1_compatible_version': '1.0.4',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

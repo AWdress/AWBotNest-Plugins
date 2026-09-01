@@ -68,7 +68,7 @@ __plugin__ = {'name': '通用抽奖',
                                 'section': '等待策略'}},
  'v1_compatible_version': '1.0.7',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利', 'Telegram']}
 _active_context = None
 
 

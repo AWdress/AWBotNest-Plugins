@@ -46,7 +46,7 @@ __plugin__ = {'name': '删除自己消息',
                                    'help': '删除完成后的「已删除 N 条」提示停留多少秒再消失。'}},
  'v1_compatible_version': '1.0.4',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具', 'Telegram']}
 _active_context = None
 
 

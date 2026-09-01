@@ -136,7 +136,7 @@ __plugin__ = {'name': '趣味答题',
                                          'default': 30}},
  'v1_compatible_version': '1.1.2',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理'],
+ 'tags': ['消息处理', 'Telegram'],
  'render_mode': 'vue'}
 _active_context = None
 

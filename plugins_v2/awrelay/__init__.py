@@ -219,7 +219,7 @@ __plugin__ = {'name': 'AWRelay',
                                       'default': True}},
  'v1_compatible_version': '1.2.9',
  'v2_adapter': 'telethon',
- 'tags': ['工具'],
+ 'tags': ['工具', 'Telegram'],
  'render_mode': 'vue'}
 _active_context = None
 

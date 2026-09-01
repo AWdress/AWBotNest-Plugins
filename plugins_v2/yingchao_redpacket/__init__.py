@@ -91,7 +91,7 @@ __plugin__ = {'name': '影巢口令红包（测试）',
                                            'help': '逗号或换行分隔。口令命中其中任一关键词则拒绝发送。'}},
  'v1_compatible_version': '1.0.5',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利', 'Telegram']}
 _active_context = None
 
 

@@ -55,7 +55,7 @@ __plugin__ = {'name': 'HDHive抽奖',
                                 'section': '等待策略'}},
  'v1_compatible_version': '1.0.6',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利', 'Telegram']}
 _active_context = None
 
 
