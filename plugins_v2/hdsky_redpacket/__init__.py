@@ -52,13 +52,15 @@ __plugin__ = {'name': '拼手气红包(HDSKY)',
                                     'order': 3,
                                     'section': '功能开关',
                                     'help': '抢到/失败时用机器人通知平台主人。'},
-                   'button_groups': {'type': 'string',
+                   'button_groups': {'type': 'chat',
                                      'default': '',
                                      'label': '监听群组ID',
                                      'order': 10,
                                      'section': '参数配置',
                                      'show_if': {'button_enabled': True},
-                                     'help': '逗号分隔的群组ID，留空=所有群。'},
+                                     'help': '逗号分隔的群组ID，留空=所有群。',
+                                     'chat_types': ['group', 'channel'],
+                                     'session': True},
                    'button_delay': {'type': 'slider',
                                     'default': 0,
                                     'label': '点击延迟(秒)',
@@ -75,7 +77,8 @@ __plugin__ = {'name': '拼手气红包(HDSKY)',
                                             'section': '参数配置',
                                             'show_if': {'button_enabled': True}}},
  'v1_compatible_version': '1.0.6',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

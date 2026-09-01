@@ -148,7 +148,8 @@ __plugin__ = {'name': '电子宠物',
                             'text': '先发送 /领养 名字 或 .领养 名字 来领养宠物；领养后可用 /状态、/喂食、/玩耍、/清洁 与它互动。用 /档案 查看成长档案，用 /背包 '
                                     '查看道具，用 /使用 道具名 来使用道具。'}},
  'v1_compatible_version': '2.1.2',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

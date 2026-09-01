@@ -234,7 +234,8 @@ __plugin__ = {'name': '朱雀',
                                     'type': 'boolean',
                                     'default': True}},
  'v1_compatible_version': '1.0.9',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

@@ -161,7 +161,8 @@ __plugin__ = {'name': 'Emby 工具箱',
                                     'section': 'V2 兼容字段',
                                     'order': 9001}},
  'v1_compatible_version': '1.4.1',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['媒体']}
 _active_context = None
 
 

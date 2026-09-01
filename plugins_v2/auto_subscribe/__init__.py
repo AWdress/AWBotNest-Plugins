@@ -318,7 +318,8 @@ __plugin__ = {'name': '自动订阅助手',
                                   'section': 'V2 兼容字段',
                                   'order': 9002}},
  'v1_compatible_version': '1.3.3',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['媒体']}
 _active_context = None
 
 

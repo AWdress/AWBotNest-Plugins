@@ -90,7 +90,37 @@ def complete_schema(schema, entry):
             "type": "password" if sensitive else "string", "default": "",
             "title": key.replace("_", " "), "section": "V2 兼容字段", "order": index,
         }
+    # V2 can resolve Telegram chat IDs to names in its native picker.  Promote
+    # legacy target/chat fields so groups and channels are selectable instead of
+    # requiring opaque numeric IDs.
+    for key, field in schema.items():
+        lowered = key.lower()
+        if ("chat" in lowered or "channel" in lowered or "group" in lowered) and isinstance(field, dict):
+            if field.get("type") in {"string", "number"} and not any(
+                word in lowered for word in ("name", "title", "username")
+            ):
+                field["type"] = "chat"
+                field.setdefault("chat_types", ["group", "channel"])
+                field.setdefault("session", True)
     return schema
+
+
+def default_tags(plugin_id, metadata):
+    """Supply useful V2 market filters when old V1 metadata had no tags."""
+    existing = metadata.get("tags")
+    if isinstance(existing, list) and existing:
+        return [str(item) for item in existing[:4]]
+    lowered = plugin_id.lower()
+    tags = []
+    if any(word in lowered for word in ("checkin", "sign", "pulse")):
+        tags.append("自动化")
+    if any(word in lowered for word in ("lottery", "packet", "bonus", "transfer")):
+        tags.append("福利")
+    if any(word in lowered for word in ("emby", "movie", "115", "subscribe")):
+        tags.append("媒体")
+    if any(word in lowered for word in ("reply", "forward", "msg", "ai", "quiz", "game")):
+        tags.append("消息处理")
+    return tags[:4] or ["工具"]
 
 
 def copy_source(entry, target):
@@ -146,6 +176,7 @@ def build_one(entry):
     )
     metadata["v1_compatible_version"] = str(metadata.get("version") or "")
     metadata["v2_adapter"] = "telethon"
+    metadata["tags"] = default_tags(plugin_id, metadata)
 
     wrapper = f'''"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
 from __future__ import annotations

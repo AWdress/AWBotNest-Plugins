@@ -108,7 +108,8 @@ __plugin__ = {'name': '115频道监控',
                                      'type': 'password',
                                      'default': ''}},
  'v1_compatible_version': '1.0.16',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['媒体']}
 _active_context = None
 
 

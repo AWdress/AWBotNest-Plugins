@@ -95,7 +95,8 @@ __plugin__ = {'name': '猫站赠粮',
                                     'cols': 12,
                                     'order': 31}},
  'v1_compatible_version': '1.0.0',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

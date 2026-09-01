@@ -122,7 +122,8 @@ __plugin__ = {'name': '定时自动回复',
                                          '例：`0 9 * * 1-5` 工作日每天 9:00；`*/15 9-18 * * *` 9~18 点每 15 分钟一次；`30 8 '
                                          '1 * *` 每月 1 号 8:30。'}},
  'v1_compatible_version': '1.0.12',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 

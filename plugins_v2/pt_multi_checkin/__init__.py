@@ -98,7 +98,8 @@ __plugin__ = {'name': 'PT站自动签到',
                                              'section': 'V2 兼容字段',
                                              'order': 9001}},
  'v1_compatible_version': '2.5.35',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['自动化']}
 _active_context = None
 
 

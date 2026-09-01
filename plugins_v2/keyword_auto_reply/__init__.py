@@ -186,7 +186,8 @@ __plugin__ = {'name': '聊天互动助手',
                                         'order': 31,
                                         'section': '薅羊毛排行榜'}},
  'v1_compatible_version': '2.2.2',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 

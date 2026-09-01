@@ -42,7 +42,8 @@ __plugin__ = {'name': '举牌',
                                'help': '接口以 ?msg=文字 拼接，返回举牌图片。',
                                'order': 11}},
  'v1_compatible_version': '1.0.4',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 

@@ -234,7 +234,8 @@ __plugin__ = {'name': 'AWBlackJack',
                                       'cols': 12,
                                       'order': 80}},
  'v1_compatible_version': '1.0.1',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

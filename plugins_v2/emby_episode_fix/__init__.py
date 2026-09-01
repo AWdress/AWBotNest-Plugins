@@ -97,7 +97,8 @@ __plugin__ = {'name': 'Emby 剧集季集校验',
                                          'order': 40,
                                          'text': '尚未执行扫描'}},
  'v1_compatible_version': '1.0.0',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['媒体']}
 _active_context = None
 
 

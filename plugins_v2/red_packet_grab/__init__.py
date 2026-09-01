@@ -122,7 +122,8 @@ __plugin__ = {'name': '自动抢红包',
                                     'type': 'boolean',
                                     'default': True}},
  'v1_compatible_version': '1.2.4',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

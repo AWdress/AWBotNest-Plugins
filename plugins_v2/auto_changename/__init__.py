@@ -55,7 +55,8 @@ __plugin__ = {'name': '自动报时昵称',
                                               {'value': 'first_name', 'label': '名 (first name)'},
                                               {'value': 'both', 'label': '姓和名都改'}]}},
  'v1_compatible_version': '1.0.4',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

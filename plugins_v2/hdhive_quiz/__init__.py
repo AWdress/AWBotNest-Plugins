@@ -73,8 +73,10 @@ __plugin__ = {'name': '影巢答题红包',
                    'chat_ids': {'title': 'chat ids',
                                 'section': 'V2 配置',
                                 'order': 3,
-                                'type': 'string',
-                                'default': ''},
+                                'type': 'chat',
+                                'default': '',
+                                'chat_types': ['group', 'channel'],
+                                'session': True},
                    'reply_format': {'title': 'reply format',
                                     'section': 'V2 配置',
                                     'order': 4,
@@ -121,7 +123,8 @@ __plugin__ = {'name': '影巢答题红包',
                                        'type': 'number',
                                        'default': 12}},
  'v1_compatible_version': '1.0.9',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 

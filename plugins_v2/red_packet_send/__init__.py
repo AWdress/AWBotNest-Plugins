@@ -106,7 +106,8 @@ __plugin__ = {'name': '发红包',
                                      'type': 'string',
                                      'default': ''}},
  'v1_compatible_version': '1.0.14',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

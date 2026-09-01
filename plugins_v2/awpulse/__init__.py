@@ -351,7 +351,8 @@ __plugin__ = {'name': 'AWPulse 色花堂助手',
                                 'section': 'V2 兼容字段',
                                 'order': 9000}},
  'v1_compatible_version': '1.2.0',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['自动化']}
 _active_context = None
 
 

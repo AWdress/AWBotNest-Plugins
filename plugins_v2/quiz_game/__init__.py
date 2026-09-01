@@ -55,8 +55,10 @@ __plugin__ = {'name': '趣味答题',
                    'valid_groups': {'title': 'valid groups',
                                     'section': 'V2 配置',
                                     'order': 1,
-                                    'type': 'string',
-                                    'default': ''},
+                                    'type': 'chat',
+                                    'default': '',
+                                    'chat_types': ['group', 'channel'],
+                                    'session': True},
                    'blacklist_users': {'title': 'blacklist users',
                                        'section': 'V2 配置',
                                        'order': 2,
@@ -133,7 +135,8 @@ __plugin__ = {'name': '趣味答题',
                                          'type': 'number',
                                          'default': 30}},
  'v1_compatible_version': '1.1.2',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 

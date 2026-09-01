@@ -90,7 +90,8 @@ __plugin__ = {'name': '影巢口令红包（测试）',
                                            'show_if': {'token_enabled': True},
                                            'help': '逗号或换行分隔。口令命中其中任一关键词则拒绝发送。'}},
  'v1_compatible_version': '1.0.5',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

@@ -192,8 +192,10 @@ __plugin__ = {'name': '小菜抽奖',
                    'group_wait_overrides': {'title': 'group wait overrides',
                                             'section': 'V2 配置',
                                             'order': 29,
-                                            'type': 'string',
-                                            'default': ''},
+                                            'type': 'chat',
+                                            'default': '',
+                                            'chat_types': ['group', 'channel'],
+                                            'session': True},
                    'lottery_thank_message': {'title': 'lottery thank message',
                                              'section': 'V2 配置',
                                              'order': 30,
@@ -276,7 +278,8 @@ __plugin__ = {'name': '小菜抽奖',
                                     'type': 'boolean',
                                     'default': False}},
  'v1_compatible_version': '1.0.13',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

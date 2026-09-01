@@ -130,7 +130,8 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                        'cols': 12,
                                        'order': 41}},
  'v1_compatible_version': '1.1.9',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['自动化']}
 _active_context = None
 
 

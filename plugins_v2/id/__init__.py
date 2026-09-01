@@ -54,7 +54,8 @@ __plugin__ = {'name': '查ID',
                                    'section': '自动清理',
                                    'help': '查询结果多少秒后自动删除；0 表示不删除。'}},
  'v1_compatible_version': '1.0.5',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

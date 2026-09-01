@@ -54,7 +54,8 @@ __plugin__ = {'name': '插件开发调试',
                                         'section': '兼容性',
                                         'order': -100}},
  'v1_compatible_version': '1.0.3',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

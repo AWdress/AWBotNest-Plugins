@@ -188,7 +188,8 @@ __plugin__ = {'name': '多站点转账',
                                     'section': 'V2 兼容字段',
                                     'order': 9002}},
  'v1_compatible_version': '1.1.0',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['福利']}
 _active_context = None
 
 

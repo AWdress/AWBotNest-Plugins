@@ -102,8 +102,10 @@ __plugin__ = {'name': 'AWEmbyPush',
                    'tg_chat_id': {'title': 'tg chat id',
                                   'section': 'V2 配置',
                                   'order': 12,
-                                  'type': 'string',
-                                  'default': ''},
+                                  'type': 'chat',
+                                  'default': '',
+                                  'chat_types': ['group', 'channel'],
+                                  'session': True},
                    'tg_api_host': {'title': 'tg api host',
                                    'section': 'V2 配置',
                                    'order': 13,
@@ -185,7 +187,8 @@ __plugin__ = {'name': 'AWEmbyPush',
                                           'type': 'string',
                                           'default': ''}},
  'v1_compatible_version': '1.5.9',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['媒体']}
 _active_context = None
 
 

@@ -154,7 +154,8 @@ __plugin__ = {'name': 'Webhook 通知桥',
                                       'cols': 12,
                                       'order': 33}},
  'v1_compatible_version': '1.0.1',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

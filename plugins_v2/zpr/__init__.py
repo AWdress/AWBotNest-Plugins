@@ -62,7 +62,8 @@ __plugin__ = {'name': 'P站图片',
                                'section': '数量限制',
                                'help': '单次最多取几张（防止刷屏/超时）。'}},
  'v1_compatible_version': '1.0.3',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['工具']}
 _active_context = None
 
 

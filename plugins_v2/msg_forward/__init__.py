@@ -85,7 +85,8 @@ __plugin__ = {'name': '消息转发',
                                                  'default': False,
                                                  'help': '关=原生转发（带「转发自」）；开=复制搬运（不带来源标记）'}}}},
  'v1_compatible_version': '1.0.3',
- 'v2_adapter': 'telethon'}
+ 'v2_adapter': 'telethon',
+ 'tags': ['消息处理']}
 _active_context = None
 
 
