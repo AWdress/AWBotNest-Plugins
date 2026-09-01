@@ -55,7 +55,8 @@ __plugin__ = {'name': '插件开发调试',
                                         'order': -100}},
  'v1_compatible_version': '1.0.3',
  'v2_adapter': 'telethon',
- 'tags': ['工具']}
+ 'tags': ['工具'],
+ 'render_mode': 'vue'}
 _active_context = None
 
 

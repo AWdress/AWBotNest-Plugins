@@ -11,6 +11,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/auto_avatar/"
     },
     "auto_changename": {
@@ -24,6 +25,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/auto_changename/"
     },
     "common_lottery": {
@@ -37,6 +39,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/common_lottery/"
     },
     "custom_auto_reply": {
@@ -50,6 +53,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/custom_auto_reply/"
     },
     "emby_episode_fix": {
@@ -63,6 +67,7 @@
         "媒体"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/emby_episode_fix/"
     },
     "getmsg": {
@@ -76,6 +81,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/getmsg/"
     },
     "gptgod_checkin": {
@@ -89,6 +95,7 @@
         "自动化"
       ],
       "scope": "standalone",
+      "render_mode": "",
       "path": "plugins_v2/gptgod_checkin/"
     },
     "hdhive_lottery": {
@@ -102,6 +109,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/hdhive_lottery/"
     },
     "id": {
@@ -115,6 +123,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/id/"
     },
     "jupai": {
@@ -128,6 +137,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/jupai/"
     },
     "msg_forward": {
@@ -141,6 +151,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/msg_forward/"
     },
     "probe": {
@@ -154,6 +165,7 @@
         "工具"
       ],
       "scope": "both",
+      "render_mode": "",
       "path": "plugins_v2/probe/"
     },
     "pterclub_bonus": {
@@ -167,6 +179,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/pterclub_bonus/"
     },
     "self_delete": {
@@ -180,6 +193,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/self_delete/"
     },
     "trans115search": {
@@ -193,6 +207,7 @@
         "媒体"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/trans115search/"
     },
     "u2_dmhy": {
@@ -206,6 +221,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/u2_dmhy/"
     },
     "webhook_bridge": {
@@ -219,6 +235,7 @@
         "工具"
       ],
       "scope": "standalone",
+      "render_mode": "",
       "path": "plugins_v2/webhook_bridge/"
     },
     "xjj": {
@@ -232,6 +249,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/xjj/"
     },
     "zf": {
@@ -245,6 +263,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/zf/"
     },
     "zpr": {
@@ -258,6 +277,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/zpr/"
     },
     "ai": {
@@ -271,6 +291,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/ai/"
     },
     "auto_lottery": {
@@ -284,6 +305,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/auto_lottery/"
     },
     "auto_subscribe": {
@@ -297,6 +319,7 @@
         "媒体"
       ],
       "scope": "standalone",
+      "render_mode": "vue",
       "path": "plugins_v2/auto_subscribe/"
     },
     "awblackjack": {
@@ -310,6 +333,7 @@
         "工具"
       ],
       "scope": "standalone",
+      "render_mode": "",
       "path": "plugins_v2/awblackjack/"
     },
     "awembypush": {
@@ -323,6 +347,7 @@
         "媒体"
       ],
       "scope": "standalone",
+      "render_mode": "vue",
       "path": "plugins_v2/awembypush/"
     },
     "awpulse": {
@@ -336,6 +361,7 @@
         "自动化"
       ],
       "scope": "standalone",
+      "render_mode": "vue",
       "path": "plugins_v2/awpulse/"
     },
     "awrelay": {
@@ -349,6 +375,7 @@
         "工具"
       ],
       "scope": "bot",
+      "render_mode": "vue",
       "path": "plugins_v2/awrelay/"
     },
     "bomb_game": {
@@ -362,6 +389,7 @@
         "消息处理"
       ],
       "scope": "both",
+      "render_mode": "vue",
       "path": "plugins_v2/bomb_game/"
     },
     "custom_plugin": {
@@ -375,6 +403,7 @@
         "工具"
       ],
       "scope": "both",
+      "render_mode": "vue",
       "path": "plugins_v2/custom_plugin/"
     },
     "digital_pet": {
@@ -388,6 +417,7 @@
         "工具"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/digital_pet/"
     },
     "dyp_redpacket": {
@@ -401,6 +431,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/dyp_redpacket/"
     },
     "emby_toolbox": {
@@ -414,6 +445,7 @@
         "媒体"
       ],
       "scope": "standalone",
+      "render_mode": "vue",
       "path": "plugins_v2/emby_toolbox/"
     },
     "hdhive_quiz": {
@@ -427,6 +459,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/hdhive_quiz/"
     },
     "hdsky_redpacket": {
@@ -440,6 +473,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/hdsky_redpacket/"
     },
     "hhan_lottery": {
@@ -453,6 +487,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/hhan_lottery/"
     },
     "human_lottery": {
@@ -466,6 +501,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/human_lottery/"
     },
     "keyword_auto_reply": {
@@ -479,6 +515,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/keyword_auto_reply/"
     },
     "movie_monitor_115": {
@@ -492,6 +529,7 @@
         "媒体"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/movie_monitor_115/"
     },
     "pt_multi_checkin": {
@@ -505,6 +543,7 @@
         "自动化"
       ],
       "scope": "standalone",
+      "render_mode": "vue",
       "path": "plugins_v2/pt_multi_checkin/"
     },
     "quiz_game": {
@@ -518,6 +557,7 @@
         "消息处理"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/quiz_game/"
     },
     "red_packet_grab": {
@@ -531,6 +571,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/red_packet_grab/"
     },
     "red_packet_send": {
@@ -544,6 +585,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/red_packet_send/"
     },
     "transfer": {
@@ -557,6 +599,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/transfer/"
     },
     "yingchao_redpacket": {
@@ -570,6 +613,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "",
       "path": "plugins_v2/yingchao_redpacket/"
     },
     "zhuque_lottery": {
@@ -583,6 +627,7 @@
         "福利"
       ],
       "scope": "user",
+      "render_mode": "vue",
       "path": "plugins_v2/zhuque_lottery/"
     }
   }

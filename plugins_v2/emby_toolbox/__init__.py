@@ -162,7 +162,8 @@ __plugin__ = {'name': 'Emby 工具箱',
                                     'order': 9001}},
  'v1_compatible_version': '1.4.1',
  'v2_adapter': 'telethon',
- 'tags': ['媒体']}
+ 'tags': ['媒体'],
+ 'render_mode': 'vue'}
 _active_context = None
 
 

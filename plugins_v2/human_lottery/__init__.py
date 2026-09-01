@@ -218,7 +218,8 @@ __plugin__ = {'name': '幸运抽奖',
                                       'default': '这次抽奖参与人数不足（{participants}/{minimum}），先取消啦，下次再来～'}},
  'v1_compatible_version': '1.1.2',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利'],
+ 'render_mode': 'vue'}
 _active_context = None
 
 

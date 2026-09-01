@@ -224,7 +224,8 @@ __plugin__ = {'name': '憨憨小助手',
                                      'default': 90}},
  'v1_compatible_version': '2.9.0',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利'],
+ 'render_mode': 'vue'}
 _active_context = None
 
 

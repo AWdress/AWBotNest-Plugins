@@ -133,6 +133,11 @@ def copy_source(entry, target):
         source_dir, legacy,
         ignore=lambda _dir, names: [name for name in names if name in SKIP_NAMES],
     )
+    # V2 officially supports module-federated Vue configs.  Publish only the
+    # built dist (never node_modules or source tooling) when a plugin provides it.
+    frontend_dist = entry.parent / "frontend" / "dist"
+    if frontend_dist.is_dir() and any((frontend_dist / name).is_file() for name in ("remoteEntry.js", "assets/remoteEntry.js")):
+        shutil.copytree(frontend_dist, target / "frontend" / "dist")
     legacy_entry = legacy / "__init__.py"
     if entry.parent.name == "awrelay":
         text = legacy_entry.read_text(encoding="utf-8")
@@ -177,6 +182,8 @@ def build_one(entry):
     metadata["v1_compatible_version"] = str(metadata.get("version") or "")
     metadata["v2_adapter"] = "telethon"
     metadata["tags"] = default_tags(plugin_id, metadata)
+    if entry.name == "__init__.py" and any((entry.parent / "frontend" / "dist" / name).is_file() for name in ("remoteEntry.js", "assets/remoteEntry.js")):
+        metadata["render_mode"] = "vue"
 
     wrapper = f'''"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
 from __future__ import annotations
@@ -224,7 +231,7 @@ def main():
         plugin_id, metadata, target = build_one(entry)
         manifest["plugins"][plugin_id] = {
             key: metadata.get(key, "")
-            for key in ("name", "version", "author", "description", "changelog", "icon", "tags", "scope")
+            for key in ("name", "version", "author", "description", "changelog", "icon", "tags", "scope", "render_mode")
         }
         manifest["plugins"][plugin_id]["path"] = target.relative_to(ROOT).as_posix() + "/"
     (ROOT / "manifest_v2.json").write_text(

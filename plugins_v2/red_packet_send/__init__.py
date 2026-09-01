@@ -107,7 +107,8 @@ __plugin__ = {'name': '发红包',
                                      'default': ''}},
  'v1_compatible_version': '1.0.14',
  'v2_adapter': 'telethon',
- 'tags': ['福利']}
+ 'tags': ['福利'],
+ 'render_mode': 'vue'}
 _active_context = None
 
 
