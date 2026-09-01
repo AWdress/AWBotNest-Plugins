@@ -155,7 +155,7 @@ __plugin__ = {'name': 'Webhook 通知桥',
                                       'order': 33}},
  'v1_compatible_version': '1.0.1',
  'v2_adapter': 'telethon',
- 'tags': ['工具', 'Telegram']}
+ 'tags': ['Webhook桥接', '外部通知', '签名校验']}
 _active_context = None
 
 

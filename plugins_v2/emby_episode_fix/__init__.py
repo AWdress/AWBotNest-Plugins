@@ -98,7 +98,7 @@ __plugin__ = {'name': 'Emby 剧集季集校验',
                                          'text': '尚未执行扫描'}},
  'v1_compatible_version': '1.0.0',
  'v2_adapter': 'telethon',
- 'tags': ['媒体', 'Telegram']}
+ 'tags': ['Emby剧集', '文件名校正', '元数据修复']}
 _active_context = None
 
 

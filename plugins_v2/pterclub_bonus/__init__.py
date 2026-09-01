@@ -96,7 +96,7 @@ __plugin__ = {'name': '猫站赠粮',
                                     'order': 31}},
  'v1_compatible_version': '1.0.0',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram']}
+ 'tags': ['PterClub赠魔', '魔力转赠', 'Cookie登录']}
 _active_context = None
 
 

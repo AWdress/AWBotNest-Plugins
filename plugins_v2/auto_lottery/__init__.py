@@ -279,7 +279,7 @@ __plugin__ = {'name': '小菜抽奖',
                                     'default': False}},
  'v1_compatible_version': '1.0.13',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram'],
+ 'tags': ['自动抽奖', '中奖统计', '奖品发放'],
  'render_mode': 'vue'}
 _active_context = None
 

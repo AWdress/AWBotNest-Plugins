@@ -78,7 +78,7 @@ __plugin__ = {'name': '拼手气红包(HDSKY)',
                                             'show_if': {'button_enabled': True}}},
  'v1_compatible_version': '1.0.6',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram']}
+ 'tags': ['天空红包', '自动领取', '动态密码']}
 _active_context = None
 
 

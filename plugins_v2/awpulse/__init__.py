@@ -352,7 +352,7 @@ __plugin__ = {'name': 'AWPulse 色花堂助手',
                                 'order': 9000}},
  'v1_compatible_version': '1.2.0',
  'v2_adapter': 'telethon',
- 'tags': ['自动化', 'Telegram'],
+ 'tags': ['色花堂助手', '自动签到', '自动发帖'],
  'render_mode': 'vue'}
 _active_context = None
 

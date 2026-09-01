@@ -141,7 +141,7 @@ __plugin__ = {'name': '数字炸弹',
                                         'default': ''}},
  'v1_compatible_version': '1.0.6',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理', 'Telegram'],
+ 'tags': ['炸弹游戏', '群组娱乐', '互动玩法'],
  'render_mode': 'vue'}
 _active_context = None
 

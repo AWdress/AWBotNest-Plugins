@@ -319,7 +319,7 @@ __plugin__ = {'name': '自动订阅助手',
                                   'order': 9002}},
  'v1_compatible_version': '1.3.3',
  'v2_adapter': 'telethon',
- 'tags': ['媒体', 'Telegram'],
+ 'tags': ['自动订阅', '影视搜索', '订阅管理'],
  'render_mode': 'vue'}
 _active_context = None
 

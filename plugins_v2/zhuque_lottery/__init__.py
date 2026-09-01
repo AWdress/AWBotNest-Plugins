@@ -235,7 +235,7 @@ __plugin__ = {'name': '朱雀',
                                     'default': True}},
  'v1_compatible_version': '1.0.9',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram'],
+ 'tags': ['朱雀抽奖', '魔力抽取', '转盘任务'],
  'render_mode': 'vue'}
 _active_context = None
 

@@ -131,7 +131,7 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                        'order': 41}},
  'v1_compatible_version': '1.1.9',
  'v2_adapter': 'telethon',
- 'tags': ['自动签到', '多账号', '网页自动化']}
+ 'tags': ['GPT-GOD签到', '多账号', '网页自动化']}
 _active_context = None
 
 

@@ -55,7 +55,7 @@ __plugin__ = {'name': '查ID',
                                    'help': '查询结果多少秒后自动删除；0 表示不删除。'}},
  'v1_compatible_version': '1.0.5',
  'v2_adapter': 'telethon',
- 'tags': ['工具', 'Telegram']}
+ 'tags': ['身份查询', '用户信息', 'Telegram账号']}
 _active_context = None
 
 

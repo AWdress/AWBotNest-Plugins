@@ -167,7 +167,7 @@ __plugin__ = {'name': 'AI 助手',
                                         'session': True}},
  'v1_compatible_version': '1.3.4',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理', 'Telegram'],
+ 'tags': ['AI对话', '智能回复', '主动搭话'],
  'render_mode': 'vue'}
 _active_context = None
 

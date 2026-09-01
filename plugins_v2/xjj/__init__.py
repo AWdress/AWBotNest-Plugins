@@ -57,7 +57,7 @@ __plugin__ = {'name': '小姐姐视频',
                                'order': 22}},
  'v1_compatible_version': '1.0.4',
  'v2_adapter': 'telethon',
- 'tags': ['工具', 'Telegram']}
+ 'tags': ['小鸡签到', '站点自动化', '签到提醒']}
 _active_context = None
 
 

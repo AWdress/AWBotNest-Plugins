@@ -235,7 +235,7 @@ __plugin__ = {'name': 'AWBlackJack',
                                       'order': 80}},
  'v1_compatible_version': '1.0.1',
  'v2_adapter': 'telethon',
- 'tags': ['工具', 'Telegram']}
+ 'tags': ['二十一点', 'Telegram游戏', '积分下注']}
 _active_context = None
 
 

@@ -112,13 +112,29 @@ def default_tags(plugin_id, metadata):
         return [str(item) for item in existing[:4]]
     lowered = plugin_id.lower()
     curated = {
-        "pt_multi_checkin": ["自动签到", "多站点", "Cloudflare", "Cookie"],
-        "gptgod_checkin": ["自动签到", "多账号", "网页自动化"],
-        "hhan_lottery": ["幸运转盘", "赠豆", "消息管理"],
-        "keyword_auto_reply": ["关键词回复", "定时规则", "自动删除"],
-        "custom_auto_reply": ["自动回复", "关键词", "定时任务"],
-        "emby_toolbox": ["Emby", "媒体维护", "定时任务"],
-        "digital_pet": ["电子宠物", "互动玩法", "随机事件"],
+        "auto_avatar": ["头像轮换", "图片池", "定时任务"], "auto_changename": ["昵称报时", "日期模板", "定时任务"],
+        "common_lottery": ["通用抽奖", "Lottery8Bot", "群组管理"], "custom_auto_reply": ["自定义回复", "延迟发送", "定时规则"],
+        "emby_episode_fix": ["Emby剧集", "文件名校正", "元数据修复"], "getmsg": ["消息提取", "链接解析", "媒体信息"],
+        "gptgod_checkin": ["GPT-GOD签到", "多账号", "网页自动化"], "hdhive_lottery": ["海胆抽奖", "积分抽奖", "奖品统计"],
+        "id": ["身份查询", "用户信息", "Telegram账号"], "jupai": ["句牌生成", "文字图片", "群组互动"],
+        "msg_forward": ["消息转发", "规则路由", "跨群同步"], "probe": ["网络探测", "延迟测试", "服务监控"],
+        "pterclub_bonus": ["PterClub赠魔", "魔力转赠", "Cookie登录"], "self_delete": ["消息自删", "延时删除", "群组清理"],
+        "trans115search": ["115资源搜索", "网盘检索", "磁链转换"], "u2_dmhy": ["U2赠魔", "魔力转赠", "站点Cookie"],
+        "webhook_bridge": ["Webhook桥接", "外部通知", "签名校验"], "xjj": ["小鸡签到", "站点自动化", "签到提醒"],
+        "zf": ["转发助手", "消息过滤", "频道同步"], "zpr": ["桌面提醒", "定时通知", "消息推送"],
+        "ai": ["AI对话", "智能回复", "主动搭话"], "auto_lottery": ["自动抽奖", "中奖统计", "奖品发放"],
+        "auto_subscribe": ["自动订阅", "影视搜索", "订阅管理"], "awblackjack": ["二十一点", "Telegram游戏", "积分下注"],
+        "awembypush": ["Emby推送", "媒体通知", "TMDB匹配"], "awpulse": ["色花堂助手", "自动签到", "自动发帖"],
+        "awrelay": ["消息中继", "话题转发", "验证码处理"], "bomb_game": ["炸弹游戏", "群组娱乐", "互动玩法"],
+        "custom_plugin": ["自定义插件", "脚本执行", "扩展开发"], "digital_pet": ["电子宠物", "喂养互动", "随机事件"],
+        "dyp_redpacket": ["红包领取", "动态口令", "自动抢包"], "emby_toolbox": ["Emby维护", "媒体库清理", "元数据管理"],
+        "hdhive_quiz": ["海胆答题", "题库管理", "AI出题"], "hdsky_redpacket": ["天空红包", "自动领取", "动态密码"],
+        "hhan_lottery": ["幸运转盘", "赠豆", "消息管理"], "human_lottery": ["人工抽奖", "抽奖活动", "中奖记录"],
+        "keyword_auto_reply": ["关键词回复", "定时规则", "自动删除"], "movie_monitor_115": ["115影视监控", "资源订阅", "自动推送"],
+        "pt_multi_checkin": ["PT站签到", "多站点", "Cloudflare", "Cookie"], "quiz_game": ["群组答题", "AI出题", "积分排行"],
+        "red_packet_grab": ["红包监控", "自动抢包", "群组通知"], "red_packet_send": ["红包发送", "定时发包", "活动管理"],
+        "transfer": ["站点转赠", "魔力转移", "排行榜"], "yingchao_redpacket": ["应超红包", "自动领取", "口令解析"],
+        "zhuque_lottery": ["朱雀抽奖", "魔力抽取", "转盘任务"],
     }
     if plugin_id in curated:
         return curated[plugin_id]

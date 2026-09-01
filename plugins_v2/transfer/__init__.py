@@ -189,7 +189,7 @@ __plugin__ = {'name': '多站点转账',
                                     'order': 9002}},
  'v1_compatible_version': '1.1.0',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram'],
+ 'tags': ['站点转赠', '魔力转移', '排行榜'],
  'render_mode': 'vue'}
 _active_context = None
 

@@ -149,7 +149,7 @@ __plugin__ = {'name': '电子宠物',
                                     '查看道具，用 /使用 道具名 来使用道具。'}},
  'v1_compatible_version': '2.1.2',
  'v2_adapter': 'telethon',
- 'tags': ['电子宠物', '互动玩法', '随机事件']}
+ 'tags': ['电子宠物', '喂养互动', '随机事件']}
 _active_context = None
 
 

@@ -162,7 +162,7 @@ __plugin__ = {'name': 'Emby 工具箱',
                                     'order': 9001}},
  'v1_compatible_version': '1.4.1',
  'v2_adapter': 'telethon',
- 'tags': ['Emby', '媒体维护', '定时任务'],
+ 'tags': ['Emby维护', '媒体库清理', '元数据管理'],
  'render_mode': 'vue'}
 _active_context = None
 

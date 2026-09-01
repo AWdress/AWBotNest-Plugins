@@ -123,7 +123,7 @@ __plugin__ = {'name': '自动抢红包',
                                     'default': True}},
  'v1_compatible_version': '1.2.4',
  'v2_adapter': 'telethon',
- 'tags': ['福利', 'Telegram'],
+ 'tags': ['红包监控', '自动抢包', '群组通知'],
  'render_mode': 'vue'}
 _active_context = None
 

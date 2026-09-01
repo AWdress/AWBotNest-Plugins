@@ -124,7 +124,7 @@ __plugin__ = {'name': '影巢答题红包',
                                        'default': 12}},
  'v1_compatible_version': '1.0.9',
  'v2_adapter': 'telethon',
- 'tags': ['消息处理', 'Telegram'],
+ 'tags': ['海胆答题', '题库管理', 'AI出题'],
  'render_mode': 'vue'}
 _active_context = None
 
