@@ -596,15 +596,22 @@ async def setup(ctx):
             ctx.config.get("group_wait_overrides", "")
         ))
         for chat_id in configured:
+            resolved = False
             for client in apps:
                 try:
                     chat = await client.get_chat(chat_id)
                     title = getattr(chat, "title", "") or str(chat_id)
                     items.append({"id": chat_id, "title": title})
                     seen.add(chat_id)
+                    resolved = True
                     break
                 except Exception:  # noqa: BLE001
                     continue
+            # Docker/受限会话可能无法调用 get_chat；仍返回已配置 ID，避免前端列表为空。
+            # 名称会使用可识别的占位文本，待会话恢复后再次打开配置即可显示真实名称。
+            if not resolved and chat_id not in seen:
+                items.append({"id": chat_id, "title": f"群组 {chat_id}"})
+                seen.add(chat_id)
         for client in apps:
             try:
                 async for d in client.get_dialogs():
