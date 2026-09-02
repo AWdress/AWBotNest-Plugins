@@ -21,8 +21,9 @@ _REDPACKET_HANDLED_KEY = "bonus_redpacket_handled"
 
 def _random_packet_command(text: str) -> str:
     """从 HHanClub 官方随机红包正文提取口令；结构不完整时拒绝。"""
-    required = ("随机红包", "总额", "共", "发送口令", "领取", "过期")
-    if not all(marker in text for marker in required):
+    required = ("总额", "共", "发送口令", "领取", "过期")
+    # 官方文案有「随机红包」和「普通红包」两种标题，均为可参与的口令红包。
+    if not all(marker in text for marker in required) or not ("随机红包" in text or "普通红包" in text):
         return ""
     match = re.search(r"发送口令\s*[「『“\"]\s*([^\n「」『』“”\"]{1,100}?)\s*[」』”\"]\s*领取", text)
     if not match:
@@ -512,7 +513,7 @@ async def setup(ctx):
         text = str(getattr(message, "text", "") or "")
         command = _random_packet_command(text)
         if not command:
-            if "随机红包" in text and "发送口令" in text:
+        if ("随机红包" in text or "普通红包" in text) and "发送口令" in text:
                 ctx.log.warning("[憨憨红包] 收到官方随机红包，但正文结构或口令无效：msg=%s", message.id)
             return
         chat_id = int(getattr(getattr(message, "chat", None), "id", 0) or 0)
