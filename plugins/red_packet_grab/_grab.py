@@ -39,7 +39,8 @@ def extract_plaintext_command(text: str) -> str:
             if command and command not in {"见图片", "请看图片"}:
                 return command[:256]
 
-    if "红包 ID" not in text:
+    # 官方文案存在“红包 ID”和“红包ID”两种写法。
+    if re.search(r"红包\s*ID", text, re.IGNORECASE) is None:
         return ""
 
     marker = re.search(r"发送下方口令领取\s*[：:]?", text)
