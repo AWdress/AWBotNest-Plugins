@@ -4,8 +4,8 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 
 ## 开发指南
 
-- [V1 插件开发指南](https://github.com/AWdress/AWBotNest-Plugins/blob/main/docs/PLUGIN_GUIDE_V1.md)
-- [V2 插件开发指南](https://github.com/AWdress/AWBotNest-Plugins/blob/main/docs/PLUGIN_GUIDE.md)
+- [V1 插件开发指南](https://github.com/AWdress/AWBotNest/blob/main/docs/PLUGIN_GUIDE.md)
+- [V2 插件开发指南](https://github.com/AWdress/AWBotNest_v2/blob/main/docs/PLUGIN_GUIDE.md)
 
 ## 插件列表
 
