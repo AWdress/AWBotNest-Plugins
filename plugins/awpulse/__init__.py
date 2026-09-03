@@ -389,9 +389,11 @@ def _cron_specs(cfg: dict):
     from apscheduler.triggers.cron import CronTrigger
     # CronTrigger 未指定时区时会读取进程时区；Docker 通常为 UTC，而平台固定
     # 使用 Asia/Shanghai，导致用户配置的执行时刻整体偏移 8 小时。
-    from schedulers import scheduler
-
-    timezone = scheduler.timezone
+    try:
+        from zoneinfo import ZoneInfo
+        timezone = ZoneInfo("Asia/Shanghai")
+    except Exception:
+        timezone = None
     expr = str(cfg.get("schedule_cron") or "").strip()
     if expr:
         return [(CronTrigger.from_crontab(expr, timezone=timezone), "色花堂自动化 · Cron (%s)" % expr)]

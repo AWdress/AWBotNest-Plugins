@@ -513,7 +513,7 @@ async def setup(ctx):
         text = str(getattr(message, "text", "") or "")
         command = _random_packet_command(text)
         if not command:
-        if ("随机红包" in text or "普通红包" in text) and "发送口令" in text:
+            if ("随机红包" in text or "普通红包" in text) and "发送口令" in text:
                 ctx.log.warning("[憨憨红包] 收到官方随机红包，但正文结构或口令无效：msg=%s", message.id)
             return
         chat_id = int(getattr(getattr(message, "chat", None), "id", 0) or 0)
