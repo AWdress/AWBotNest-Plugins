@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '插件开发调试',
  'id': 'custom_plugin',
- 'version': '1.0.4',
+ 'version': '1.0.5',
  'author': 'AWdress',
  'scope': 'both',
  'description': '在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。',

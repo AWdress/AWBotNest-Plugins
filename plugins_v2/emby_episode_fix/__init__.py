@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'Emby 剧集季集校验',
  'id': 'emby_episode_fix',
- 'version': '1.0.1',
+ 'version': '1.0.2',
  'author': 'AWdress',
  'description': '检查 Emby 剧集识别是否与文件名中的 SxxExx 一致，并可按文件名直接修正季集号。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',

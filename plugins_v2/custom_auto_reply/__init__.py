@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '定时自动回复',
  'id': 'custom_auto_reply',
- 'version': '1.0.13',
+ 'version': '1.0.14',
  'author': 'AWdress',
  'description': '到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png',

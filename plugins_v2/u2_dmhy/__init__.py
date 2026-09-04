@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'U2送糖',
  'id': 'u2_dmhy',
- 'version': '1.0.8',
+ 'version': '1.0.9',
  'author': 'AWdress',
  'description': '用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png',

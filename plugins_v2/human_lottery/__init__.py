@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '幸运抽奖',
  'id': 'human_lottery',
- 'version': '1.1.3',
+ 'version': '1.1.4',
  'author': 'AWdress',
  'scope': 'user',
  'description': '用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。',

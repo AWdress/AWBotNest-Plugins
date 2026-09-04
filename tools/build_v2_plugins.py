@@ -217,7 +217,8 @@ def build_one(entry):
         "- 保留 AWBotNest 1 版本与原有数据\n\n" + str(metadata.get("changelog") or "")
     )
     metadata["v1_compatible_version"] = str(metadata.get("version") or "")
-    metadata["version"] = bump_patch_version(metadata.get("version"))
+    # V2 发布版本独立高于 V1，确保平台能检测到 V2 更新。
+    metadata["version"] = bump_patch_version(bump_patch_version(metadata.get("version")))
     metadata["v2_adapter"] = "telethon"
     metadata["tags"] = default_tags(plugin_id, metadata)
     if entry.name == "__init__.py" and any((entry.parent / "frontend" / "dist" / name).is_file() for name in ("remoteEntry.js", "assets/remoteEntry.js")):

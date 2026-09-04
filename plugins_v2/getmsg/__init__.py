@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '取消息结构',
  'id': 'getmsg',
- 'version': '1.0.7',
+ 'version': '1.0.8',
  'author': 'AWdress',
  'description': '回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',

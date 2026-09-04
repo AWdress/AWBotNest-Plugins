@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'AWBlackJack',
  'id': 'awblackjack',
- 'version': '1.0.2',
+ 'version': '1.0.3',
  'author': 'AWdress',
  'description': 'SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png',
