@@ -114,6 +114,8 @@ class Entity:
         self.username = getattr(raw, 'username', None)
         self.title = getattr(raw, 'title', None)
         self.is_bot = bool(getattr(raw, 'bot', False))
+        # V2 实体兼容 V1 处理器读取的字段。
+        self.is_self = bool(getattr(raw, 'is_self', False))
 
 
 class Chat(Entity):
