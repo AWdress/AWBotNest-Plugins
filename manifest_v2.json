@@ -618,7 +618,7 @@
     },
     "pt_multi_checkin": {
       "name": "PT站自动签到",
-      "version": "2.5.41",
+      "version": "2.5.42",
       "author": "AWdress",
       "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
