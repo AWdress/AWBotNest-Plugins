@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.3.7','name': '自动订阅助手',
+__plugin__ = {'name': '自动订阅助手',
  'id': 'auto_subscribe',
+ 'version': '1.3.5',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': '聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。',
@@ -339,6 +339,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

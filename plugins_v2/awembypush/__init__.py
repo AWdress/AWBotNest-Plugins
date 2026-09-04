@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.5.15','name': 'AWEmbyPush',
+__plugin__ = {'name': 'AWEmbyPush',
  'id': 'awembypush',
+ 'version': '1.5.13',
  'scope': 'standalone',
  'author': 'AWdress',
  'description': '监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot '
@@ -207,6 +207,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

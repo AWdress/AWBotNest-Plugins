@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.0.8','name': '删除自己消息',
+__plugin__ = {'name': '删除自己消息',
  'id': 'self_delete',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png',
@@ -64,6 +64,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

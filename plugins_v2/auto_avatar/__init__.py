@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.0.8','name': '自动换头像',
+__plugin__ = {'name': '自动换头像',
  'id': 'auto_avatar',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '定时把账号头像换成图片池里随机一张。回复图片发 .avataradd 加入池子，.avatarlist/.avatarclear 管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',
@@ -81,6 +81,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

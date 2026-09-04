@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.0.8','name': '转发复读',
+__plugin__ = {'name': '转发复读',
  'id': 'zf',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png',
@@ -72,6 +72,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

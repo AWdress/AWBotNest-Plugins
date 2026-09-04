@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.1.13','name': 'GPT-GOD 自动签到',
+__plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
+ 'version': '1.1.11',
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。',
  'changelog': 'AWBotNest 2 兼容发布\n'
@@ -149,6 +149,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

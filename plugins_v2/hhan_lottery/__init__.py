@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '2.9.4','name': '憨憨小助手',
+__plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
+ 'version': '2.9.2',
  'author': 'AWdress',
  'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
@@ -243,6 +243,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-

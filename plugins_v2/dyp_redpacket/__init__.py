@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-
- 'version': '1.2.6','name': '癫影积分红包',
+__plugin__ = {'name': '癫影积分红包',
  'id': 'dyp_redpacket',
+ 'version': '1.2.4',
  'author': 'AWdress',
  'scope': 'user',
  'description': '监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。',
@@ -83,6 +83,3 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
-
-
-
