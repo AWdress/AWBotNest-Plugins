@@ -337,7 +337,7 @@ def _click_checkin(page) -> bool:
         pass
     # 末级兼容同样使用严格全文规则，不使用 :has-text() 的包含匹配。
     try:
-        return bool(page.evaluate("""() => {
+        return bool(page.evaluate(r"""() => {
             const nodes = [...document.querySelectorAll('button,[role="button"],a,.ant-btn')];
             const target = nodes.find((node) => {
                 const text = (node.innerText || '').replace(/\\s+/g, '').toLowerCase();
