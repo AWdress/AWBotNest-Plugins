@@ -548,22 +548,10 @@ class CompatContext:
         return register
 
     def on_api(self, path, methods=None):
-        # V2 暂无插件自定义 Vue API；保留为平台 action，便于后续无损升级。
-        name = 'api_' + re.sub(r'[^a-zA-Z0-9_]+', '_', path).strip('_')
+        # V2 原生管理员 API：路径统一为无首尾斜杠，由平台挂载到 /api/plugins/<id>/api/。
+        normalized = str(path or '').strip('/')
         def register(callback):
-            async def wrapped(payload=None):
-                body = payload or {}
-                request = SimpleNamespace(
-                    json=body,
-                    query=body,
-                    args=body,
-                    method=(methods or ['POST'])[0],
-                    path=path,
-                )
-                args = len(inspect.signature(callback).parameters)
-                value = callback(request) if args else callback()
-                return await value if inspect.isawaitable(value) else value
-            self._ctx.action(name, wrapped)
+            self._ctx.on_api(normalized, callback)
             return callback
         return register
 
@@ -580,3 +568,4 @@ class CompatContext:
 
 def adapt(ctx, defaults=None):
     return CompatContext(ctx, defaults=defaults)
+
