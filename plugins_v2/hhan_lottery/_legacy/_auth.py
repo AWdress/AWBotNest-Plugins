@@ -20,15 +20,18 @@ async def cookie_header(ctx, *, path: str, request_sync: bool = True) -> tuple[s
     source = str(ctx.config.get("cookie_source", "platform") or "platform").lower()
     if source == "manual":
         return _manual_cookie(ctx)
-    if not ctx.cookies.available:
+    # V2 CookieService 不再暴露 ``available`` 属性；以 header 能力和结果判断可用性。
+    cookies = getattr(ctx, "cookies", None)
+    if cookies is None or not callable(getattr(cookies, "header", None)):
         if request_sync:
             try:
-                await ctx.cookies.request_sync("hhanclub.net")
+                if callable(getattr(cookies, "request_sync", None)):
+                    await cookies.request_sync("hhanclub.net")
             except Exception:
                 pass
         return "", "平台 Cookie 同步未启用或尚无可用数据"
     try:
-        cookie = await ctx.cookies.header("hhanclub.net", path=path)
+        cookie = await cookies.header("hhanclub.net", path=path)
     except Exception as exc:  # noqa: BLE001
         return "", f"读取平台 Cookie 失败：{exc}"
     if cookie:

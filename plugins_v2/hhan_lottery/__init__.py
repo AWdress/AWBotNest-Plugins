@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
- 'version': '2.9.2',
+ 'version': '2.9.5',
  'author': 'AWdress',
  'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
