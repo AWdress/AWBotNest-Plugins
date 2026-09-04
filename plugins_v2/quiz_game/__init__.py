@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '趣味答题',
+
+ 'version': '1.1.6','name': '趣味答题',
  'id': 'quiz_game',
- $11.1.6',
  'author': 'AWdress',
  'description': '群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png',
@@ -155,5 +155,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

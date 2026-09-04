@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '小姐姐视频',
+
+ 'version': '1.0.8','name': '小姐姐视频',
  'id': 'xjj',
- $11.0.8',
  'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'description': '发送 /xjj 或 .xjj 获取一条随机短视频。',
@@ -76,5 +76,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

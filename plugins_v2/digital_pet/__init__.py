@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '电子宠物',
+
+ 'version': '2.1.6','name': '电子宠物',
  'id': 'digital_pet',
- $12.1.6',
  'author': 'AWdress',
  'scope': 'user',
  'description': '在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。',
@@ -167,5 +167,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

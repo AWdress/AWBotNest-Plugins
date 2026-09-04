@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': 'U2送糖',
+
+ 'version': '1.0.11','name': 'U2送糖',
  'id': 'u2_dmhy',
- $11.0.11',
  'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'description': '用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。',
@@ -90,5 +90,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

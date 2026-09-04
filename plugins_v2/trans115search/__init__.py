@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '115搜索结果转发',
+
+ 'version': '1.0.9','name': '115搜索结果转发',
  'id': 'trans115search',
- $11.0.9',
  'author': 'AWdress',
  'description': '监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png',
@@ -80,5 +80,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

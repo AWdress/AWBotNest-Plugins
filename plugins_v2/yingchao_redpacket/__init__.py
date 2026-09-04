@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '影巢口令红包（测试）',
+
+ 'version': '1.0.9','name': '影巢口令红包（测试）',
  'id': 'yingchao_redpacket',
- $11.0.9',
  'author': 'AWdress',
  'scope': 'user',
  'description': '影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。',
@@ -109,5 +109,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

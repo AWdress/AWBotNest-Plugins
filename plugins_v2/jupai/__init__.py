@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '举牌',
+
+ 'version': '1.0.8','name': '举牌',
  'id': 'jupai',
- $11.0.8',
  'author': 'AWdress',
  'description': '发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',
@@ -61,5 +61,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

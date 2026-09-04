@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': '自动报时昵称',
+
+ 'version': '1.0.8','name': '自动报时昵称',
  'id': 'auto_changename',
- $11.0.8',
  'author': 'AWdress',
  'description': '定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png',
@@ -74,5 +74,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 

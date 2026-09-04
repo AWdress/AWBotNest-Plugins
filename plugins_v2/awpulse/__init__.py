@@ -12,9 +12,9 @@ try:
 except ImportError:
     _legacy_teardown = None
 
-__plugin__ = {'name': 'AWPulse 色花堂助手',
+
+ 'version': '1.2.4','name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- $11.2.4',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
  'changelog': 'AWBotNest 2 兼容发布\n'
@@ -371,5 +371,6 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
 
