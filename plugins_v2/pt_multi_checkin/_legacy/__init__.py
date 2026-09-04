@@ -247,7 +247,10 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     for host in hosts:
         try:
             if key in {"opencd", "ourbits", "piggo"}:
-                items = await ctx.cookies.get(host, path=path)
+                try:
+                    items = await ctx.cookies.get(host, path=path)
+                except TypeError:
+                    items = await ctx.cookies.get(host)
                 names = {str(item.get("name") or "").lower() for item in items}
                 non_login = names and all(
                     name.startswith(("_ga", "_gid", "_gat", "_fbp"))
@@ -257,7 +260,10 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
                 if non_login:
                     auth_cookie_missing = True
                     continue
-            cookie = await ctx.cookies.header(host, path=path)
+            try:
+                cookie = await ctx.cookies.header(host, path=path)
+            except TypeError:
+                cookie = await ctx.cookies.header(host)
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
             continue
@@ -271,7 +277,10 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
     for host in hosts:
         try:
             if key in {"opencd", "ourbits", "piggo"}:
-                items = await ctx.cookies.get(host, path=path)
+                try:
+                    items = await ctx.cookies.get(host, path=path)
+                except TypeError:
+                    items = await ctx.cookies.get(host)
                 names = {str(item.get("name") or "").lower() for item in items}
                 non_login = names and all(
                     name.startswith(("_ga", "_gid", "_gat", "_fbp"))
@@ -281,7 +290,10 @@ async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
                 if non_login:
                     auth_cookie_missing = True
                     continue
-            cookie = await ctx.cookies.header(host, path=path)
+            try:
+                cookie = await ctx.cookies.header(host, path=path)
+            except TypeError:
+                cookie = await ctx.cookies.header(host)
         except Exception as exc:  # noqa: BLE001
             last_error = str(exc)
             continue
