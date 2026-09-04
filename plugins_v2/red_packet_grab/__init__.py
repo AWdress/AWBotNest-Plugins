@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '自动抢红包',
  'id': 'red_packet_grab',
- 'version': '1.2.7',
+ $11.2.8',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。',
@@ -142,4 +142,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '查ID',
  'id': 'id',
- 'version': '1.0.8',
+ $11.0.9',
  'author': 'AWdress',
  'description': '发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
@@ -73,4 +73,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

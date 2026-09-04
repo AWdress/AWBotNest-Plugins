@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '举牌',
  'id': 'jupai',
- 'version': '1.0.7',
+ $11.0.8',
  'author': 'AWdress',
  'description': '发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',
@@ -61,4 +61,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

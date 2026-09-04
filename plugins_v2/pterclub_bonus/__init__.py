@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '猫站赠粮',
  'id': 'pterclub_bonus',
- 'version': '1.0.3',
+ $11.0.4',
  'author': 'AWdress',
  'description': '使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。',
  'icon': 'https://pterclub.net/favicon.ico',
@@ -114,4 +114,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

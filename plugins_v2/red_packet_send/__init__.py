@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '发红包',
  'id': 'red_packet_send',
- 'version': '1.0.17',
+ $11.0.18',
  'author': 'AWdress',
  'scope': 'user',
  'description': '用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 '
@@ -126,4 +126,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

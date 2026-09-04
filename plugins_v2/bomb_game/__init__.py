@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '数字炸弹',
  'id': 'bomb_game',
- 'version': '1.0.9',
+ $11.0.10',
  'author': 'AWdress',
  'description': '群内数字炸弹竞猜：开启后群友回复+金额参与组奖池，轮流猜数字，猜中/范围耗尽即爆炸，中奖者按比例分奖池。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/bomb_game.png',
@@ -160,4 +160,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

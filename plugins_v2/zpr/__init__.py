@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'P站图片',
  'id': 'zpr',
- 'version': '1.0.6',
+ $11.0.7',
  'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'description': '发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。',
@@ -82,4 +82,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 

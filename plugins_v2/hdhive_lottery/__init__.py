@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': 'HDHive抽奖',
  'id': 'hdhive_lottery',
- 'version': '1.0.9',
+ $11.0.10',
  'author': 'AWdress',
  'description': '自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
@@ -73,4 +73,5 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
 
