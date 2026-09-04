@@ -15,6 +15,7 @@ except ImportError:
 __plugin__ = {'name': '小姐姐视频',
  'id': 'xjj',
  'version': '1.0.6',
+ 'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'description': '发送 /xjj 或 .xjj 获取一条随机短视频。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',

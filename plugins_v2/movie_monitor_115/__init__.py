@@ -35,7 +35,7 @@ __plugin__ = {'name': '115频道监控',
               'v1.0.13 更新插件 Logo\n'
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
  'scope': 'user',
- 'requirements': [],
+ 'requirements': ['httpx>=0.27'],
  'config_schema': {'v2_compat_notice': {'type': 'info',
                                         'title': 'AWBotNest 2 兼容模式',
                                         'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',

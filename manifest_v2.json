@@ -227,6 +227,7 @@
     "u2_dmhy": {
       "name": "U2送糖",
       "version": "1.0.9",
+      "requirements": ["httpx>=0.27"],
       "author": "AWdress",
       "description": "用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.7 修复 U2 站内跳转\n- 正确处理赠送后的 HTTP 302 站内跳转，不再直接判定失败\n- 识别 Cookie 失效登录页、Cloudflare 验证和异常跨站跳转\n- 记录跳转目标日志，便于区分正常提交与登录失效\n\nv1.0.6 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\n\nv1.0.5 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
@@ -259,6 +260,7 @@
     "xjj": {
       "name": "小姐姐视频",
       "version": "1.0.6",
+      "requirements": ["httpx>=0.27"],
       "author": "AWdress",
       "description": "发送 /xjj 或 .xjj 获取一条随机短视频。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.4 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.0.3 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
@@ -339,6 +341,7 @@
     "auto_subscribe": {
       "name": "自动订阅助手",
       "version": "1.3.5",
+      "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "lxml>=5.0"],
       "author": "AWdress",
       "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
@@ -387,6 +390,7 @@
     "awpulse": {
       "name": "AWPulse 色花堂助手",
       "version": "1.2.2",
+      "requirements": ["cloakbrowser>=0.4.9", "requests>=2.32.0", "opencv-python-headless>=4.8", "numpy>=1.24", "Pillow>=10.0"],
       "author": "AWdress",
       "description": "色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.2.0 修复定时任务结束后仍显示运行中\n- 定时触发只负责投递平台托管后台任务，计划任务状态会立即正常结束\n- 通知增加 30 秒超时，任务取消时强制复位 Vue 运行状态\n\nv1.1.9 优化计划任务名称\n- 计划任务明确显示“色花堂自动化”，便于在平台任务列表中辨认\n\nv1.1.8 修复 Docker 定时任务时区\n- Cron 与每日时刻统一绑定平台的 Asia/Shanghai 时区，不再随容器 UTC 时区偏移 8 小时\n- 过滤重复时刻并严格校验小时、分钟，注册日志输出实际下次运行时间\n\nv1.1.7 提升点选验证码识别率\n- 连续中文提示按实际点击顺序拆分，不再把整句误当成一个目标\n- DOM 取不到提示时自动 OCR 验证码提示小图\n- 任一目标无法可靠匹配时放弃本轮等待新题，不再乱点全部候选消耗次数\n\nv1.1.6 加固验证码成功判定\n- 监听验证码 XHR/fetch 响应，优先采用服务端明确的验证成功或失败结果\n- 不再仅凭验证码弹窗消失判定通过，未知结果交由签到页最终状态确认\n- 验证窗口关闭但响应不可读时使用中性日志，避免误报识别成功\n\nv1.1.5 修复签到结果确认\n- 验证码通过后使用退避轮询刷新签到状态，不再盲目重复点击触发频率限制\n- 签到失败会正确向上返回，整轮运行和通知不再误报成功\n- 修复签到失败调试文件目录未定义的问题",
@@ -579,6 +583,7 @@
     "movie_monitor_115": {
       "name": "115频道监控",
       "version": "1.0.18",
+      "requirements": ["httpx>=0.27"],
       "author": "AWdress",
       "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
       "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.16 修复 Vue 配置与测试接口\n- 配置读取和保存迁移到新版平台 host 接口\n- 状态、日志、群组名称和连接测试改用 host.callApi\n- 保留旧配置的监控开关兼容性\n\nv1.0.14 修复识别与配置缺陷\n- 修复保存配置接口误用 await req.json() 导致配置无法保存\n- 修复 TMDB 搜索调用了不存在的 multi_search（改为 search_all）\n- 修复 Emby 查重缺少 media_type 参数导致去重失效、重复入库\n\nv1.0.13 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",

@@ -15,6 +15,7 @@ except ImportError:
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
  'version': '1.0.11',
+ 'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'scope': 'user',
  'description': '朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。',
