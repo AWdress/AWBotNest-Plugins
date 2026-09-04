@@ -548,10 +548,21 @@ class CompatContext:
         return register
 
     def on_api(self, path, methods=None):
-        # V2 原生管理员 API：路径统一为无首尾斜杠，由平台挂载到 /api/plugins/<id>/api/。
+        # 新平台使用管理员 API；旧平台无 on_api 时降级为可调用 action，避免插件启动失败。
         normalized = str(path or '').strip('/')
         def register(callback):
-            self._ctx.on_api(normalized, callback)
+            if hasattr(self._ctx, 'on_api'):
+                self._ctx.on_api(normalized, callback)
+                return callback
+            name = 'api_' + re.sub(r'[^a-zA-Z0-9_]+', '_', normalized).strip('_')
+            async def wrapped(payload=None):
+                body = payload or {}
+                request = SimpleNamespace(json=body, query=body, args=body,
+                                          method=(methods or ['POST'])[0], path=normalized,
+                                          headers={}, body=b'', text='')
+                value = callback(request) if len(inspect.signature(callback).parameters) else callback()
+                return await value if inspect.isawaitable(value) else value
+            self._ctx.action(name, wrapped)
             return callback
         return register
 
@@ -568,4 +579,5 @@ class CompatContext:
 
 def adapt(ctx, defaults=None):
     return CompatContext(ctx, defaults=defaults)
+
 
