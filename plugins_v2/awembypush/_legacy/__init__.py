@@ -1042,8 +1042,9 @@ class AWEmbyPush:
 async def setup(ctx):
     pusher = AWEmbyPush(ctx)
 
-    @ctx.on_webhook
+    @ctx.on_webhook("receive")
     async def on_hook(req):
+        ctx.log.info("[awembypush] 收到 Webhook 请求：%s", getattr(req, "path", "receive"))
         return await pusher.handle_webhook(req)
 
     # ── 前端(Config.vue)用的后端接口 ──

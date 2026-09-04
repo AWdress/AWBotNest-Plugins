@@ -243,8 +243,9 @@ def _save_stat(ctx: Any, outcome: str, detail: str = "") -> None:
 async def setup(ctx):
     ctx.log.info("Webhook 通知桥已启用")
 
-    @ctx.on_webhook
+    @ctx.on_webhook("receive")
     async def on_webhook(req):
+        ctx.log.info("[webhook_bridge] 收到 Webhook 请求：%s", getattr(req, "path", "receive"))
         cfg = ctx.config
         if not cfg.get("enabled", True):
             _save_stat(ctx, "disabled")
