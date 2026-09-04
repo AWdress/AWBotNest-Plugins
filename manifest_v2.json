@@ -64,22 +64,6 @@
       "render_mode": "",
       "path": "plugins_v2/custom_auto_reply/"
     },
-    "emby_episode_fix": {
-      "name": "Emby 剧集季集校验",
-      "version": "1.0.2",
-      "author": "AWdress",
-      "description": "检查 Emby 剧集识别是否与文件名中的 SxxExx 一致，并可按文件名直接修正季集号。",
-      "changelog": "AWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.0 初始版本\n- 扫描 Emby Episode 与文件名中的 SxxExx 是否一致\n- 支持测试连接、扫描检查、按文件名自动修复\n- 自动修复后可再次校验确认结果",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-      "tags": [
-        "Emby剧集",
-        "文件名校正",
-        "元数据修复"
-      ],
-      "scope": "user",
-      "render_mode": "",
-      "path": "plugins_v2/emby_episode_fix/"
-    },
     "getmsg": {
       "name": "取消息结构",
       "version": "1.0.8",
