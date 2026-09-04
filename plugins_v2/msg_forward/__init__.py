@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '消息转发',
  'id': 'msg_forward',
- 'version': '1.0.5',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '把来源会话的消息按规则转发到目标会话，支持多规则、类型/关键词/发送者过滤、原生转发或复制搬运。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png',
@@ -104,3 +104,4 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+

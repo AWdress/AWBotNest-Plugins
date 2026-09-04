@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
- 'version': '1.0.11',
+ 'version': '1.0.12',
  'requirements': ['httpx>=0.27'],
  'author': 'AWdress',
  'scope': 'user',
@@ -255,3 +255,4 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+

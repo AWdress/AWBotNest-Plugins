@@ -14,7 +14,7 @@ except ImportError:
 
 __plugin__ = {'name': '聊天互动助手',
  'id': 'keyword_auto_reply',
- 'version': '2.2.4',
+ 'version': '2.2.5',
  'author': 'AWdress',
  'description': '按可配置概率自动回复群消息，关键词可选，并支持追加回复、冷却、限群、自动删除及排行榜。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png',
@@ -206,3 +206,4 @@ async def teardown(ctx):
         await _legacy_teardown(adapted)
     if adapted is not None:
         await adapted.close()
+
