@@ -14,11 +14,14 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.37',
+ 'version': '2.5.40',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v2.5.40 修复 V2 配置项声明\n'
+              '- 补齐自动签到、重试、无头浏览器、结果通知与站点选择字段\n'
+              '- 修复平台保存配置时报“包含未声明的配置项”\n\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -82,7 +85,23 @@ __plugin__ = {'name': 'PT站自动签到',
                'max_background_tasks': 3,
                'failure_threshold': 3,
                'recovery_seconds': 120},
- 'config_schema': {'v2_compat_notice': {'type': 'info',
+ 'config_schema': {'auto_checkin': {'type': 'boolean', 'default': True,
+                                    'title': '启用自动签到', 'section': '签到计划', 'order': 1},
+                   'checkin_hour': {'type': 'number', 'default': 8,
+                                    'title': '签到小时', 'section': '签到计划', 'order': 2, 'min': 0, 'max': 23},
+                   'checkin_minute': {'type': 'number', 'default': 10,
+                                      'title': '签到分钟', 'section': '签到计划', 'order': 3, 'min': 0, 'max': 59},
+                   'headless': {'type': 'boolean', 'default': True,
+                                'title': '无头浏览器', 'section': '运行选项', 'order': 10},
+                   'notify_result': {'type': 'boolean', 'default': True,
+                                     'title': '推送签到结果', 'section': '运行选项', 'order': 11},
+                   'retry_count': {'type': 'number', 'default': 2,
+                                   'title': '失败重试次数', 'section': '运行选项', 'order': 12, 'min': 0, 'max': 5},
+                   'retry_interval': {'type': 'number', 'default': 20,
+                                      'title': '重试间隔（秒）', 'section': '运行选项', 'order': 13, 'min': 5, 'max': 300},
+                   'selected_sites': {'type': 'array', 'default': list(_legacy_defaults.get('selected_sites', [])),
+                                      'title': '启用站点', 'section': '站点选择', 'order': 20},
+                   'v2_compat_notice': {'type': 'info',
                                         'title': 'AWBotNest 2 兼容模式',
                                         'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
                                         'section': '兼容性',
