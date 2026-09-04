@@ -6,7 +6,7 @@
 # 通过 Telegram / 企业微信 / Bark 三个渠道推送精美媒体通知。
 #
 # 入站地址（在插件「配置」里生成密钥后得到）：
-#   http(s)://<平台地址>/api/v1/plugin/awembypush/webhook?apikey=<密钥>
+#   http(s)://<平台地址>/api/plugin/awembypush/receive?apikey=<密钥>
 # 在 Emby/Jellyfin 的 Webhook 里填此地址，内容类型选 application/json。
 #
 # 移植说明（相对 MoviePilot 版）：
