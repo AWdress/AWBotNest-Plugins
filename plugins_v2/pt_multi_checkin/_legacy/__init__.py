@@ -234,7 +234,8 @@ def _bounded(value, default: int, low: int, high: int) -> int:
 
 
 async def _site_cookie(ctx, key: str, site: dict) -> tuple[str, str]:
-    if not ctx.cookies.available:
+    cookies = getattr(ctx, "cookies", None)
+    if cookies is None or not callable(getattr(cookies, "get", None)):
         return "", "平台 Cookie 同步未启用"
     parsed = urlparse(site["url"])
     path = parsed.path or "/"
