@@ -112,22 +112,27 @@ def _headers(cookie: str) -> dict[str, str]:
 
 
 async def _cookie_header(ctx, *, request_sync: bool = True) -> tuple[str, str]:
-    if not ctx.cookies.available:
+    cookies = getattr(ctx, "cookies", None)
+    if cookies is None or not callable(getattr(cookies, "header", None)):
         if request_sync:
             try:
-                await ctx.cookies.request_sync(_DOMAIN)
+                if callable(getattr(cookies, "request_sync", None)):
+                    await cookies.request_sync(_DOMAIN)
             except Exception:
                 pass
         return "", "平台 Cookie 同步未启用或尚无可用数据"
     try:
-        cookie = await ctx.cookies.header(_DOMAIN, path="/mybonus.php")
+        try:
+            cookie = await cookies.header(_DOMAIN, path="/mybonus.php")
+        except TypeError:
+            cookie = await cookies.header(_DOMAIN)
     except Exception as exc:  # noqa: BLE001
         return "", f"读取平台 Cookie 失败：{exc}"
     if cookie:
         return cookie, ""
     if request_sync:
         try:
-            await ctx.cookies.request_sync(_DOMAIN)
+            await cookies.request_sync(_DOMAIN)
         except Exception:
             pass
     return "", "未找到 pterclub.net Cookie，请登录网站后重新同步"
