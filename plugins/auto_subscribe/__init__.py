@@ -18,11 +18,11 @@ from datetime import datetime
 from ._models import STATUS_LABELS
 
 __plugin__ = {
-    "name": "自动订阅助手",
+    "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.3.3",
+    "version": "1.4.0",
     "author": "AWdress",
-    "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",
+    "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
     "changelog": "v1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
     "scope": "standalone",
@@ -46,6 +46,7 @@ DEFAULTS = {
     "api_url": "", "api_key": "",
     "schedule": "0 8 * * *", "notify": True, "ai_assist_recognition": False,
     "auto_fill_missing": False, "auto_fill_missing_limit": 20,
+    "auto_subscribe_missing": False, "auto_subscribe_missing_limit": 20,
     "min_year": 0, "min_vote": 0, "min_popularity": 0, "media_type": "all",
     # 豆瓣
     "douban_enabled": False, "douban_ranks": ["movie-hot-gaia", "tv-hot"],
@@ -201,6 +202,39 @@ def _fill_missing_round(cfg: dict, log=None) -> dict:
     }
 
 
+def _subscribe_missing_round(cfg: dict, log=None) -> dict:
+    """从 NextFind 本地库缺集列表中订阅尚未订阅的媒体。"""
+    client = _nf_client(cfg)
+    payload = client.local_library_filter("missing") or {}
+    data = payload.get("data", payload) if isinstance(payload, dict) else payload
+    items = data.get("items", data.get("results", [])) if isinstance(data, dict) else data
+    items = items if isinstance(items, list) else []
+    limit = max(1, min(int(cfg.get("auto_subscribe_missing_limit", 20) or 20), 100))
+    stats = {"checked": len(items), "added": 0, "skipped": 0, "failed": 0}
+    for item in items[:limit]:
+        if not isinstance(item, dict):
+            stats["failed"] += 1
+            continue
+        tmdb_id = item.get("tmdb_id") or item.get("id")
+        media_type = str(item.get("media_type") or item.get("type") or "tv").lower()
+        if not tmdb_id or media_type not in ("tv", "movie"):
+            stats["failed"] += 1
+            continue
+        if item.get("is_subscribed") or item.get("subscribed"):
+            stats["skipped"] += 1
+            continue
+        try:
+            ok, message = client.add(tmdb_id, media_type, item.get("season"))
+            stats["added" if ok else "failed"] += 1
+            if log:
+                log.info("[自动订阅] 缺集补订 · %s(%s) → %s", item.get("title") or tmdb_id, tmdb_id, message or ("成功" if ok else "失败"))
+        except Exception as exc:
+            stats["failed"] += 1
+            if log:
+                log.error("[自动订阅] 缺集补订失败 · %s: %r", tmdb_id, exc)
+    return stats
+
+
 async def _run(ctx, label: str) -> str:
     """执行一轮：阻塞流水线跑在 to_thread，通知/kv 在事件循环。返回汇总文本。"""
     if _run_lock.locked():
@@ -212,7 +246,7 @@ async def _run(ctx, label: str) -> str:
             msg = "未配置 NextFind 地址或密钥，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
-        if not any(cfg.get(k) for k in _ENABLE_KEYS) and not cfg.get("auto_fill_missing"):
+        if not any(cfg.get(k) for k in _ENABLE_KEYS) and not cfg.get("auto_fill_missing") and not cfg.get("auto_subscribe_missing"):
             msg = "未启用任何榜单源或自动补缺集，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
@@ -238,6 +272,13 @@ async def _run(ctx, label: str) -> str:
 
         ctx.kv.set("handled", result.handled)
         ctx.kv.set("netflix_cache", result.nf_cache)
+        if cfg.get("auto_subscribe_missing"):
+            try:
+                missing_subs = await asyncio.to_thread(_subscribe_missing_round, cfg, ctx.log)
+                ctx.update_config({"last_missing_subscription_stats": missing_subs})
+                ctx.log.info("[自动订阅] 本地缺集订阅完成：检查 %d，新增 %d，跳过 %d，失败 %d", missing_subs["checked"], missing_subs["added"], missing_subs["skipped"], missing_subs["failed"])
+            except Exception as exc:
+                ctx.log.error("[自动订阅] 本地缺集订阅失败: %r", exc)
         # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
         agg: dict = {}
         for st in result.stats.values():

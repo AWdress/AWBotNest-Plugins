@@ -336,8 +336,8 @@
     "changelog": "v1.5.8 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- Webhook 和原有通知功能保持不变\n\nv1.5.7 修复去重记录竞态\n- 发送去重记录的读写加锁，避免多线程并发读写竞态\n\nv1.5.6 移植到 AWBotNest 平台\n- 自 MoviePilot 插件 AWEmbyPush v1.5.5 移植\n- 使用平台 Webhook 机制和 Vue 配置界面\n- 支持 Telegram/企业微信/Bark 三种推送渠道\n- 自动走平台代理，支持 TMDB 元数据增强\n- 剧集合并、去重、测试推送功能完整保留"
   },
   "auto_subscribe": {
-    "name": "自动订阅助手",
-    "version": "1.3.3",
+    "name": "NextFind 助手",
+    "version": "1.4.0",
     "scope": "standalone",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",
