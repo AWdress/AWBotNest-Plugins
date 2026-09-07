@@ -104,6 +104,55 @@ class NextFindClient:
         payload = self._get("/quota", {})
         return (payload or {}).get("data") or {}
 
+    def shield_search(self, **params):
+        return self._get("/shield/search", params)
+
+    def resources_search(self, **params):
+        return self._get("/resources/search", params)
+
+    def preview(self, slug: str):
+        return self._post("/preview", {"slug": str(slug)})
+
+    def hdhive_unlock(self, resource_id, media_type: str):
+        return self._post("/hdhive/unlock", {"id": str(resource_id), "type": str(media_type)})
+
+    def directories(self, cid="0"):
+        return self._get("/directories", {"cid": str(cid)})
+
+    def create_directory(self, parent_cid, name: str):
+        return self._post("/directories", {"parent_cid": str(parent_cid), "name": str(name)})
+
+    def delete_media(self, kind: str, **params):
+        return self._request_delete(f"/media/{kind}", params)
+
+    def local_library_filter(self, status_filter="missing"):
+        return self._get("/local_library/filter", {"status_filter": status_filter})
+
+    def logs(self, lines=50):
+        return self._get("/logs", {"lines": int(lines)})
+
+    def history(self, page=1, page_size=20):
+        return self._get("/history", {"page": int(page), "page_size": int(page_size)})
+
+    def delete_history(self, all_records=False, **params):
+        path = "/history/all" if all_records else "/history/item"
+        return self._request_delete(path, params)
+
+    def _request_delete(self, path: str, params: dict):
+        with self._client() as client:
+            resp = client.delete(f"{self.base_url}{path}", params=params)
+            self._check(resp)
+            return resp.json()
+
+    def settings(self, name: str):
+        return self._get(f"/settings/{name}", {})
+
+    def update_settings(self, name: str, body: dict):
+        return self._post(f"/settings/{name}", body)
+
+    def toggle_ignored_episode(self, tmdb_id, season):
+        return self._post("/ignored_episodes/toggle", {"tmdb_id": str(tmdb_id), "season": int(season)})
+
     # ------------------------------------------------------------------ #
     # 订阅
     # ------------------------------------------------------------------ #
