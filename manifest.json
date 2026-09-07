@@ -337,7 +337,7 @@
   },
   "auto_subscribe": {
     "name": "NextFind 助手",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "scope": "standalone",
     "author": "AWdress",
     "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",

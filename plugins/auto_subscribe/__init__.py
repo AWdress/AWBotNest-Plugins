@@ -20,7 +20,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
@@ -261,8 +261,22 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
         payload = client.local_library_filter("missing") or {}
     except Exception as exc:
         if log:
-            log.error("[自动订阅] 缺集订阅：获取本地缺集列表失败: %r", exc)
-        return {"checked": 0, "added": 0, "skipped": 0, "failed": 0}, []
+            log.warning("[自动订阅] 本地库缺集接口不可用，降级使用订阅进度接口: %r", exc)
+        try:
+            subscriptions = client.list_subscriptions()
+            tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
+            query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
+            details = client.subscription_info(query) if query else []
+            by_id = {_tmdb_id(item): item for item in tv_items}
+            for detail in details:
+                key = _tmdb_id(detail)
+                if key:
+                    by_id[key] = {**by_id.get(key, {}), **detail}
+            payload = {"data": [item for item in by_id.values() if _has_missing_episodes(item)]}
+        except Exception as fallback_exc:
+            if log:
+                log.error("[自动订阅] 缺集订阅降级查询也失败: %r", fallback_exc)
+            return {"checked": 0, "added": 0, "skipped": 0, "failed": 0}, []
 
     data = payload
     if isinstance(payload, dict):
