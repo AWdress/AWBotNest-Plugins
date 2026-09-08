@@ -14,11 +14,27 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '1.2.15',
+ 'version': '1.2.16',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v1.2.15 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.2.14 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.2.12 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.2.16 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v1.2.15 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.2.14 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.2.12 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -158,65 +174,7 @@ __plugin__ = {'name': 'AWRelay',
               '- 支持话题式私聊中转、人机验证、广告过滤、黑名单与限流',
  'scope': 'bot',
  'requirements': [],
- 'config_schema': {'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'enabled': {'title': 'enabled',
-                               'section': 'V2 配置',
-                               'order': 1,
-                               'type': 'boolean',
-                               'default': False},
-                   'group_id': {'title': 'group id',
-                                'section': 'V2 配置',
-                                'order': 2,
-                                'type': 'chat',
-                                'default': 0,
-                                'chat_types': ['group', 'channel'],
-                                'multi': False},
-                   'admin_ids': {'title': 'admin ids',
-                                 'section': 'V2 配置',
-                                 'order': 3,
-                                 'type': 'string',
-                                 'default': ''},
-                   'captcha_enabled': {'title': 'captcha enabled',
-                                       'section': 'V2 配置',
-                                       'order': 4,
-                                       'type': 'boolean',
-                                       'default': True},
-                   'spam_enabled': {'title': 'spam enabled',
-                                    'section': 'V2 配置',
-                                    'order': 5,
-                                    'type': 'boolean',
-                                    'default': True},
-                   'spam_keywords': {'title': 'spam keywords',
-                                     'section': 'V2 配置',
-                                     'order': 6,
-                                     'type': 'string',
-                                     'default': 'USDT,博彩,兼职,t.me/,http://,https://'},
-                   'rate_limit_window': {'title': 'rate limit window',
-                                         'section': 'V2 配置',
-                                         'order': 7,
-                                         'type': 'number',
-                                         'default': 10},
-                   'rate_limit_count': {'title': 'rate limit count',
-                                        'section': 'V2 配置',
-                                        'order': 8,
-                                        'type': 'number',
-                                        'default': 5},
-                   'media_group_delay': {'title': 'media group delay',
-                                         'section': 'V2 配置',
-                                         'order': 9,
-                                         'type': 'number',
-                                         'default': 2.0,
-                                         'min': 0.1,
-                                         'max': 30},
-                   'startup_notify': {'title': 'startup notify',
-                                      'section': 'V2 配置',
-                                      'order': 10,
-                                      'type': 'boolean',
-                                      'default': True}},
+ 'config_schema': {},
  'v1_compatible_version': '1.2.9',
  'v2_adapter': 'telethon',
  'tags': ['消息中继', '话题转发', '验证码处理'],

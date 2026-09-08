@@ -14,14 +14,30 @@ except ImportError:
 
 __plugin__ = {'name': '发红包',
  'id': 'red_packet_send',
- 'version': '1.0.20',
+ 'version': '1.0.21',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0'],
  'description': '用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 '
                 'Vue 配置界面 + 红包监控。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v1.0.20 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.19 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.17 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.21 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v1.0.20 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.0.19 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.0.17 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -36,76 +52,7 @@ __plugin__ = {'name': '发红包',
               'v1.0.11 修复红包金额\n'
               '- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n'
               '- 总额不足以每个红包至少 1 魔力时拒绝创建',
- 'config_schema': {'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'enabled': {'title': 'enabled',
-                               'section': 'V2 配置',
-                               'order': 1,
-                               'type': 'boolean',
-                               'default': True},
-                   'create_word': {'title': 'create word',
-                                   'section': 'V2 配置',
-                                   'order': 2,
-                                   'type': 'string',
-                                   'default': '创建红包'},
-                   'status_word': {'title': 'status word',
-                                   'section': 'V2 配置',
-                                   'order': 3,
-                                   'type': 'string',
-                                   'default': '红包状态'},
-                   'end_word': {'title': 'end word',
-                                'section': 'V2 配置',
-                                'order': 4,
-                                'type': 'string',
-                                'default': '结束红包'},
-                   'code_length': {'title': 'code length',
-                                   'section': 'V2 配置',
-                                   'order': 5,
-                                   'type': 'number',
-                                   'default': 4},
-                   'rotate_code': {'title': 'rotate code',
-                                   'section': 'V2 配置',
-                                   'order': 6,
-                                   'type': 'boolean',
-                                   'default': False},
-                   'max_amount': {'title': 'max amount',
-                                  'section': 'V2 配置',
-                                  'order': 7,
-                                  'type': 'number',
-                                  'default': 0},
-                   'max_count': {'title': 'max count',
-                                 'section': 'V2 配置',
-                                 'order': 8,
-                                 'type': 'number',
-                                 'default': 0},
-                   'activity_timeout_minutes': {'title': 'activity timeout minutes',
-                                                'section': 'V2 配置',
-                                                'order': 9,
-                                                'type': 'number',
-                                                'default': 30},
-                   'end_delete_delay': {'title': 'end delete delay',
-                                        'section': 'V2 配置',
-                                        'order': 10,
-                                        'type': 'number',
-                                        'default': 10},
-                   'transfer_prefix': {'title': 'transfer prefix',
-                                       'section': 'V2 配置',
-                                       'order': 11,
-                                       'type': 'string',
-                                       'default': '+'},
-                   'congrats_text': {'title': 'congrats text',
-                                     'section': 'V2 配置',
-                                     'order': 12,
-                                     'type': 'string',
-                                     'default': '恭喜 {name} 抢到 {amount} 魔力！'},
-                   'blacklist_ids': {'title': 'blacklist ids',
-                                     'section': 'V2 配置',
-                                     'order': 13,
-                                     'type': 'string',
-                                     'default': ''}},
+ 'config_schema': {},
  'v1_compatible_version': '1.0.14',
  'v2_adapter': 'telethon',
  'tags': ['红包发送', '定时发包', '活动管理'],

@@ -104,6 +104,8 @@ class NextFindClient:
         payload = self._get("/quota", {})
         return (payload or {}).get("data") or {}
 
+    # Extended NextFind OpenAPI helpers.  These remain thin wrappers so the V1
+    # plugin can expose new server capabilities without duplicating HTTP logic.
     def shield_search(self, **params):
         return self._get("/shield/search", params)
 

@@ -14,11 +14,27 @@ except ImportError:
 
 __plugin__ = {'name': 'AI 助手',
  'id': 'ai',
- 'version': '1.3.11',
+ 'version': '1.3.12',
  'author': 'AWdress',
  'description': '私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png',
- 'changelog': 'v1.3.11 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.3.10 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.3.8 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.3.12 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v1.3.11 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.3.10 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.3.8 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -60,111 +76,7 @@ __plugin__ = {'name': 'AI 助手',
               'v1.0.5 修复主动搭话定时任务\n'
               '- 未启用主动搭话时不再注册每分钟检查任务',
  'scope': 'user',
- 'config_schema': {'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'enable_image_generation': {'title': 'enable image generation',
-                                               'section': 'V2 配置',
-                                               'order': 1,
-                                               'type': 'boolean',
-                                               'default': True},
-                   'image_size': {'title': 'image size',
-                                  'section': 'V2 配置',
-                                  'order': 2,
-                                  'type': 'string',
-                                  'default': '1024x1024'},
-                   'image_quality': {'title': 'image quality',
-                                     'section': 'V2 配置',
-                                     'order': 3,
-                                     'type': 'string',
-                                     'default': 'auto'},
-                   'enable_private_chat': {'title': 'enable private chat',
-                                           'section': 'V2 配置',
-                                           'order': 4,
-                                           'type': 'boolean',
-                                           'default': True},
-                   'enable_group_chat': {'title': 'enable group chat',
-                                         'section': 'V2 配置',
-                                         'order': 5,
-                                         'type': 'boolean',
-                                         'default': True},
-                   'group_chat_ids': {'title': 'group chat ids',
-                                      'section': 'V2 配置',
-                                      'order': 6,
-                                      'type': 'chat',
-                                      'default': [],
-                                      'chat_types': ['group', 'channel'],
-                                      'multi': True},
-                   'system_prompt': {'title': 'system prompt',
-                                     'section': 'V2 配置',
-                                     'order': 7,
-                                     'type': 'string',
-                                     'default': '# Role\n'
-                                                '你是一个相处了很久的普通网友。\n'
-                                                '\n'
-                                                '# Rules\n'
-                                                '1. 语气口语化、随性、接地气，就像在微信或QQ上聊天。\n'
-                                                '2. 每次回复必须精简，严禁长篇大论。\n'
-                                                '3. 绝对不能超过 20 个字。\n'
-                                                '4. 绝对不要在回复中模仿、复述或带入用户的动作动作。\n'
-                                                '5. 偶尔可以在句末加一个合适的 emoji（如 😂、🤷\u200d♂️、👀），不要过多。'},
-                   'max_history': {'title': 'max history',
-                                   'section': 'V2 配置',
-                                   'order': 8,
-                                   'type': 'number',
-                                   'default': 10},
-                   'enable_proactive': {'title': 'enable proactive',
-                                        'section': 'V2 配置',
-                                        'order': 9,
-                                        'type': 'boolean',
-                                        'default': False},
-                   'proactive_chat_ids': {'title': 'proactive chat ids',
-                                          'section': 'V2 配置',
-                                          'order': 10,
-                                          'type': 'chat',
-                                          'default': [],
-                                          'chat_types': ['group', 'channel'],
-                                          'multi': True},
-                   'proactive_min_minutes': {'title': 'proactive min minutes',
-                                             'section': 'V2 配置',
-                                             'order': 11,
-                                             'type': 'number',
-                                             'default': 60},
-                   'proactive_max_minutes': {'title': 'proactive max minutes',
-                                             'section': 'V2 配置',
-                                             'order': 12,
-                                             'type': 'number',
-                                             'default': 180},
-                   'enable_explain_command': {'title': 'enable explain command',
-                                              'section': 'V2 配置',
-                                              'order': 13,
-                                              'type': 'boolean',
-                                              'default': True},
-                   'enable_explain_prompt': {'title': 'enable explain prompt',
-                                             'section': 'V2 配置',
-                                             'order': 14,
-                                             'type': 'boolean',
-                                             'default': False},
-                   'explain_prompt': {'title': 'explain prompt',
-                                      'section': 'V2 配置',
-                                      'order': 15,
-                                      'type': 'string',
-                                      'default': '你是一个群聊消息解读助手。请根据用户【回复的消息内容】进行解释与答疑，简明清晰。\n'
-                                                 '输出结构：\n'
-                                                 '1) 这句话/这段话的主要意思\n'
-                                                 '2) 语气/态度\n'
-                                                 "3) 可能的隐含信息（没有就写'无'）\n"
-                                                 '\n'
-                                                 '需要解释的消息内容：{content}'},
-                   'white_list_chats': {'title': 'white list chats',
-                                        'section': 'V2 配置',
-                                        'order': 16,
-                                        'type': 'chat',
-                                        'default': [],
-                                        'chat_types': ['group', 'channel'],
-                                        'multi': True}},
+ 'config_schema': {},
  'v1_compatible_version': '1.3.4',
  'v2_adapter': 'telethon',
  'tags': ['AI对话', '智能回复', '主动搭话'],

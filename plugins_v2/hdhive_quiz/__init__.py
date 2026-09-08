@@ -14,12 +14,28 @@ except ImportError:
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
- 'version': '1.0.15',
+ 'version': '1.0.16',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v1.0.15 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.14 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.12 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.16 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v1.0.15 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.0.14 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.0.12 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -55,74 +71,12 @@ __plugin__ = {'name': '影巢答题红包',
                'max_background_tasks': 8,
                'failure_threshold': 5,
                'recovery_seconds': 60},
- 'config_schema': {'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'enabled': {'title': 'enabled',
-                               'section': 'V2 配置',
-                               'order': 1,
-                               'type': 'boolean',
-                               'default': False},
-                   'bot_ids': {'title': 'bot ids',
-                               'section': 'V2 配置',
-                               'order': 2,
-                               'type': 'string',
-                               'default': ''},
-                   'chat_ids': {'title': 'chat ids',
-                                'section': 'V2 配置',
-                                'order': 3,
-                                'type': 'chat',
-                                'default': [],
-                                'chat_types': ['group', 'channel'],
-                                'multi': True},
-                   'reply_format': {'title': 'reply format',
-                                    'section': 'V2 配置',
-                                    'order': 4,
-                                    'type': 'string',
-                                    'default': 'content'},
-                   'llm_enabled': {'title': 'llm enabled',
-                                   'section': 'V2 配置',
-                                   'order': 5,
-                                   'type': 'boolean',
-                                   'default': False},
-                   'llm_api_key': {'title': 'llm api key',
+ 'config_schema': {'llm_api_key': {'title': 'llm api key',
                                    'section': 'V2 配置',
                                    'order': 6,
                                    'type': 'password',
                                    'secret': True,
-                                   'default': ''},
-                   'llm_base_url': {'title': 'llm base url',
-                                    'section': 'V2 配置',
-                                    'order': 7,
-                                    'type': 'string',
-                                    'default': ''},
-                   'llm_model': {'title': 'llm model',
-                                 'section': 'V2 配置',
-                                 'order': 8,
-                                 'type': 'string',
-                                 'default': 'gpt-4o-mini'},
-                   'bank_repo': {'title': 'bank repo',
-                                 'section': 'V2 配置',
-                                 'order': 9,
-                                 'type': 'string',
-                                 'default': 'https://github.com/my-name-is-alan/hdhive-red-questions'},
-                   'bank_branch': {'title': 'bank branch',
-                                   'section': 'V2 配置',
-                                   'order': 10,
-                                   'type': 'string',
-                                   'default': 'main'},
-                   'bank_subdir': {'title': 'bank subdir',
-                                   'section': 'V2 配置',
-                                   'order': 11,
-                                   'type': 'string',
-                                   'default': 'questions'},
-                   'bank_sync_hours': {'title': 'bank sync hours',
-                                       'section': 'V2 配置',
-                                       'order': 12,
-                                       'type': 'number',
-                                       'default': 12}},
+                                   'default': ''}},
  'v1_compatible_version': '1.0.9',
  'v2_adapter': 'telethon',
  'tags': ['海胆答题', '题库管理', 'AI出题'],

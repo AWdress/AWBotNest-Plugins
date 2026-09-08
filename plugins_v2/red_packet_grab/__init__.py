@@ -14,13 +14,29 @@ except ImportError:
 
 __plugin__ = {'name': '自动抢红包',
  'id': 'red_packet_grab',
- 'version': '1.2.10',
+ 'version': '1.2.11',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v1.2.10 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.2.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.2.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.2.11 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v1.2.10 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.2.9 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.2.7 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -51,77 +67,7 @@ __plugin__ = {'name': '自动抢红包',
               '\n'
               'v1.1.1 更新插件 Logo\n'
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
- 'config_schema': {'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'enabled': {'title': 'enabled',
-                               'section': 'V2 配置',
-                               'order': 1,
-                               'type': 'boolean',
-                               'default': False},
-                   'trigger_keywords': {'title': 'trigger keywords',
-                                        'section': 'V2 配置',
-                                        'order': 2,
-                                        'type': 'string',
-                                        'default': '验证码,发送图中字符,识别上方,幸运红包'},
-                   'target_senders': {'title': 'target senders',
-                                      'section': 'V2 配置',
-                                      'order': 3,
-                                      'type': 'string',
-                                      'default': ''},
-                   'target_groups': {'title': 'target groups',
-                                     'section': 'V2 配置',
-                                     'order': 4,
-                                     'type': 'text',
-                                     'default': '',
-                                     'help': '每行一项'},
-                   'ocr_enabled': {'title': 'ocr enabled',
-                                   'section': 'V2 配置',
-                                   'order': 5,
-                                   'type': 'boolean',
-                                   'default': True},
-                   'copy_fallback': {'title': 'copy fallback',
-                                     'section': 'V2 配置',
-                                     'order': 6,
-                                     'type': 'boolean',
-                                     'default': True},
-                   'code_min_len': {'title': 'code min len',
-                                    'section': 'V2 配置',
-                                    'order': 7,
-                                    'type': 'number',
-                                    'default': 4},
-                   'code_max_len': {'title': 'code max len',
-                                    'section': 'V2 配置',
-                                    'order': 8,
-                                    'type': 'number',
-                                    'default': 8},
-                   'join_delay': {'title': 'join delay',
-                                  'section': 'V2 配置',
-                                  'order': 9,
-                                  'type': 'number',
-                                  'default': 2},
-                   'success_markers': {'title': 'success markers',
-                                       'section': 'V2 配置',
-                                       'order': 10,
-                                       'type': 'string',
-                                       'default': '抢到,恭喜'},
-                   'transfer_prefix': {'title': 'transfer prefix',
-                                       'section': 'V2 配置',
-                                       'order': 11,
-                                       'type': 'string',
-                                       'default': '+'},
-                   'activity_ttl_minutes': {'title': 'activity ttl minutes',
-                                            'section': 'V2 配置',
-                                            'order': 12,
-                                            'type': 'number',
-                                            'default': 30},
-                   'notify_owner': {'title': 'notify owner',
-                                    'section': 'V2 配置',
-                                    'order': 13,
-                                    'type': 'boolean',
-                                    'default': True}},
+ 'config_schema': {},
  'v1_compatible_version': '1.2.4',
  'v2_adapter': 'telethon',
  'tags': ['红包监控', '自动抢包', '群组通知'],

@@ -14,13 +14,30 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.48',
+ 'version': '2.5.49',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.48 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv2.5.47 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.5.45 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nv2.5.40 修复 V2 配置项声明\n'
+ 'changelog': 'v2.5.49 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v2.5.48 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v2.5.47 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v2.5.45 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'v2.5.40 修复 V2 配置项声明\n'
               '- 补齐自动签到、重试、无头浏览器、结果通知与站点选择字段\n'
-              '- 修复平台保存配置时报“包含未声明的配置项”\n\n'
+              '- 修复平台保存配置时报“包含未声明的配置项”\n'
+              '\n'
               'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
@@ -85,37 +102,7 @@ __plugin__ = {'name': 'PT站自动签到',
                'max_background_tasks': 3,
                'failure_threshold': 3,
                'recovery_seconds': 120},
- 'config_schema': {'auto_checkin': {'type': 'boolean', 'default': True,
-                                    'title': '启用自动签到', 'section': '签到计划', 'order': 1},
-                   'checkin_hour': {'type': 'number', 'default': 8,
-                                    'title': '签到小时', 'section': '签到计划', 'order': 2, 'min': 0, 'max': 23},
-                   'checkin_minute': {'type': 'number', 'default': 10,
-                                      'title': '签到分钟', 'section': '签到计划', 'order': 3, 'min': 0, 'max': 59},
-                   'headless': {'type': 'boolean', 'default': True,
-                                'title': '无头浏览器', 'section': '运行选项', 'order': 10},
-                   'notify_result': {'type': 'boolean', 'default': True,
-                                     'title': '推送签到结果', 'section': '运行选项', 'order': 11},
-                   'retry_count': {'type': 'number', 'default': 2,
-                                   'title': '失败重试次数', 'section': '运行选项', 'order': 12, 'min': 0, 'max': 5},
-                   'retry_interval': {'type': 'number', 'default': 20,
-                                      'title': '重试间隔（秒）', 'section': '运行选项', 'order': 13, 'min': 5, 'max': 300},
-                   'selected_sites': {'type': 'array', 'default': ['audiences', 'ourbits', 'piggo', 'hhan', 'tjupt', 'pt52', 'btschool', 'chdbits', 'haidan', 'hares', 'hdarea', 'hdchina', 'hdcity', 'hdsky', 'hdupt', 'mteam', 'nexushd', 'opencd', 'pterclub', 'pttime', 'ttg', 'u2', 'yema', 'zhuque'],
-                                      'title': '启用站点', 'section': '站点选择', 'order': 20},
-                   'v2_compat_notice': {'type': 'info',
-                                        'title': 'AWBotNest 2 兼容模式',
-                                        'text': 'V2 当前使用平台原生表单；V1 Vue 管理页仍保留在 V1 版本。',
-                                        'section': '兼容性',
-                                        'order': -100},
-                   'tjupt_ai_assist': {'type': 'boolean',
-                                       'default': True,
-                                       'title': 'tjupt ai assist',
-                                       'section': 'V2 兼容字段',
-                                       'order': 9000},
-                   'tjupt_confirm_timeout': {'type': 'number',
-                                             'default': 300,
-                                             'title': 'tjupt confirm timeout',
-                                             'section': 'V2 兼容字段',
-                                             'order': 9001}},
+ 'config_schema': {},
  'v1_compatible_version': '2.5.35',
  'v2_adapter': 'telethon',
  'tags': ['PT站签到', '多站点', 'Cloudflare', 'Cookie'],

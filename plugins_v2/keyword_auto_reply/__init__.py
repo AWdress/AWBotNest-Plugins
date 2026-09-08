@@ -14,11 +14,31 @@ except ImportError:
 
 __plugin__ = {'name': '聊天互动助手',
  'id': 'keyword_auto_reply',
- 'version': '2.2.9',
+ 'version': '2.2.10',
  'author': 'AWdress',
  'description': '按可配置概率自动回复群消息，关键词可选，并支持追加回复、冷却、限群、自动删除及排行榜。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png',
- 'changelog': 'v2.2.9 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv2.2.8 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv2.2.7 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.2.5 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v2.2.10 适配新版 Vue 配置校验\n'
+              '- Vue 页面业务字段按新规范由自定义配置页保存\n'
+              '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
+              '\n'
+              'v2.2.9 修复数值配置显示\n'
+              '- 将滑块字段改为精确数值输入，确保当前值始终可见\n'
+              '- 保留原有默认值、范围和步长校验\n'
+              '\n'
+              'v2.2.8 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v2.2.7 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v2.2.5 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -93,98 +113,7 @@ __plugin__ = {'name': '聊天互动助手',
               'v1.0.3 优化规则配置\n'
               '- 关键词规则改用列表控件，群组范围改用会话选择器',
  'scope': 'user',
- 'config_schema': {'enabled': {'type': 'boolean',
-                               'default': True,
-                               'label': '启用聊天互动助手',
-                               'cols': 3,
-                               'order': 1,
-                               'section': '功能开关'},
-                   'midnight_reset': {'type': 'boolean',
-                                      'default': False,
-                                      'label': '冷却每天零点清零',
-                                      'cols': 3,
-                                      'order': 2,
-                                      'section': '功能开关'},
-                   'leaderboard_enabled': {'type': 'boolean',
-                                           'default': True,
-                                           'label': '启用薅羊毛排行榜',
-                                           'cols': 3,
-                                           'order': 3,
-                                           'section': '功能开关'},
-                   'rules_text': {'type': 'list',
-                                  'default': [],
-                                  'label': '互动规则',
-                                  'item_label': '规则',
-                                  'order': 10,
-                                  'section': '规则',
-                                  'fields': {'keyword': {'type': 'string', 'label': '关键词（可选）'},
-                                             'reply': {'type': 'string', 'label': '回复内容'},
-                                             'trigger_chance': {'type': 'number',
-                                                                'label': '触发概率（%）',
-                                                                'default': 100},
-                                             'extra_reply_enabled': {'type': 'boolean',
-                                                                     'label': '发送追加回复',
-                                                                     'default': False},
-                                             'extra_reply': {'type': 'string',
-                                                             'label': '追加回复内容',
-                                                             'default': '叮！恭喜你喜提特等奖掉落。掉落 {number} 茉莉'},
-                                             'cooldown_notify': {'type': 'boolean',
-                                                                 'label': '冷却时提示',
-                                                                 'default': True}},
-                                  'help': '关键词留空时任意消息均可参与概率判断。回复里可用 {uname}（对方昵称）、{uid}（对方ID）、a-b（a到b的随机数）。'},
-                   'match_type': {'type': 'select',
-                                  'default': 'contains',
-                                  'label': '匹配方式',
-                                  'order': 11,
-                                  'section': '规则',
-                                  'options': [{'value': 'contains', 'label': '包含关键词即触发'},
-                                              {'value': 'exact', 'label': '消息完全等于关键词才触发'}]},
-                   'chat_ids': {'type': 'chat',
-                                'default': [],
-                                'label': '只在这些群生效（可选）',
-                                'multi': True,
-                                'chat_types': ['group'],
-                                'order': 20,
-                                'section': '范围与冷却',
-                                'help': '勾选生效的群；留空 = 所有群都生效。'},
-                   'cooldown_hours': {'type': 'number',
-                                      'default': 24,
-                                      'label': '同一个人冷却(小时)',
-                                      'min': 0,
-                                      'max': 72,
-                                      'step': 1,
-                                      'order': 21,
-                                      'section': '范围与冷却',
-                                      'help': '同一个人触发后多久内不再回复他。0 = 不限制。'},
-                   'delete_after': {'type': 'number',
-                                    'default': 0,
-                                    'label': '回复自动删除(秒)',
-                                    'min': 0,
-                                    'max': 600,
-                                    'step': 10,
-                                    'order': 22,
-                                    'section': '范围与冷却',
-                                    'help': '关键词回复和羊毛榜发出后多少秒自动撤回；0 = 不删除。'},
-                   'blacklist_ids': {'type': 'text',
-                                     'default': '',
-                                     'label': '屏蔽用户ID',
-                                     'order': 23,
-                                     'section': '范围与冷却',
-                                     'help': '这些用户的消息不触发回复。一行一个或逗号分隔的用户ID。'},
-                   'leaderboard_command': {'type': 'string',
-                                           'default': '.羊毛榜',
-                                           'label': '排行榜命令',
-                                           'order': 30,
-                                           'section': '薅羊毛排行榜',
-                                           'help': '群内发送该命令，查看当前群累计领取福利次数。'},
-                   'leaderboard_size': {'type': 'number',
-                                        'default': 10,
-                                        'label': '显示人数',
-                                        'min': 3,
-                                        'max': 30,
-                                        'step': 1,
-                                        'order': 31,
-                                        'section': '薅羊毛排行榜'}},
+ 'config_schema': {},
  'v1_compatible_version': '2.2.2',
  'v2_adapter': 'telethon',
  'tags': ['关键词回复', '定时规则', '自动删除'],

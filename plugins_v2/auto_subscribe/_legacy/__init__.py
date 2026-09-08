@@ -19,11 +19,11 @@ from typing import Optional
 from ._models import STATUS_LABELS
 
 __plugin__ = {
-    "name": "自动订阅助手",
+    "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.3.3",
+    "version": "1.4.2",
     "author": "AWdress",
-    "description": "聚合豆瓣/Mikan新番/奈飞(全球+国家榜)/猫眼榜单，支持蜜柑中外文拆分、Bangumi 别名及平台 AI 辅助识别。",
+    "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
     "changelog": "v1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
     "scope": "standalone",
@@ -262,8 +262,22 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
         payload = client.local_library_filter("missing") or {}
     except Exception as exc:
         if log:
-            log.error("[自动订阅] 缺集订阅：获取本地缺集列表失败: %r", exc)
-        return {"checked": 0, "added": 0, "skipped": 0, "failed": 0}, []
+            log.warning("[自动订阅] 本地库缺集接口不可用，降级使用订阅进度接口: %r", exc)
+        try:
+            subscriptions = client.list_subscriptions()
+            tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
+            query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
+            details = client.subscription_info(query) if query else []
+            by_id = {_tmdb_id(item): item for item in tv_items}
+            for detail in details:
+                key = _tmdb_id(detail)
+                if key:
+                    by_id[key] = {**by_id.get(key, {}), **detail}
+            payload = {"data": [item for item in by_id.values() if _has_missing_episodes(item)]}
+        except Exception as fallback_exc:
+            if log:
+                log.error("[自动订阅] 缺集订阅降级查询也失败: %r", fallback_exc)
+            return {"checked": 0, "added": 0, "skipped": 0, "failed": 0}, []
 
     data = payload
     if isinstance(payload, dict):
@@ -541,9 +555,19 @@ async def setup(ctx):
     expr = str(_effective_cfg(ctx).get("schedule") or "").strip()
     if expr:
         try:
-            from apscheduler.triggers.cron import CronTrigger
-            trigger = CronTrigger.from_crontab(expr)
-            ctx.schedule(_scheduled_run, trigger, id="定时订阅(%s)" % expr)
+            parts = expr.split()
+            if len(parts) != 5:
+                raise ValueError("Cron 必须包含分、时、日、月、星期五个字段")
+            minute, hour, day, month, day_of_week = parts
+            ctx.schedule_cron(
+                "定时订阅(%s)" % expr,
+                _scheduled_run,
+                minute=minute,
+                hour=hour,
+                day=day,
+                month=month,
+                day_of_week=day_of_week,
+            )
             ctx.log.info("[自动订阅] 已注册定时任务：%s", expr)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动订阅] 定时表达式无效(%s): %r", expr, e)

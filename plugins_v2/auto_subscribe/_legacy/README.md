@@ -1,4 +1,4 @@
-# 自动订阅助手 (auto_subscribe)
+# NextFind 助手 (auto_subscribe)
 
 聚合多个榜单源（豆瓣 / Mikan 新番 / 奈飞 / 猫眼），按过滤条件筛选后，通过 **NextFind OpenAPI** 自动订阅。定时运行 + 结果推送，并自带 Vue 配置/管理界面。
 
@@ -56,7 +56,12 @@ provider 抓榜单 → RankMediaItem(标题/年份/类型/…)
 | `/subscriptions/remove` | POST | 取消某条订阅 |
 
 补缺集由定时/手动运行流程直接调用 NextFind 的 `POST /subscriptions/info` 与
-`POST /media/fill_missing`，不额外暴露插件管理接口。
+`POST /media/fill_missing`；开启“本地缺集自动订阅”后，还会读取
+`GET /local_library/filter?status_filter=missing` 并调用 `POST /subscriptions/add`。
+
+NextFind 客户端同时支持 `/shield/search`、`/resources/search`、`/preview`、
+`/hdhive/unlock`、`/directories`、媒体删除、`/logs`、`/history`、设置管理及
+`/ignored_episodes/toggle` 等 OpenAPI 操作。
 
 ## 定时与推送
 
