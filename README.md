@@ -15,6 +15,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | auto_changename | 自动报时昵称 | 1.0.5 | ✅ |
 | common_lottery | 通用抽奖 | 1.0.8 | ✅ |
 | custom_auto_reply | 定时自动回复 | 1.0.13 | ✅ |
+| config_migration | 配置迁移（V1 源 / V2 助手） | 1.0.0 | ✅ |
 | emby_episode_fix | Emby 剧集季集校验 | 1.0.1 | ✅ |
 | getmsg | 取消息结构 | 1.0.7 | ✅ |
 | gptgod_checkin | GPT-GOD 自动签到 | 1.1.10 | ✅ |
