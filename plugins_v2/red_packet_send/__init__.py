@@ -14,14 +14,18 @@ except ImportError:
 
 __plugin__ = {'name': '发红包',
  'id': 'red_packet_send',
- 'version': '1.0.21',
+ 'version': '1.0.22',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0'],
  'description': '用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 '
                 'Vue 配置界面 + 红包监控。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v1.0.21 适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.0.22 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v1.0.21 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -63,6 +67,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 

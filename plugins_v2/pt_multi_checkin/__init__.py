@@ -14,11 +14,15 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.49',
+ 'version': '2.5.50',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.49 适配新版 Vue 配置校验\n'
+ 'changelog': 'v2.5.50 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v2.5.49 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -113,6 +117,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 

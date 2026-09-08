@@ -14,10 +14,14 @@ except ImportError:
 
 __plugin__ = {'name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- 'version': '1.2.7',
+ 'version': '1.2.8',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
- 'changelog': 'v1.2.7 适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.2.8 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v1.2.7 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -92,6 +96,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 

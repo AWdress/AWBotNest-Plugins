@@ -14,11 +14,15 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '1.2.16',
+ 'version': '1.2.17',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v1.2.16 适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.2.17 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v1.2.16 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -185,6 +189,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 

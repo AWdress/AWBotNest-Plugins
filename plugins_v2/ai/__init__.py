@@ -14,11 +14,15 @@ except ImportError:
 
 __plugin__ = {'name': 'AI 助手',
  'id': 'ai',
- 'version': '1.3.12',
+ 'version': '1.3.13',
  'author': 'AWdress',
  'description': '私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png',
- 'changelog': 'v1.3.12 适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.3.13 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v1.3.12 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -87,6 +91,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 

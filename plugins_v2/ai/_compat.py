@@ -6,6 +6,7 @@ plugins continue to own their business logic and data namespace.
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from pathlib import Path
@@ -382,14 +383,60 @@ class SenderProxy(Client):
 
 
 class KVProxy:
-    def __init__(self, raw):
-        self.raw = raw
+    """Present the legacy synchronous KV API over the V2 storage service."""
 
-    def __getattr__(self, name):
-        return getattr(self.raw, name)
+    def __init__(self, raw, ctx):
+        self.raw = raw
+        self._ctx = ctx
+        self._values = {}
+        self._tail = None
+        self._pending = []
+
+    async def load(self):
+        value = self.raw.items()
+        if inspect.isawaitable(value):
+            value = await value
+        self._values = dict(value or {})
+
+    def _persist(self, method_name, *args):
+        value = getattr(self.raw, method_name)(*args)
+        if not inspect.isawaitable(value):
+            return value
+        previous = self._tail
+
+        async def ordered_write():
+            if previous is not None:
+                try:
+                    await previous
+                except Exception:
+                    pass
+            return await value
+
+        task = self._ctx.create_task(ordered_write(), name=f'KV {method_name}')
+        self._tail = task
+        self._pending.append(task)
+        return None
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+    def set(self, key, value):
+        self._values[key] = value
+        return self._persist('set', key, value)
+
+    def delete(self, key):
+        self._values.pop(key, None)
+        return self._persist('delete', key)
+
+    def items(self):
+        return list(self._values.items())
 
     def keys(self):
-        return [key for key, _value in self.raw.items()]
+        return list(self._values)
+
+    async def close(self):
+        if self._pending:
+            await asyncio.gather(*self._pending, return_exceptions=True)
 
 
 class CompatContext:
@@ -414,6 +461,10 @@ class CompatContext:
             ctx.update_config(repairs)
         self.filters = Filters()
         self._cleanups = []
+        self._kv = KVProxy(ctx.kv, ctx)
+
+    async def initialize(self):
+        await self._kv.load()
 
     def __getattr__(self, name):
         return getattr(self._ctx, name)
@@ -434,7 +485,7 @@ class CompatContext:
 
     @property
     def kv(self):
-        return KVProxy(self._ctx.kv)
+        return self._kv
 
     @property
     def user_apps(self):
@@ -482,6 +533,7 @@ class CompatContext:
                     await value
             except Exception:
                 self.log.exception('V2 兼容清理失败')
+        await self._kv.close()
 
     async def _message(self, event):
         sender = await event.get_sender()

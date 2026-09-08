@@ -14,12 +14,16 @@ except ImportError:
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '1.4.3',
+ 'version': '1.4.4',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png',
- 'changelog': 'v1.4.3 同步 V1 新功能并适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.4.4 适配新版异步存储接口\n'
+              '- 兼容新版平台异步 KV 与原有同步 KV\n'
+              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
+              '\n'
+              'v1.4.3 同步 V1 新功能并适配新版 Vue 配置校验\n'
               '- 新增本地库缺集接口不可用时通过订阅进度接口降级查询\n'
               '- 同步 NextFind 扩展 OpenAPI 管理界面与完整 Vue 源码\n'
               '- Vue 业务字段改由自定义页面管理，仅保留敏感字段脱敏声明\n'
@@ -87,6 +91,7 @@ _active_context = None
 async def setup(ctx):
     global _active_context
     _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
+    await _active_context.initialize()
     await _legacy_setup(_active_context)
 
 
