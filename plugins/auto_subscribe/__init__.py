@@ -14,13 +14,14 @@ import asyncio
 import concurrent.futures
 import traceback
 from datetime import datetime
+from typing import Optional
 
 from ._models import STATUS_LABELS
 
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
