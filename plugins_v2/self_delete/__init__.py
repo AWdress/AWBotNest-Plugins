@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': '删除自己消息',
  'id': 'self_delete',
- 'version': '1.0.10',
+ 'version': '1.0.11',
  'author': 'AWdress',
  'description': '发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png',
- 'changelog': 'v1.0.10 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.11 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.10 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -35,7 +35,7 @@ __plugin__ = {'name': '删除自己消息',
                                'section': '基础配置',
                                'order': 10,
                                'help': '自己发出、以此开头的消息会触发。/dme 与 .dme 等价。'},
-                   'tip_seconds': {'type': 'slider',
+                   'tip_seconds': {'type': 'number',
                                    'default': 2,
                                    'label': '提示停留(秒)',
                                    'min': 0,
