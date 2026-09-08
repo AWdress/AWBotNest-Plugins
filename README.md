@@ -37,7 +37,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | awblackjack | AWBlackJack | 1.0.9 | ✅ |
 | awembypush | AWEmbyPush | 1.5.19 | ✅ |
 | awpulse | AWPulse 色花堂助手 | 1.2.8 | ✅ |
-| awrelay | AWRelay | 1.2.17 | ✅ |
+| awrelay | AWRelay | 1.2.18 | ✅ |
 | bomb_game | 数字炸弹 | 1.0.14 | ✅ |
 | custom_plugin | 插件开发调试 | 1.0.12 | ✅ |
 | digital_pet | 电子宠物 | 2.1.10 | ✅ |

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import re
+import secrets
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -147,7 +148,11 @@ class Message:
         self.chat = Chat(chat)
         self.from_user = Entity(sender) if sender is not None else None
         self.sender_chat = None
-        self.reply_to_message_id = getattr(raw, 'reply_to_msg_id', None)
+        reply_header = getattr(raw, 'reply_to', None)
+        self.reply_to_message_id = (
+            getattr(reply_header, 'reply_to_msg_id', None)
+            or getattr(raw, 'reply_to_msg_id', None)
+        )
         self.reply_to_message = reply
         self.media = getattr(raw, 'media', None)
         self.photo = getattr(raw, 'photo', None)
@@ -170,7 +175,11 @@ class Message:
         self.service = getattr(raw, 'action', None)
         self.via_bot = getattr(raw, 'via_bot_id', None)
         self.media_group_id = getattr(raw, 'grouped_id', None)
-        self.message_thread_id = getattr(raw, 'reply_to_top_id', None)
+        self.message_thread_id = (
+            getattr(reply_header, 'reply_to_top_id', None)
+            or getattr(reply_header, 'reply_to_msg_id', None)
+            or getattr(raw, 'reply_to_top_id', None)
+        )
 
     async def reply(self, text, **kwargs):
         return await self._event.reply(text, **_message_kwargs(kwargs))
@@ -206,7 +215,8 @@ class CallbackQuery:
     def __init__(self, event, message, sender=None):
         self._event = event
         self.id = getattr(event, 'query', None).query_id if getattr(event, 'query', None) else 0
-        self.data = getattr(event, 'data', b'')
+        data = getattr(event, 'data', b'')
+        self.data = data.decode('utf-8', errors='replace') if isinstance(data, bytes) else data
         self.message = message
         self.from_user = Entity(sender) if sender is not None else None
 
@@ -231,6 +241,9 @@ def _message_kwargs(values):
     parameters = out.pop('reply_parameters', None)
     if parameters is not None:
         out['reply_to'] = parameters.message_id
+    thread_id = out.pop('message_thread_id', None)
+    if thread_id is not None and 'reply_to' not in out:
+        out['reply_to'] = thread_id
     out.pop('parse_mode', None)
     return out
 
@@ -254,6 +267,23 @@ class Client:
 
     async def invoke(self, request):
         return await self.raw(request)
+
+    def rnd_id(self):
+        return secrets.randbits(63)
+
+    async def create_forum_topic(self, chat_id, title):
+        from telethon.tl.functions.channels import CreateForumTopicRequest
+        result = await self.raw(CreateForumTopicRequest(
+            channel=await self.raw.get_input_entity(chat_id),
+            title=str(title),
+            random_id=self.rnd_id(),
+        ))
+        for update in getattr(result, 'updates', None) or []:
+            message = getattr(update, 'message', None)
+            action = getattr(message, 'action', None)
+            if message is not None and action is not None and 'topiccreate' in action.__class__.__name__.lower():
+                return SimpleNamespace(id=int(message.id))
+        return None
 
     async def send_photo(self, chat_id, photo, caption=None, **kwargs):
         return await self.raw.send_file(chat_id, photo, caption=caption, **_message_kwargs(kwargs))
@@ -663,5 +693,3 @@ class CompatContext:
 
 def adapt(ctx, defaults=None, config_schema=None):
     return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
-
-

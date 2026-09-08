@@ -466,7 +466,7 @@ async def setup(ctx):
         group_title = str(target_id or "-")
         if target_id and ctx.bot.connected:
             try:
-                chat = await ctx.bot.raw.get_chat(target_id)
+                chat = await ctx.bot.get_chat(target_id)
                 group_title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or group_title
             except Exception:  # noqa: BLE001
                 pass

@@ -14,11 +14,16 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '1.2.17',
+ 'version': '1.2.18',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v1.2.17 适配新版异步存储接口\n'
+ 'changelog': 'v1.2.18 修复 Telegram 话题中转\n'
+              '- 使用 Telethon 原生请求创建论坛话题并生成转发随机 ID\n'
+              '- 修复话题回复 ID、验证码回调数据和话题发送参数转换\n'
+              '- 状态接口通过 V2 客户端读取群组名称\n'
+              '\n'
+              'v1.2.17 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
