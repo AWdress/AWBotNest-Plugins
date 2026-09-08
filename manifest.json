@@ -405,10 +405,10 @@
   },
   "config_migration": {
     "name": "平台迁移助手",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "为 AWBotNest 2 配置迁移助手提供短时、一次性的 V1 配置导出。",
-    "changelog": "v1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导出端用途改在插件配置页面说明\n\nv1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
+    "changelog": "v1.1.0 自动轮换一次性迁移码\n- 启用时自动生成随机迁移码，无需用户手动设置\n- 每次成功导出后旧码立即失效，并自动生成下一枚迁移码\n\nv1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导出端用途改在插件配置页面说明\n\nv1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
     "scope": "standalone",
     "path": "plugins/config_migration/"

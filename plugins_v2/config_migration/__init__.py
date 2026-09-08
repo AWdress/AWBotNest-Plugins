@@ -11,10 +11,10 @@ from urllib.parse import urlparse
 __plugin__ = {
     "name": "平台迁移助手",
     "id": "config_migration",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。",
-    "changelog": "v1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导入端用途改在 Vue 配置页面说明\n\nv1.0.0 初始版本\n- 支持连接 V1 迁移源并生成脱敏预览\n- 支持系统设置、插件配置、启用状态、账号范围和 Bot 路由选择性迁移\n- 执行前自动备份 V2 配置，默认保留已有有效值",
+    "changelog": "v1.1.0 支持迁移码自动轮换\n- V1 成功导出后自动接收并保存下一枚一次性迁移码\n- 无需返回 V1 手动重设迁移码即可再次预览和迁移\n\nv1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导入端用途改在 Vue 配置页面说明\n\nv1.0.0 初始版本\n- 支持连接 V1 迁移源并生成脱敏预览\n- 支持系统设置、插件配置、启用状态、账号范围和 Bot 路由选择性迁移\n- 执行前自动备份 V2 配置，默认保留已有有效值",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
     "scope": "standalone",
     "render_mode": "vue",
@@ -150,10 +150,20 @@ async def setup(ctx):
     async def preview(request):
         global _bundle, _preview
         values=_body(request)
-        _bundle=await _fetch(ctx, values)
+        try:
+            _bundle=await _fetch(ctx, values)
+        except ValueError as exc:
+            return {"ok":False, "error":str(exc)}
+        except Exception as exc:
+            ctx.log.warning("连接 V1 迁移源失败：%s", type(exc).__name__)
+            return {"ok":False, "error":"无法连接 V1 平台，请检查地址、端口及两端网络是否互通"}
         converted=_convert(_bundle); _preview=_summary(converted)
+        next_code=str(_bundle.pop("next_code", "") or "")
+        if next_code:
+            ctx.update_config({"migration_code": next_code})
         ctx.log.info("已读取 V1 迁移包：%s 个插件配置（敏感内容未写入日志）", _preview["plugin_configs"])
-        return {"ok":True, "preview":_preview, "warning":"预览已脱敏；执行迁移前会自动备份 V2 配置。"}
+        return {"ok":True, "preview":_preview, "next_code":next_code,
+                "warning":"预览已脱敏；执行迁移前会自动备份 V2 配置。"}
 
     async def migrate(request):
         global _bundle, _preview

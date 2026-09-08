@@ -9,28 +9,38 @@ from pathlib import Path
 __plugin__ = {
     "name": "平台迁移助手",
     "id": "config_migration",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "author": "AWdress",
     "description": "为 AWBotNest 2 配置迁移助手提供短时、一次性的 V1 配置导出。",
-    "changelog": "v1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导出端用途改在插件配置页面说明\n\nv1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
+    "changelog": "v1.1.0 自动轮换一次性迁移码\n- 启用时自动生成随机迁移码，无需用户手动设置\n- 每次成功导出后旧码立即失效，并自动生成下一枚迁移码\n\nv1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导出端用途改在插件配置页面说明\n\nv1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
     "scope": "standalone",
     "default_enabled": False,
     "webhook": True,
     "config_schema": {
-        "migration_code": {"type": "password", "secret": True, "required": True,
-                           "label": "一次性迁移码", "section": "迁移授权", "order": 1,
-                           "help": "请设置至少 8 位随机字符；成功导出一次后立即失效。"},
+        "migration_code": {"type": "password", "secret": True, "default": "", "readonly": True,
+                           "label": "自动生成的一次性迁移码", "section": "迁移授权", "order": 1,
+                           "help": "插件自动生成。复制到 V2 即可；成功导出后旧码立即失效并自动换新。"},
         "expires_minutes": {"type": "number", "default": 10, "min": 1, "max": 60,
                             "label": "有效分钟数", "section": "迁移授权", "order": 2},
         "usage": {"type": "info", "title": "使用方法",
-                  "text": "这是 V1 导出端。保存并启用后，立即到 V2 的“平台迁移助手”填写 V1 地址、Webhook 密钥和相同迁移码。迁移完成后请停用本插件。",
+                  "text": "这是 V1 导出端。启用后复制自动生成的迁移码，到 V2 的“平台迁移助手”填写 V1 地址、Webhook 密钥和迁移码。每次成功读取后迁移码会自动换新。迁移完成后请停用本插件。",
                   "section": "说明", "order": 10},
     },
 }
 
 _armed_at = 0.0
 _used = False
+
+
+def _rotate_code(ctx) -> str:
+    """Create and persist a copy-friendly, high-entropy one-time code."""
+    global _armed_at, _used
+    code = secrets.token_urlsafe(18)
+    ctx.update_config({"migration_code": code})
+    _armed_at = time.time()
+    _used = False
+    return code
 
 
 def _load_json(name: str) -> dict:
@@ -45,8 +55,7 @@ def _load_json(name: str) -> dict:
 
 async def setup(ctx):
     global _armed_at, _used
-    _armed_at = time.time()
-    _used = False
+    _rotate_code(ctx)
 
     @ctx.on_webhook
     async def export(req):
@@ -71,6 +80,7 @@ async def setup(ctx):
             ctx.log.warning("CookieCloud 设置未导出：%s", type(exc).__name__)
             cookie_settings = {}
         _used = True
+        next_code = _rotate_code(ctx)
         ctx.log.info("V1 配置迁移包已导出一次（敏感内容未写入日志）")
         return {
             "ok": True,
@@ -80,6 +90,7 @@ async def setup(ctx):
             "system": system,
             "plugins": plugins,
             "cookie_settings": cookie_settings,
+            "next_code": next_code,
         }
 
 
