@@ -93,7 +93,7 @@ async def setup(ctx):
                         await m.delete()
                     except Exception:
                         pass
-                asyncio.create_task(_cleanup_cmd())
+                ctx.create_task(_cleanup_cmd(), name="getmsg-cleanup")
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[取消息结构] 导出失败: %r", e)
             try:

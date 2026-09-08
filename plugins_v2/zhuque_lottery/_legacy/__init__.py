@@ -95,7 +95,12 @@ def _new_state():
     }
 
 
+_runtime_ctx = None
+
+
 async def setup(ctx):
+    global _runtime_ctx
+    _runtime_ctx = ctx
     cfg = ctx.config
     state = _new_state()
     ydx_store = _ydx.YdxStore(ctx)
@@ -300,6 +305,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _runtime_ctx
+    _runtime_ctx = None
     ctx.log.info("朱雀插件已停用")
 
 
@@ -1029,4 +1036,5 @@ def _schedule_delete(message, delay: int):
         except Exception:
             pass
 
-    asyncio.create_task(_del())
+    if _runtime_ctx is not None:
+        _runtime_ctx.create_task(_del(), name="zhuque-auto-delete")

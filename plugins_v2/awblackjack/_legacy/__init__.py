@@ -387,7 +387,7 @@ async def _launch_worker(ctx):
         creationflags=creationflags,
     )
     for stream, level in ((_process.stdout, "info"), (_process.stderr, "warning")):
-        task = asyncio.create_task(_read_stream(ctx, stream, level))
+        task = ctx.create_task(_read_stream(ctx, stream, level), name=f"awblackjack-{level}-reader")
         _reader_tasks.add(task)
         task.add_done_callback(_reader_tasks.discard)
     status = f"运行中 · PID {_process.pid} · 账号 {cfg.get('nickname') or cfg.get('my_id')}"
@@ -540,13 +540,13 @@ async def setup(ctx):
         if not ctx.config.get("enabled", False):
             return {"ok": False, "message": "请先启用自动挂机并保存配置"}
         if await _launch_worker(ctx):
-            _supervisor_task = asyncio.create_task(_supervise(ctx))
+            _supervisor_task = ctx.create_task(_supervise(ctx), name="awblackjack-supervisor")
             return {"ok": True, "message": "AWBlackJack 已重启"}
         return {"ok": False, "message": "启动失败，请检查配置和运行日志"}
 
     if ctx.config.get("enabled", False):
-        _supervisor_task = asyncio.create_task(_supervise(ctx))
-        _mqtt_task = asyncio.create_task(_monitor_alerts(ctx))
+        _supervisor_task = ctx.create_task(_supervise(ctx), name="awblackjack-supervisor")
+        _mqtt_task = ctx.create_task(_monitor_alerts(ctx), name="awblackjack-mqtt")
     else:
         ctx.update_config({"runtime_status": "已停用"})
         ctx.log.info("AWBlackJack 自动挂机未启用")

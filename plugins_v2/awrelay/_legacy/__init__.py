@@ -529,7 +529,7 @@ async def setup(ctx):
         if media_id:
             _media_groups.setdefault(str(media_id), []).append(message)
             if len(_media_groups[str(media_id)]) == 1:
-                task = asyncio.create_task(_flush_media(ctx, client, str(media_id), cfg))
+                task = ctx.create_task(_flush_media(ctx, client, str(media_id), cfg), name=f"awrelay-media-{media_id}")
                 _media_tasks.add(task)
                 task.add_done_callback(_media_tasks.discard)
             return

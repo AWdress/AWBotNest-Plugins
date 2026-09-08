@@ -189,7 +189,7 @@ def _ensure_docker_display(ctx) -> str:
 
 async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: int = 10, max_wait: int = 600):
     """等待长浏览器任务时持续写入插件页与平台日志。"""
-    task = asyncio.create_task(awaitable)
+    task = ctx.create_task(awaitable, name=f"pt-checkin-{site}")
     elapsed = 0
     try:
         while elapsed < max_wait:

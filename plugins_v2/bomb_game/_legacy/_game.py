@@ -40,7 +40,7 @@ class NumberBombGame:
 
     # ── 后台任务管理 ─────────────────────────────────────────────────────────
     def _track(self, coro):
-        task = asyncio.create_task(coro)
+        task = self._ctx.create_task(coro, name="bomb-game-task")
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task

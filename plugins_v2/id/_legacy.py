@@ -104,7 +104,7 @@ async def setup(ctx):
                         await m.delete()
                     except Exception:
                         pass
-                asyncio.create_task(_auto_delete())
+                ctx.create_task(_auto_delete(), name="id-auto-delete")
             # 删除命令本身
             if cfg.get("delete_command", True):
                 try:

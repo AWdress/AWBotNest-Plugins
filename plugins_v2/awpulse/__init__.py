@@ -14,10 +14,10 @@ except ImportError:
 
 __plugin__ = {'name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- 'version': '1.2.2',
+ 'version': '1.2.3',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.2.3 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -48,7 +48,7 @@ __plugin__ = {'name': 'AWPulse 色花堂助手',
               '- 修复签到失败调试文件目录未定义的问题',
  'scope': 'standalone',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png',
- 'requirements': ['cloakbrowser>=0.4.9', 'requests>=2.32.0', 'opencv-python-headless>=4.8', 'numpy>=1.24', 'Pillow>=10.0'],
+ 'requirements': ['cloakbrowser>=0.4.9', 'requests>=2.32.0', 'opencv-python-headless>=4.8', 'numpy>=1.24', 'Pillow>=10.0', 'beautifulsoup4>=4.12', 'ddddocr>=1.5'],
  'resources': {'timeout_seconds': 7200,
                'max_concurrency': 1,
                'max_background_tasks': 2,
@@ -73,6 +73,7 @@ __plugin__ = {'name': 'AWPulse 色花堂助手',
                                 'section': 'V2 配置',
                                 'order': 3,
                                 'type': 'password',
+                                'secret': True,
                                 'default': ''},
                    'security_question_id': {'title': 'security question id',
                                             'section': 'V2 配置',

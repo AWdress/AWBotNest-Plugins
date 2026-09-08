@@ -484,7 +484,7 @@ async def setup(ctx):
                         await m.delete()
                     except Exception:
                         pass
-                asyncio.create_task(_cleanup())
+                ctx.create_task(_cleanup(), name="probe-cleanup")
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[probe] 导出失败: %r", e)
             try:

@@ -14,12 +14,13 @@ except ImportError:
 
 __plugin__ = {'name': '影巢口令红包（测试）',
  'id': 'yingchao_redpacket',
- 'version': '1.0.7',
+ 'version': '1.0.8',
  'author': 'AWdress',
  'scope': 'user',
+ 'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.8 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

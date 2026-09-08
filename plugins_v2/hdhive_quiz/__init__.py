@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
- 'version': '1.0.11',
+ 'version': '1.0.12',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.12 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -74,9 +74,9 @@ __plugin__ = {'name': '影巢答题红包',
                                 'section': 'V2 配置',
                                 'order': 3,
                                 'type': 'chat',
-                                'default': '',
+                                'default': [],
                                 'chat_types': ['group', 'channel'],
-                                'session': True},
+                                'multi': True},
                    'reply_format': {'title': 'reply format',
                                     'section': 'V2 配置',
                                     'order': 4,
@@ -91,6 +91,7 @@ __plugin__ = {'name': '影巢答题红包',
                                    'section': 'V2 配置',
                                    'order': 6,
                                    'type': 'password',
+                                   'secret': True,
                                    'default': ''},
                    'llm_base_url': {'title': 'llm base url',
                                     'section': 'V2 配置',

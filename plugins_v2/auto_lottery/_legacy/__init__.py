@@ -77,13 +77,16 @@ DEFAULTS = {
 
 # 待发奖存储（setup 时用 ctx.kv 实例化）
 _store: PrizeStore | None = None
+_runtime_ctx = None
 # 后台 task 集合（teardown 时取消）
 _tasks: set = set()
 
 
 def _spawn(coro) -> None:
     """登记一个后台 task，完成后自动从集合移除；teardown 时统一 cancel。"""
-    t = asyncio.ensure_future(coro)
+    if _runtime_ctx is None:
+        raise RuntimeError("小菜抽奖运行上下文尚未初始化")
+    t = _runtime_ctx.create_task(coro, name="auto-lottery-task")
     _tasks.add(t)
     t.add_done_callback(_tasks.discard)
 
@@ -107,7 +110,8 @@ def _all_lottery_groups(cfg) -> list[int]:
 
 
 async def setup(ctx):
-    global _store
+    global _store, _runtime_ctx
+    _runtime_ctx = ctx
     _store = PrizeStore(ctx.kv)
 
     def _my_id(client):
@@ -726,6 +730,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _runtime_ctx
+    _runtime_ctx = None
     # 取消所有后台 task
     for t in list(_tasks):
         t.cancel()

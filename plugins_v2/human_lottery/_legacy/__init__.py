@@ -262,7 +262,7 @@ class LotteryManager:
         self.active[key] = activity
         self.locks[key] = asyncio.Lock()
         if params["draw_mode"] == "time":
-            self.tasks[key] = asyncio.create_task(self._wait_and_draw(key))
+            self.tasks[key] = self.ctx.create_task(self._wait_and_draw(key), name=f"human-lottery-{key}")
             self.tasks[key].add_done_callback(lambda _task, k=key: self.tasks.pop(k, None))
         self.ctx.log.info(
             "群 %s (%s) 创建抽奖 #%s：%s，%s 人，模式=%s，关键词=%s",
@@ -326,10 +326,10 @@ class LotteryManager:
             )
             if reply:
                 activity["message_ids"].add(reply.id)
-                asyncio.create_task(self._delete_later(
+                self.ctx.create_task(self._delete_later(
                     client, activity["chat_id"], [reply.id],
                     self._cfg("participation_reply_delete", 5),
-                ))
+                ), name="human-lottery-reply-delete")
 
         every = _to_int(self._cfg("progress_every", 0), 0, 0, 1000)
         if every and count % every == 0:
@@ -345,7 +345,7 @@ class LotteryManager:
             and count >= activity["participant_target"]
             and activity["status"] == "进行中"
         ):
-            asyncio.create_task(self.draw(key, reason="人数已满开奖"))
+            self.ctx.create_task(self.draw(key, reason="人数已满开奖"), name=f"human-lottery-draw-{key}")
         return True
 
     @staticmethod
@@ -424,10 +424,10 @@ class LotteryManager:
             status = "人数不足"
 
         self._finish(activity, status, winners, reason, award_result)
-        asyncio.create_task(self._delete_later(
+        self.ctx.create_task(self._delete_later(
             activity["client"], activity["chat_id"], activity["message_ids"],
             self._cfg("cleanup_delay", 30),
-        ))
+        ), name="human-lottery-cleanup")
         if self._cfg("notify_owner", True):
             try:
                 await self.ctx.notify(
@@ -509,10 +509,10 @@ class LotteryManager:
             activity, "已取消", [], reason,
             {"enabled": False, "success": 0, "total": 0, "failed": []},
         )
-        asyncio.create_task(self._delete_later(
+        self.ctx.create_task(self._delete_later(
             activity["client"], activity["chat_id"], activity["message_ids"],
             self._cfg("cleanup_delay", 30),
-        ))
+        ), name="human-lottery-cancel-cleanup")
         return True
 
     def _finish(

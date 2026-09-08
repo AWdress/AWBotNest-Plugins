@@ -93,6 +93,7 @@ _cancelled_starts: set = set()
 _busy_hints: set = set()
 _name_cache: dict = {}
 _tasks: set = set()
+_runtime_ctx = None
 _history = deque(maxlen=100)
 _recent_questions = deque(maxlen=500)
 _QUESTION_HISTORY_KEY = "used_questions_v2"
@@ -237,6 +238,8 @@ async def _edit_message(message, text):
 
 
 async def setup(ctx):
+    global _runtime_ctx
+    _runtime_ctx = ctx
     _recent_questions.clear()
     saved_questions = ctx.kv.get(_QUESTION_HISTORY_KEY) or []
     if isinstance(saved_questions, list):
@@ -247,7 +250,7 @@ async def setup(ctx):
 
     async def _send_temp(client, chat_id, text, delay=30):
         msg = await client.send_message(chat_id, text)
-        _track(asyncio.create_task(_auto_del(msg, delay)))
+        _track(_runtime_ctx.create_task(_auto_del(msg, delay)))
         return msg
 
     async def _fetch_pool(cfg, rounds):
@@ -369,7 +372,7 @@ async def setup(ctx):
             await asyncio.sleep(3)
             if chat_id in _active:
                 await _advance_question(client, chat_id, timeout)
-        return _track(asyncio.create_task(_runner()))
+        return _track(_runtime_ctx.create_task(_runner()))
 
     async def _send_next_question(client, chat_id, timeout):
         state = _active[chat_id]
@@ -446,11 +449,11 @@ async def setup(ctx):
         cfg = _effective_cfg(ctx)
         if chat_id in _starting:
             await _edit_message(message, "⏳ 题目正在生成中\n\n请勿重复启动，稍候即可开始答题。")
-            _track(asyncio.create_task(_auto_del(message, 5)))
+            _track(_runtime_ctx.create_task(_auto_del(message, 5)))
             return
         if chat_id in _active:
             await _edit_message(message, "⚠️ 当前已有答题正在进行\n\n如需结束，请发送：结束答题")
-            _track(asyncio.create_task(_auto_del(message, 5)))
+            _track(_runtime_ctx.create_task(_auto_del(message, 5)))
             return
 
         _starting.add(chat_id)
@@ -470,7 +473,7 @@ async def setup(ctx):
                 return
             if len(pool) < rounds:
                 await _edit_message(message, "❌ 题目生成失败\n\n请检查出题源配置后重新发送“开启答题”。")
-                _track(asyncio.create_task(_auto_del(message, 8)))
+                _track(_runtime_ctx.create_task(_auto_del(message, 8)))
                 return
 
             if (
@@ -533,7 +536,7 @@ async def setup(ctx):
             ctx.log.error("[答题] 启动失败: %r", e)
             _active.pop(chat_id, None)
             await _edit_message(message, "❌ 答题启动失败\n\n请稍后重新发送“开启答题”。")
-            _track(asyncio.create_task(_auto_del(message, 8)))
+            _track(_runtime_ctx.create_task(_auto_del(message, 8)))
         finally:
             _starting.discard(chat_id)
             _cancelled_starts.discard(chat_id)
@@ -593,7 +596,7 @@ async def setup(ctx):
                 hint = await message.reply("❌ 答案不对，再想一想～", quote=True)
                 if hint:
                     state["messages"].append(hint)
-                    _track(asyncio.create_task(_auto_del(hint, 4)))
+                    _track(_runtime_ctx.create_task(_auto_del(hint, 4)))
             except Exception:  # noqa: BLE001
                 await _send_temp(client, chat_id, "❌ 答案不对，再想一想～", 4)
             return
@@ -688,7 +691,7 @@ async def setup(ctx):
                 "ℹ️ 当前没有正在进行的答题。"
             )
             await _edit_message(message, notice)
-            _track(asyncio.create_task(_auto_del(message, 5)))
+            _track(_runtime_ctx.create_task(_auto_del(message, 5)))
             return
 
         # 开局账号只负责发起/结束，不参与自己的答题。
@@ -698,6 +701,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _runtime_ctx
+    _runtime_ctx = None
     for task in list(_tasks):
         task.cancel()
     _tasks.clear()

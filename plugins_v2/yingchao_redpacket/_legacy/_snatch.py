@@ -217,7 +217,9 @@ class TokenSnatcher:
 
         entry = _OcrSent(packet_id, group_id, keyword, sent_id, sender_name)
         self._ocr_sent[(group_id, sent_id)] = entry
-        entry.timeout_task = asyncio.create_task(self._ocr_timeout(group_id, sent_id))
+        entry.timeout_task = self._ctx.create_task(
+            self._ocr_timeout(group_id, sent_id), name=f"yingchao-ocr-{group_id}-{sent_id}"
+        )
         self._log.info("[影巢口令] 已发OCR口令 %s msg=%s sent=%s 口令=%r", chat_label, packet_id, sent_id, keyword)
         if notify:
             await self._safe_notify(

@@ -14,13 +14,13 @@ except ImportError:
 
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
- 'version': '1.0.11',
- 'requirements': ['httpx>=0.27'],
+ 'version': '1.0.12',
+ 'requirements': ['httpx>=0.27', 'numpy>=1.24', 'pandas>=2.0'],
  'author': 'AWdress',
  'scope': 'user',
  'description': '朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.12 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -43,6 +43,7 @@ __plugin__ = {'name': '朱雀',
                               'section': 'V2 配置',
                               'order': 1,
                               'type': 'password',
+                              'secret': True,
                               'default': ''},
                    'xcsrf': {'title': 'xcsrf',
                              'section': 'V2 配置',

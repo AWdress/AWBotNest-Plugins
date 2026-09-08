@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': 'U2送糖',
  'id': 'u2_dmhy',
- 'version': '1.0.9',
- 'requirements': ['httpx>=0.27'],
+ 'version': '1.0.10',
+ 'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
  'author': 'AWdress',
  'description': '用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/u2_dmhy.png',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.10 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -37,6 +37,7 @@ __plugin__ = {'name': 'U2送糖',
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
  'scope': 'user',
  'config_schema': {'cookie': {'type': 'password',
+ 'secret': True,
                               'default': '',
                               'label': 'u2 Cookie',
                               'section': '凭据',

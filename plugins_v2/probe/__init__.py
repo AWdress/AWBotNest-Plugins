@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': '插件开发探针',
  'id': 'probe',
- 'version': '1.0.5',
+ 'version': '1.0.6',
  'author': 'AWdress',
  'description': '开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.6 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

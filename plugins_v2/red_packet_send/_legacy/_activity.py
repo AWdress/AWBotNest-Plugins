@@ -232,14 +232,14 @@ class ActivityManager:
             notice = await client.send_message(
                 chat_id, f"总金额至少要 {packet_count} 魔力（每个红包至少 1 魔力）。")
             if notice:
-                _track(asyncio.create_task(_auto_delete(notice, 8)))
+                _track(self.ctx.create_task(_auto_delete(notice, 8)))
             return False
 
         if key in self.active:
             notice = await client.send_message(
                 chat_id, "当前群组已有进行中的红包活动，请等待活动结束后再创建。")
             if notice:
-                _track(asyncio.create_task(_auto_delete(notice, 8)))
+                _track(self.ctx.create_task(_auto_delete(notice, 8)))
             return False
 
         if key not in self.locks:
@@ -403,7 +403,7 @@ class ActivityManager:
             finally:
                 self.cleanup_tasks.pop(key, None)
 
-        task = _track(asyncio.create_task(cleanup_expired()))
+        task = _track(self.ctx.create_task(cleanup_expired(), name=f"red-packet-cleanup-{chat_id}"))
         self.cleanup_tasks[key] = task
 
     # —— 处理参与 ——
@@ -445,7 +445,7 @@ class ActivityManager:
                     reply_to_message_id=message.id,
                 )
                 if notice:
-                    _track(asyncio.create_task(_auto_delete(notice, 8)))
+                    _track(self.ctx.create_task(_auto_delete(notice, 8)))
                 return False
 
             amount = allocate_amount(activity)
@@ -571,7 +571,7 @@ class ActivityManager:
                     except Exception:  # noqa: BLE001
                         pass
 
-                _track(asyncio.create_task(_batch_delete()))
+                _track(self.ctx.create_task(_batch_delete(), name="red-packet-batch-delete"))
 
             self.ctx.log.info(
                 "[发红包] 群 %s (%s) 活动结束，参与 %s 人，发放 %s 魔力",
@@ -603,13 +603,13 @@ class ActivityManager:
         if not activity:
             notice = await client.send_message(chat_id, "当前群组没有进行中的红包活动")
             if notice:
-                _track(asyncio.create_task(_auto_delete(notice, 8)))
+                _track(self.ctx.create_task(_auto_delete(notice, 8)))
             return False
         user_id = message.from_user.id if message.from_user else 0
         if activity["creator_id"] != user_id:
             notice = await client.send_message(chat_id, "只有红包创建者才能结束活动")
             if notice:
-                _track(asyncio.create_task(_auto_delete(notice, 8)))
+                _track(self.ctx.create_task(_auto_delete(notice, 8)))
             return False
         await self.end_activity(client, chat_id)
         return True

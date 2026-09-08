@@ -599,7 +599,7 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
 
     # 15 秒后自删
     if sent is not None:
-        asyncio.create_task(_auto_delete(sent, 15))
+        ctx.create_task(_auto_delete(sent, 15), name="transfer-auto-delete")
 
 
 async def _send_reply(client, chat_id, target, text=None, photo=None, caption=None):

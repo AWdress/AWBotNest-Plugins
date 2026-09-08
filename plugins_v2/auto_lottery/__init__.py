@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': '小菜抽奖',
  'id': 'auto_lottery',
- 'version': '1.0.18',
+ 'version': '1.0.19',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.19 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -73,7 +73,7 @@ __plugin__ = {'name': '小菜抽奖',
                                              'type': 'chat',
                                              'default': [],
                                              'chat_types': ['group', 'channel'],
-                                             'multiple': True,
+                                             'multi': True,
                                              'help': '不选则全部群组参与'},
                    'custom_lottery_groups': {'title': 'custom lottery groups',
                                              'section': 'V2 配置',
@@ -194,10 +194,9 @@ __plugin__ = {'name': '小菜抽奖',
                    'group_wait_overrides': {'title': 'group wait overrides',
                                             'section': 'V2 配置',
                                             'order': 29,
-                                            'type': 'chat',
+                                            'type': 'text',
                                             'default': '',
-                                            'chat_types': ['group', 'channel'],
-                                            'session': True},
+                                            'help': '每行：群组ID|最短秒数|最长秒数'},
                    'lottery_thank_message': {'title': 'lottery thank message',
                                              'section': 'V2 配置',
                                              'order': 30,

@@ -14,6 +14,7 @@ import asyncio
 import concurrent.futures
 import traceback
 from datetime import datetime
+from typing import Optional
 
 from ._models import STATUS_LABELS
 

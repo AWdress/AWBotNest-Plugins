@@ -14,10 +14,10 @@ except ImportError:
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '1.1.12',
+ 'version': '1.1.13',
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.1.13 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -71,6 +71,7 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                                      'label': '登录邮箱',
                                                      'help': 'GPT-GOD 注册邮箱。'},
                                            'password': {'type': 'password',
+                                           'secret': True,
                                                         'label': '账户密码',
                                                         'help': 'GPT-GOD 账户密码，不是邮箱密码。'}}},
                    'checkin_hour': {'type': 'slider',

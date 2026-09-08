@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.44',
+ 'version': '2.5.45',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.40 修复 V2 配置项声明\n'
+ 'changelog': 'v2.5.45 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nv2.5.40 修复 V2 配置项声明\n'
               '- 补齐自动签到、重试、无头浏览器、结果通知与站点选择字段\n'
               '- 修复平台保存配置时报“包含未声明的配置项”\n\n'
               'AWBotNest 2 兼容发布\n'
@@ -31,7 +31,7 @@ __plugin__ = {'name': 'PT站自动签到',
               '\n'
               'v2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb',
  'scope': 'standalone',
- 'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
+ 'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'opencv-python-headless>=4.8', 'numpy>=1.24'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',

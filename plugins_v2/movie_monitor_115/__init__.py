@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': '115频道监控',
  'id': 'movie_monitor_115',
- 'version': '1.0.18',
+ 'version': '1.0.19',
  'author': 'AWdress',
  'description': '通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png',
- 'changelog': 'AWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.19 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -66,6 +66,7 @@ __plugin__ = {'name': '115频道监控',
                                     'section': 'V2 配置',
                                     'order': 5,
                                     'type': 'password',
+                                    'secret': True,
                                     'default': ''},
                    'tmdb_language': {'title': 'tmdb language',
                                      'section': 'V2 配置',
@@ -81,6 +82,7 @@ __plugin__ = {'name': '115频道监控',
                                     'section': 'V2 配置',
                                     'order': 8,
                                     'type': 'password',
+                                    'secret': True,
                                     'default': ''},
                    'skip_emby_check': {'title': 'skip emby check',
                                        'section': 'V2 配置',
@@ -106,6 +108,7 @@ __plugin__ = {'name': '115频道监控',
                                      'section': 'V2 配置',
                                      'order': 13,
                                      'type': 'password',
+                                     'secret': True,
                                      'default': ''}},
  'v1_compatible_version': '1.0.16',
  'v2_adapter': 'telethon',

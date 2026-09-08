@@ -80,6 +80,7 @@ _PROACTIVE_SYSTEM = (
 # 主动搭话候选消息缓冲：chat_id -> deque[{msg_id,user_id,name,text,ts}]
 _recent: dict[int, deque] = {}
 _chat_names: dict[int, str] = {}
+_runtime_ctx = None
 _RECENT_MAX = 50          # 每群最多缓存多少条
 _RECENT_TTL = 3600        # 只从最近 1 小时内的消息里挑，避免回复陈旧消息
 
@@ -165,6 +166,8 @@ def _ai_available(ctx, capability: str) -> bool:
 
 
 async def setup(ctx):
+    global _runtime_ctx
+    _runtime_ctx = ctx
     # ── 功能 0：AI 生图命令（自己发出）──
     @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-14)
     async def ai_image(client, message):
@@ -353,7 +356,7 @@ async def setup(ctx):
                 await code_msg.edit_text(f"解释\nQ: {content}\n\nA: {response}")
             except Exception:
                 pass
-        asyncio.create_task(_auto_del(code_msg, 60))
+        ctx.create_task(_auto_del(code_msg, 60), name="ai-auto-delete")
 
     # ── 功能 3：随机主动搭话 ──
     # 3a. 记录「主动搭话群组」里群友的近期消息，作为搭话候选。
@@ -583,8 +586,11 @@ async def _edit_autodel(message, text: str, delay: int = 30):
         m = await message.edit(text)
     except Exception:
         m = message
-    asyncio.create_task(_auto_del(m, delay))
+    if _runtime_ctx is not None:
+        _runtime_ctx.create_task(_auto_del(m, delay), name="ai-auto-delete")
 
 
 async def teardown(ctx):
+    global _runtime_ctx
+    _runtime_ctx = None
     _recent.clear()
