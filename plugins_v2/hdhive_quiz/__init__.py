@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
- 'version': '1.0.12',
+ 'version': '1.0.13',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v1.0.12 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.13 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv1.0.12 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

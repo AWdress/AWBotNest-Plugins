@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
- 'version': '2.9.7',
+ 'version': '2.9.8',
  'author': 'AWdress',
  'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
- 'changelog': 'v2.9.7 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v2.9.8 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv2.9.7 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

@@ -14,13 +14,13 @@ except ImportError:
 
 __plugin__ = {'name': 'AWBlackJack',
  'id': 'awblackjack',
- 'version': '1.0.4',
+ 'version': '1.0.5',
  'author': 'AWdress',
  'description': 'SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png',
  'scope': 'standalone',
  'requirements': ['aiomqtt>=2.0', 'aiohttp>=3.9', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
- 'changelog': 'v1.0.4 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.5 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv1.0.4 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

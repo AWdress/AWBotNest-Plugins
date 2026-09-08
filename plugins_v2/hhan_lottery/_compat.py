@@ -361,7 +361,22 @@ def _plain_message(raw, client):
 
 
 class SenderProxy(Client):
+    def __init__(self, raw, rich_sender=None):
+        super().__init__(raw)
+        self._rich_sender = rich_sender
+
     async def send(self, chat_id, text, **kwargs):
+        return await self.send_message(chat_id, text, **kwargs)
+
+    async def supports_native_rich(self):
+        method = getattr(self._rich_sender, 'supports_native_rich', None)
+        return bool(await method()) if callable(method) else False
+
+    async def send_rich(self, chat_id, content, **kwargs):
+        method = getattr(self._rich_sender, 'send_rich', None)
+        if callable(method):
+            return await method(chat_id, content, **kwargs)
+        text = re.sub(r'<[^>]+>', '', str(content))
         return await self.send_message(chat_id, text, **kwargs)
 
 
@@ -374,13 +389,6 @@ class KVProxy:
 
     def keys(self):
         return [key for key, _value in self.raw.items()]
-
-    async def supports_native_rich(self):
-        return False
-
-    async def send_rich(self, chat_id, content, **kwargs):
-        text = re.sub(r'<[^>]+>', '', str(content))
-        return await self.send_message(chat_id, text, **kwargs)
 
 
 class CompatContext:
@@ -417,11 +425,12 @@ class CompatContext:
 
     @property
     def user(self):
-        return SenderProxy(self._ctx.users[0]) if self._ctx.users else None
+        return SenderProxy(self._ctx.users[0], getattr(self._ctx, 'user', None)) if self._ctx.users else None
 
     @property
     def bot(self):
-        return SenderProxy(self._ctx.bot) if self._ctx.bot is not None else SenderProxy(None)
+        raw = self._ctx.bot
+        return SenderProxy(raw, raw) if raw is not None else SenderProxy(None)
 
     @property
     def owner_id(self):
@@ -433,10 +442,16 @@ class CompatContext:
     def create_task(self, awaitable, *, name=None, operation=None):
         return self._ctx.create_task(awaitable, name=name)
 
-    async def notify(self, text, entity=None, *, channel='', level='info', category='', account=None):
-        return await self._ctx.notify(text, entity=entity, channel=channel, level=level, category=category)
+    async def notify(self, text, entity=None, *, channel='', level='info', category='', account=None, format='text', **kwargs):
+        return await self._ctx.notify(
+            text, entity=entity, channel=channel, level=level, category=category,
+            account=getattr(account, 'raw', account), format=format, **kwargs
+        )
 
     async def notify_table(self, headers, rows, *, caption='', align=None, **kwargs):
+        method = getattr(self._ctx, 'notify_table', None)
+        if callable(method):
+            return await method(headers, rows, caption=caption, align=align, **kwargs)
         lines = [str(caption or '').strip()]
         lines.append(' | '.join(map(str, headers)))
         lines.extend(' | '.join(map(str, row)) for row in rows)

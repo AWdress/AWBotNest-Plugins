@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.45',
+ 'version': '2.5.46',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.45 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nv2.5.40 修复 V2 配置项声明\n'
+ 'changelog': 'v2.5.46 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv2.5.45 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nv2.5.40 修复 V2 配置项声明\n'
               '- 补齐自动签到、重试、无头浏览器、结果通知与站点选择字段\n'
               '- 修复平台保存配置时报“包含未声明的配置项”\n\n'
               'AWBotNest 2 兼容发布\n'
