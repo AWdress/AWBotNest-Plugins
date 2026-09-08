@@ -12,7 +12,7 @@ load()
 
 <template>
   <main class="migration-shell">
-    <header><div><h1>把旧配置带到新家</h1><p>连接 V1 迁移源，先看清差异，再安全写入 AWBotNest 2。</p></div><span class="secure">安全迁移</span></header>
+    <header><div><h1>平台迁移助手</h1><p>这是 V2 导入端。连接 V1 端插件，先看清差异，再安全写入 AWBotNest 2。</p></div><span class="secure">安全迁移</span></header>
     <div class="flow"><section class="source"><h2>连接 V1</h2><label>V1 平台地址<input v-model.trim="form.v1_url" placeholder="http://192.168.1.10:18001" /></label><label>V1 Webhook 密钥<input v-model="form.v1_webhook_secret" type="password" autocomplete="off" placeholder="系统设置中的 WEBHOOK_SECRET" /></label><label>一次性迁移码<input v-model="form.migration_code" type="password" autocomplete="one-time-code" placeholder="至少 8 位" /></label><button class="primary" :disabled="!canRead" @click="inspect">{{loading?'正在读取…':'读取并预览'}}</button><p class="hint">导出路由由 V1 插件实际注册，并同时校验平台 Webhook 密钥与一次性迁移码。</p></section>
       <section class="plan"><h2>迁移范围</h2><div class="checks"><label><input v-model="form.system" type="checkbox">系统设置<span>Telegram、代理、通知渠道和仓库设置</span></label><label><input v-model="form.plugins" type="checkbox">插件配置<span>按相同插件 ID 合并业务配置</span></label><label><input v-model="form.accounts" type="checkbox">账号范围<span>迁移每个插件绑定的用户账号</span></label><label><input v-model="form.routing" type="checkbox">Bot 路由<span>迁移插件使用的通知 Bot</span></label><label><input v-model="form.enabled" type="checkbox">启用状态<span>迁移后仍需确认插件已安装</span></label></div><label class="danger"><input v-model="form.overwrite" type="checkbox">覆盖 V2 已有值<span>默认关闭；建议仅在全新 V2 环境开启</span></label></section>
     </div>

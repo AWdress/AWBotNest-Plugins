@@ -9,12 +9,12 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 __plugin__ = {
-    "name": "配置迁移助手",
+    "name": "平台迁移助手",
     "id": "config_migration",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。",
-    "changelog": "v1.0.0 初始版本\n- 支持连接 V1 迁移源并生成脱敏预览\n- 支持系统设置、插件配置、启用状态、账号范围和 Bot 路由选择性迁移\n- 执行前自动备份 V2 配置，默认保留已有有效值",
+    "changelog": "v1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导入端用途改在 Vue 配置页面说明\n\nv1.0.0 初始版本\n- 支持连接 V1 迁移源并生成脱敏预览\n- 支持系统设置、插件配置、启用状态、账号范围和 Bot 路由选择性迁移\n- 执行前自动备份 V2 配置，默认保留已有有效值",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
     "scope": "standalone",
     "render_mode": "vue",

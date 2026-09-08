@@ -7,12 +7,12 @@ import time
 from pathlib import Path
 
 __plugin__ = {
-    "name": "V1 配置迁移源",
+    "name": "平台迁移助手",
     "id": "config_migration",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AWdress",
     "description": "为 AWBotNest 2 配置迁移助手提供短时、一次性的 V1 配置导出。",
-    "changelog": "v1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
+    "changelog": "v1.0.1 统一插件名称\n- V1 与 V2 统一显示为“平台迁移助手”\n- 导出端用途改在插件配置页面说明\n\nv1.0.0 初始版本\n- 提供受管理员 API 与一次性迁移码双重保护的配置导出\n- 导出系统配置、插件配置、启用状态、账号范围与 Bot 路由",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
     "scope": "standalone",
     "default_enabled": False,
@@ -24,7 +24,7 @@ __plugin__ = {
         "expires_minutes": {"type": "number", "default": 10, "min": 1, "max": 60,
                             "label": "有效分钟数", "section": "迁移授权", "order": 2},
         "usage": {"type": "info", "title": "使用方法",
-                  "text": "保存并启用后，立即到 V2 的“配置迁移助手”填写 V1 地址、API Key 和相同迁移码。迁移完成后请停用本插件。",
+                  "text": "这是 V1 导出端。保存并启用后，立即到 V2 的“平台迁移助手”填写 V1 地址、Webhook 密钥和相同迁移码。迁移完成后请停用本插件。",
                   "section": "说明", "order": 10},
     },
 }
