@@ -392,9 +392,25 @@ class KVProxy:
 
 
 class CompatContext:
-    def __init__(self, ctx, defaults=None):
+    def __init__(self, ctx, defaults=None, config_schema=None):
         self._ctx = ctx
-        self._defaults = defaults or {}
+        schema_defaults = {
+            key: spec.get('default')
+            for key, spec in (config_schema or {}).items()
+            if isinstance(spec, dict) and 'default' in spec
+        }
+        self._defaults = {**schema_defaults, **(defaults or {})}
+        # V1 plugins historically fell back to their declared defaults.  Some
+        # early V2 forms persisted empty strings instead, hiding the defaults
+        # and breaking commands.  Repair only empty string/None values; never
+        # overwrite a meaningful user value, false switch, zero, or empty list.
+        current = dict(ctx.config or {})
+        repairs = {
+            key: value for key, value in self._defaults.items()
+            if value not in (None, '') and current.get(key) in (None, '')
+        }
+        if repairs:
+            ctx.update_config(repairs)
         self.filters = Filters()
         self._cleanups = []
 
@@ -593,7 +609,7 @@ class CompatContext:
         return register
 
 
-def adapt(ctx, defaults=None):
-    return CompatContext(ctx, defaults=defaults)
+def adapt(ctx, defaults=None, config_schema=None):
+    return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
 
 

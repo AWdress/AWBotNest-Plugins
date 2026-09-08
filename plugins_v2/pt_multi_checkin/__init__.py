@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.47',
+ 'version': '2.5.48',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.47 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.5.45 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nv2.5.40 修复 V2 配置项声明\n'
+ 'changelog': 'v2.5.48 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv2.5.47 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.5.45 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nv2.5.40 修复 V2 配置项声明\n'
               '- 补齐自动签到、重试、无头浏览器、结果通知与站点选择字段\n'
               '- 修复平台保存配置时报“包含未声明的配置项”\n\n'
               'AWBotNest 2 兼容发布\n'
@@ -125,7 +125,7 @@ _active_context = None
 
 async def setup(ctx):
     global _active_context
-    _active_context = adapt(ctx, _legacy_defaults)
+    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
     await _legacy_setup(_active_context)
 
 
