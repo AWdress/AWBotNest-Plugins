@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': '电子宠物',
  'id': 'digital_pet',
- 'version': '2.1.6',
+ 'version': '2.1.7',
  'author': 'AWdress',
  'scope': 'user',
  'description': '在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png',
- 'changelog': 'v2.1.6 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv2.1.5 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v2.1.7 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.1.5 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': '115搜索结果转发',
  'id': 'trans115search',
- 'version': '1.0.9',
+ 'version': '1.0.10',
  'author': 'AWdress',
  'description': '监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png',
- 'changelog': 'v1.0.9 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv1.0.8 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.10 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.8 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

@@ -14,12 +14,12 @@ except ImportError:
 
 __plugin__ = {'name': '插件开发调试',
  'id': 'custom_plugin',
- 'version': '1.0.8',
+ 'version': '1.0.9',
  'author': 'AWdress',
  'scope': 'both',
  'description': '在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg',
- 'changelog': 'v1.0.8 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv1.0.7 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.0.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'

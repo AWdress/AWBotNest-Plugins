@@ -14,11 +14,11 @@ except ImportError:
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '1.4.5',
+ 'version': '1.4.6',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'v1.4.5 native rich notification compatibility\n- Delegate notify_table and send_rich to AWBotNest 2 platform services\n- Keep readable text fallback when native rich messaging is unavailable\n\nv1.4.4 V2 compatibility audit\n- Fixed entity, lifecycle, schema security, and dependency compatibility\n- Passed metadata, syntax, and manifest validation\n\nAWBotNest 2 兼容发布\n'
+ 'changelog': 'v1.4.6 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.4.4 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
