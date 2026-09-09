@@ -1,69 +1,37 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生消息结构导出插件。"""
 from __future__ import annotations
+import asyncio
+import re
+from datetime import datetime
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+__plugin__={"id":"getmsg","name":"取消息结构","version":"2.0.0","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"回复消息发送 /getmsg，将 Telethon 原始结构导出为文本文件。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png","tags":["消息提取","结构调试","媒体信息"],"config_schema":{"delete_command":{"type":"boolean","default":True,"label":"删除命令消息","section":"功能开关","order":1},"command":{"type":"string","default":".getmsg","label":"触发命令","section":"命令","order":10}},"changelog":"v2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原始消息结构导出\n- 文件仅写入插件数据目录并在发送后清理\n- 移除 V1 兼容运行层"}
 
-__plugin__ = {'name': '取消息结构',
- 'id': 'getmsg',
- 'version': '1.0.13',
- 'author': 'AWdress',
- 'description': '回复一条消息再发 /getmsg，把该消息的原始结构导出为 txt 通过 Bot 发到平台通知，便于调试。',
- 'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'v1.0.13 适配新版异步存储接口\n'
-              '- 兼容新版平台异步 KV 与原有同步 KV\n'
-              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
-              '\n'
-              'v1.0.12 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.11 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.9 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
-              '- 使用 Telethon 原生事件、调度和生命周期托管\n'
-              '- 保留 AWBotNest 1 版本与原有数据\n'
-              '\n'
-              'v1.0.6 优化配置界面布局\n'
-              '- 开关字段统一置顶，采用推荐的栅格布局\n'
-              '- 参数字段添加 order 排序，提升扫描性\n'
-              '- 符合 AWBotNest 插件开发规范\n'
-              'v1.0.5 更新插件 Logo\n'
-              '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
- 'scope': 'user',
- 'config_schema': {'delete_command': {'type': 'boolean',
-                                      'default': True,
-                                      'label': '删除命令消息',
-                                      'cols': 3,
-                                      'order': 1,
-                                      'section': '功能开关',
-                                      'help': '导出后是否删除你发出的 /getmsg 命令本身。'},
-                   'command': {'type': 'string',
-                               'default': '.getmsg',
-                               'label': '触发命令',
-                               'order': 10,
-                               'section': '命令',
-                               'help': '自己发出、以此开头的消息会触发。/getmsg 与 .getmsg 等价。'}},
- 'v1_compatible_version': '1.0.6',
- 'v2_adapter': 'telethon',
- 'tags': ['消息提取', '链接解析', '媒体信息']}
-_active_context = None
-
+def _hit(text,command):
+    bare=str(command or "getmsg").lstrip("/.").strip().lower() or "getmsg";parts=(text or "").split()
+    return bool(parts and parts[0].lower() in (f"/{bare}",f".{bare}"))
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
+    @ctx.on_message(incoming=False,outgoing=True)
+    async def export(event):
+        if not _hit(event.raw_text or "",ctx.config.get("command",".getmsg")):return
+        source=await event.get_reply_message()
+        if source is None:await event.edit("请先回复一条要查看结构的消息");return
+        slug=re.sub(r"[^\w一-鿿-]","",source.raw_text or "msg")[:12] or "msg"
+        path=ctx.data_dir/f"{slug}_{datetime.now():%Y%m%d%H%M%S}.txt"
+        try:
+            path.write_text(repr(source),encoding="utf-8")
+            await event.client.send_file("me",path,caption="【取消息结构】Telethon 原始结构")
+            await event.edit("已导出消息结构到收藏夹 ✓")
+            if ctx.config.get("delete_command",True):
+                async def cleanup():
+                    await asyncio.sleep(3)
+                    try:await event.delete()
+                    except Exception:pass
+                ctx.create_task(cleanup(),name="getmsg-cleanup")
+        except Exception as error:
+            ctx.log.error("[取消息结构] 导出失败: %r",error);await event.edit(f"导出失败: {type(error).__name__}")
+        finally:
+            try:path.unlink(missing_ok=True)
+            except Exception:pass
 
-
-async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+async def teardown(ctx):ctx.log.info("[取消息结构] 已停用")

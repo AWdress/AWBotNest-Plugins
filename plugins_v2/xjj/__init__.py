@@ -1,83 +1,24 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生随机短视频插件。"""
 from __future__ import annotations
-
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
-
-__plugin__ = {'name': '小姐姐视频',
- 'id': 'xjj',
- 'version': '1.0.12',
- 'requirements': ['httpx>=0.27'],
- 'author': 'AWdress',
- 'description': '发送 /xjj 或 .xjj 获取一条随机短视频。',
- 'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png',
- 'changelog': 'v1.0.12 适配新版异步存储接口\n'
-              '- 兼容新版平台异步 KV 与原有同步 KV\n'
-              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
-              '\n'
-              'v1.0.11 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.10 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
-              '- 使用 Telethon 原生事件、调度和生命周期托管\n'
-              '- 保留 AWBotNest 1 版本与原有数据\n'
-              '\n'
-              'v1.0.4 优化配置界面布局\n'
-              '- 开关字段统一置顶，采用推荐的栅格布局\n'
-              '- 参数字段添加 order 排序，提升扫描性\n'
-              '- 符合 AWBotNest 插件开发规范\n'
-              'v1.0.3 更新插件 Logo\n'
-              '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
- 'scope': 'user',
- 'config_schema': {'command': {'type': 'string',
-                               'default': '.xjj',
-                               'label': '触发命令',
-                               'section': '命令',
-                               'help': '自己发出、以此开头的消息会触发。/xjj 与 .xjj 等价。',
-                               'order': 10},
-                   'api_url': {'type': 'string',
-                               'default': 'http://47.115.231.249/API/sjsp/api.php?msg=热舞',
-                               'label': '视频接口地址',
-                               'section': '接口',
-                               'help': '返回 JSON 且含视频直链的接口。',
-                               'order': 20},
-                   'video_key': {'type': 'string',
-                                 'default': 'url',
-                                 'label': '直链字段名',
-                                 'section': '接口',
-                                 'help': '接口返回 JSON 中视频直链所在的字段（支持顶层或 data 下）。',
-                                 'order': 21},
-                   'timeout': {'type': 'number',
-                               'default': 15,
-                               'label': '请求超时(秒)',
-                               'min': 5,
-                               'max': 60,
-                               'step': 5,
-                               'section': '接口',
-                               'order': 22}},
- 'v1_compatible_version': '1.0.4',
- 'v2_adapter': 'telethon',
- 'tags': ['随机短视频', '视频发送', '群组娱乐']}
-_active_context = None
-
-
+from uuid import uuid4
+__plugin__={"id":"xjj","name":"小姐姐视频","version":"2.0.0","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"发送 /xjj 或 .xjj 获取一条随机短视频。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png","tags":["随机短视频","视频发送","群组娱乐"],"config_schema":{"command":{"type":"string","default":".xjj","label":"触发命令","section":"命令","order":10},"api_url":{"type":"string","default":"http://47.115.231.249/API/sjsp/api.php?msg=热舞","label":"视频接口地址","section":"接口","order":20},"video_key":{"type":"string","default":"url","label":"直链字段名","section":"接口","order":21},"timeout":{"type":"number","default":15,"label":"请求超时(秒)","min":5,"max":60,"step":5,"section":"接口","order":22}},"resources":{"timeout_seconds":120,"max_concurrency":4},"changelog":"v2.0.0 原生 AWBotNest V2 迁移\n- 使用平台 HTTP 服务访问接口及下载视频\n- 使用 Telethon 原生视频发送\n- 移除 V1 兼容运行层和直接 httpx 依赖"}
+def _matches(text,command):
+    bare=str(command or "xjj").lstrip("/.").strip().lower() or "xjj";parts=(text or "").split();return bool(parts and parts[0].lower() in (f"/{bare}",f".{bare}"))
+async def _url(ctx,api,key,timeout):
+    response=await ctx.http.get(api,timeout=timeout);response.raise_for_status();data=response.json();value=data.get(key) if isinstance(data,dict) else None
+    if not value and isinstance(data,dict) and isinstance(data.get("data"),dict):value=data["data"].get(key)
+    if not value:raise ValueError("接口未返回视频直链")
+    value=str(value);return "https:"+value if value.startswith("//") else ("https://"+value if not value.startswith(("http://","https://")) else value)
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
-
-async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    @ctx.on_message(incoming=False,outgoing=True)
+    async def send_video(event):
+        if not _matches(event.raw_text or "",ctx.config.get("command",".xjj")):return
+        await event.edit("小姐姐视频生成中…");path=ctx.data_dir/f"{uuid4().hex}.mp4"
+        try:
+            timeout=max(5,min(float(ctx.config.get("timeout",15) or 15),60));url=await _url(ctx,str(ctx.config.get("api_url") or ""),str(ctx.config.get("video_key") or "url"),timeout)
+            await ctx.http.download(url,path);await event.client.send_file(event.chat_id,path,supports_streaming=True,reply_to=event.reply_to_msg_id);await event.delete()
+        except Exception as error:ctx.log.warning("[小姐姐视频] 获取或发送失败: %r",error);await event.edit(f"获取失败: {type(error).__name__}")
+        finally:
+            try:path.unlink(missing_ok=True)
+            except OSError:pass
+async def teardown(ctx):ctx.log.info("[小姐姐视频] 已停用")

@@ -1,84 +1,38 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生转发复读插件。"""
 from __future__ import annotations
+import asyncio
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+__plugin__={"id":"zf","name":"转发复读","version":"2.0.0","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["转发助手","消息过滤","频道同步"],"config_schema":{"command":{"type":"string","default":".zf","label":"触发命令","section":"命令","order":10},"interval":{"type":"number","default":0.3,"label":"每次间隔(秒)","min":0,"max":5,"step":0.1,"section":"重复限制","order":20},"max_times":{"type":"number","default":50,"label":"最多次数","min":1,"max":500,"section":"重复限制","order":21}},"changelog":"v2.0.0 原生 AWBotNest V2 迁移\n- 移除 V1 兼容运行层和 Pyrogram 路由\n- 使用 Telethon 原生转发并保留论坛话题\n- 禁止转发内容自动降级为复制发送"}
 
-__plugin__ = {'name': '转发复读',
- 'id': 'zf',
- 'version': '1.0.13',
- 'author': 'AWdress',
- 'description': '回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。',
- 'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png',
- 'changelog': 'v1.0.13 修复 V2 转发复读\n'
-              '- 实现 Telethon 消息转发并正确传递论坛话题参数\n'
-              '- 补全回复消息发送者与完整会话 ID\n'
-              '- 单次转发失败改为输出可见警告日志\n'
-              '\n'
-              'v1.0.12 适配新版异步存储接口\n'
-              '- 兼容新版平台异步 KV 与原有同步 KV\n'
-              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
-              '\n'
-              'v1.0.11 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.10 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.9 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.7 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
-              '- 使用 Telethon 原生事件、调度和生命周期托管\n'
-              '- 保留 AWBotNest 1 版本与原有数据\n'
-              '\n'
-              'v1.0.4 优化配置界面布局\n'
-              '- 开关字段统一置顶，采用推荐的栅格布局\n'
-              '- 参数字段添加 order 排序，提升扫描性\n'
-              '- 符合 AWBotNest 插件开发规范\n'
-              'v1.0.3 更新插件 Logo\n'
-              '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
- 'scope': 'user',
- 'config_schema': {'command': {'type': 'string',
-                               'default': '.zf',
-                               'label': '触发命令',
-                               'section': '命令',
-                               'order': 10,
-                               'help': '自己发出、以此开头的消息会触发。/zf 与 .zf 等价。'},
-                   'interval': {'type': 'number',
-                                'default': 0.3,
-                                'label': '每次间隔(秒)',
-                                'min': 0,
-                                'max': 5,
-                                'step': 0.1,
-                                'section': '重复限制',
-                                'order': 20,
-                                'help': '多次转发时每次之间的间隔，避免过快触发限流。'},
-                   'max_times': {'type': 'number',
-                                 'default': 50,
-                                 'label': '最多次数',
-                                 'min': 1,
-                                 'max': 500,
-                                 'section': '重复限制',
-                                 'order': 21,
-                                 'help': '单次命令允许的最大转发次数。'}},
- 'v1_compatible_version': '1.0.4',
- 'v2_adapter': 'telethon',
- 'tags': ['转发助手', '消息过滤', '频道同步']}
-_active_context = None
+def _parse(text,command,max_times):
+    parts=(text or "").split();bare=str(command or "zf").lstrip("/.").strip().lower() or "zf"
+    if not parts or parts[0].lower() not in (f"/{bare}",f".{bare}"):return None
+    try:value=int(parts[1]) if len(parts)>1 else 1
+    except ValueError:value=1
+    return max(1,min(value,max(1,int(max_times or 50))))
 
+async def _copy(client,chat_id,message,reply_to):
+    if message.media:
+        data=await client.download_media(message,bytes)
+        return await client.send_file(chat_id,data,caption=message.raw_text or None,reply_to=reply_to)
+    return await client.send_message(chat_id,message.raw_text or "",reply_to=reply_to)
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
+    @ctx.on_message(incoming=False,outgoing=True)
+    async def repeat(event):
+        times=_parse(event.raw_text or "",ctx.config.get("command",".zf"),ctx.config.get("max_times",50))
+        if times is None:return
+        source=await event.get_reply_message()
+        if source is None:await event.edit("请先回复一条要转发的消息");return
+        interval=max(0.0,float(ctx.config.get("interval",0.3) or 0));topic=getattr(source,"reply_to_msg_id",None)
+        for index in range(times):
+            if interval:await asyncio.sleep(interval)
+            try:await event.client.forward_messages(event.chat_id,source)
+            except Exception as error:
+                ctx.log.warning("[转发复读] 第 %d/%d 次转发失败，尝试复制: %r",index+1,times,error)
+                try:await _copy(event.client,event.chat_id,source,topic)
+                except Exception as copy_error:ctx.log.warning("[转发复读] 第 %d/%d 次复制失败: %r",index+1,times,copy_error)
+        try:await event.delete()
+        except Exception:pass
 
-
-async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+async def teardown(ctx):ctx.log.info("[转发复读] 已停用")

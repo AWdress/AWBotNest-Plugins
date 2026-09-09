@@ -1,80 +1,43 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生 HDHive 抽奖插件。"""
 from __future__ import annotations
-
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
-
-__plugin__ = {'name': 'HDHive抽奖',
- 'id': 'hdhive_lottery',
- 'version': '1.0.14',
- 'author': 'AWdress',
- 'description': '自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。',
- 'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v1.0.14 适配新版异步存储接口\n'
-              '- 兼容新版平台异步 KV 与原有同步 KV\n'
-              '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
-              '\n'
-              'v1.0.13 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.12 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.11 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.9 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
-              '- 使用 Telethon 原生事件、调度和生命周期托管\n'
-              '- 保留 AWBotNest 1 版本与原有数据\n'
-              '\n'
-              'v1.0.6 优化配置界面布局\n'
-              '- 开关字段统一置顶，采用推荐的栅格布局\n'
-              '- 参数字段添加 order 排序，提升扫描性\n'
-              '- 符合 AWBotNest 插件开发规范\n'
-              'v1.0.5 更新插件 Logo\n'
-              '- 使用 HDHive（影巢）专属图片作为插件卡片与市场图标',
- 'scope': 'user',
- 'config_schema': {'notify_owner': {'type': 'boolean',
-                                    'default': True,
-                                    'label': '参与/中奖通知我',
-                                    'cols': 3,
-                                    'order': 1,
-                                    'section': '功能开关',
-                                    'help': '参与成功、失败、中奖时用机器人通知平台主人。'},
-                   'wait_min': {'type': 'number',
-                                'default': 25,
-                                'label': '参与前最短等待(秒)',
-                                'min': 0,
-                                'max': 300,
-                                'step': 5,
-                                'order': 10,
-                                'section': '等待策略',
-                                'help': '收到抽奖后随机等待区间下限，避免秒回显得像机器人。'},
-                   'wait_max': {'type': 'number',
-                                'default': 65,
-                                'label': '参与前最长等待(秒)',
-                                'min': 5,
-                                'max': 600,
-                                'step': 5,
-                                'order': 11,
-                                'section': '等待策略'}},
- 'v1_compatible_version': '1.0.6',
- 'v2_adapter': 'telethon',
- 'tags': ['海胆抽奖', '积分抽奖', '奖品统计']}
-_active_context = None
-
-
+import asyncio
+import re
+import time
+from random import randint
+__plugin__={"id":"hdhive_lottery","name":"HDHive抽奖","version":"2.0.0","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"自动参与 HDHive 抽奖：解析口令、随机等待参与、开奖检测中奖并通知。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg","tags":["HDHive抽奖","口令参与","中奖通知"],"config_schema":{"notify_owner":{"type":"boolean","default":True,"label":"参与/中奖通知我","section":"功能开关","order":1},"wait_min":{"type":"number","default":25,"label":"参与前最短等待(秒)","min":0,"max":300,"step":5,"section":"等待策略","order":10},"wait_max":{"type":"number","default":65,"label":"参与前最长等待(秒)","min":5,"max":600,"step":5,"section":"等待策略","order":11}},"resources":{"timeout_seconds":60,"max_concurrency":8,"max_background_tasks":64},"changelog":"v2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息与实体接口\n- 随机等待改为平台托管后台任务\n- 运行状态限制在当前插件实例并移除 V1 兼容层"}
+_GROUP_ID=-1001379449445;_BOT_ID=5831593155;_TTL=259200
+def _parse(text):
+    prize=re.search(r"🏆\s*奖励[:：]\s*(.+)",text or "");keyword=re.search(r"🔑\s*参与口令[:：]\s*\n?\s*([\s\S]+?)(?:\n\s*[🏆👥🙋⏰👉🎁💡]|\Z)",text or "")
+    return {"prize":prize.group(1).strip() if prize else "","keyword":keyword.group(1).strip() if keyword else ""}
+def _link(chat_id,message_id):return f"https://t.me/c/{str(chat_id).removeprefix('-100')}/{message_id}"
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
-
-async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    active={}
+    async def participate(event,key,info,delay):
+        await asyncio.sleep(delay)
+        if key not in active:return
+        try:
+            await event.client.send_message(event.chat_id,info["keyword"])
+            if ctx.config.get("notify_owner",True):await ctx.notify(f"HDHive抽奖参与成功\n奖品：{info['prize']}\n口令：{info['keyword']}\n来源：{_link(event.chat_id,event.id)}",level="success",category="HDHive抽奖",account=event.client)
+        except asyncio.CancelledError:raise
+        except Exception as error:
+            ctx.log.error("[HDHive抽奖] 参与失败: %r",error)
+            if ctx.config.get("notify_owner",True):await ctx.notify(f"HDHive抽奖参与失败\n奖品：{info['prize']}\n错误：{type(error).__name__}",level="error",category="HDHive抽奖",account=event.client)
+    @ctx.on_message(chats=_GROUP_ID,incoming=True,outgoing=False)
+    async def lottery(event):
+        sender=await event.get_sender();text=event.raw_text or ""
+        if getattr(sender,"id",None)!=_BOT_ID or not getattr(sender,"bot",False):return
+        now=time.monotonic()
+        for key in [key for key,value in active.items() if now-value["created"]>_TTL]:active.pop(key,None)
+        if "发起了一个抽奖" in text and "参与口令" in text:
+            info=_parse(text);key=f"{event.chat_id}:{event.id}"
+            if not info["keyword"] or key in active:return
+            active[key]={**info,"created":now};low=int(ctx.config.get("wait_min",25) or 0);high=int(ctx.config.get("wait_max",65) or 65)
+            if low>high:low,high=high,low
+            delay=randint(max(0,low),max(0,high));ctx.create_task(participate(event,key,info,delay),name=f"hdhive-lottery:{event.id}");return
+        if "抽奖结果" not in text or "中奖名单" not in text:return
+        winners=[(name.strip(),int(uid)) for name,uid in re.findall(r"\d+\.\s*(.+?)\s*[（(]\s*TGID[:：]\s*(\d+)\s*[)）]",text)]
+        me=await event.client.get_me()
+        if any(uid==me.id for _,uid in winners) and ctx.config.get("notify_owner",True):
+            prize=(re.search(r"🏆\s*奖励[:：]\s*(.+)",text) or [None,""])[1].strip();await ctx.notify(f"HDHive抽奖中奖啦\n奖品：{prize}\n来源：{_link(event.chat_id,event.id)}",level="success",category="HDHive抽奖",account=event.client)
+        active.clear()
+async def teardown(ctx):ctx.log.info("[HDHive抽奖] 已停用")
