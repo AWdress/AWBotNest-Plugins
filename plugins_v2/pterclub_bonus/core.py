@@ -344,7 +344,7 @@ async def setup(ctx):
             seconds = max(0.0, float(ctx.config.get("cooldown_seconds", 10) or 0))
         except (TypeError, ValueError):
             seconds = 10
-        last = float(ctx.kv.get(_KV_LAST, 0) or 0)
+        last = float(await ctx.storage.get(_KV_LAST, 0) or 0)
         remaining = seconds - (time.time() - last)
         if remaining > 0:
             await asyncio.sleep(remaining)
@@ -374,8 +374,9 @@ async def setup(ctx):
         ok, message = await _check_login(ctx)
         return {"ok": ok, "message": message}
 
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
-    async def gift_command(client, message):
+    @ctx.on_message(outgoing=True, incoming=False)
+    async def gift_command(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         if not cfg.get("enabled", True):
             return
@@ -427,7 +428,7 @@ async def setup(ctx):
             for username in users:
                 await _wait_cooldown()
                 ok, detail = await _gift(ctx, username, amount, note)
-                ctx.kv.set(_KV_LAST, time.time())
+                await ctx.storage.set(_KV_LAST, time.time())
                 ctx.log.info(
                     "[猫站赠粮] user=%s amount=%s ok=%s detail=%s",
                     username, amount, ok, detail,

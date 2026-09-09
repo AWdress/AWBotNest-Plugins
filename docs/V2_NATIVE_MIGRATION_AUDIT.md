@@ -35,7 +35,7 @@
 | msg_forward | Automation | 低 | 否 | 否 | 否 | 否 | Telegram | Schema | 已完成 |
 | probe | Utility | 低 | 否 | 否 | 否 | 是 | Telegram | 否 | 已完成 |
 | pt_multi_checkin | External | 极高 | 是 | 是 | 是 | 是 | HTTP/AI/Browser | Vue | P5 |
-| pterclub_bonus | External | 高 | 是 | 是 | 是 | 是 | HTTP | 否 | P4 |
+| pterclub_bonus | External | 高 | 否 | 否 | 否 | 是 | HTTP | 否 | 已完成 |
 | quiz_game | Interactive | 高 | 是 | 是 | 是 | 是 | HTTP/AI | Vue | P2 |
 | red_packet_grab | Interactive | 高 | 是 | 是 | 是 | 否 | Telegram/OCR | Vue | P2 |
 | red_packet_send | Interactive | 高 | 是 | 是 | 是 | 是 | Telegram | Vue | P2 |
