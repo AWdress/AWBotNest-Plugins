@@ -206,7 +206,7 @@ async def setup(ctx):
         text = message.raw_text or ""
         fu = await event.get_sender()
         chat = await event.get_chat()
-        if not (fu and fu.is_bot and fu.id == _BOT_ID):
+        if not (fu and getattr(fu, "bot", False) and fu.id == _BOT_ID):
             return
         # 抽奖消息特征：含口令 + （人数/日期开奖）
         if "🔑" not in text or "抽奖口令" not in text:
@@ -236,7 +236,7 @@ async def setup(ctx):
                 ctx.log.info("[通用抽奖] 需加群但未开自动加群，跳过: %s", link)
                 if notify:
                     try:
-                        await ctx.notify(f"通用抽奖需手动加群\n\n奖品：{info['prize']}\n\n群链接：{link}\n\n来源：{message.link}",
+                        await ctx.notify(f"通用抽奖需手动加群\n\n奖品：{info['prize']}\n\n群链接：{link}\n\n来源：{getattr(message, 'link', '')}",
                                          level="info", category="通用抽奖", account=client)
                     except Exception:
                         pass
@@ -246,7 +246,7 @@ async def setup(ctx):
             if not ok:
                 if notify:
                     try:
-                        await ctx.notify(f"通用抽奖加群失败\n\n奖品：{info['prize']}\n\n详情：{detail}\n\n来源：{message.link}",
+                        await ctx.notify(f"通用抽奖加群失败\n\n奖品：{info['prize']}\n\n详情：{detail}\n\n来源：{getattr(message, 'link', '')}",
                                          level="warning", category="通用抽奖", account=client)
                     except Exception:
                         pass
@@ -275,7 +275,7 @@ async def setup(ctx):
                 try:
                     await ctx.notify(
                         f"通用抽奖参与成功\n\n奖品：{info['prize']}\n\n群组：{getattr(chat, 'title', event.chat_id)}\n\n{join_line}"
-                        f"{('开奖：' + draw + chr(10)*2) if draw else ''}口令：{info['keyword']}\n\n来源：{message.link}",
+                        f"{('开奖：' + draw + chr(10)*2) if draw else ''}口令：{info['keyword']}\n\n来源：{getattr(message, 'link', '')}",
                         level="success", category="通用抽奖", account=client,
                     )
                 except Exception:
@@ -284,7 +284,7 @@ async def setup(ctx):
             ctx.log.error("[通用抽奖] 发口令失败: %r", e)
             if notify:
                 try:
-                    await ctx.notify(f"通用抽奖参与失败\n\n奖品：{info['prize']}\n\n原因：{e}\n\n来源：{message.link}",
+                    await ctx.notify(f"通用抽奖参与失败\n\n奖品：{info['prize']}\n\n原因：{e}\n\n来源：{getattr(message, 'link', '')}",
                                      level="error", category="通用抽奖", account=client)
                 except Exception:
                     pass
@@ -295,7 +295,7 @@ async def setup(ctx):
         cfg = ctx.config
         text = message.raw_text or ""
         fu = await event.get_sender()
-        if not (fu and fu.is_bot and fu.id == _BOT_ID):
+        if not (fu and getattr(fu, "bot", False) and fu.id == _BOT_ID):
             return
         if "开奖了" not in text or "本期总参与人数" not in text:
             return

@@ -9,13 +9,17 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复 Telethon 原生事件与异步存储\n'
+              '- 修复启用阶段使用 V1 filters、双参数 handler 和旧装饰器参数的问题\n'
+              '- 修复回复链、发送媒体、按钮点击和排行榜接口的 Telethon 兼容性\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

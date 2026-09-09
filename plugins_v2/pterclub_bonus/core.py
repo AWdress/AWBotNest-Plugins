@@ -443,7 +443,7 @@ async def setup(ctx):
         try:
             supports_rich = bool(ctx.user and await ctx.user.supports_native_rich())
             if supports_rich:
-                sent = await ctx.user.send_rich(message.chat.id, rich, format="html")
+                sent = await ctx.user.send_rich(message.chat_id, rich, format="html")
                 await status.delete()
             else:
                 sent = await status.edit(plain)

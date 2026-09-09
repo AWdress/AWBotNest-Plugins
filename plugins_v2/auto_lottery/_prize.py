@@ -148,7 +148,7 @@ async def record_draw_result(message, lottery_type: str, store: PrizeStore,
         'creator_id': creator_id,
         'winners': winners,
         'chat_id': message.chat_id,
-        'chat_title': "",
+        'chat_title': getattr(getattr(message, "_v2_chat", None), "title", "") or "",
         'timestamp': _time.time(),
     }
     store.add(lottery_id, record)

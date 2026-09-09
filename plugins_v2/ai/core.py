@@ -328,7 +328,7 @@ async def setup(ctx):
         target_text, image_bytes = "", None
         reply = await event.get_reply_message() if event.is_reply else None
         if reply:
-            target_text = (reply.text or reply.caption or "").strip()
+            target_text = (reply.text or getattr(reply, "caption", None) or "").strip()
             image_bytes = await _extract_image(client, reply, ctx)
 
         capability = "vision" if image_bytes else "text"

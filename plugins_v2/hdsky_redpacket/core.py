@@ -147,7 +147,7 @@ async def setup(ctx):
             return
         fu = await event.get_sender()
         chat = await event.get_chat()
-        if not (fu and getattr(fu, "is_bot", False) and fu.id == _HDSKY_BOT_ID):
+        if not (fu and getattr(fu, "bot", False) and fu.id == _HDSKY_BOT_ID):
             return
         groups = parse_groups(cfg.get("button_groups", ""))
         if groups and event.chat_id not in groups:
@@ -169,7 +169,7 @@ async def setup(ctx):
             rtext = getattr(result, "text", None) or getattr(result, "message", None) or str(result)
             chat_name = _chat_name(chat, event.chat_id)
             ctx.log.info("[拼手气红包] 已点击 %s (%s) msg=%s 结果=%s",
-                         chat_name, message.chat.id, message.id, rtext)
+                         chat_name, event.chat_id, message.id, rtext)
             await records.add_history({"type": "拼手气红包", "group_id": event.chat_id,
                                  "group_title": chat_name, "result": str(rtext), "ok": True})
             if cfg.get("notify_owner", True):

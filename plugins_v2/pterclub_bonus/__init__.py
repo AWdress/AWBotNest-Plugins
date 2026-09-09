@@ -5,12 +5,15 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '猫站赠粮',
  'id': 'pterclub_bonus',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。',
  'icon': 'https://pterclub.net/favicon.ico',
- 'changelog': 'v1.0.9 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 修复 Telethon 消息会话 ID\n'
+              '- 富文本发送与普通文本回退统一使用 message.chat_id\n'
+              '\n'
+              'v1.0.9 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

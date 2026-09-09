@@ -5,12 +5,16 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '115频道监控',
  'id': 'movie_monitor_115',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cloud_media.png',
- 'changelog': 'v1.0.24 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 修复 Telethon 实体解析与消息兼容\n'
+              '- 管理接口改用 get_entity，监听日志使用 chat_id\n'
+              '- 修复媒体消息无 caption 时的文本提取异常\n'
+              '\n'
+              'v1.0.24 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

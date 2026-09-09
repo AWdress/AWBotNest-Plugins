@@ -54,7 +54,7 @@ async def _chat_name_items(ctx) -> list[dict]:
         title = str(value)
         for app in apps:
             try:
-                chat = await app.get_chat(value)
+                chat = await app.get_entity(value)
                 title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or title
                 break
             except Exception:  # noqa: BLE001

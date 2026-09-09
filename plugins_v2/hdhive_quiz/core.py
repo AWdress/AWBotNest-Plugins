@@ -104,7 +104,7 @@ async def _chat_name_items(ctx, raw) -> list[dict]:
         title = str(value)
         for app in apps:
             try:
-                title = _chat_name(await app.get_chat(value), value)
+                title = _chat_name(await app.get_entity(value), value)
                 break
             except Exception:  # noqa: BLE001
                 continue
@@ -282,7 +282,7 @@ async def setup(ctx):
         if chat_ids and event.chat_id not in chat_ids:
             return
 
-        text = sanitize(message.text or message.caption or "")
+        text = sanitize(message.text or getattr(message, "caption", None) or "")
         if not any(m in text for m in QUIZ_MARKERS):
             return
         if not _answer_once(ctx, event.chat_id, message.id):

@@ -3,7 +3,7 @@
     "ai": {
       "name": "AI 助手",
       "id": "ai",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": "AWdress",
       "description": "私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png",
@@ -146,7 +146,7 @@
     "auto_lottery": {
       "name": "小菜抽奖",
       "id": "auto_lottery",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": "AWdress",
       "scope": "user",
       "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。",
@@ -626,7 +626,7 @@
     "common_lottery": {
       "name": "通用抽奖",
       "id": "common_lottery",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "description": "自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。",
@@ -1399,7 +1399,7 @@
     "hdhive_quiz": {
       "name": "影巢答题红包",
       "id": "hdhive_quiz",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "scope": "user",
@@ -1437,7 +1437,7 @@
     "hdsky_redpacket": {
       "name": "拼手气红包(HDSKY)",
       "id": "hdsky_redpacket",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "scope": "user",
@@ -1697,7 +1697,7 @@
     "movie_monitor_115": {
       "name": "115频道监控",
       "id": "movie_monitor_115",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "description": "通用监控频道里的 115 分享，读取/识别 TMDB 后查 Emby 媒体库，缺失的转发给 CMS 入库机器人。可选电影/电视剧，默认全部。",
@@ -1993,7 +1993,7 @@
     "pterclub_bonus": {
       "name": "猫站赠粮",
       "id": "pterclub_bonus",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "description": "使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。",
@@ -2141,7 +2141,7 @@
     "red_packet_grab": {
       "name": "自动抢红包",
       "id": "red_packet_grab",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": "AWdress",
       "scope": "user",
       "requirements": [
@@ -2282,7 +2282,7 @@
     "transfer": {
       "name": "多站点转账",
       "id": "transfer",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "author": "AWdress",
       "scope": "user",
       "requirements": [
@@ -2618,7 +2618,7 @@
     "yingchao_redpacket": {
       "name": "影巢口令红包（测试）",
       "id": "yingchao_redpacket",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "plugin_api_version": 2,
       "author": "AWdress",
       "scope": "user",
@@ -2766,7 +2766,7 @@
     "zhuque_lottery": {
       "name": "朱雀",
       "id": "zhuque_lottery",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "requirements": [
         "httpx>=0.27",
         "numpy>=1.24",

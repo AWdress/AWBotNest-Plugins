@@ -2,6 +2,15 @@
 
 AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 
+## V2 修复发布（2.0.1）
+
+本次修复覆盖多站点转账、朱雀自动化、影巢/天空红包、通用抽奖、115 监控、答题、猫站赠粮、自动抢红包、自动抽奖和 AI 助手等插件：
+
+- 统一使用 AWBotNest V2 的 Telethon 事件签名、异步存储和生命周期接口。
+- 清理 `ctx.filters`、Pyrogram 消息字段、旧版回调和 `get_chat` 等迁移残留。
+- 保留 `plugins/` V1 插件不变，并同步更新 V2 版本号、中文 changelog 与发布清单。
+- 已通过语法检查、45 个插件 setup smoke test，以及现有 V2 回归测试。
+
 ## 开发指南
 
 - [V1 插件开发指南](https://github.com/AWdress/AWBotNest/blob/v1/docs/PLUGIN_GUIDE.md)

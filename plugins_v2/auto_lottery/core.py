@@ -137,6 +137,7 @@ async def setup(ctx):
     async def on_new_lottery(event):
         client, message = event.client, event.message
         sender, chat = await event.get_sender(), await event.get_chat()
+        message._v2_chat = chat
         cfg = ctx.config
         text = message.raw_text or ""
         if "新的抽奖已经创建" not in text or "参与关键词" not in text:
@@ -173,21 +174,21 @@ async def setup(ctx):
                 ctx.log.warning("跳过陷阱抽奖 %s: %s", lottery_id, reason)
                 await _maybe_notify(
                     f"跳过陷阱抽奖\n\n{lottery_id}\n\n{info.get('prize','')}\n\n"
-                    f"{reason}\n\n{message.link}",
+                    f"{reason}\n\n{getattr(message, 'link', '')}",
                     "warning", client, skip=True)
                 return
 
         # ── 总开关 ──
         if not cfg.get("auto_lottery_enabled", False):
             await _maybe_notify(
-                f"自动抽奖未开启，跳过\n\n{lottery_id}\n\n{message.link}",
+                f"自动抽奖未开启，跳过\n\n{lottery_id}\n\n{getattr(message, 'link', '')}",
                 "info", client, skip=True)
             return
 
         # ── 时间窗 ──
         if not is_within_time_ranges(parse_time_ranges(cfg.get("auto_lottery_time", ""))):
             await _maybe_notify(
-                f"不在抽奖时间段，跳过\n\n{lottery_id}\n\n{message.link}",
+                f"不在抽奖时间段，跳过\n\n{lottery_id}\n\n{getattr(message, 'link', '')}",
                 "info", client, skip=True)
             return
 
@@ -202,7 +203,7 @@ async def setup(ctx):
             if hit is None:
                 await _maybe_notify(
                     f"奖品不在白名单，跳过\n\n{lottery_id}\n\n{info.get('prize','')}\n\n"
-                    f"{message.link}", "info", client, skip=True)
+                    f"{getattr(message, 'link', '')}", "info", client, skip=True)
                 return
             matched_group = hit
 
@@ -241,7 +242,7 @@ async def setup(ctx):
         if lottery_id not in _state.lottery_list:
             ctx.log.info("抽奖 %s 在等待期间已结束", lottery_id)
             await _maybe_notify(
-                f"抽奖已结束（等待期内）\n\n{lottery_id}\n\n{message.link}",
+                f"抽奖已结束（等待期内）\n\n{lottery_id}\n\n{getattr(message, 'link', '')}",
                 "info", client, skip=True)
             return
 
@@ -273,7 +274,7 @@ async def setup(ctx):
             ctx.log.info("抽奖参与成功 %s", lottery_id)
             await _maybe_notify(
                 f"抽奖参与成功\n\n{lottery_id}\n\n{getattr(chat, 'title', message.chat_id)}\n\n"
-                f"{info.get('prize','')}\n\n{keyword}\n\n{message.link}",
+                f"{info.get('prize','')}\n\n{keyword}\n\n{getattr(message, 'link', '')}",
                 "success", client)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("发送抽奖消息失败 %s: %r", lottery_id, e)

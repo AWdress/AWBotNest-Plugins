@@ -95,7 +95,12 @@ async def setup(ctx):
         if not cfg.get("token_enabled", False):
             return
         targets = parse_targets(cfg.get("token_targets", ""))
-        fu = message.from_user
+        fu = await event.get_sender()
+        message._v2_sender = fu
+        try:
+            message._v2_chat = await event.get_chat()
+        except Exception:
+            message._v2_chat = None
         if not fu or fu.id not in targets:
             return
         if "口令红包" not in extract_text(message):
@@ -116,6 +121,16 @@ async def setup(ctx):
         client, message = event.client, event.message
         if not ctx.config.get("token_enabled", False):
             return
+        message._v2_sender = await event.get_sender()
+        try:
+            message._v2_chat = await event.get_chat()
+        except Exception:
+            message._v2_chat = None
+        if getattr(message, "reply_to_msg_id", None):
+            try:
+                message._v2_reply = await event.get_reply_message()
+            except Exception:
+                message._v2_reply = None
         await _snatcher.handle_reply(client, message, notify=ctx.config.get("notify_owner", True))
 
     ctx.log.info("[影巢口令] 已加载（OCR可用=%s）", _ocr.ocr_available())

@@ -141,7 +141,9 @@ class TokenSnatcher:
         self._chat_names: dict[int, str] = {}
 
     def _remember_chat(self, chat) -> str:
-        group_id = chat.id
+        group_id = getattr(chat, "id", None)
+        if group_id is None:
+            return "未知群组"
         title = (
             getattr(chat, "title", None)
             or getattr(chat, "first_name", None)
@@ -160,8 +162,9 @@ class TokenSnatcher:
         notify: bool,
     ) -> None:
         self._prune_expired()
-        group_id = message.chat.id
-        chat_label = self._remember_chat(message.chat)
+        group_id = message.chat_id
+        chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+        chat_label = self._remember_chat(chat)
         packet_id = message.id
         caption = extract_text(message)
 
@@ -206,7 +209,7 @@ class TokenSnatcher:
         if join_delay > 0:
             await asyncio.sleep(join_delay)
         try:
-            sent = await client.send_message(group_id, keyword, reply_to_message_id=packet_id)
+            sent = await client.send_message(group_id, keyword, reply_to=packet_id)
             sent_id = sent.id if sent else 0
         except Exception as e:  # noqa: BLE001
             self._log.error("[影巢口令] OCR口令发送失败: %r", e)
@@ -230,15 +233,17 @@ class TokenSnatcher:
     # —— 处理群内回复（缓存口令 / 失败确认 / 成功确认，合一处理）——
     async def handle_reply(self, client, message, notify: bool) -> None:
         self._prune_expired()
-        group_id = message.chat.id
-        chat_label = self._remember_chat(message.chat)
-        reply_to_id = getattr(message, "reply_to_message_id", None)
+        group_id = message.chat_id
+        chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+        chat_label = self._remember_chat(chat)
+        reply_to_id = getattr(message, "reply_to_msg_id", None)
         if not reply_to_id:
             return
 
         text = extract_text(message)
         me = getattr(client, "me", None)
-        from_self = bool(me and message.from_user and message.from_user.id == me.id)
+        sender = getattr(message, "_v2_sender", None)
+        from_self = bool(me and sender and sender.id == me.id)
 
         # 失败确认：「口令不对」
         if is_failure_reply(text):
@@ -323,7 +328,7 @@ class TokenSnatcher:
         if pending.join_delay > 0:
             await asyncio.sleep(pending.join_delay)
         try:
-            sent = await client.send_message(group_id, keyword, reply_to_message_id=orig_packet_id)
+            sent = await client.send_message(group_id, keyword, reply_to=orig_packet_id)
             ok = bool(sent and sent.id)
         except Exception as e:  # noqa: BLE001
             self._log.error("[影巢口令] 复制口令发送失败: %r", e)

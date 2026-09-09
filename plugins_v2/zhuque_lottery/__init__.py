@@ -9,13 +9,17 @@ except ImportError:
 
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'requirements': ['httpx>=0.27', 'numpy>=1.24', 'pandas>=2.0'],
  'author': 'AWdress',
  'scope': 'user',
  'description': '朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复 Telethon 原生事件与异步存储\n'
+              '- 修复 V1 filters、旧消息字段和回调接口导致的启用及事件失败\n'
+              '- 修复朱雀转账、红包雨、YDX 和管理接口的数据读写\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

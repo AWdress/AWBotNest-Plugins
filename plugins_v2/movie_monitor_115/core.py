@@ -75,7 +75,7 @@ async def _chat_name_items(ctx) -> list[dict]:
         title = str(value)
         for app in apps:
             try:
-                title = _chat_name(await app.get_chat(value), value)
+                title = _chat_name(await app.get_entity(value), value)
                 break
             except Exception:  # noqa: BLE001
                 continue
@@ -136,7 +136,7 @@ def _pan115_id(cfg):
 
 
 def _msg_text(message) -> str:
-    return (message.text or message.caption or "").strip()
+    return (message.text or getattr(message, "caption", None) or "").strip()
 
 
 def _extract_links(message) -> list[str]:
@@ -196,7 +196,7 @@ async def _resolve_target(client, target, ctx):
         return "me"
     if target.startswith("@"):
         try:
-            chat = await client.get_chat(target)
+            chat = await client.get_entity(target)
             return chat.id
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[115监控] 解析转发目标失败 %s: %r", target, e)
@@ -256,19 +256,22 @@ async def _process(client, cfg, message, ctx):
 
     if not tmdb_id:
         ctx.log.info("[115监控] 未识别 TMDB: %s", text[:50])
-        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": None, "action": "跳过"})
+        chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat_id, "chat_title": _chat_name(chat, message.chat_id), "title": text[:30], "tmdb_id": None, "action": "跳过"})
         return
 
     allowed = cfg.get("media_types", ["movie", "tv"])
     if media_type and media_type not in allowed:
         ctx.log.info("[115监控] 跳过类型 %s: %d", media_type, tmdb_id)
-        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+        chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+        _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat_id, "chat_title": _chat_name(chat, message.chat_id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
         return
 
     if media_type == "tv" and cfg.get("only_complete_series", False):
         if not _COMPLETE_PATTERN.search(text):
             ctx.log.info("[115监控] 剧集未完结，跳过: %d", tmdb_id)
-            _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+            chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+            _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat_id, "chat_title": _chat_name(chat, message.chat_id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
             return
 
     if not cfg.get("skip_emby_check", False):
@@ -279,7 +282,8 @@ async def _process(client, cfg, message, ctx):
                 has = await emby_has_tmdb_id(emby_url, emby_key, tmdb_id, media_type)
                 if has:
                     ctx.log.info("[115监控] Emby 已有 %d，跳过", tmdb_id)
-                    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
+                    chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+                    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat_id, "chat_title": _chat_name(chat, message.chat_id), "title": text[:30], "tmdb_id": tmdb_id, "action": "跳过"})
                     return
             except Exception as e:  # noqa: BLE001
                 ctx.log.warning("[115监控] Emby 查询失败: %r", e)
@@ -287,7 +291,8 @@ async def _process(client, cfg, message, ctx):
     label = cfg.get("forward_label", "115 网盘")
     await _send_links(client, cfg, links, label, ctx)
     ctx.log.info("[115监控] 已转发 TMDB %d: %s", tmdb_id, text[:30])
-    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat.id, "chat_title": _chat_name(message.chat, message.chat.id), "title": text[:30], "tmdb_id": tmdb_id, "action": "转发"})
+    chat = getattr(message, "_v2_chat", None) or getattr(message, "chat", None)
+    _logs.append({"time": datetime.now().strftime("%H:%M:%S"), "chat_id": message.chat_id, "chat_title": _chat_name(chat, message.chat_id), "title": text[:30], "tmdb_id": tmdb_id, "action": "转发"})
 
 
 async def _cmd_getmedia(client, message, ctx):
@@ -405,11 +410,15 @@ async def setup(ctx):
     @ctx.on_message()
     async def monitor_channels(event):
         client, message = event.client, event.message
+        try:
+            message._v2_chat = await event.get_chat()
+        except Exception:
+            message._v2_chat = None
         cfg = _effective_cfg(ctx)
         if not cfg.get("shareswitch", False):
             return
         monitor_ids = _monitor_ids(cfg)
-        if monitor_ids and message.chat.id not in monitor_ids:
+        if monitor_ids and event.chat_id not in monitor_ids:
             return
         try:
             await _process(client, cfg, message, ctx)

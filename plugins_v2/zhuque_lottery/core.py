@@ -43,7 +43,7 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "1.0.9",
+    "version": "2.0.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -111,16 +111,48 @@ async def setup(ctx):
         return ZhuqueAPI(ctx.config.get("cookie", ""), ctx.config.get("xcsrf", ""), ctx.log)
 
     def _is_zhuque_bot(message) -> bool:
-        fu = getattr(message, "from_user", None)
-        return bool(fu and getattr(fu, "is_bot", False) and fu.id == _ZHUQUE_BOT_ID)
+        fu = getattr(message, "_v2_sender", None)
+        return bool(fu and getattr(fu, "bot", False) and fu.id == _ZHUQUE_BOT_ID)
 
     def _reply_to_me(message) -> bool:
-        r = getattr(message, "reply_to_message", None)
-        return bool(r and getattr(r, "from_user", None) and getattr(r.from_user, "is_self", False))
+        r = getattr(message, "_v2_reply", None)
+        return bool(r and getattr(r, "_v2_sender", None)
+                    and getattr(r._v2_sender, "is_self", False))
+
+    async def _prepare(event):
+        message = event.message
+        try:
+            message._v2_sender = await event.get_sender()
+        except Exception:
+            message._v2_sender = None
+        reply = None
+        try:
+            if getattr(event, "is_reply", False) or getattr(message, "reply_to_msg_id", None):
+                reply = await event.get_reply_message()
+        except Exception:
+            reply = None
+        if reply is not None:
+            try:
+                reply._v2_sender = await reply.get_sender()
+            except Exception:
+                reply._v2_sender = None
+            try:
+                nested = await reply.get_reply_message()
+            except Exception:
+                nested = None
+            if nested is not None:
+                try:
+                    nested._v2_sender = await nested.get_sender()
+                except Exception:
+                    nested._v2_sender = None
+                reply._v2_reply = nested
+            message._v2_reply = reply
+        return message
 
     # ── 命令处理（getinfo / prizewheel / betbonus）──────────────────────────
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-8, target="user")
-    async def on_command(client, message):
+    @ctx.on_message(incoming=False, outgoing=True)
+    async def on_command(event):
+        client, message = event.client, await _prepare(event)
         text = (message.text or "").strip()
         if not text or text[0] not in "/.":
             return
@@ -143,11 +175,12 @@ async def setup(ctx):
             ctx.log.error("命令处理出错 cmd=%s: %s", cmd, e)
 
     # ── 大劫监听/反击 ──────────────────────────────────────────────────────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=-7, target="user")
-    async def on_raiding(client, message):
+    @ctx.on_message(incoming=True)
+    async def on_raiding(event):
+        client, message = event.client, await _prepare(event)
         if not ctx.config.get("enable_raiding", False):
             return
-        if message.chat.id not in _RAID_GROUPS:
+        if event.chat_id not in _RAID_GROUPS:
             return
         if not _is_zhuque_bot(message):
             return
@@ -157,11 +190,12 @@ async def setup(ctx):
             ctx.log.error("大劫处理出错: %s", e)
 
     # ── 红包雨 ──────────────────────────────────────────────────────────────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=-7, target="user")
-    async def on_redpocket(client, message):
+    @ctx.on_message(incoming=True)
+    async def on_redpocket(event):
+        client, message = event.client, await _prepare(event)
         if not ctx.config.get("enable_redpocket", False):
             return
-        if message.chat.id not in _REDPOCKET_GROUPS:
+        if event.chat_id not in _REDPOCKET_GROUPS:
             return
         if not _is_zhuque_bot(message):
             return
@@ -171,11 +205,12 @@ async def setup(ctx):
             ctx.log.error("红包雨处理出错: %s", e)
 
     # ── 转账记录 ──────────────────────────────────────────────────────────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=-7, target="user")
-    async def on_transform(client, message):
+    @ctx.on_message(incoming=True)
+    async def on_transform(event):
+        client, message = event.client, await _prepare(event)
         if not ctx.config.get("enable_transform", False):
             return
-        if message.chat.id not in _TRANSFORM_GROUPS:
+        if event.chat_id not in _TRANSFORM_GROUPS:
             return
         if not _is_zhuque_bot(message):
             return
@@ -185,11 +220,12 @@ async def setup(ctx):
             ctx.log.error("转账记录处理出错: %s", e)
 
     # ── 鳄鱼丼 YDX ────────────────────────────────────────────────────────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=-7, target="user")
-    async def on_ydx(client, message):
+    @ctx.on_message(incoming=True)
+    async def on_ydx(event):
+        client, message = event.client, await _prepare(event)
         if not ctx.config.get("enable_ydx", False):
             return
-        if message.chat.id not in _YDX_GROUPS:
+        if event.chat_id not in _YDX_GROUPS:
             return
         if not _is_zhuque_bot(message):
             return
@@ -212,8 +248,8 @@ async def setup(ctx):
         ctx.schedule(fire_tick, "interval", minutes=interval, id="魔法卡释放")
 
     # ── 前端(Config.vue)用的后端接口 ──────────────────────────────────────────
-    def _load_list(key):
-        raw = ctx.kv.get(key) or []
+    async def _load_list(key):
+        raw = await ctx.kv.get(key) or []
         if isinstance(raw, str):
             import json as _json
             try:
@@ -243,12 +279,12 @@ async def setup(ctx):
             else:
                 out[label] = info.get(key, "")
         return {"ok": True, "info": out,
-                "firegenshin_total": float(ctx.kv.get("firegenshin_total", 0) or 0),
-                "firegenshin_last_date": ctx.kv.get("firegenshin_last_date", "") or ""}
+                "firegenshin_total": float(await ctx.kv.get("firegenshin_total", 0) or 0),
+                "firegenshin_last_date": await ctx.kv.get("firegenshin_last_date", "") or ""}
 
     @ctx.on_api("/transform", methods=["GET"])
     async def _api_transform(req):
-        recs = _load_list("transform_records")
+        recs = await _load_list("transform_records")
         get_total = sum(abs(float(r.get("amount", 0) or 0)) for r in recs if r.get("direction") == "get")
         pay_total = sum(abs(float(r.get("amount", 0) or 0)) for r in recs if r.get("direction") == "pay")
         def _lb(direction):
@@ -262,7 +298,7 @@ async def setup(ctx):
 
     @ctx.on_api("/raids", methods=["GET"])
     async def _api_raids(req):
-        recs = _load_list("raid_records")
+        recs = await _load_list("raid_records")
         def _sum(action):
             gain = sum(float(r.get("amount", 0)) for r in recs if r.get("action") == action and float(r.get("amount", 0)) > 0)
             loss = sum(-float(r.get("amount", 0)) for r in recs if r.get("action") == action and float(r.get("amount", 0)) < 0)
@@ -275,7 +311,7 @@ async def setup(ctx):
 
     @ctx.on_api("/ydx", methods=["GET"])
     async def _api_ydx(req):
-        recs = _load_list("ydx_records")
+        recs = await _load_list("ydx_records")
         big = sum(1 for r in recs if r.get("lottery_result") == "Big")
         small = sum(1 for r in recs if r.get("lottery_result") == "Small")
         bet_total = sum(float(r.get("bet_amount", 0) or 0) for r in recs)
@@ -298,7 +334,7 @@ async def setup(ctx):
             return {"ok": False, "message": "未知类型"}
         for k in keys:
             try:
-                ctx.kv.delete(k)
+                await ctx.kv.delete(k)
             except Exception:  # noqa: BLE001
                 pass
         return {"ok": True}
@@ -525,7 +561,7 @@ async def _handle_card(ctx, api_fn, message, args):
 async def _do_firegenshin(ctx, api_fn):
     """每天成功释放一次。kv 记录上次成功日期，今天已成功则跳过。"""
     today = date.today().isoformat()
-    last = ctx.kv.get("firegenshin_last_date")
+    last = await ctx.kv.get("firegenshin_last_date")
     if last == today:
         return  # 今天已成功，等次日
 
@@ -540,9 +576,9 @@ async def _do_firegenshin(ctx, api_fn):
     success = any("SUCCESS" in (c or "") for c in (code1, code2))
 
     if success and total > 0:
-        ctx.kv.set("firegenshin_last_date", today)
-        prev = float(ctx.kv.get("firegenshin_total", 0) or 0)
-        ctx.kv.set("firegenshin_total", prev + total)
+        await ctx.kv.set("firegenshin_last_date", today)
+        prev = float(await ctx.kv.get("firegenshin_total", 0) or 0)
+        await ctx.kv.set("firegenshin_total", prev + total)
         ctx.log.info("魔法卡释放成功，获得 %s 灵石", total)
         if ctx.config.get("owner_notify", True):
             await ctx.notify(f"朱雀魔法卡释放获得 {total} 灵石", level="success", category="魔法卡")
@@ -561,38 +597,38 @@ async def _handle_raiding(ctx, state, store, client, message, reply_to_me_fn):
 
     # A) 我主动打劫的结果（回复我的消息）
     if reply_to_me_fn(message) and _RE_RAID_RESULT.search(text):
-        raiding_msg = message.reply_to_message
+        raiding_msg = getattr(message, "_v2_reply", None)
         raidcount = _extract_raidcount(getattr(raiding_msg, "text", ""))
         gain = extract_lingshi_amount(text, r"(获得) ([\d.]+) 灵石\s*$")
         loss = extract_lingshi_amount(text, r"(亏损|你被反打劫) ([\d.]+) 灵石\s*$")
         if gain or loss:
             bonus = gain if gain else (-loss if loss else Decimal(0))
-            _record_raid(store, "raiding", bonus, raidcount)
-            ctx.kv.set("last_raid_ts", time.time())
+            await _record_raid(store, "raiding", bonus, raidcount)
+            await ctx.kv.set("last_raid_ts", time.time())
         return
 
     # B) 被打劫 / 被 info（回复链 reply.reply 是我）
     if _is_command_to_me(message):
         if "操作过于频繁" in text:
-            r = await _safe_reply(message.reply_to_message, msgs["dajieCoolingDown"])
+            r = await _safe_reply(getattr(message, "_v2_reply", None), msgs["dajieCoolingDown"])
             _schedule_delete(r, 20)
         elif "赢局总计" in text:
             key = "dajieInfoLose" if "总计赢了" in text else "dajieInfoWin"
-            r = await _safe_reply(message.reply_to_message, msgs[key])
+            r = await _safe_reply(getattr(message, "_v2_reply", None), msgs[key])
             _schedule_delete(r, 20)
         elif "不能打劫" in text:
             if "对方灵石低于" in text:
-                r = await _safe_reply(message.reply_to_message, msgs["meInsufficient"])
+                r = await _safe_reply(getattr(message, "_v2_reply", None), msgs["meInsufficient"])
             else:
-                tmp = await _safe_reply(message.reply_to_message, "+1")
+                tmp = await _safe_reply(getattr(message, "_v2_reply", None), "+1")
                 _schedule_delete(tmp, 5)
-                r = await _safe_reply(message.reply_to_message, msgs["othersInsufficient"])
+                r = await _safe_reply(getattr(message, "_v2_reply", None), msgs["othersInsufficient"])
             _schedule_delete(r, 20)
         elif "修为等阶" in text:
-            r = await _safe_reply(message.reply_to_message, msgs["infoBy"])
+            r = await _safe_reply(getattr(message, "_v2_reply", None), msgs["infoBy"])
             _schedule_delete(r, 20)
         elif _RE_RAID_RESULT.search(text):
-            raidcount = _extract_raidcount(getattr(message.reply_to_message, "text", ""))
+            raidcount = _extract_raidcount(getattr(getattr(message, "_v2_reply", None), "text", ""))
             await _auto_fanda(ctx, store, client, message, raidcount, msgs)
 
 
@@ -604,7 +640,7 @@ async def _auto_fanda(ctx, store, client, message, raidcount, msgs):
     probability = safe_int(c.get("fanxian_probability", 1), 1) / 100
     blacklist = parse_blacklist(c.get("fanxian_blacklist", ""))
 
-    raiding_msg = message.reply_to_message
+    raiding_msg = getattr(message, "_v2_reply", None)
     if not raiding_msg:
         return
     text = message.text or ""
@@ -616,11 +652,11 @@ async def _auto_fanda(ctx, store, client, message, raidcount, msgs):
         lose_amt = extract_lingshi_amount(text, r"(获得) ([\d.]+) 灵石\s*$")
 
     if win_amt:
-        _record_raid(store, "beraided", win_amt, raidcount)
+        await _record_raid(store, "beraided", win_amt, raidcount)
     elif lose_amt:
-        _record_raid(store, "beraided", -lose_amt, raidcount)
+        await _record_raid(store, "beraided", -lose_amt, raidcount)
 
-    cd_ready = _cd_ready(ctx)
+    cd_ready = await _cd_ready(ctx)
 
     if not (win_amt or lose_amt):
         return
@@ -637,7 +673,7 @@ async def _auto_fanda(ctx, store, client, message, raidcount, msgs):
             reply = await _safe_reply(raiding_msg, msgs["robbedByLoseCD"])
         elif amount >= 2000:
             reply = await _safe_reply(raiding_msg, f"/dajie {raidcount} {msgs[message_key]}")
-            ctx.kv.set("last_raid_ts", time.time())
+            await ctx.kv.set("last_raid_ts", time.time())
         else:
             reply = await _safe_reply(raiding_msg, msgs["robbedBynosidepot"])
     else:
@@ -645,7 +681,7 @@ async def _auto_fanda(ctx, store, client, message, raidcount, msgs):
 
     # 概率返现（被打赢时）
     if is_win and fanxian_on:
-        rfu = getattr(raiding_msg, "from_user", None)
+        rfu = getattr(raiding_msg, "_v2_sender", None)
         if rfu and rfu.id in blacklist:
             return
         if random.random() < probability:
@@ -674,21 +710,22 @@ def _extract_raidcount(text: str) -> int:
 
 def _is_command_to_me(message) -> bool:
     """reply.reply.from_user.is_self —— 我发的 /dajie 被 bot 回复后又被回复。"""
-    r = getattr(message, "reply_to_message", None)
+    r = getattr(message, "_v2_reply", None)
     if not r:
         return False
-    rr = getattr(r, "reply_to_message", None)
-    return bool(rr and getattr(rr, "from_user", None) and getattr(rr.from_user, "is_self", False))
+    rr = getattr(r, "_v2_reply", None)
+    return bool(rr and getattr(rr, "_v2_sender", None)
+                and getattr(rr._v2_sender, "is_self", False))
 
 
-def _record_raid(store, action: str, amount, count: int):
+async def _record_raid(store, action: str, amount, count: int):
     rec = {
         "action": action,
         "amount": float(amount),
         "count": count,
         "ts": datetime.now().isoformat(timespec="seconds"),
     }
-    raw = store._kv.get("raid_records") or []
+    raw = await store._kv.get("raid_records") or []
     if isinstance(raw, str):
         try:
             import json
@@ -699,15 +736,15 @@ def _record_raid(store, action: str, amount, count: int):
     if len(raw) > 300:
         raw = raw[-300:]
     try:
-        store._kv.set("raid_records", raw)
+        await store._kv.set("raid_records", raw)
     except Exception:
         import json
-        store._kv.set("raid_records", json.dumps(raw, ensure_ascii=False))
+        await store._kv.set("raid_records", json.dumps(raw, ensure_ascii=False))
 
 
-def _cd_ready(ctx) -> bool:
+async def _cd_ready(ctx) -> bool:
     cd_min = safe_int(ctx.config.get("raid_cd_minutes", 5), 5)
-    last = ctx.kv.get("last_raid_ts")
+    last = await ctx.kv.get("last_raid_ts")
     if last is None:
         return True
     try:
@@ -741,12 +778,7 @@ async def _handle_redpocket(ctx, client, message):
 
     for retry in range(max_retry):
         try:
-            result = await client.request_callback_answer(
-                chat_id=message.chat.id,
-                message_id=message.id,
-                callback_data=callback_data,
-                timeout=10,
-            )
+            result = await message.click(data=callback_data)
         except TimeoutError:
             ctx.log.warning("红包回调超时(第%s次)", retry + 1)
             await asyncio.sleep(2)
@@ -783,11 +815,11 @@ def _transfer_user_of(message, direction: str):
     返回 (user_id, user_name) 或 (0, "")。
     """
     if direction == "get":
-        src = getattr(message, "reply_to_message", None)
+        src = getattr(message, "_v2_reply", None)
     else:
-        r = getattr(message, "reply_to_message", None)
-        src = getattr(r, "reply_to_message", None) if r else None
-    fu = getattr(src, "from_user", None) if src else None
+        r = getattr(message, "_v2_reply", None)
+        src = getattr(r, "_v2_reply", None) if r else None
+    fu = getattr(src, "_v2_sender", None) if src else None
     if not fu:
         return 0, ""
     parts = [p for p in (getattr(fu, "first_name", ""), getattr(fu, "last_name", "")) if p]
@@ -839,7 +871,7 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
         "user_name": user_name,
         "ts": datetime.now().isoformat(timespec="seconds"),
     }
-    raw = ctx.kv.get("transform_records") or []
+    raw = await ctx.kv.get("transform_records") or []
     if isinstance(raw, str):
         import json
         try:
@@ -850,10 +882,10 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
     if len(raw) > 300:
         raw = raw[-300:]
     try:
-        ctx.kv.set("transform_records", raw)
+        await ctx.kv.set("transform_records", raw)
     except Exception:
         import json
-        ctx.kv.set("transform_records", json.dumps(raw, ensure_ascii=False))
+        await ctx.kv.set("transform_records", json.dumps(raw, ensure_ascii=False))
 
     ctx.log.info("记录灵石转账 dir=%s amount=%s user=%s", direction, amount, user_name)
 

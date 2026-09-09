@@ -5,11 +5,14 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AI 助手',
  'id': 'ai',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'description': '私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复媒体回复文本解析\n'
+              '- 兼容 Telethon 媒体消息不存在 caption 属性的情况\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

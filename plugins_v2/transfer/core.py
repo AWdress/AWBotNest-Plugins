@@ -44,7 +44,7 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "1.1.0",
+    "version": "2.0.1",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -97,38 +97,72 @@ async def setup(ctx):
         """SpringSunday 大额确认监听的群（内置写死的两个 ssd 群）。"""
         return {-1002014253433, -1001173590111}
 
+    async def _prepare(event):
+        """Adapt a Telethon event to the synchronous transfer parsers."""
+        message = event.message
+        try:
+            message._v2_sender = await event.get_sender()
+        except Exception:
+            message._v2_sender = None
+        reply = None
+        try:
+            if getattr(event, "is_reply", False) or getattr(message, "reply_to_msg_id", None):
+                reply = await event.get_reply_message()
+        except Exception:
+            reply = None
+        if reply is not None:
+            try:
+                reply._v2_sender = await reply.get_sender()
+            except Exception:
+                reply._v2_sender = None
+            try:
+                nested = await reply.get_reply_message()
+            except Exception:
+                nested = None
+            if nested is not None:
+                try:
+                    nested._v2_sender = await nested.get_sender()
+                except Exception:
+                    nested._v2_sender = None
+                reply._v2_reply = nested
+            message._v2_reply = reply
+        return message
+
     ctx.log.info("多站点转账插件已启用，配置站点群数=%s", len(_sites()))
 
     # ── handler 1：hdsky 缓存自己发出的回复（先于 bot 确认到达）─────────────────
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.reply, group=-5, target="user")
-    async def cache_outgoing_reply(client, message):
+    @ctx.on_message(incoming=False, outgoing=True)
+    async def cache_outgoing_reply(event):
+        client = event.client
+        message = await _prepare(event)
         try:
-            sites = _sites().get(message.chat.id)
+            sites = _sites().get(event.chat_id)
             if not sites or not any(s.parser == "hdsky" for s in sites):
                 return
-            rid = getattr(message, "reply_to_message_id", None)
+            rid = getattr(message, "reply_to_msg_id", None)
             if rid:
-                hdsky_pay_cache[message.chat.id] = rid
+                hdsky_pay_cache[event.chat_id] = rid
         except Exception as e:
             ctx.log.debug("hdsky 缓存失败: %s", e)
 
     # ── handler 1b：hdsky 缓存「别人回复我的 +金额」发送者（供转入取真实 uid）─────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.group & ctx.filters.reply,
-                    group=-5, target="user")
-    async def cache_incoming_plus(client, message):
+    @ctx.on_message(incoming=True)
+    async def cache_incoming_plus(event):
+        client = event.client
+        message = await _prepare(event)
         try:
-            sites = _sites().get(message.chat.id)
+            sites = _sites().get(event.chat_id)
             if not sites or not any(s.parser == "hdsky" for s in sites):
                 return
             mm = re.match(r"^\+?\s*(\d+(?:\.\d+)?)\s*$", (message.text or "").strip())
             if not mm:
                 return
-            rtm = getattr(message, "reply_to_message", None)
+            rtm = getattr(message, "_v2_reply", None)
             # 必须是「回复我」的 +金额（对方要转给我）
-            if not (rtm and getattr(rtm, "from_user", None)
-                    and getattr(rtm.from_user, "is_self", False)):
+            if not (rtm and getattr(rtm, "_v2_sender", None)
+                    and getattr(rtm._v2_sender, "is_self", False)):
                 return
-            fu = message.from_user
+            fu = getattr(message, "_v2_sender", None)
             if not fu or getattr(fu, "is_self", False):
                 return
             uid, name = user_identity_from_user(fu)
@@ -139,13 +173,15 @@ async def setup(ctx):
             ctx.log.debug("hdsky +金额 发送者缓存失败: %s", e)
 
     # ── handler 2：通用转账监听（所有配置群的 bot 消息）──────────────────────────
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.group, group=-4, target="user")
-    async def on_transfer_bot(client, message):
+    @ctx.on_message(incoming=True)
+    async def on_transfer_bot(event):
+        client = event.client
+        message = await _prepare(event)
         try:
-            sites = _sites().get(message.chat.id)
+            sites = _sites().get(event.chat_id)
             if not sites:
                 return
-            fu = message.from_user
+            fu = getattr(message, "_v2_sender", None)
             if not fu:
                 return
             # 找到匹配的站点配置（按发送者 id；bot_id=0 不校验）。
@@ -175,14 +211,14 @@ async def setup(ctx):
     # hasattr 兜底：平台实例未升级到含该能力的版本时静默降级（不崩、不刷警告），
     # 升级平台后编辑监听自动生效。
     if hasattr(ctx, "on_edited_message"):
-        ctx.on_edited_message(ctx.filters.incoming & ctx.filters.group, group=-4,
-                              target="user")(on_transfer_bot)
+        ctx.on_edited_message()(on_transfer_bot)
     else:
         ctx.log.debug("当前平台实例无 on_edited_message，SSD 大额确认后的编辑消息暂不记录（升级平台后自动生效）")
 
     # ── handler 3：排行榜命令（自己发出的 .<命令词>）────────────────────────────
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-3, target="user")
-    async def rank_command(client, message):
+    @ctx.on_message(incoming=False, outgoing=True)
+    async def rank_command(event):
+        message = await _prepare(event)
         try:
             text = (message.text or "").strip()
             cmd_word = (ctx.config.get("rank_command") or "转账排行").strip()
@@ -201,18 +237,20 @@ async def setup(ctx):
     # 按 SPRINGSUNDAY.ssd_click（off/once/5min）自动点。这里复刻该逻辑。
     # 确认提示是 bot 新发的消息（带按钮），用 on_message 即可点中；点确认后 bot 会「编辑」
     # 该消息送达成功结果，那条编辑由上面的 on_edited_message 分派记账（本插件 1.0.9+）。
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.group & ctx.filters.reply,
-                    group=-3, target="user")
-    async def ssd_confirm_click(client, message):
+    @ctx.on_message(incoming=True)
+    async def ssd_confirm_click(event):
+        client = event.client
+        message = await _prepare(event)
         try:
             mode = (ctx.config.get("ssd_click_mode") or "off").strip().lower()
             if mode not in ("once", "5min"):
                 return
-            if message.chat.id not in _ssd_groups():
+            if event.chat_id not in _ssd_groups():
                 return
             # 必须是转账bot 回复「我」发出的消息
-            rtm = getattr(message, "reply_to_message", None)
-            if not (rtm and rtm.from_user and getattr(rtm.from_user, "is_self", False)):
+            rtm = getattr(message, "_v2_reply", None)
+            if not (rtm and getattr(rtm, "_v2_sender", None)
+                    and getattr(rtm._v2_sender, "is_self", False)):
                 return
             text = message.text or getattr(message, "caption", "") or ""
             if "转账金额过大" not in text and "请确认你的转账" not in text:
@@ -226,12 +264,7 @@ async def setup(ctx):
                 return
             await asyncio.sleep(0.5)
             try:
-                await client.request_callback_answer(
-                    chat_id=message.chat.id,
-                    message_id=message.id,
-                    callback_data=callback_data,
-                    timeout=10,
-                )
+                await message.click(x=col, y=row)
                 ctx.log.info("SSD大额转账确认成功，点击了 %s 按钮", mode)
             except TimeoutError:
                 ctx.log.warning("SSD转账确认超时")
@@ -275,7 +308,7 @@ async def setup(ctx):
     @ctx.on_api("/recent", methods=["GET"])
     async def _api_recent(req):
         import json as _json
-        raw = ctx.kv.get("recent", None)
+        raw = await ctx.kv.get("recent", None)
         if isinstance(raw, str):
             try:
                 raw = _json.loads(raw)
@@ -401,20 +434,20 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, get_sender
                 name = text.split("\n")[0].strip() or "未知用户"
                 user_id, user_name = 0, name[:48]
         # 回复目标：bot 消息若在回复链上 → 回复源消息，否则回复 bot 广播消息本身
-        target = getattr(message, "reply_to_message", None) or message
+        target = getattr(message, "_v2_reply", None) or message
     elif self_mentioned:
         direction = "out"
         # 回复目标 = 我发起转账时「+金额」回复的那条（收款人）消息（缓存 id → 拉取）
         target = None
-        cached = pay_cache.pop(message.chat.id, 0)
+        cached = pay_cache.pop(message.chat_id, 0)
         if cached:
             try:
-                target = await client.get_messages(message.chat.id, cached)
+                target = await client.get_messages(message.chat_id, cached)
             except Exception:
                 target = None
         # 对手方 = 收款方：① 回复目标消息的 from_user（真实 uid）；② 广播非我实体；
         #                  ③ 兜底「已向 X 转赠」里的 X（uid=0）
-        cp_fu = getattr(target, "from_user", None) if target else None
+        cp_fu = getattr(target, "_v2_sender", None) if target else None
         if cp_fu and not getattr(cp_fu, "is_self", False):
             user_id, user_name = user_identity_from_user(cp_fu)
         elif other_entity:
@@ -480,7 +513,7 @@ def user_identity_from_user(fu) -> tuple[int, str]:
 async def _record_and_notify(ctx, store, client, message, target, site, direction,
                              user_id, user_name, amount, rank_size_fn):
     # 去重（防 bot 消息 + 编辑双触发）
-    if store.is_duplicate(site.site_name, direction, message.chat.id, message.id, amount):
+    if store.is_duplicate(site.site_name, direction, message.chat_id, message.id, amount):
         return
 
     stat = store.record(site.site_name, direction, user_id, user_name, amount)
@@ -531,7 +564,7 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         return
 
     owner_name = client.me.first_name if client.me else ""
-    chat_id = message.chat.id
+    chat_id = message.chat_id
     sent = None
     output_mode = str(ctx.config.get("rank_output", "text") or "text").strip().lower()
     want_image = output_mode == "image"
@@ -592,8 +625,8 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         sent_id = int(getattr(sent, "id", 0) or 0)
         if sent_id:
             ctx.create_task(
-                _auto_delete(ctx, client, message.chat.id, sent_id, 15),
-                name=f"transfer-auto-delete:{message.chat.id}:{sent_id}",
+                _auto_delete(ctx, client, message.chat_id, sent_id, 15),
+                name=f"transfer-auto-delete:{message.chat_id}:{sent_id}",
             )
         else:
             ctx.log.warning("排行榜消息已发送，但返回值缺少消息 ID，无法自动删除")
@@ -602,9 +635,10 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
 async def _send_reply(client, chat_id, target, text=None, photo=None, caption=None):
     """回复对手方消息（target 为 Message 对象）；target 为空则直接发到群（不指定回复）。"""
     if photo is not None:
-        if target is not None:
-            return await target.reply_photo(photo, caption=caption)
-        return await client.send_photo(chat_id, photo, caption=caption)
+        return await client.send_file(
+            chat_id, photo, caption=caption,
+            reply_to=(getattr(target, "id", None) if target is not None else None),
+        )
     if target is not None:
         return await target.reply(text)
     return await client.send_message(chat_id, text)
@@ -642,10 +676,10 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
         # 大小写不敏感匹配
         sites = [s for s in sites if s.lower() == site_filter.lower()]
         if not sites:
-            await message.edit_text(f"没有站点「{site_filter}」的转账数据。")
+            await message.edit(f"没有站点「{site_filter}」的转账数据。")
             return
     if not sites:
-        await message.edit_text("暂无任何转账数据。")
+        await message.edit("暂无任何转账数据。")
         return
 
     directions = [direction] if direction else ["in", "out"]
@@ -668,7 +702,7 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
             blocks.append(lb.render_text(entries, site_name, bonus, d))
             rich_blocks.append(lb.render_rich_table(entries, site_name, bonus, d))
     if not blocks:
-        await message.edit_text("暂无符合条件的排行榜数据。")
+        await message.edit("暂无符合条件的排行榜数据。")
         return
 
     out = "\n\n".join(blocks)
@@ -676,7 +710,7 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
     rich_out = "\n\n".join(rich_blocks) if output_mode == "rich_table" else ""
     if rich_out:
         try:
-            await _send_rich_reply(ctx, message.chat.id, None, rich_out)
+            await _send_rich_reply(ctx, message.chat_id, None, rich_out)
             try:
                 await message.delete()
             except Exception:
@@ -685,7 +719,7 @@ async def _do_rank_command(ctx, store, message, args, rank_size_fn):
         except Exception as rich_err:  # noqa: BLE001 - Premium 能力不可用时回退
             ctx.log.warning("[排行榜命令] Premium 富文本表格发送失败，回退文本: %r", rich_err)
     try:
-        await message.edit_text(out)
+        await message.edit(out)
     except Exception:
         await message.reply(out)
 

@@ -5,12 +5,15 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '通用抽奖',
  'id': 'common_lottery',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/common_lottery.jpg',
- 'changelog': 'v1.0.15 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 修复 Telethon 机器人识别\n'
+              '- 使用 User.bot 字段识别抽奖机器人，恢复自动参与功能\n'
+              '\n'
+              'v1.0.15 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

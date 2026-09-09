@@ -9,13 +9,16 @@ except ImportError:
 
 __plugin__ = {'name': '自动抢红包',
  'id': 'red_packet_grab',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复会话名称实体解析\n'
+              '- 管理接口改用 Telethon get_entity，保留失败时的 ID 回退\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

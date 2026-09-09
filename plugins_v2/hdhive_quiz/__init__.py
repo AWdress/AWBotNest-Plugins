@@ -5,13 +5,16 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v1.0.17 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 修复 Telethon 会话实体与媒体文本解析\n'
+              '- 管理接口改用 get_entity，兼容无 caption 的消息\n'
+              '\n'
+              'v1.0.17 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

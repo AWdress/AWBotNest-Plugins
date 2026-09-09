@@ -156,8 +156,26 @@ def parse_sites(raw: str) -> dict[int, list[SiteConfig]]:
     return result
 
 
+def _reply_of(msg):
+    """Return the reply message populated by the V2 event adapter.
+
+    Telethon exposes ``reply_to_msg_id`` and an async ``get_reply_message``;
+    the old Pyrogram ``reply_to_message`` attribute does not exist.  The
+    transfer handlers attach the fetched message as ``_v2_reply`` before
+    invoking these synchronous parsers.
+    """
+    if not msg:
+        return None
+    return getattr(msg, "_v2_reply", None) or getattr(msg, "reply_to_message", None)
+
+
+def _sender_of(msg):
+    return getattr(msg, "_v2_sender", None) or getattr(msg, "from_user", None)
+
+
 def _from_user_is_self(msg) -> bool:
-    return bool(msg and msg.from_user and getattr(msg.from_user, "is_self", False))
+    sender = _sender_of(msg)
+    return bool(sender and getattr(sender, "is_self", False))
 
 
 def detect_direction(message) -> Optional[str]:
@@ -167,10 +185,10 @@ def detect_direction(message) -> Optional[str]:
     PAY/out: message.reply_to_message.from_user.is_self
     注意：先判 in（更深一层），避免 out 误判。
     """
-    rtm = getattr(message, "reply_to_message", None)
+    rtm = _reply_of(message)
     if not rtm:
         return None
-    rtm2 = getattr(rtm, "reply_to_message", None)
+    rtm2 = _reply_of(rtm)
     if _from_user_is_self(rtm2):
         return "in"
     if _from_user_is_self(rtm):
@@ -180,12 +198,12 @@ def detect_direction(message) -> Optional[str]:
 
 def counterparty_message(message, direction: str):
     """返回承载对手方信息的那条消息（其 from_user 即转入方/收款方）。"""
-    rtm = getattr(message, "reply_to_message", None)
+    rtm = _reply_of(message)
     if not rtm:
         return None
     if direction == "in":
         return rtm                                   # 对方的 +金额 消息
-    return getattr(rtm, "reply_to_message", None)    # 对方的原始消息
+    return _reply_of(rtm)    # 对方的原始消息
 
 
 def plus_amount_message(message, direction: str):
@@ -195,7 +213,7 @@ def plus_amount_message(message, direction: str):
     PAY：我回复别人发的 +金额 → message.reply_to_message
     两种方向「+金额」都在 message.reply_to_message。
     """
-    return getattr(message, "reply_to_message", None)
+    return _reply_of(message)
 
 
 def extract_amount_from_text(text: Optional[str], pattern: re.Pattern) -> Optional[str]:
@@ -222,7 +240,7 @@ def user_identity(msg) -> tuple[int, str]:
 
     user_id 取不到时为 0；user_name 优先 first+last，回退 username/用户ID。
     """
-    fu = getattr(msg, "from_user", None) if msg else None
+    fu = _sender_of(msg) if msg else None
     if not fu:
         return 0, "未知用户"
     user_id = getattr(fu, "id", 0) or 0

@@ -240,12 +240,7 @@ async def manual_bet(client, message, bet_amount: int, flag: str, log) -> int:
         for _ in range(count):
             callback_data = f'{{"t":"{flag}","b":{int(bet_value)},"action":"ydxxz"}}'
             try:
-                result = await client.request_callback_answer(
-                    chat_id=message.chat.id,
-                    message_id=message.id,
-                    callback_data=callback_data,
-                    timeout=5,
-                )
+                result = await message.click(data=callback_data)
                 msg = getattr(result, "message", "") or ""
                 if "零食不足" in msg:
                     log.warning("YDX 零食不足，停止下注")

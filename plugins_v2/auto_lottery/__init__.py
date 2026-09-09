@@ -9,12 +9,16 @@ except ImportError:
 
 __plugin__ = {'name': '小菜抽奖',
  'id': 'auto_lottery',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复消息链接与中奖记录群名\n'
+              '- 兼容 Telethon 消息缺少 link 属性的通知路径\n'
+              '- 记录开奖群名称并保留原有发奖流程\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'
