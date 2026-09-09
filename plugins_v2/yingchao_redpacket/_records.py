@@ -66,8 +66,8 @@ class Records:
         self._log = log
 
     # —— 去重 ——
-    def _load_dedup(self) -> dict:
-        data = self._kv.get(_SNATCHED_KEY, None)
+    async def _load_dedup(self) -> dict:
+        data = await self._kv.get(_SNATCHED_KEY, None)
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -75,12 +75,12 @@ class Records:
                 data = {}
         return data if isinstance(data, dict) else {}
 
-    def _save_dedup(self, data: dict) -> None:
-        self._kv.set(_SNATCHED_KEY, json.dumps(data, ensure_ascii=False))
+    async def _save_dedup(self, data: dict) -> None:
+        await self._kv.set(_SNATCHED_KEY, json.dumps(data, ensure_ascii=False))
 
-    def already_handled(self, packet_key: str) -> bool:
+    async def already_handled(self, packet_key: str) -> bool:
         """该红包是否已处理过（自动清理过期记录）。"""
-        data = self._load_dedup()
+        data = await self._load_dedup()
         now = _time.time()
         # 清理过期
         stale = [k for k, ts in data.items() if now - float(ts or 0) > _DEDUP_TTL]
@@ -90,17 +90,17 @@ class Records:
             changed = True
         hit = packet_key in data
         if changed:
-            self._save_dedup(data)
+            await self._save_dedup(data)
         return hit
 
-    def mark_handled(self, packet_key: str) -> None:
-        data = self._load_dedup()
+    async def mark_handled(self, packet_key: str) -> None:
+        data = await self._load_dedup()
         data[packet_key] = _time.time()
-        self._save_dedup(data)
+        await self._save_dedup(data)
 
     # —— 历史 ——
-    def add_history(self, entry: dict) -> None:
-        data = self._kv.get(_HISTORY_KEY, None)
+    async def add_history(self, entry: dict) -> None:
+        data = await self._kv.get(_HISTORY_KEY, None)
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -113,4 +113,4 @@ class Records:
         data.append(entry)
         if len(data) > _HISTORY_MAX:
             data = data[-_HISTORY_MAX:]
-        self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))
+        await self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))

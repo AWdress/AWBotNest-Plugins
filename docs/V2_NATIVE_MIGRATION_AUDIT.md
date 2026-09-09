@@ -45,7 +45,7 @@
 | u2_dmhy | External | 高 | 否 | 否 | 否 | 是 | HTTP | 否 | 已完成 |
 | webhook_bridge | External/Utility | 中 | 否 | 否 | 否 | 是 | Webhook | 否 | 已完成 |
 | xjj | External | 中 | 否 | 否 | 是 | 否 | HTTP/Telegram | Schema | 已完成 |
-| yingchao_redpacket | Interactive | 中 | 是 | 是 | 是 | 否 | Telegram/OCR | 否 | P2 |
+| yingchao_redpacket | Interactive | 中 | 否 | 否 | 否 | 是 | Telegram/OCR | 否 | 已完成 |
 | zf | Utility | 低 | 否 | 否 | 否 | 否 | Telegram | Schema | 已完成 |
 | zhuque_lottery | Interactive/External | 极高 | 是 | 是 | 是 | 是 | HTTP | Vue | P4 |
 | zpr | External | 中 | 否 | 否 | 是 | 否 | HTTP/Telegram | Schema | 已完成 |

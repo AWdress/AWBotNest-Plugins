@@ -169,9 +169,9 @@ class TokenSnatcher:
         me = getattr(client, "me", None)
         acct_id = me.id if me else 0
         packet_key = f"{acct_id}:{group_id}:{packet_id}"
-        if self._records.already_handled(packet_key):
+        if await self._records.already_handled(packet_key):
             return
-        self._records.mark_handled(packet_key)
+        await self._records.mark_handled(packet_key)
 
         # 陷阱检测（对 caption）
         if is_trap_keyword(caption, trap_enabled, custom_keywords, self._log) and caption:
@@ -282,7 +282,7 @@ class TokenSnatcher:
             if ocr_entry.timeout_task:
                 ocr_entry.timeout_task.cancel()
             self._log.info("[影巢口令] OCR口令确认成功 %s 口令=%r", self._chat_label(group_id), ocr_entry.keyword)
-            self._records.add_history({
+            await self._records.add_history({
                 "type": "口令红包", "mode": "OCR", "group_id": group_id,
                 "group_title": self._chat_names.get(group_id, str(group_id)),
                 "sender": ocr_entry.sender_name, "keyword": ocr_entry.keyword, "ok": True,
@@ -331,7 +331,7 @@ class TokenSnatcher:
 
         self._log.info("[影巢口令] 复制模式发送 %s packet=%s 口令=%r ok=%s",
                        self._chat_label(group_id), orig_packet_id, keyword, ok)
-        self._records.add_history({
+        await self._records.add_history({
             "type": "口令红包", "mode": "复制", "group_id": group_id,
             "group_title": self._chat_names.get(group_id, str(group_id)),
             "sender": pending.sender_name, "keyword": keyword, "ok": ok,

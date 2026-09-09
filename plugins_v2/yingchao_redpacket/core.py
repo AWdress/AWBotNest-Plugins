@@ -81,15 +81,16 @@ _snatcher: TokenSnatcher | None = None
 
 async def setup(ctx):
     global _snatcher
-    records = Records(ctx.kv, ctx.log)
+    records = Records(ctx.storage, ctx.log)
     _snatcher = TokenSnatcher(ctx, records)
 
     if not _ocr.ocr_available():
         ctx.log.info("[影巢口令] ddddocr 不可用，图片口令OCR将降级为「等待复制」模式")
 
     # ───────── 口令红包：监控目标发包人的图片/文档红包 ─────────
-    @ctx.on_message(ctx.filters.group & (ctx.filters.photo | ctx.filters.document), group=-10)
-    async def on_token_packet(client, message):
+    @ctx.on_message()
+    async def on_token_packet(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         if not cfg.get("token_enabled", False):
             return
@@ -110,8 +111,9 @@ async def setup(ctx):
         )
 
     # ───────── 口令红包：监控群内回复（缓存口令 / 失败 / 成功确认）─────────
-    @ctx.on_message(ctx.filters.group & ctx.filters.reply, group=-10)
-    async def on_token_reply(client, message):
+    @ctx.on_message()
+    async def on_token_reply(event):
+        client, message = event.client, event.message
         if not ctx.config.get("token_enabled", False):
             return
         await _snatcher.handle_reply(client, message, notify=ctx.config.get("notify_owner", True))
