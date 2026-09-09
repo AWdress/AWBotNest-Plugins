@@ -221,7 +221,7 @@
     },
     "u2_dmhy": {
       "name": "U2送糖",
-      "version": "1.0.15",
+      "version": "2.0.0",
       "requirements": [
         "httpx>=0.27",
         "beautifulsoup4>=4.12"

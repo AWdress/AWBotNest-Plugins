@@ -196,8 +196,9 @@ def _parse_lottery(message) -> dict:
 
 
 async def setup(ctx):
-    @ctx.on_message(ctx.filters.text | ctx.filters.caption, group=8)
-    async def common_new_lottery(client, message):
+    @ctx.on_message()
+    async def common_new_lottery(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         text = message.text or message.caption or ""
         fu = message.from_user
@@ -284,8 +285,9 @@ async def setup(ctx):
                 except Exception:
                     pass
 
-    @ctx.on_message(ctx.filters.text | ctx.filters.caption, group=9)
-    async def common_draw_result(client, message):
+    @ctx.on_message()
+    async def common_draw_result(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         text = message.text or message.caption or ""
         fu = message.from_user

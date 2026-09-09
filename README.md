@@ -13,7 +13,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 |---:|---|:---:|---|:---:|
 | 1 | [自动换头像](plugins_v2/auto_avatar/) | 2.0.0 | 定时把账号头像换成图片池里随机一张。回复图片发 .avataradd 加入池子，.avatarlist/.avatarclear 管理。 | 是 |
 | 2 | [自动报时昵称](plugins_v2/auto_changename/) | 2.0.0 | 定时把你的账号昵称改成当前时间，支持自定义模板（时分秒/日期/星期/随机表情）。 | 是 |
-| 3 | [通用抽奖](plugins_v2/common_lottery/) | 1.0.15 | 自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。 | 是 |
+| 3 | [通用抽奖](plugins_v2/common_lottery/) | 2.0.0 | 自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。 | 是 |
 | 4 | [定时自动回复](plugins_v2/custom_auto_reply/) | 2.0.0 | 到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。 | 是 |
 | 5 | [取消息结构](plugins_v2/getmsg/) | 2.0.0 | 回复一条消息再发 /getmsg，把该消息的 Telethon 原始结构导出为 txt，便于调试。 | 是 |
 | 6 | [GPT-GOD 自动签到](plugins_v2/gptgod_checkin/) | 1.1.18 | 使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。 | 是 |
