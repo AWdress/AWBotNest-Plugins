@@ -31,7 +31,7 @@
 | id | Utility | 低 | 否 | 否 | 否 | 否 | Telegram | Schema | 已完成 |
 | jupai | Interactive | 低 | 否 | 否 | 是 | 否 | HTTP/Telegram | 否 | 已完成 |
 | keyword_auto_reply | Automation | 中 | 是 | 是 | 是 | 是 | Telegram | Vue | P3 |
-| movie_monitor_115 | External | 高 | 是 | 是 | 是 | 否 | HTTP | Vue | P4 |
+| movie_monitor_115 | External | 高 | 否 | 否 | 否 | 是 | HTTP | Vue | 已完成 |
 | msg_forward | Automation | 低 | 否 | 否 | 否 | 否 | Telegram | Schema | 已完成 |
 | probe | Utility | 低 | 否 | 否 | 否 | 是 | Telegram | 否 | 已完成 |
 | pt_multi_checkin | External | 极高 | 是 | 是 | 是 | 是 | HTTP/AI/Browser | Vue | P5 |

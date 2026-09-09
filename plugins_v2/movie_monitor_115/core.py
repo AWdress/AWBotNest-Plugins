@@ -402,8 +402,9 @@ async def setup(ctx):
         return {"items": await _chat_name_items(ctx)}
 
     # ───────── 监听 115 分享消息 ─────────
-    @ctx.on_message(ctx.filters.text | ctx.filters.caption, group=7)
-    async def monitor_channels(client, message):
+    @ctx.on_message()
+    async def monitor_channels(event):
+        client, message = event.client, event.message
         cfg = _effective_cfg(ctx)
         if not cfg.get("shareswitch", False):
             return
@@ -416,8 +417,9 @@ async def setup(ctx):
             ctx.log.error("[115监控] 处理消息异常: %r", e)
 
     # ───────── 命令：/getmedia 和 /find ─────────
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
-    async def commands(client, message):
+    @ctx.on_message(outgoing=True, incoming=False)
+    async def commands(event):
+        client, message = event.client, event.message
         text = message.text or ""
         if re.match(r"^[/\.]getmedia(?:\s|$)", text, re.IGNORECASE):
             await _cmd_getmedia(client, message, ctx)
