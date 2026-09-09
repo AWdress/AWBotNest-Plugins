@@ -42,7 +42,7 @@
 | self_delete | Utility | 低 | 否 | 否 | 否 | 否 | Telegram | Schema | 已完成 |
 | trans115search | Automation | 中 | 否 | 否 | 是 | 否 | Telegram | Schema | 已完成 |
 | transfer | Automation | 高 | 是 | 是 | 是 | 是 | Telegram | Vue | P3 |
-| u2_dmhy | External | 高 | 是 | 是 | 是 | 是 | HTTP | 否 | P4 |
+| u2_dmhy | External | 高 | 否 | 否 | 否 | 是 | HTTP | 否 | 已完成 |
 | webhook_bridge | External/Utility | 中 | 否 | 否 | 否 | 是 | Webhook | 否 | 已完成 |
 | xjj | External | 中 | 否 | 否 | 是 | 否 | HTTP/Telegram | Schema | 已完成 |
 | yingchao_redpacket | Interactive | 中 | 是 | 是 | 是 | 否 | Telegram/OCR | 否 | P2 |

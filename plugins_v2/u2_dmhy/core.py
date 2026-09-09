@@ -159,13 +159,13 @@ async def setup(ctx):
             cd = 300
         if cd <= 0:
             return
-        last = float(ctx.kv.get(_KV_LAST, 0) or 0)
+        last = float(await ctx.storage.get(_KV_LAST, 0) or 0)
         remaining = cd - (time.time() - last)
         if remaining > 0:
             await asyncio.sleep(remaining)
 
-    def _mark_pay():
-        ctx.kv.set(_KV_LAST, time.time())
+    async def _mark_pay():
+        await ctx.storage.set(_KV_LAST, time.time())
 
     async def _autodel(msg, delay):
         if delay <= 0 or not msg:
@@ -176,8 +176,8 @@ async def setup(ctx):
         except Exception:
             pass
 
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-9)
-    async def u2_gift(client, message):
+    @ctx.on_message(outgoing=True, incoming=False)
+    async def u2_gift(message):
         cfg = ctx.config
         text = (message.text or "").strip()
         head = _head(text)
@@ -205,7 +205,7 @@ async def setup(ctx):
             for user in users:
                 await _wait_cooldown()
                 ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log)
-                _mark_pay()
+                await _mark_pay()
                 if ok:
                     ok_n += 1
                     rows.append(f"✓ {user}")
@@ -229,7 +229,7 @@ async def setup(ctx):
             await message.edit("```\n幼儿糖发射中···```")
             await _wait_cooldown()
             ok, detail = await _gift(cfg["cookie"], user, bonus, note, ctx.log)
-            _mark_pay()
+            await _mark_pay()
             if ok:
                 body = (f"U2 送糖 · 成功\n{line}\n"
                         f"用户   {user}\n糖量   {bonus} UCoin\n附言   {note}")
