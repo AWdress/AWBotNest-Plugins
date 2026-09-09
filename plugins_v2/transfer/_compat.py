@@ -564,7 +564,15 @@ class CompatContext:
             )
             return Message(wrapper, sender, chat, reply)
 
-        return await resolve(event, is_event=True)
+        message = await resolve(event, is_event=True)
+        # Telegram Channel/Chat entities expose a bare positive ``id`` while
+        # event.chat_id carries the peer-marked value (for example -100...).
+        # Site configuration uses those complete chat IDs, so retain the event
+        # value for routing instead of silently missing every channel message.
+        event_chat_id = getattr(event, 'chat_id', None)
+        if event_chat_id is not None:
+            message.chat.id = int(event_chat_id)
+        return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
