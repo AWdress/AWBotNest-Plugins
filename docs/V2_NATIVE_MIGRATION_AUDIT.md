@@ -12,7 +12,7 @@
 | awblackjack | External/Interactive | 极高 | 是 | 是 | 是 | 是 | MQTT/HTTP | 否 | P5 |
 | awembypush | Automation | 中 | 是 | 是 | 否 | 是 | Telegram | Vue | P3 |
 | awpulse | External | 高 | 是 | 是 | 是 | 否 | HTTP/AI/Browser | Vue | P4 |
-| awrelay | Automation | 高 | 是 | 是 | 是 | 是 | Telegram Forum | Vue | P3 |
+| awrelay | Automation | 高 | 否 | 否 | 否 | 是 | Telegram Forum | Vue | 已完成 |
 | bomb_game | Interactive | 高 | 否 | 否 | 是 | 是 | Telegram | Vue | 已完成 |
 | common_lottery | Interactive | 中 | 否 | 否 | 否 | 是 | Telegram | 否 | 已完成 |
 | config_migration | Migration/Utility | 中 | 否 | 否 | 否 | 否 | HTTP | Vue | 已原生 |

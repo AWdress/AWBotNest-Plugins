@@ -41,6 +41,19 @@ _user_msg_times = defaultdict(deque)
 _media_groups = {}
 _media_tasks = set()
 _topic_locks = defaultdict(asyncio.Lock)
+_state = {}
+
+def _kv_get(key, default=None):
+    value = _state.get(key, default)
+    return value
+
+def _kv_set(ctx, key, value):
+    _state[key] = value
+    ctx.create_task(ctx.storage.set(key, value), name=f"awrelay-storage-{key}")
+
+def _kv_delete(ctx, key):
+    _state.pop(key, None)
+    ctx.create_task(ctx.storage.delete(key), name=f"awrelay-storage-delete-{key}")
 
 
 def _cfg(ctx):
@@ -48,12 +61,12 @@ def _cfg(ctx):
 
 
 def _dict(ctx, key):
-    value = ctx.kv.get(key, {}) or {}
+    value = _kv_get(key, {}) or {}
     return value if isinstance(value, dict) else {}
 
 
 def _set_dict(ctx, key, value):
-    ctx.kv.set(key, value)
+    _kv_set(ctx, key, value)
 
 
 def _topics(ctx):
@@ -65,13 +78,13 @@ def _mappings(ctx):
 
 
 def _ids(ctx, key):
-    return {int(x) for x in (ctx.kv.get(key, []) or [])}
+    return {int(x) for x in (_kv_get(key, []) or [])}
 
 
 def _set_banned(ctx, user_id, banned):
     users = _ids(ctx, "banned_users")
     users.add(int(user_id)) if banned else users.discard(int(user_id))
-    ctx.kv.set("banned_users", sorted(users))
+    _kv_set(ctx, "banned_users", sorted(users))
     return int(user_id) in users
 
 
@@ -438,7 +451,10 @@ async def _send_to_user(client, user_id, message):
 
 
 async def setup(ctx):
-    filters = ctx.filters
+    global _state
+    _state = {key: await ctx.storage.get(key, default) for key, default in {
+        "topics": {}, "message_mappings": {}, "banned_users": [], "verified_users": {}
+    }.items()}
 
     cfg_at_start = _cfg(ctx)
     if cfg_at_start.get("enabled") and cfg_at_start.get("startup_notify", True) and _target_id(cfg_at_start) and ctx.bot.connected:
@@ -458,7 +474,7 @@ async def setup(ctx):
         except Exception as exc:
             ctx.log.warning("发送启动通知失败：%s", exc)
 
-    @ctx.on_api("/status", methods=["GET"])
+    @ctx.on_api("status")
     async def api_status(req):
         cfg = _cfg(ctx)
         topics = _topics(ctx)
@@ -475,7 +491,7 @@ async def setup(ctx):
                 "active_users": len(topics),
                 "total_topics": len(topics), "banned_users": len(_ids(ctx, "banned_users"))}
 
-    @ctx.on_api("/topics", methods=["GET"])
+    @ctx.on_api("topics")
     async def api_topics(req):
         banned = _ids(ctx, "banned_users")
         items = []
@@ -485,7 +501,7 @@ async def setup(ctx):
                           "status": "已封禁" if int(user_id) in banned else "正常"})
         return {"topics": sorted(items, key=lambda item: item["last_active"], reverse=True)}
 
-    @ctx.on_api("/ban", methods=["POST"])
+    @ctx.on_api("ban")
     async def api_ban(req):
         data = req.json or {}
         if not isinstance(data, dict) or data.get("user_id") in (None, ""):
@@ -494,8 +510,9 @@ async def setup(ctx):
         is_banned = _set_banned(ctx, user_id, bool(data.get("banned", True)))
         return {"ok": True, "user_id": user_id, "banned": is_banned}
 
-    @ctx.on_message(filters.private & filters.incoming, group=10)
-    async def private_message(client, message):
+    @ctx.on_message(incoming=True)
+    async def private_message(event):
+        client, message = event.client, event.message
         cfg = _cfg(ctx)
         if not cfg["enabled"] or not message.from_user:
             return
@@ -539,8 +556,9 @@ async def setup(ctx):
             ctx.log.error("消息转发失败（用户 %s）：%s", user.id, exc)
             await message.reply("❌ 消息转发失败，请确认话题目标、模式和 Bot 权限后重试。")
 
-    @ctx.on_callback(filters.regex(r"^awrelay_captcha:"), group=15)
-    async def captcha_click(client, query):
+    @ctx.on_callback(pattern=r"^awrelay_captcha:")
+    async def captcha_click(query):
+        client = query.client
         try:
             _, raw_user_id, raw_choice = query.data.split(":", 2)
             user_id, choice = int(raw_user_id), int(raw_choice)
@@ -557,7 +575,7 @@ async def setup(ctx):
         if choice == int(pending["answer"]):
             verified = _ids(ctx, "verified_users")
             verified.add(user_id)
-            ctx.kv.set("verified_users", sorted(verified))
+            _kv_set(ctx, "verified_users", sorted(verified))
             _captcha_pending.pop(user_id, None)
             await query.answer("验证成功")
             await query.message.edit_text("✅ 验证成功！请重新发送需要转达的消息。")
@@ -570,8 +588,9 @@ async def setup(ctx):
             reply_markup=_captcha_markup(user_id, answer), parse_mode=ParseMode.HTML,
         )
 
-    @ctx.on_message(filters.incoming, group=20)
-    async def admin_message(client, message):
+    @ctx.on_message(incoming=True)
+    async def admin_message(event):
+        client, message = event.client, event.message
         cfg = _cfg(ctx)
         if not cfg["enabled"] or not _target_id(cfg) or message.chat.id != _target_id(cfg):
             return
@@ -613,10 +632,11 @@ async def setup(ctx):
         if len(kept) != len(mappings):
             _set_dict(ctx, "message_mappings", kept)
 
-    ctx.schedule(cleanup_mappings, "cron", hour=4, minute=0, id="清理旧消息映射")
+    ctx.schedule_cron("清理旧消息映射", cleanup_mappings, hour=4, minute=0)
 
 
 async def teardown(ctx):
+    global _state
     for task in list(_media_tasks):
         task.cancel()
     if _media_tasks:
@@ -626,3 +646,4 @@ async def teardown(ctx):
     _topic_locks.clear()
     _captcha_pending.clear()
     _user_msg_times.clear()
+    _state = {}
