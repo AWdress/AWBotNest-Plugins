@@ -53,17 +53,23 @@ except Exception:
 
 
 class Filter:
-    def __init__(self, check: Callable[[Any, Any], bool]):
+    def __init__(self, check: Callable[[Any, Any], bool], direction: str | None = None):
         self.check = check
+        self.direction = direction
 
     def __and__(self, other):
-        return Filter(lambda e, m: self.check(e, m) and other.check(e, m))
+        direction = self.direction or other.direction
+        if self.direction and other.direction and self.direction != other.direction:
+            direction = None
+        return Filter(lambda e, m: self.check(e, m) and other.check(e, m), direction)
 
     def __or__(self, other):
-        return Filter(lambda e, m: self.check(e, m) or other.check(e, m))
+        direction = self.direction if self.direction == other.direction else None
+        return Filter(lambda e, m: self.check(e, m) or other.check(e, m), direction)
 
     def __invert__(self):
-        return Filter(lambda e, m: not self.check(e, m))
+        direction = {'incoming': 'outgoing', 'outgoing': 'incoming'}.get(self.direction)
+        return Filter(lambda e, m: not self.check(e, m), direction)
 
 
 class Filters:
@@ -75,8 +81,8 @@ class Filters:
     video = Filter(lambda e, m: bool(m.video))
     voice = Filter(lambda e, m: bool(m.voice))
     sticker = Filter(lambda e, m: bool(m.sticker))
-    outgoing = Filter(lambda e, m: bool(m.outgoing))
-    incoming = Filter(lambda e, m: not bool(m.outgoing))
+    outgoing = Filter(lambda e, m: bool(m.outgoing), 'outgoing')
+    incoming = Filter(lambda e, m: not bool(m.outgoing), 'incoming')
     group = Filter(lambda e, m: str(m.chat.type) in {'group', 'supergroup'})
     private = Filter(lambda e, m: str(m.chat.type) == 'private')
     channel = Filter(lambda e, m: str(m.chat.type) == 'channel')
@@ -535,6 +541,10 @@ class CompatContext:
         await self._kv.close()
 
     async def _message(self, event):
+        cached = getattr(event, '_transfer_compat_message', None)
+        if cached is not None:
+            return await cached if inspect.isawaitable(cached) else cached
+
         async def resolve(value, fallback_chat=None, depth=0, is_event=False):
             """Resolve the sender and two reply levels required by transfer parsing."""
             # A Telethon Message also has a ``message`` attribute containing
@@ -564,7 +574,15 @@ class CompatContext:
             )
             return Message(wrapper, sender, chat, reply)
 
-        message = await resolve(event, is_event=True)
+        # Platform callbacks for the same update may run concurrently.  Cache
+        # the in-flight conversion itself so only one callback performs the
+        # two sequential Telegram reply lookups.
+        pending = asyncio.create_task(resolve(event, is_event=True))
+        try:
+            setattr(event, '_transfer_compat_message', pending)
+        except Exception:
+            pass
+        message = await pending
         # Telegram Channel/Chat entities expose a bare positive ``id`` while
         # event.chat_id carries the peer-marked value (for example -100...).
         # Site configuration uses those complete chat IDs, so retain the event
@@ -572,13 +590,22 @@ class CompatContext:
         event_chat_id = getattr(event, 'chat_id', None)
         if event_chat_id is not None:
             message.chat.id = int(event_chat_id)
+        try:
+            setattr(event, '_transfer_compat_message', message)
+        except Exception:
+            pass
         return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
         selected = value if isinstance(value, Filter) else None
         if selected is not None:
-            incoming = outgoing = None
+            if selected.direction == 'incoming':
+                incoming, outgoing = True, False
+            elif selected.direction == 'outgoing':
+                incoming, outgoing = False, True
+            else:
+                incoming = outgoing = None
         decorator = self._ctx.on_message(pattern=pattern, chats=chats,
                                          incoming=incoming, outgoing=outgoing)
         def register(callback):

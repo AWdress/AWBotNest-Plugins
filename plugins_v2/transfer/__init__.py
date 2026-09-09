@@ -14,13 +14,18 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '1.1.10',
+ 'version': '1.1.11',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v1.1.10 修复 V2 站点群消息未触发\n'
+ 'changelog': 'v1.1.11 优化 V2 排行榜响应速度\n'
+              '- 同一 Telegram 事件的两层回复链只读取一次，供多个监听器共享\n'
+              '- 将入站与出站条件下推到平台事件过滤，避免唤醒无关监听器\n'
+              '- 降低 SpringSunday 等回复链转账的重复网络请求与响应等待\n'
+              '\n'
+              'v1.1.10 修复 V2 站点群消息未触发\n'
               '- 使用 Telethon 事件的完整会话 ID 匹配内置站点群\n'
               '- 修复频道实体正数 ID 无法匹配 -100 群 ID，导致消息被静默忽略的问题\n'
               '- 按真实 Telethon 群实体与事件 ID 差异重新验证转账入榜链路\n'
