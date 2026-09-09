@@ -957,7 +957,13 @@ async def _handle_ydx(ctx, state, store, client, message):
 
 
 async def _ydx_reveal(ctx, state, store, client, message, match):
-    me_id = client.me.id if client.me else 0
+    me = getattr(client, "me", None)
+    if me is None:
+        try:
+            me = await client.get_me()
+        except Exception:
+            me = None
+    me_id = getattr(me, "id", 0) if me else 0
     die_point = int(match.group(1))
     result_map = {"大": "Big", "小": "Small"}
     lottery_result = result_map.get(match.group(2), "unknown")

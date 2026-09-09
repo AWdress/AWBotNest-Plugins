@@ -4,7 +4,7 @@ import asyncio
 import re
 import time
 
-__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.0","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
+__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.1","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
 
 _URL_RE=re.compile(r"https?://",re.I)
 def _split(raw):
@@ -48,20 +48,26 @@ def _passes(rule,messages,text,sender):
 
 async def _album(client,event):
     grouped=getattr(event,"grouped_id",None)
-    if not grouped:return [event]
+    if not grouped:return [event.message]
     await asyncio.sleep(.8)
     found=[]
     async for message in client.iter_messages(event.chat_id,min_id=max(0,event.id-20),max_id=event.id+20,reverse=True):
         if getattr(message,"grouped_id",None)==grouped:found.append(message)
-    return found or [event]
+    return found or [event.message]
 
 async def _copy(client,target,messages):
     if len(messages)==1 and not messages[0].media:return await client.send_message(target,messages[0].raw_text or "")
     files=[]
     for message in messages:
-        if message.media:files.append(await client.download_media(message,bytes))
+        if message.media:
+            downloaded = await client.download_media(message,bytes)
+            if downloaded is not None:
+                files.append(downloaded)
     caption=next((m.raw_text for m in messages if m.raw_text),None)
     if files:return await client.send_file(target,files if len(files)>1 else files[0],caption=caption)
+    # 媒体下载失败时不要把 None 传给 send_file；回退为原生转发，至少保证消息可达。
+    if any(getattr(message,"media",None) for message in messages):
+        return await client.forward_messages(target,messages)
     return await client.send_message(target,caption or "")
 
 async def setup(ctx):
@@ -89,7 +95,7 @@ async def setup(ctx):
             for key in [key for key,value in seen.items() if now-value>=60]:seen.pop(key,None)
             if grouped in seen:return
             seen[grouped]=now;messages=await _album(event.client,event)
-        else:messages=[event]
+        else:messages=[event.message]
         chat=await event.get_chat();sender=await event.get_sender();text=next((m.raw_text for m in messages if m.raw_text),"")
         for rule in cfg.get("rules") or []:
             if not isinstance(rule,dict):continue
@@ -97,8 +103,10 @@ async def setup(ctx):
             if source is None or not _source_matches(event.chat_id,chat,source) or not _passes(rule,messages,text,sender):continue
             for target in filter(lambda x:x is not None,(_peer(x) for x in _split(rule.get("targets")))):
                 try:
-                    if rule.get("copy"):await _copy(event.client,target,messages)
-                    else:await event.client.forward_messages(target,messages if len(messages)>1 else messages[0])
+                    if rule.get("copy"):
+                        await _copy(event.client,target,messages)
+                    else:
+                        await event.client.forward_messages(target,messages)
                     ctx.log.info("[消息转发] %s (%s) -> %s (%s)",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target)
                 except asyncio.CancelledError:raise
                 except Exception as error:ctx.log.warning("[消息转发] 转发失败 %s -> %s: %r",event.chat_id,target,error)

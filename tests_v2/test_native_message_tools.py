@@ -83,6 +83,17 @@ class NativeMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(msg_forward._peer("-100123"),-100123)
         self.assertEqual(msg_forward._peer("@channel"),"@channel")
 
+    async def test_message_forward_media_download_none_falls_back_to_forward(self):
+        class CopyClient:
+            def __init__(self): self.forwarded=[]; self.files=[]
+            async def download_media(self,*args,**kwargs): return None
+            async def forward_messages(self,target,messages): self.forwarded.append((target,messages))
+            async def send_file(self,*args,**kwargs): self.files.append((args,kwargs))
+        client=CopyClient(); message=SimpleNamespace(raw_text="图片说明",media=object())
+        await msg_forward._copy(client,-1002,[message])
+        self.assertEqual(len(client.forwarded),1)
+        self.assertFalse(client.files)
+
     async def test_xjj_extracts_nested_video_url(self):
         class Response:
             def raise_for_status(self):pass

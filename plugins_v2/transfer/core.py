@@ -403,7 +403,12 @@ async def _handle_hdsky(ctx, store, client, message, site, pay_cache, get_sender
     if amount <= 0:
         return
 
-    me = client.me
+    me = getattr(client, "me", None)
+    if me is None:
+        try:
+            me = await client.get_me()
+        except Exception:
+            me = None
     full_name = ""
     if me:
         full_name = " ".join(filter(None, [getattr(me, "first_name", None),
@@ -563,7 +568,13 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     if not text and not entries:
         return
 
-    owner_name = client.me.first_name if client.me else ""
+    me = getattr(client, "me", None)
+    if me is None:
+        try:
+            me = await client.get_me()
+        except Exception:
+            me = None
+    owner_name = getattr(me, "first_name", "") if me else ""
     chat_id = message.chat_id
     sent = None
     output_mode = str(ctx.config.get("rank_output", "text") or "text").strip().lower()
