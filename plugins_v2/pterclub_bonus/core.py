@@ -360,7 +360,7 @@ async def setup(ctx):
             except Exception:
                 pass
 
-        ctx.create_task(worker(), name="猫站赠粮结果清理", operation="auto_delete")
+        ctx.create_task(worker(), name="猫站赠粮结果清理")
 
     async def _cookie_error_notify(detail: str):
         if ctx.config.get("notify_cookie_error", True) and "Cookie" in detail:

@@ -1,26 +1,26 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""transfer AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
+from .core import setup as _core_setup, teardown as _core_teardown
 try:
-    from ._legacy import DEFAULTS as _legacy_defaults
+    from .core import DEFAULTS as _defaults
 except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+    _defaults = {}
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '1.1.12',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v1.1.12 修复排行榜延迟与自动删除\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v1.1.12 修复排行榜延迟与自动删除\n'
               '- 移除 ZmPT 排行榜写死的发送等待，改为收到转账后立即响应\n'
               '- 自动删除统一按会话与消息 ID 执行，兼容文本、图片和富文本返回值\n'
               '- 自动删除失败时输出可定位日志，不再静默忽略\n'
@@ -126,25 +126,18 @@ __plugin__ = {'name': '多站点转账',
               'v1.0.17 完善多站点转账与排行榜\n'
               '- 修复站点转账识别、排行榜渲染与管理面板兼容问题',
  'config_schema': {},
- 'v1_compatible_version': '1.1.0',
- 'v2_adapter': 'telethon',
  'tags': ['站点转赠', '魔力转移', '排行榜'],
- 'render_mode': 'vue'}
-_active_context = None
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
+_active_context = None
 
 async def setup(ctx):
     global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
     global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = '多站点转账'

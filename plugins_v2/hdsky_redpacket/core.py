@@ -93,7 +93,7 @@ async def _update_config_names(ctx) -> None:
     labels = []
     for value in groups:
         try:
-            chat = await apps[0].get_chat(value)
+            chat = await apps[0].get_entity(value)
             name = _chat_name(chat, value)
         except Exception:  # noqa: BLE001
             name = str(value)
@@ -106,7 +106,7 @@ def _click_once(client, message) -> bool:
     """点击去重：返回 True 表示首次（可点击），False 表示已点过。"""
     me = getattr(client, "me", None)
     acct_id = me.id if me else id(client)
-    key = f"{acct_id}:{message.chat.id}:{message.id}"
+    key = f"{acct_id}:{message.chat_id}:{message.id}"
     _prune_clicked()
     if key in _clicked:
         return False
@@ -122,18 +122,19 @@ async def setup(ctx):
     @ctx.on_message(pattern=r"^/red(@[\w]+)?(\s|$)")
     async def on_red_command(event):
         client, message = event.client, event.message
+        chat = await event.get_chat()
         cfg = ctx.config
         if not cfg.get("button_enabled", False) or not cfg.get("button_pre_send", False):
             return
         groups = parse_groups(cfg.get("button_groups", ""))
-        if groups and message.chat.id not in groups:
+        if groups and event.chat_id not in groups:
             return
         try:
             pre = cfg.get("button_pre_send_text", ".") or "."
-            m = await client.send_message(message.chat.id, pre)
+            m = await client.send_message(event.chat_id, pre)
             await m.delete()
             ctx.log.debug("[拼手气红包] /red 占位发言 %s (%s)",
-                          _chat_name(message.chat, message.chat.id), message.chat.id)
+                          _chat_name(chat, event.chat_id), event.chat_id)
         except Exception as e:  # noqa: BLE001
             ctx.log.debug("[拼手气红包] /red 占位失败: %r", e)
 
@@ -144,11 +145,12 @@ async def setup(ctx):
         cfg = ctx.config
         if not cfg.get("button_enabled", False):
             return
-        fu = message.from_user
+        fu = await event.get_sender()
+        chat = await event.get_chat()
         if not (fu and getattr(fu, "is_bot", False) and fu.id == _HDSKY_BOT_ID):
             return
         groups = parse_groups(cfg.get("button_groups", ""))
-        if groups and message.chat.id not in groups:
+        if groups and event.chat_id not in groups:
             return
         if not is_lucky_packet(message):
             return
@@ -165,21 +167,21 @@ async def setup(ctx):
         try:
             result = await message.click(x=col, y=row, timeout=10)
             rtext = getattr(result, "text", None) or getattr(result, "message", None) or str(result)
-            chat_name = _chat_name(message.chat, message.chat.id)
+            chat_name = _chat_name(chat, event.chat_id)
             ctx.log.info("[拼手气红包] 已点击 %s (%s) msg=%s 结果=%s",
                          chat_name, message.chat.id, message.id, rtext)
-            await records.add_history({"type": "拼手气红包", "group_id": message.chat.id,
+            await records.add_history({"type": "拼手气红包", "group_id": event.chat_id,
                                  "group_title": chat_name, "result": str(rtext), "ok": True})
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
-                    f"拼手气红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{rtext}\n\n{getattr(message,'link','')}",
+                    f"拼手气红包-已抢\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{rtext}",
                     level="success")
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[拼手气红包] 点击失败 %s (%s) msg=%s: %r",
-                          _chat_name(message.chat, message.chat.id), message.chat.id, message.id, e)
+                          _chat_name(chat, event.chat_id), event.chat_id, message.id, e)
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,
-                    f"拼手气红包-点击失败\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{e}",
+                    f"拼手气红包-点击失败\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{e}",
                     level="error")
 
     ctx.log.info("[拼手气红包] 已加载")

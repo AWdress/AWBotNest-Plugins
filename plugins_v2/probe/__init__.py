@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '插件开发探针',
  'id': 'probe',
@@ -60,8 +52,6 @@ __plugin__ = {'name': '插件开发探针',
                                      'order': 20,
                                      'section': '输出设置',
                                      'help': '速查区里文本类字段超过该长度会截断（原始结构区不截断）。'}},
- 'v1_compatible_version': '1.0.3',
- 'v2_adapter': 'telethon',
  'tags': ['网络探测', '延迟测试', '服务监控']}
 async def setup(ctx):
     await _native_setup(ctx)

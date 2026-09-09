@@ -1,27 +1,23 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""red_packet_send AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '发红包',
  'id': 'red_packet_send',
- 'version': '1.0.22',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0'],
  'description': '用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 '
                 'Vue 配置界面 + 红包监控。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v1.0.22 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v1.0.22 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -57,25 +53,14 @@ __plugin__ = {'name': '发红包',
               '- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n'
               '- 总额不足以每个红包至少 1 魔力时拒绝创建',
  'config_schema': {},
- 'v1_compatible_version': '1.0.14',
- 'v2_adapter': 'telethon',
  'tags': ['红包发送', '定时发包', '活动管理'],
- 'render_mode': 'vue'}
-_active_context = None
-
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = '发红包'

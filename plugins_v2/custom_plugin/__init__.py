@@ -64,8 +64,6 @@ __plugin__ = {'name': '插件开发调试',
               '- 仅管理员配置页可修改，不开放 Telegram 远程写代码',
  'config_schema': {},
  'plugin_api_version': 2,
- 'v1_compatible_version': '1.0.3',
- 'v2_adapter': 'telethon',
  'tags': ['自定义插件', '脚本执行', '扩展开发'],
  'render_mode': 'vue'}
 async def setup(ctx):

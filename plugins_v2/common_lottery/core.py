@@ -12,6 +12,7 @@ import asyncio
 import re
 import time as _time
 from random import randint
+from telethon import functions
 
 __plugin__ = {
     "name": "通用抽奖",
@@ -112,13 +113,12 @@ def _extract_join_targets(message) -> list:
     targets = []
     for entity in (message.entities or []):
         # 不 import pyrogram，用 entity.type 的字符串名判断 TEXT_LINK
-        etype = str(getattr(entity, "type", "")).upper()
         url = getattr(entity, "url", None)
-        if "TEXT_LINK" in etype and url:
+        if url:
             url = url.strip()
             if "t.me/" in url and url not in targets:
                 targets.append(url)
-    text = message.text or message.caption or ""
+    text = message.raw_text or ""
     for m in re.findall(r"(https?://t\.me/[^\s)]+|t\.me/[^\s)]+)", text):
         m = m.strip()
         if m not in targets:
@@ -147,9 +147,8 @@ async def _check_joined(client, link: str, log) -> bool:
     if not arg or is_invite:
         return False
     try:
-        member = await client.get_chat_member(arg, "me")
-        # 用状态字符串名判断，避免 import ChatMemberStatus
-        return str(getattr(member, "status", "")).upper().rsplit(".", 1)[-1] in ("OWNER", "ADMINISTRATOR", "MEMBER")
+        await client.get_permissions(arg, "me")
+        return True
     except Exception as e:  # noqa: BLE001 - UserNotParticipant 等统一视为未加入
         log.debug("[通用抽奖] 成员查询失败(%s): %s", type(e).__name__, link)
         return False
@@ -157,11 +156,15 @@ async def _check_joined(client, link: str, log) -> bool:
 
 async def _ensure_joined(client, link: str) -> tuple:
     """尝试加群。返回 (success, detail)。异常按类名判断处理。"""
-    arg, _ = _normalize_join_arg(link)
+    arg, is_invite = _normalize_join_arg(link)
     if not arg:
         return False, f"无法识别的链接: {link}"
     try:
-        await client.join_chat(arg)
+        if is_invite:
+            invite_hash = str(arg).rstrip("/").rsplit("/", 1)[-1].lstrip("+")
+            await client(functions.messages.ImportChatInviteRequest(invite_hash))
+        else:
+            await client(functions.channels.JoinChannelRequest(arg))
         return True, f"已加入: {link}"
     except Exception as e:  # noqa: BLE001
         name = type(e).__name__
@@ -179,7 +182,7 @@ async def _ensure_joined(client, link: str) -> tuple:
 
 
 def _parse_lottery(message) -> dict:
-    text = message.text or message.caption or ""
+    text = message.raw_text or ""
     info = {}
     m = re.search(r"🎁\s*奖品内容[:：]\s*\n?\s*(.+)", text)
     if not m:
@@ -200,8 +203,9 @@ async def setup(ctx):
     async def common_new_lottery(event):
         client, message = event.client, event.message
         cfg = ctx.config
-        text = message.text or message.caption or ""
-        fu = message.from_user
+        text = message.raw_text or ""
+        fu = await event.get_sender()
+        chat = await event.get_chat()
         if not (fu and fu.is_bot and fu.id == _BOT_ID):
             return
         # 抽奖消息特征：含口令 + （人数/日期开奖）
@@ -209,7 +213,7 @@ async def setup(ctx):
             return
         if not ("开奖需要参与人数" in text or "开奖日期" in text):
             return
-        if not _group_allowed(cfg, message.chat.id):
+        if not _group_allowed(cfg, event.chat_id):
             return
 
         _prune_stale(ctx.log)
@@ -218,7 +222,7 @@ async def setup(ctx):
             ctx.log.warning("[通用抽奖] 未解析出口令，跳过 msg=%s", message.id)
             return
 
-        key = _make_key(message.chat.id, message.id)
+        key = _make_key(event.chat_id, message.id)
         notify = cfg.get("notify_owner", True)
 
         # 加群处理
@@ -251,7 +255,7 @@ async def setup(ctx):
             await asyncio.sleep(randint(2, 5))
 
         _lottery_list[key] = {"keyword": info["keyword"], "prize": info["prize"],
-                              "chat_id": message.chat.id, "target": info["target"],
+                              "chat_id": event.chat_id, "target": info["target"],
                               "draw_time": info.get("draw_time"), "won": False}
         _added_at[key] = _time.time()
 
@@ -263,14 +267,14 @@ async def setup(ctx):
             return
 
         try:
-            await client.send_message(message.chat.id, info["keyword"], parse_mode=None)
+            await client.send_message(event.chat_id, info["keyword"], parse_mode=None)
             ctx.log.info("[通用抽奖] 已发口令参与: %s", key)
             if notify:
                 draw = info.get("draw_time") or (f"参与人数到 {info['target']}" if info.get("target") else "")
                 join_line = ("加群：" + "; ".join(join_details) + "\n\n") if join_details else ""
                 try:
                     await ctx.notify(
-                        f"通用抽奖参与成功\n\n奖品：{info['prize']}\n\n群组：{message.chat.title}\n\n{join_line}"
+                        f"通用抽奖参与成功\n\n奖品：{info['prize']}\n\n群组：{getattr(chat, 'title', event.chat_id)}\n\n{join_line}"
                         f"{('开奖：' + draw + chr(10)*2) if draw else ''}口令：{info['keyword']}\n\n来源：{message.link}",
                         level="success", category="通用抽奖", account=client,
                     )
@@ -289,16 +293,16 @@ async def setup(ctx):
     async def common_draw_result(event):
         client, message = event.client, event.message
         cfg = ctx.config
-        text = message.text or message.caption or ""
-        fu = message.from_user
+        text = message.raw_text or ""
+        fu = await event.get_sender()
         if not (fu and fu.is_bot and fu.id == _BOT_ID):
             return
         if "开奖了" not in text or "本期总参与人数" not in text:
             return
-        if not _group_allowed(cfg, message.chat.id):
+        if not _group_allowed(cfg, event.chat_id):
             return
         # 开奖名单无 TGID，无法判断中奖，仅清理追踪条目
-        for k in [k for k, v in _lottery_list.items() if v["chat_id"] == message.chat.id]:
+        for k in [k for k, v in _lottery_list.items() if v["chat_id"] == event.chat_id]:
             _lottery_list.pop(k, None)
             _added_at.pop(k, None)
 

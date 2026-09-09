@@ -1,26 +1,26 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""red_packet_grab AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
+from .core import setup as _core_setup, teardown as _core_teardown
 try:
-    from ._legacy import DEFAULTS as _legacy_defaults
+    from .core import DEFAULTS as _defaults
 except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+    _defaults = {}
 
 __plugin__ = {'name': '自动抢红包',
  'id': 'red_packet_grab',
- 'version': '1.2.12',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v1.2.12 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v1.2.12 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -72,25 +72,18 @@ __plugin__ = {'name': '自动抢红包',
               'v1.1.1 更新插件 Logo\n'
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
  'config_schema': {},
- 'v1_compatible_version': '1.2.4',
- 'v2_adapter': 'telethon',
  'tags': ['红包监控', '自动抢包', '群组通知'],
- 'render_mode': 'vue'}
-_active_context = None
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
+_active_context = None
 
 async def setup(ctx):
     global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
     global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = '自动抢红包'

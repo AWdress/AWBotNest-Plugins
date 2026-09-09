@@ -1,24 +1,20 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""ai AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AI 助手',
  'id': 'ai',
- 'version': '1.3.13',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'description': '私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png',
- 'changelog': 'v1.3.13 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v1.3.13 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -81,25 +77,14 @@ __plugin__ = {'name': 'AI 助手',
               '- 未启用主动搭话时不再注册每分钟检查任务',
  'scope': 'user',
  'config_schema': {},
- 'v1_compatible_version': '1.3.4',
- 'v2_adapter': 'telethon',
  'tags': ['AI对话', '智能回复', '主动搭话'],
- 'render_mode': 'vue'}
-_active_context = None
-
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = 'AI 助手'

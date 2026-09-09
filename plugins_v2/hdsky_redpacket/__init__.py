@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '拼手气红包(HDSKY)',
  'id': 'hdsky_redpacket',
@@ -80,8 +72,6 @@ __plugin__ = {'name': '拼手气红包(HDSKY)',
                                             'order': 12,
                                             'section': '参数配置',
                                             'show_if': {'button_enabled': True}}},
- 'v1_compatible_version': '1.0.6',
- 'v2_adapter': 'telethon',
  'tags': ['天空红包', '自动领取', '动态密码']}
 async def setup(ctx):
     await _native_setup(ctx)

@@ -67,8 +67,6 @@ __plugin__ = {'name': 'U2送糖',
                                      'step': 10,
                                      'section': '限频与清理',
                                      'order': 31}},
- 'v1_compatible_version': '1.0.7',
- 'v2_adapter': 'telethon',
  'tags': ['U2赠魔', '魔力转赠', '站点Cookie']}
 _active_context = None
 

@@ -1,29 +1,41 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""digital_pet AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '电子宠物',
  'id': 'digital_pet',
- 'version': '2.1.10',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'scope': 'user',
  'description': '在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png',
- 'changelog': 'v2.1.10 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v2.1.10 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
-              'v2.1.9 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv2.1.8 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv2.1.7 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv2.1.5 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+              'v2.1.9 修复数值配置显示\n'
+              '- 将滑块字段改为精确数值输入，确保当前值始终可见\n'
+              '- 保留原有默认值、范围和步长校验\n'
+              '\n'
+              'v2.1.8 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v2.1.7 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v2.1.5 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -149,26 +161,15 @@ __plugin__ = {'name': '电子宠物',
                             'label': '玩法说明',
                             'order': 30,
                             'section': '命令说明',
-                            'text': '先发送 /领养 名字 或 .领养 名字 来领养宠物；领养后可用 /状态、/喂食、/玩耍、/清洁 与它互动。用 /档案 查看成长档案，用 /背包 '
-                                    '查看道具，用 /使用 道具名 来使用道具。'}},
- 'v1_compatible_version': '2.1.2',
- 'v2_adapter': 'telethon',
- 'tags': ['电子宠物', '喂养互动', '随机事件']}
-_active_context = None
-
+                            'text': '先发送 /领养 名字 或 .领养 名字 来领养宠物；领养后可用 /状态、/喂食、/玩耍、/清洁 与它互动。用 /档案 查看成长档案，用 /背包 查看道具，用 '
+                                    '/使用 道具名 来使用道具。'}},
+ 'tags': ['电子宠物', '喂养互动', '随机事件'],
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = '电子宠物'

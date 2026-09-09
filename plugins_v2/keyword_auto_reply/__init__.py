@@ -1,24 +1,20 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""keyword_auto_reply AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '聊天互动助手',
  'id': 'keyword_auto_reply',
- 'version': '2.2.11',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'description': '按可配置概率自动回复群消息，关键词可选，并支持追加回复、冷却、限群、自动删除及排行榜。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_reply.png',
- 'changelog': 'v2.2.11 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v2.2.11 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -118,25 +114,14 @@ __plugin__ = {'name': '聊天互动助手',
               '- 关键词规则改用列表控件，群组范围改用会话选择器',
  'scope': 'user',
  'config_schema': {},
- 'v1_compatible_version': '2.2.2',
- 'v2_adapter': 'telethon',
  'tags': ['关键词回复', '定时规则', '自动删除'],
- 'render_mode': 'vue'}
-_active_context = None
-
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = '聊天互动助手'

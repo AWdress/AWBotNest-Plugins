@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
@@ -134,8 +126,6 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                        'section': '运行状态',
                                        'cols': 12,
                                        'order': 41}},
- 'v1_compatible_version': '1.1.9',
- 'v2_adapter': 'telethon',
  'tags': ['GPT-GOD签到', '多账号', '网页自动化']}
 async def setup(ctx):
     await _native_setup(ctx)

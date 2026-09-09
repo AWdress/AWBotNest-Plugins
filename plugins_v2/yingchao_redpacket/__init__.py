@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '影巢口令红包（测试）',
  'id': 'yingchao_redpacket',
@@ -94,8 +86,6 @@ __plugin__ = {'name': '影巢口令红包（测试）',
                                            'section': '参数配置',
                                            'show_if': {'token_enabled': True},
                                            'help': '逗号或换行分隔。口令命中其中任一关键词则拒绝发送。'}},
- 'v1_compatible_version': '1.0.5',
- 'v2_adapter': 'telethon',
  'tags': ['应超红包', '自动领取', '口令解析']}
 async def setup(ctx):
     await _native_setup(ctx)

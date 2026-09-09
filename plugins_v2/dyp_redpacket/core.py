@@ -85,7 +85,7 @@ def _click_once(client, message) -> bool:
     """点击去重：返回 True 表示首次（可点击），False 表示已点过。"""
     me = getattr(client, "me", None)
     acct_id = me.id if me else id(client)
-    key = f"{acct_id}:{message.chat.id}:{message.id}"
+    key = f"{acct_id}:{message.chat_id}:{message.id}"
     _prune_clicked()
     if key in _clicked:
         return False
@@ -117,10 +117,11 @@ async def setup(ctx):
         cfg = ctx.config
         if not cfg.get("dyp_enabled", False):
             return
-        fu = message.from_user
+        fu = await event.get_sender()
+        chat = await event.get_chat()
         if not (fu and getattr(fu, "is_bot", False) and fu.id == _DYP_BOT_ID):
             return
-        if message.chat.id != _DYP_GROUP_ID:
+        if event.chat_id != _DYP_GROUP_ID:
             return
         # 该 bot 在该群只发红包，匹配「红包」即可。混合红包文案含「红包」（也含「雷包」，
         # 但已不再据此整包跳过）。
@@ -156,22 +157,22 @@ async def setup(ctx):
                 ctx.log.info("[癫影积分红包] 第%d格(行%d列%d) 结果=%r", idx, row, col, rstr)
 
                 if is_snatch_success(rstr):
-                    await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                    await records.add_history({"type": "癫影积分红包", "group_id": event.chat_id,
                                          "meta": brief, "result": rstr, "ok": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
-                            f"癫影积分红包-已抢\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{brief}\n\n{rstr}\n\n{getattr(message,'link','')}",
+                            f"癫影积分红包-已抢\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{brief}\n\n{rstr}",
                             level="success")
                     return
 
                 if is_thunder_hit(rstr):
                     # 踩雷 = 用掉唯一一次机会，停手，别再点（赌输了）。
                     ctx.log.info("[癫影积分红包] 踩雷，停手 msg=%s 结果=%r", message.id, rstr)
-                    await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                    await records.add_history({"type": "癫影积分红包", "group_id": event.chat_id,
                                          "meta": brief, "result": rstr, "ok": False, "mine": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
-                            f"癫影积分红包-踩雷\n\n{getattr(message.chat,'title','')} ({message.chat.id})\n\n{brief}\n\n{rstr}\n\n{getattr(message,'link','')}",
+                            f"癫影积分红包-踩雷\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{brief}\n\n{rstr}",
                             level="warning")
                     return
 
@@ -182,7 +183,7 @@ async def setup(ctx):
                 await asyncio.sleep(0.3)
         # 全部试完，落地格全被别人抢走，自己没抢到
         ctx.log.info("[癫影积分红包] 所有格子均已被抢完，未抢到 msg=%s", message.id)
-        await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+        await records.add_history({"type": "癫影积分红包", "group_id": event.chat_id,
                              "meta": brief, "result": "未抢到", "ok": False})
 
     ctx.log.info("[癫影积分红包] 已加载")

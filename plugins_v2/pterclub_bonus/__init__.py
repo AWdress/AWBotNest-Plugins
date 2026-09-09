@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '猫站赠粮',
  'id': 'pterclub_bonus',
@@ -98,8 +90,6 @@ __plugin__ = {'name': '猫站赠粮',
                                     'section': '检查',
                                     'cols': 12,
                                     'order': 31}},
- 'v1_compatible_version': '1.0.0',
- 'v2_adapter': 'telethon',
  'tags': ['PterClub赠魔', '魔力转赠', 'Cookie登录']}
 async def setup(ctx):
     await _native_setup(ctx)

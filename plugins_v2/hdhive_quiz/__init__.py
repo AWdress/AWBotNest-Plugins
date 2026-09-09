@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
@@ -81,8 +73,6 @@ __plugin__ = {'name': '影巢答题红包',
                                    'type': 'password',
                                    'secret': True,
                                    'default': ''}},
- 'v1_compatible_version': '1.0.9',
- 'v2_adapter': 'telethon',
  'tags': ['海胆答题', '题库管理', 'AI出题'],
  'render_mode': 'vue'}
 async def setup(ctx):
@@ -91,3 +81,5 @@ async def setup(ctx):
 
 async def teardown(ctx):
     await _native_teardown(ctx)
+
+__plugin__["name"] = '影巢答题红包'

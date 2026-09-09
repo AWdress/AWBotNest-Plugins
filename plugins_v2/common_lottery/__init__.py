@@ -62,8 +62,6 @@ __plugin__ = {'name': '通用抽奖',
                                 'step': 5,
                                 'order': 21,
                                 'section': '等待策略'}},
- 'v1_compatible_version': '1.0.7',
- 'v2_adapter': 'telethon',
  'tags': ['通用抽奖', 'Lottery8Bot', '群组管理']}
 async def setup(ctx):
     await _native_setup(ctx)

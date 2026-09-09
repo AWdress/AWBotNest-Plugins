@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '115频道监控',
  'id': 'movie_monitor_115',
@@ -74,8 +66,6 @@ __plugin__ = {'name': '115频道监控',
                                      'type': 'password',
                                      'secret': True,
                                      'default': ''}},
- 'v1_compatible_version': '1.0.16',
- 'v2_adapter': 'telethon',
  'tags': ['115影视监控', '资源订阅', '自动推送'],
  'render_mode': 'vue'}
 async def setup(ctx):

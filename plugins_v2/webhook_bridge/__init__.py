@@ -152,8 +152,6 @@ __plugin__ = {'name': 'Webhook 通知桥',
                                       'section': '维护',
                                       'cols': 12,
                                       'order': 33}},
- 'v1_compatible_version': '1.0.1',
- 'v2_adapter': 'telethon',
  'tags': ['Webhook桥接', '外部通知', '签名校验']}
 async def setup(ctx):
     await _native_setup(ctx)

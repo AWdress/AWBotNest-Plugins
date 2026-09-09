@@ -118,10 +118,8 @@ def _prune_answered() -> None:
         _answered.pop(k, None)
 
 
-def _answer_once(client, message) -> bool:
-    me = getattr(client, "me", None)
-    acct_id = me.id if me else id(client)
-    key = f"{acct_id}:{message.chat.id}:{message.id}"
+def _answer_once(ctx, chat_id, message_id) -> bool:
+    key = f"{ctx.instance_id}:{chat_id}:{message_id}"
     _prune_answered()
     if key in _answered:
         return False
@@ -196,7 +194,7 @@ async def setup(ctx):
         stale = (_time.time() - _bank.last_sync()) > _STALE_SECS
         if _bank.size == 0 or stale:
             await _do_sync("启动")
-    _t = ctx.create_task(_initial_sync(), name="影巢题库启动同步", operation="initial_sync")
+    _t = ctx.create_task(_initial_sync(), name="影巢题库启动同步")
     _BG_TASKS.add(_t)
     _t.add_done_callback(_BG_TASKS.discard)
 
@@ -274,20 +272,20 @@ async def setup(ctx):
         cfg = _effective_cfg(ctx)
         if not cfg.get("enabled", False):
             return
-        fu = message.from_user
-        if not (fu and getattr(fu, "is_bot", False)):
+        fu = await event.get_sender()
+        if not (fu and getattr(fu, "bot", False)):
             return
         bot_ids = _parse_ids(cfg.get("bot_ids", ""))
         if bot_ids and fu.id not in bot_ids:
             return
         chat_ids = _parse_ids(cfg.get("chat_ids", ""))
-        if chat_ids and message.chat.id not in chat_ids:
+        if chat_ids and event.chat_id not in chat_ids:
             return
 
         text = sanitize(message.text or message.caption or "")
         if not any(m in text for m in QUIZ_MARKERS):
             return
-        if not _answer_once(client, message):
+        if not _answer_once(ctx, event.chat_id, message.id):
             return
 
         parsed = parse_quiz(text)
@@ -306,12 +304,12 @@ async def setup(ctx):
             return
 
         try:
-            await message.reply(reply_text, quote=True)
+            await message.reply(reply_text)
             ctx.log.info("[影巢答题] 已作答(%s): %s → %s", source, parsed["question"][:30], reply_text)
             _history.append({
                 "time": datetime.now().strftime("%H:%M:%S"),
-                "chat_id": message.chat.id,
-                "chat_title": _chat_name(message.chat, message.chat.id),
+                "chat_id": event.chat_id,
+                "chat_title": _chat_name(await event.get_chat(), event.chat_id),
                 "question": parsed["question"][:50],
                 "answer": reply_text,
                 "source": "bank" if source == "题库" else "llm",

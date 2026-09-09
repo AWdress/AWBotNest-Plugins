@@ -1,24 +1,20 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""pt_multi_checkin AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.51',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.51 修复 OurBits 新版签到回执识别\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v2.5.51 修复 OurBits 新版签到回执识别\n'
               '- 兼容签到后跳转首页且不再显示文字回执的新页面流程\n'
               '- 仅在同域登录态首页且签到入口消失时确认完成，避免普通页面误报成功\n'
               '- 浏览器确认与轻量 HTTP 签到统一使用相同的严格判定\n'
@@ -112,25 +108,14 @@ __plugin__ = {'name': 'PT站自动签到',
                'failure_threshold': 3,
                'recovery_seconds': 120},
  'config_schema': {},
- 'v1_compatible_version': '2.5.35',
- 'v2_adapter': 'telethon',
  'tags': ['PT站签到', '多站点', 'Cloudflare', 'Cookie'],
- 'render_mode': 'vue'}
-_active_context = None
-
+ 'render_mode': 'vue',
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = 'PT站自动签到'

@@ -5,6 +5,7 @@
 # =============================================================================
 from __future__ import annotations
 
+import asyncio
 import json
 import time as _time
 
@@ -28,19 +29,21 @@ class Records:
     def __init__(self, kv, log=None):
         self._kv = kv
         self._log = log
+        self._lock = asyncio.Lock()
 
     async def add_history(self, entry: dict) -> None:
-        data = await self._kv.get(_HISTORY_KEY, None)
-        if isinstance(data, str):
-            try:
-                data = json.loads(data)
-            except Exception:
+        async with self._lock:
+            data = await self._kv.get(_HISTORY_KEY, None)
+            if isinstance(data, str):
+                try:
+                    data = json.loads(data)
+                except Exception:
+                    data = []
+            if not isinstance(data, list):
                 data = []
-        if not isinstance(data, list):
-            data = []
-        entry = dict(entry)
-        entry.setdefault("ts", _time.time())
-        data.append(entry)
-        if len(data) > _HISTORY_MAX:
-            data = data[-_HISTORY_MAX:]
-        await self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))
+            entry = dict(entry)
+            entry.setdefault("ts", _time.time())
+            data.append(entry)
+            if len(data) > _HISTORY_MAX:
+                data = data[-_HISTORY_MAX:]
+            await self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))

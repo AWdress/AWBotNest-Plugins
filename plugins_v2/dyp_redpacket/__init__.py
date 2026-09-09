@@ -2,14 +2,6 @@
 from __future__ import annotations
 
 from .core import setup as _native_setup, teardown as _native_teardown
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
 
 __plugin__ = {'name': '癫影积分红包',
  'id': 'dyp_redpacket',
@@ -67,8 +59,6 @@ __plugin__ = {'name': '癫影积分红包',
                                      'section': '延迟参数',
                                      'show_if': {'dyp_enabled': True},
                                      'help': '抢包前等待的最大秒数。填得比「最小」大即启用随机延迟(每次在最小~最大间随机)；填 0 或不大于最小则退化为固定延迟。'}},
- 'v1_compatible_version': '1.2.2',
- 'v2_adapter': 'telethon',
  'tags': ['红包领取', '动态口令', '自动抢包']}
 async def setup(ctx):
     await _native_setup(ctx)

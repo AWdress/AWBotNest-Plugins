@@ -1,30 +1,42 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""awblackjack AWBotNest V2 原生插件入口。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AWBlackJack',
  'id': 'awblackjack',
- 'version': '1.0.9',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'description': 'SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png',
  'scope': 'standalone',
  'requirements': ['aiomqtt>=2.0', 'aiohttp>=3.9', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
- 'changelog': 'v1.0.9 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+              '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
+              '- 保留原有功能、配置项和运行数据\n'
+              '- 移除 V1 兼容运行层\n'
+              '\n'
+              'v1.0.9 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
-              'v1.0.8 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.7 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.6 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.4 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n'
+              'v1.0.8 修复数值配置显示\n'
+              '- 将滑块字段改为精确数值输入，确保当前值始终可见\n'
+              '- 保留原有默认值、范围和步长校验\n'
+              '\n'
+              'v1.0.7 修复 V1 默认配置恢复\n'
+              '- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n'
+              '- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n'
+              '\n'
+              'v1.0.6 适配平台原生富文本通知\n'
+              '- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n'
+              '- 原生富文本不可用时保留可读的文本降级\n'
+              '\n'
+              'v1.0.4 AWBotNest 2 规范复核\n'
+              '- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n'
+              '- 通过全量元数据、语法和发布清单检查\n'
+              '\n'
+              'AWBotNest 2 兼容发布\n'
               '- 使用 Telethon 原生事件、调度和生命周期托管\n'
               '- 保留 AWBotNest 1 版本与原有数据\n'
               '\n'
@@ -74,7 +86,7 @@ __plugin__ = {'name': 'AWBlackJack',
                                 'cols': 4,
                                 'order': 11},
                    'cookie': {'type': 'password',
-                   'secret': True,
+                              'secret': True,
                               'default': '',
                               'label': '站点 Cookie',
                               'help': 'SpringSunday 登录后的完整 Cookie。',
@@ -95,7 +107,7 @@ __plugin__ = {'name': 'AWBlackJack',
                                  'cols': 3,
                                  'order': 21},
                    'mqtt_password': {'type': 'password',
-                   'secret': True,
+                                     'secret': True,
                                      'default': '',
                                      'label': 'MQTT 密码',
                                      'section': '跨实例协同',
@@ -221,8 +233,8 @@ __plugin__ = {'name': 'AWBlackJack',
                                         'cols': 6,
                                         'order': 55},
                    'user_agent': {'type': 'string',
-                                  'default': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                                             '(KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+                                  'default': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, '
+                                             'like Gecko) Chrome/137.0.0.0 Safari/537.36',
                                   'label': 'User-Agent',
                                   'section': '高级',
                                   'cols': 12,
@@ -239,24 +251,13 @@ __plugin__ = {'name': 'AWBlackJack',
                                       'section': '运行状态',
                                       'cols': 12,
                                       'order': 80}},
- 'v1_compatible_version': '1.0.1',
- 'v2_adapter': 'telethon',
- 'tags': ['二十一点', 'Telegram游戏', '积分下注']}
-_active_context = None
-
+ 'tags': ['二十一点', 'Telegram游戏', '积分下注'],
+ 'plugin_api_version': 2}
 
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
-
+    await _core_setup(ctx)
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _core_teardown(ctx)
+
+__plugin__["name"] = 'AWBlackjack'
