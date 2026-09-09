@@ -415,8 +415,9 @@ async def _deliver(ctx, client, content: str, name_hint: str) -> str:
 # --------------------------------------------------------------------------- #
 async def setup(ctx):
 
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-16, target="user")
-    async def on_probe(client, message):
+    @ctx.on_message(outgoing=True, incoming=False)
+    async def on_probe(event):
+        client, message = event.client, event.message
         text = message.text or ""
         cfg = ctx.config
         probe_bare = _bare(cfg.get("command", ".probe"), "probe")
@@ -426,13 +427,13 @@ async def setup(ctx):
         if _matches(text, cb_bare):
             arg = text.split(maxsplit=1)[1].strip().lower() if len(text.split(maxsplit=1)) > 1 else ""
             if arg in ("on", "1", "开"):
-                ctx.kv.set(_CB_FLAG_KEY, "1")
+                await ctx.storage.set(_CB_FLAG_KEY, "1")
                 tip = "回调抓取已开启 ✓ 现在去点 Bot 的内联按钮，结构会被导出。再发「命令 off」关闭。"
             elif arg in ("off", "0", "关"):
-                ctx.kv.delete(_CB_FLAG_KEY)
+                await ctx.storage.delete(_CB_FLAG_KEY)
                 tip = "回调抓取已关闭 ✓"
             else:
-                state = "开启" if ctx.kv.get(_CB_FLAG_KEY) else "关闭"
+                state = "开启" if await ctx.storage.get(_CB_FLAG_KEY) else "关闭"
                 tip = f"当前回调抓取：{state}。用法：{cfg.get('cb_command', '.cbprobe')} on / off"
             try:
                 await message.edit(tip)
@@ -492,10 +493,11 @@ async def setup(ctx):
             except Exception:
                 pass
 
-    @ctx.on_callback(target="bot")
-    async def on_cb(client, callback_query):
-        if not ctx.kv.get(_CB_FLAG_KEY):
+    @ctx.on_callback()
+    async def on_cb(callback_query):
+        if not await ctx.storage.get(_CB_FLAG_KEY):
             return
+        client = callback_query.client
         try:
             data = getattr(callback_query, "data", None)
             if isinstance(data, (bytes, bytearray)):
