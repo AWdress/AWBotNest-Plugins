@@ -14,11 +14,16 @@ except ImportError:
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.50',
+ 'version': '2.5.51',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.50 适配新版异步存储接口\n'
+ 'changelog': 'v2.5.51 修复 OurBits 新版签到回执识别\n'
+              '- 兼容签到后跳转首页且不再显示文字回执的新页面流程\n'
+              '- 仅在同域登录态首页且签到入口消失时确认完成，避免普通页面误报成功\n'
+              '- 浏览器确认与轻量 HTTP 签到统一使用相同的严格判定\n'
+              '\n'
+              'v2.5.50 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

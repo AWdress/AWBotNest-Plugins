@@ -380,6 +380,19 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
+def _ourbits_home_completed(text: str, path: str) -> bool:
+    """识别 OurBits 签到后跳转到的无文字回执首页。"""
+    if (path or "/").lower() != "/":
+        return False
+    compact = re.sub(r"\s+", "", text or "").lower()
+    authenticated = all(marker in compact for marker in ("首页", "论坛", "种子"))
+    login_markers = ("用户名", "密码", "登录", "安全验证", "checkingyourbrowser")
+    attendance_markers = ("立即签到", "点击签到", "今日未签到", "attendance.php")
+    return authenticated \
+        and not any(marker in compact for marker in login_markers) \
+        and not any(marker in compact for marker in attendance_markers)
+
+
 def _hhan_result_state(html: str) -> tuple[str, str] | None:
     """HHanClub 会反复展示最近一次奖励，须以当天记录创建时间区分本次与已签到。"""
     today = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d")
@@ -633,6 +646,8 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         page.goto(home_url, wait_until="domcontentloaded", timeout=60_000)
         for _ in range(15):
             home_text = _page_text(page)
+            if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(home_text, urlparse(page.url).path):
+                return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
             state = _nexus_result_state(home_text)
             if state:
                 status, message = state
@@ -1142,6 +1157,8 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
         if not path.lower().endswith("/attendance.php"):
             page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
             return _browser_checkin(page, expected_domain, ctx, loop, piggo_submitted=True)
+    if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(text, path):
+        return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1314,6 +1331,11 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             # Audiences 的 attendance.php 在 Docker/CF 链路中会完成签到后返回无回执的站点模板。
             # 此处仅接受已通过登录与安全页检查的 2xx 同站请求，避免把登录页或挑战页误报为成功。
             response_domain = (urlparse(str(response.url)).hostname or "").lower()
+            response_path = urlparse(str(response.url)).path or "/"
+            if key == "ourbits" and response.status_code < 300 \
+                    and _same_site_domain(response_domain, site["domain"]) \
+                    and _ourbits_home_completed(visible_text, response_path):
+                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             if key == "audiences" and response.status_code < 300 \
                     and _same_site_domain(response_domain, site["domain"]):
                 return {"status": "success", "message": "签到请求已完成（站点未返回文字回执）", "engine": "http"}
