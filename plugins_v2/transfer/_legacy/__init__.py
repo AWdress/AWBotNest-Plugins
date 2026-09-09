@@ -309,13 +309,6 @@ _TRANSFER_SKIP_KEYWORDS = (
     "请确认憨豆转赠", "请输入正确数量", "限额", "失败", "不足", "错误",
 )
 
-# 按站点写死的「发致谢/榜单前」延迟（秒）。某些群有发消息延迟（慢速模式），
-# 立即回复会失败/被限流，故固定等一会儿再发。不暴露给用户配置。
-_SITE_SEND_DELAY = {
-    "zm": 11,   # ZmPT 群有发消息延迟
-}
-
-
 # ─── 通用站点处理（reply / plus）──────────────────────────────────────────────
 async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
     direction = detect_direction(message)
@@ -523,12 +516,6 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     if dmax > 0 and dmax >= dmin:
         await asyncio.sleep(random.uniform(dmin, dmax))
 
-    # 按站点写死的发送延迟：zm 群有发消息延迟（慢速模式），发致谢/榜单前固定等若干秒，
-    # 不走用户配置。取与上面通用延迟不叠加的「至少等这么久」语义。
-    forced = _SITE_SEND_DELAY.get(site.site_name, 0)
-    if forced > 0:
-        await asyncio.sleep(forced)
-
     text = ""
     if notif_on:
         text = lb.render_user_summary(stat, site.bonus_name, direction,
@@ -597,9 +584,17 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         ctx.log.warning("发送致谢/排行榜消息失败: %r", e)
         return
 
-    # 15 秒后自删
+    # 15 秒后自删。不要依赖不同发送接口返回对象上的 delete() 实现；统一使用
+    # 当前用户客户端按 chat_id/message_id 删除，兼容文本、图片与富文本返回值。
     if sent is not None:
-        ctx.create_task(_auto_delete(sent, 15), name="transfer-auto-delete")
+        sent_id = int(getattr(sent, "id", 0) or 0)
+        if sent_id:
+            ctx.create_task(
+                _auto_delete(ctx, client, message.chat.id, sent_id, 15),
+                name=f"transfer-auto-delete:{message.chat.id}:{sent_id}",
+            )
+        else:
+            ctx.log.warning("排行榜消息已发送，但返回值缺少消息 ID，无法自动删除")
 
 
 async def _send_reply(client, chat_id, target, text=None, photo=None, caption=None):
@@ -700,9 +695,11 @@ def _safe_int(v, default):
         return default
 
 
-async def _auto_delete(message, delay: int):
+async def _auto_delete(ctx, client, chat_id: int, message_id: int, delay: int):
     await asyncio.sleep(delay)
     try:
-        await message.delete()
-    except Exception:
-        pass
+        await client.delete_messages(chat_id, [message_id])
+        ctx.log.debug("排行榜消息已自动删除 chat_id=%s message_id=%s", chat_id, message_id)
+    except Exception as error:
+        ctx.log.warning("排行榜消息自动删除失败 chat_id=%s message_id=%s: %r",
+                        chat_id, message_id, error)

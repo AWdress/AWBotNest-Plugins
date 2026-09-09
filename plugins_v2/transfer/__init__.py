@@ -14,13 +14,18 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '1.1.11',
+ 'version': '1.1.12',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v1.1.11 优化 V2 排行榜响应速度\n'
+ 'changelog': 'v1.1.12 修复排行榜延迟与自动删除\n'
+              '- 移除 ZmPT 排行榜写死的发送等待，改为收到转账后立即响应\n'
+              '- 自动删除统一按会话与消息 ID 执行，兼容文本、图片和富文本返回值\n'
+              '- 自动删除失败时输出可定位日志，不再静默忽略\n'
+              '\n'
+              'v1.1.11 优化 V2 排行榜响应速度\n'
               '- 同一 Telegram 事件的两层回复链只读取一次，供多个监听器共享\n'
               '- 将入站与出站条件下推到平台事件过滤，避免唤醒无关监听器\n'
               '- 降低 SpringSunday 等回复链转账的重复网络请求与响应等待\n'
