@@ -1,5 +1,5 @@
 # =============================================================================
-# AWBotNest 插件：定时自动回复（custom_auto_reply）
+# AWBotNest V2 原生业务模块：定时自动回复（custom_auto_reply）
 #
 # 用户账号按设定的时间，自动向指定会话发送消息。
 # 用 list 控件逐条配置「会话 / 时间 / 内容」，各自独立定时；不写时间则用「默认时间」。
@@ -108,13 +108,13 @@ def _chat_name(chat, fallback) -> str:
 
 async def _resolve_name(client, target) -> str:
     try:
-        return _chat_name(await client.get_chat(target), target)
+        return _chat_name(await client.get_entity(target), target)
     except Exception:  # noqa: BLE001
         return str(target)
 
 
 async def _update_config_names(ctx) -> None:
-    apps = list(getattr(ctx, "user_apps", None) or [])
+    apps = list(ctx.users)
     if not apps:
         return
     values = []
@@ -265,7 +265,7 @@ def _build_message_link(target_chat_id, msg_id) -> str:
 def _make_action(ctx, target, message_text):
     """生成单条规则的定时回调：用所有已连接用户账号发到指定会话。"""
     async def _action():
-        user_apps = ctx.user_apps
+        user_apps = list(ctx.users)
         if not user_apps:
             ctx.log.error("[定时回复] 没有已连接的用户账号，跳过")
             return
@@ -273,7 +273,10 @@ def _make_action(ctx, target, message_text):
         notify_owner = bool(ctx.config.get("notify_owner", False))
 
         for app in user_apps:
-            me = getattr(app, "me", None)
+            try:
+                me = await app.get_me()
+            except Exception:
+                me = None
             if me:
                 acct = f"{me.first_name}(@{me.username})" if me.username else f"{me.first_name}(ID:{me.id})"
             else:
@@ -306,7 +309,6 @@ def _make_action(ctx, target, message_text):
                     await ctx.notify(
                         f"定时回复已发送\n目标：{target_name} ({target})\n内容：\n{preview}\n{link}",
                         level="success", category="定时回复", account=app,
-                        disable_web_page_preview=True,
                     )
                 except Exception:
                     pass
@@ -333,21 +335,21 @@ def _schedule_rule(ctx, action, timespec, job_id):
     kind = timespec.get("kind")
     if kind == "interval":
         if "hours" in timespec:
-            ctx.schedule(action, "interval", hours=timespec["hours"], id=job_id)
+            ctx.schedule_interval(job_id, action, seconds=max(1, int(timespec["hours"]) * 3600))
             return f"每 {timespec['hours']} 小时"
-        ctx.schedule(action, "interval", minutes=timespec["minutes"], id=job_id)
+        ctx.schedule_interval(job_id, action, seconds=max(1, int(timespec["minutes"]) * 60))
         return f"每 {timespec['minutes']} 分钟"
     if kind == "cron":
         try:
-            from apscheduler.triggers.cron import CronTrigger
-            trigger = CronTrigger.from_crontab(timespec["expr"])
+            minute, hour, day, month, week = str(timespec["expr"]).split()
         except Exception as e:  # noqa: BLE001 - 表达式非法
             ctx.log.error("[定时回复] cron 表达式无效 %r：%r", timespec.get("expr"), e)
             return None
-        ctx.schedule(action, trigger, id=job_id)
+        ctx.schedule_cron(job_id, action, minute=minute, hour=hour, day=day,
+                          month=month, day_of_week=week)
         return f"cron({timespec['expr']})"
     # daily
-    ctx.schedule(action, "cron", hour=timespec["hour"], minute=timespec["minute"], id=job_id)
+    ctx.schedule_cron(job_id, action, hour=timespec["hour"], minute=timespec["minute"])
     return f"每天 {timespec['hour']:02d}:{timespec['minute']:02d}"
 
 
@@ -372,7 +374,7 @@ async def setup(ctx):
             ctx.log.error("[定时回复] 第 %d 条（→ %s）时间无效，已跳过", idx, target)
             continue
         registered += 1
-        apps = list(getattr(ctx, "user_apps", None) or [])
+        apps = list(ctx.users)
         target_name = await _resolve_name(apps[0], target) if apps else str(target)
         ctx.log.info("[定时回复] 已注册 #%d：%s → %s (%s)", idx, desc, target_name, target)
 

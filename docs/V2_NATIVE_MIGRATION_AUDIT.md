@@ -16,8 +16,8 @@
 | bomb_game | Interactive | 高 | 否 | 否 | 是 | 是 | Telegram | Vue | 已完成 |
 | common_lottery | Interactive | 中 | 是 | 是 | 是 | 否 | Telegram | 否 | P2 |
 | config_migration | Migration/Utility | 中 | 否 | 否 | 否 | 否 | HTTP | Vue | 已原生 |
-| custom_auto_reply | Automation | 低 | 是 | 是 | 是 | 否 | Telegram | 否 | P3 |
-| custom_plugin | Utility | 中 | 是 | 是 | 是 | 否 | Telegram | Vue | P4 |
+| custom_auto_reply | Automation | 低 | 否 | 否 | 是 | 否 | Telegram | Schema | 已完成 |
+| custom_plugin | Utility | 中 | 否 | 否 | 否 | 是 | Telegram | Vue | 已完成 |
 | digital_pet | Interactive | 中 | 是 | 是 | 是 | 是 | Telegram | 否 | P2 |
 | dyp_redpacket | Interactive | 中 | 是 | 是 | 是 | 否 | Telegram | 否 | P2 |
 | emby_toolbox | External | 高 | 是 | 是 | 是 | 是 | Emby | Vue | P4 |

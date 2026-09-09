@@ -1,25 +1,20 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生插件开发调试工具。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '插件开发调试',
  'id': 'custom_plugin',
- 'version': '1.0.12',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'scope': 'both',
  'description': '在管理员配置页编辑、检查并运行 Python 插件源码，显示运行状态与错误堆栈，适合开发和调试单文件插件。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg',
- 'changelog': 'v1.0.12 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 完成原生 V2 迁移\n'
+              '- 使用原生事件、内部 API、调度与生命周期接口\n'
+              '- 修复 API 路径、Webhook 注册和重载残留问题\n'
+              '- 默认示例改为 Telethon 单参数事件写法\n\n'
+              'v1.0.12 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -67,27 +62,15 @@ __plugin__ = {'name': '插件开发调试',
               '- 停用或重载时调用自定义 teardown(ctx)\n'
               '- 编译或运行失败时保留容器插件，便于直接修正源码\n'
               '- 仅管理员配置页可修改，不开放 Telegram 远程写代码',
- 'webhook': True,
  'config_schema': {},
+ 'plugin_api_version': 2,
  'v1_compatible_version': '1.0.3',
  'v2_adapter': 'telethon',
  'tags': ['自定义插件', '脚本执行', '扩展开发'],
  'render_mode': 'vue'}
-_active_context = None
-
-
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
+    await _native_setup(ctx)
 
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _native_teardown(ctx)

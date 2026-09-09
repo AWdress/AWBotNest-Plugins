@@ -9,7 +9,7 @@ import traceback
 __plugin__ = {
     "name": "插件开发调试",
     "id": "custom_plugin",
-    "version": "1.0.3",
+    "version": "2.0.0",
     "author": "AWdress",
     "scope": "both",
     "default_enabled": False,
@@ -17,7 +17,6 @@ __plugin__ = {
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/custom_plugin.svg",
     "changelog": "v1.0.3 支持独立运行插件\n- 源码检查可以识别 standalone 范围\n- 独立运行插件不会自动挂载用户账号或机器人消息处理器\n\nv1.0.2 修复调试生命周期缺陷\n- 源码检查改用 AST 静态分析，不再执行顶层代码导致保存时重复副作用\n- 关闭运行开关时允许保存尚未完成或存在语法错误的草稿\n- 自定义 setup 完整成功前暂存消息、编辑、回调、API、Webhook、定时任务与清理注册\n- setup 失败时执行自定义清理并丢弃暂存注册，避免半成品监听器继续运行\n- 定时任务返回延迟绑定代理，兼容源码保存任务对象并读取运行状态\n- 按源码 __plugin__.scope 保持 user、bot、both 默认监听范围\n- 新增独立 JSON 运行配置并合并 config_schema 默认值，支持 ctx.config 与 ctx.update_config\n- 保留 /status 与 /validate 调试接口，防止自定义 API 覆盖后配置页失效\n\nv1.0.1 更名为插件开发调试\n- 展示名称调整为“插件开发调试”，更准确体现源码编辑、检查、运行和错误排查用途\n- 保留 custom_plugin 内部 ID，已安装用户可直接更新\n\nv1.0.0 初始版本\n- Vue 配置页内置 Python 源码编辑器与示例模板\n- 保存配置后编译并运行自定义 setup(ctx)\n- 停用或重载时调用自定义 teardown(ctx)\n- 编译或运行失败时保留容器插件，便于直接修正源码\n- 仅管理员配置页可修改，不开放 Telegram 远程写代码",
     "render_mode": "vue",
-    "webhook": True,
 }
 
 
@@ -27,26 +26,15 @@ DEFAULT_SOURCE = '''from __future__ import annotations
 async def setup(ctx):
     """在这里注册你的消息监听、定时任务或 API。"""
 
-    @ctx.on_message(ctx.filters.incoming & ctx.filters.text, group=10)
-    async def hello(client, message):
-        if (message.text or "").strip() == "/hello":
-            await message.reply("Hello from 插件开发调试 👋")
+    @ctx.on_message(pattern=r"^/hello$")
+    async def hello(event):
+        await event.reply("Hello from 插件开发调试")
 
 
 async def teardown(ctx):
     """可选：释放自定义资源。平台会自动注销通过 ctx 注册的处理器。"""
     pass
 '''
-
-_runtime_namespace: dict | None = None
-_runtime_teardown = None
-_runtime_context = None
-_status = {
-    "state": "idle",
-    "message": "尚未运行自定义源码",
-    "traceback": "",
-}
-
 
 def _inspect_source(source: str) -> None:
     """只做静态检查，绝不执行用户源码。"""
@@ -126,13 +114,6 @@ class _StagedContext:
         return dict(self._custom_config)
 
     def _make_decorator(self, name: str, *args, **kwargs):
-        if name in {"on_message", "on_edited_message", "on_callback"}:
-            args = list(args)
-            if len(args) >= 3 and args[2] == "auto":
-                args[2] = self._source_scope
-            elif len(args) < 3 and kwargs.get("target", "auto") == "auto":
-                kwargs = {**kwargs, "target": self._source_scope}
-            args = tuple(args)
         if self._committed:
             return getattr(self._real, name)(*args, **kwargs)
 
@@ -159,11 +140,26 @@ class _StagedContext:
             raise ValueError(f"自定义 API 路径 /{path} 为调试器保留端点，请更换路径")
         return self._make_decorator("on_api", *args, **kwargs)
 
-    def on_webhook(self, func):
+    def on_webhook(self, path, callback=None):
+        clean_path = str(path).strip().strip("/")
+        if not clean_path:
+            raise ValueError("Webhook 路径不能为空")
+        decorator = self._make_decorator("on_webhook", clean_path)
+        return decorator(callback) if callback is not None else decorator
+
+    def schedule_interval(self, name, callback, *, seconds):
         if self._committed:
-            return self._real.on_webhook(func)
-        self._staged.append(("on_webhook", (), {}, func))
-        return func
+            return self._real.schedule_interval(name, callback, seconds=seconds)
+        deferred = _DeferredJob()
+        self._staged.append(("schedule_interval", (name, callback), {"seconds": seconds}, deferred))
+        return deferred
+
+    def schedule_cron(self, name, callback, **fields):
+        if self._committed:
+            return self._real.schedule_cron(name, callback, **fields)
+        deferred = _DeferredJob()
+        self._staged.append(("schedule_cron", (name, callback), fields, deferred))
+        return deferred
 
     def schedule(self, func, trigger="interval", **trigger_args):
         if self._committed:
@@ -180,10 +176,8 @@ class _StagedContext:
 
     def commit(self) -> None:
         for name, args, kwargs, func in self._staged:
-            if name == "schedule":
-                func.bind(self._real.schedule(*args, **kwargs))
-            elif name == "on_webhook":
-                self._real.on_webhook(func)
+            if name in {"schedule", "schedule_interval", "schedule_cron"}:
+                func.bind(getattr(self._real, name)(*args, **kwargs))
             else:
                 getattr(self._real, name)(*args, **kwargs)(func)
         for fn in self._cleanups:
@@ -231,14 +225,18 @@ def _custom_config(namespace: dict, raw_config) -> dict:
 
 
 async def setup(ctx):
-    global _runtime_namespace, _runtime_teardown, _runtime_context, _status
+    status = {"state": "idle", "message": "尚未运行自定义源码", "traceback": ""}
+    runtime_teardown = None
+    runtime_context = None
 
-    @ctx.on_api("/status", methods=["GET"])
+    @ctx.on_api("status")
     async def api_status(req):
-        return {**_status, "template": DEFAULT_SOURCE}
+        return {**status, "template": DEFAULT_SOURCE}
 
-    @ctx.on_api("/validate", methods=["POST"])
+    @ctx.on_api("validate")
     async def api_validate(req):
+        if req.method != "POST":
+            return {"ok": False, "message": "仅支持 POST 请求"}
         body = req.json if isinstance(req.json, dict) else {}
         source = str(body.get("source") or "")
         try:
@@ -258,7 +256,7 @@ async def setup(ctx):
 
     cfg = dict(ctx.config or {})
     if not cfg.get("code_enabled", False):
-        _status = {"state": "disabled", "message": "自定义源码运行开关未开启", "traceback": ""}
+        status.update(state="disabled", message="自定义源码运行开关未开启", traceback="")
         ctx.log.info("[自定义代码] 容器已加载，自定义源码未启用")
         return
 
@@ -274,10 +272,13 @@ async def setup(ctx):
         )
         await custom_setup(staged_ctx)
         staged_ctx.commit()
-        _runtime_namespace = namespace
-        _runtime_teardown = namespace.get("teardown")
-        _runtime_context = staged_ctx
-        _status = {"state": "running", "message": "自定义源码已成功运行", "traceback": ""}
+        runtime_teardown = namespace.get("teardown")
+        runtime_context = staged_ctx
+        status.update(state="running", message="自定义源码已成功运行", traceback="")
+        async def cleanup_runtime():
+            if runtime_teardown is not None:
+                await runtime_teardown(runtime_context or ctx)
+        ctx.add_cleanup(cleanup_runtime)
         ctx.log.info("[自定义代码] 自定义 setup(ctx) 已运行")
     except Exception as exc:  # noqa: BLE001
         detail = traceback.format_exc(limit=20)
@@ -289,26 +290,10 @@ async def setup(ctx):
                 detail += "\n清理失败：\n" + traceback.format_exc(limit=10)
         if staged_ctx is not None:
             await staged_ctx.rollback()
-        _runtime_namespace = None
-        _runtime_teardown = None
-        _runtime_context = None
-        _status = {
-            "state": "error",
-            "message": f"{type(exc).__name__}: {exc}",
-            "traceback": detail,
-        }
+        status.update(state="error", message=f"{type(exc).__name__}: {exc}", traceback=detail)
         ctx.log.error("[自定义代码] 源码加载失败：%s\n%s", exc, detail)
         # 不抛出：保留容器与配置界面，让管理员能够直接修正源码。
 
 
 async def teardown(ctx):
-    global _runtime_namespace, _runtime_teardown, _runtime_context, _status
-    if _runtime_teardown is not None:
-        try:
-            await _runtime_teardown(_runtime_context or ctx)
-        except Exception as exc:  # noqa: BLE001
-            ctx.log.error("[自定义代码] 自定义 teardown(ctx) 失败：%r", exc)
-    _runtime_namespace = None
-    _runtime_teardown = None
-    _runtime_context = None
-    _status = {"state": "idle", "message": "自定义源码已停止", "traceback": ""}
+    ctx.log.info("[自定义代码] 插件已停止")
