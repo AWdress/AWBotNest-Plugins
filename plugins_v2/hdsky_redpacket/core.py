@@ -115,12 +115,13 @@ def _click_once(client, message) -> bool:
 
 
 async def setup(ctx):
-    records = Records(ctx.kv, ctx.log)
+    records = Records(ctx.storage, ctx.log)
     await _update_config_names(ctx)
 
     # ───────── /red 占位发言 ─────────
-    @ctx.on_message(ctx.filters.group & ctx.filters.regex(r"^/red(@[\w]+)?(\s|$)"), group=-10)
-    async def on_red_command(client, message):
+    @ctx.on_message(pattern=r"^/red(@[\w]+)?(\s|$)")
+    async def on_red_command(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         if not cfg.get("button_enabled", False) or not cfg.get("button_pre_send", False):
             return
@@ -137,8 +138,9 @@ async def setup(ctx):
             ctx.log.debug("[拼手气红包] /red 占位失败: %r", e)
 
     # ───────── 点击抢红包按钮 ─────────
-    @ctx.on_message(ctx.filters.group, group=-9)
-    async def on_button_packet(client, message):
+    @ctx.on_message()
+    async def on_button_packet(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         if not cfg.get("button_enabled", False):
             return
@@ -166,7 +168,7 @@ async def setup(ctx):
             chat_name = _chat_name(message.chat, message.chat.id)
             ctx.log.info("[拼手气红包] 已点击 %s (%s) msg=%s 结果=%s",
                          chat_name, message.chat.id, message.id, rtext)
-            records.add_history({"type": "拼手气红包", "group_id": message.chat.id,
+            await records.add_history({"type": "拼手气红包", "group_id": message.chat.id,
                                  "group_title": chat_name, "result": str(rtext), "ok": True})
             if cfg.get("notify_owner", True):
                 await _notify(ctx, client,

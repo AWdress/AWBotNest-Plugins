@@ -1,5 +1,5 @@
 # =============================================================================
-# 拼手气红包插件 - 配置解析 + 记录（ctx.kv）
+# 拼手气红包插件 - 配置解析 + 记录（异步存储）
 #
 # 配置走 ctx.config，运行记录走 ctx.kv（每插件独立 sqlite）。
 # =============================================================================
@@ -45,8 +45,8 @@ class Records:
         self._kv = kv
         self._log = log
 
-    def add_history(self, entry: dict) -> None:
-        data = self._kv.get(_HISTORY_KEY, None)
+    async def add_history(self, entry: dict) -> None:
+        data = await self._kv.get(_HISTORY_KEY, None)
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -59,4 +59,4 @@ class Records:
         data.append(entry)
         if len(data) > _HISTORY_MAX:
             data = data[-_HISTORY_MAX:]
-        self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))
+        await self._kv.set(_HISTORY_KEY, json.dumps(data, ensure_ascii=False))
