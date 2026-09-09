@@ -44,8 +44,8 @@ try:
     from telethon import functions as _tl_functions
     raw = SimpleNamespace(functions=SimpleNamespace(
         messages=SimpleNamespace(
-            GetForumTopics=_tl_functions.channels.GetForumTopicsRequest,
-            GetForumTopicsByID=_tl_functions.channels.GetForumTopicsByIDRequest,
+            GetForumTopics=_tl_functions.messages.GetForumTopicsRequest,
+            GetForumTopicsByID=_tl_functions.messages.GetForumTopicsByIDRequest,
             ForwardMessages=_tl_functions.messages.ForwardMessagesRequest,
         )
     ))
@@ -90,7 +90,13 @@ class Filters:
     @staticmethod
     def regex(pattern):
         compiled = re.compile(pattern)
-        return Filter(lambda e, m: bool(compiled.search(m.text or m.caption or '')))
+        def matches(event, message):
+            data = getattr(event, 'data', None)
+            if isinstance(data, bytes):
+                data = data.decode('utf-8', errors='replace')
+            value = data if data is not None else (message.text or message.caption or '')
+            return bool(compiled.search(str(value)))
+        return Filter(matches)
 
     @staticmethod
     def command(name):
@@ -272,9 +278,9 @@ class Client:
         return secrets.randbits(63)
 
     async def create_forum_topic(self, chat_id, title):
-        from telethon.tl.functions.channels import CreateForumTopicRequest
+        from telethon.tl.functions.messages import CreateForumTopicRequest
         result = await self.raw(CreateForumTopicRequest(
-            channel=await self.raw.get_input_entity(chat_id),
+            peer=await self.raw.get_input_entity(chat_id),
             title=str(title),
             random_id=self.rnd_id(),
         ))
@@ -567,12 +573,16 @@ class CompatContext:
     async def _message(self, event):
         sender = await event.get_sender()
         chat = await event.get_chat()
-        reply_raw = await event.get_reply_message() if event.is_reply else None
+        reply_raw = await event.get_reply_message() if getattr(event, 'is_reply', False) else None
         reply = None
         if reply_raw is not None:
             fake = SimpleNamespace(message=reply_raw, client=event.client)
             reply = Message(fake, None, chat)
-        return Message(event, sender, chat, reply)
+        message = Message(event, sender, chat, reply)
+        event_chat_id = getattr(event, 'chat_id', None)
+        if event_chat_id is not None:
+            message.chat.id = int(event_chat_id)
+        return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
