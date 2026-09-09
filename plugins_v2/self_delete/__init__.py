@@ -14,11 +14,15 @@ except ImportError:
 
 __plugin__ = {'name': '删除自己消息',
  'id': 'self_delete',
- 'version': '1.0.12',
+ 'version': '1.0.13',
  'author': 'AWdress',
  'description': '发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png',
- 'changelog': 'v1.0.12 适配新版异步存储接口\n'
+ 'changelog': 'v1.0.13 修复 V2 历史消息删除\n'
+              '- 读取历史消息时补全发送者实体，恢复本人消息识别\n'
+              '- 使用 Telethon 完整会话 ID 执行批量删除\n'
+              '\n'
+              'v1.0.12 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

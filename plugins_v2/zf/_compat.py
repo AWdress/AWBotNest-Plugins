@@ -195,11 +195,28 @@ class Message:
         return await self._event.click(*args, **kwargs)
 
     async def copy(self, chat_id, **kwargs):
+        kwargs = _message_kwargs(kwargs)
+        thread_id = kwargs.pop('message_thread_id', None)
+        if thread_id:
+            kwargs['reply_to'] = thread_id
         if self.media:
             return await self._event.client.send_file(
-                chat_id, self.media, caption=self.caption, **_message_kwargs(kwargs)
+                chat_id, self.media, caption=self.caption, **kwargs
             )
-        return await self._event.client.send_message(chat_id, self.text, **_message_kwargs(kwargs))
+        return await self._event.client.send_message(chat_id, self.text, **kwargs)
+
+    async def forward(self, chat_id, **kwargs):
+        """Forward this Telethon message while preserving its original author."""
+        kwargs = _message_kwargs(kwargs)
+        # ``message_thread_id`` is a Pyrogram name.  Telethon routes forum
+        # messages with ``reply_to``; omit a zero/None topic instead of sending
+        # an invalid argument.
+        thread_id = kwargs.pop('message_thread_id', None)
+        if thread_id:
+            kwargs['reply_to'] = thread_id
+        return await self._event.client.forward_messages(
+            chat_id, self.id, from_peer=self.chat.id, **kwargs
+        )
 
 
 class CallbackQuery:
@@ -541,8 +558,12 @@ class CompatContext:
         reply = None
         if reply_raw is not None:
             fake = SimpleNamespace(message=reply_raw, client=event.client)
-            reply = Message(fake, None, chat)
-        return Message(event, sender, chat, reply)
+            reply_sender = await reply_raw.get_sender()
+            reply = Message(fake, reply_sender, chat)
+            reply.chat.id = int(getattr(event, 'chat_id', reply.chat.id) or reply.chat.id)
+        message = Message(event, sender, chat, reply)
+        message.chat.id = int(getattr(event, 'chat_id', message.chat.id) or message.chat.id)
+        return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
@@ -663,5 +684,3 @@ class CompatContext:
 
 def adapt(ctx, defaults=None, config_schema=None):
     return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
-
-

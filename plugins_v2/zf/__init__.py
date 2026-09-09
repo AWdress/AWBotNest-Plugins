@@ -14,11 +14,16 @@ except ImportError:
 
 __plugin__ = {'name': '转发复读',
  'id': 'zf',
- 'version': '1.0.12',
+ 'version': '1.0.13',
  'author': 'AWdress',
  'description': '回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png',
- 'changelog': 'v1.0.12 适配新版异步存储接口\n'
+ 'changelog': 'v1.0.13 修复 V2 转发复读\n'
+              '- 实现 Telethon 消息转发并正确传递论坛话题参数\n'
+              '- 补全回复消息发送者与完整会话 ID\n'
+              '- 单次转发失败改为输出可见警告日志\n'
+              '\n'
+              'v1.0.12 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

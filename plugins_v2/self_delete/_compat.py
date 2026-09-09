@@ -298,7 +298,11 @@ class Client:
 
     async def get_chat_history(self, chat_id, limit=0, **kwargs):
         async for item in self.raw.iter_messages(chat_id, limit=limit or None, **kwargs):
-            yield _plain_message(item, self.raw)
+            sender = await item.get_sender()
+            wrapped = _plain_message(item, self.raw)
+            wrapped.from_user = Entity(sender) if sender is not None else None
+            wrapped.chat.id = int(getattr(item, 'chat_id', chat_id) or chat_id)
+            yield wrapped
 
     async def get_dialogs(self, limit=0, **kwargs):
         async for item in self.raw.iter_dialogs(limit=limit or None, **kwargs):
@@ -542,7 +546,9 @@ class CompatContext:
         if reply_raw is not None:
             fake = SimpleNamespace(message=reply_raw, client=event.client)
             reply = Message(fake, None, chat)
-        return Message(event, sender, chat, reply)
+        message = Message(event, sender, chat, reply)
+        message.chat.id = int(getattr(event, 'chat_id', message.chat.id) or message.chat.id)
+        return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
@@ -663,5 +669,4 @@ class CompatContext:
 
 def adapt(ctx, defaults=None, config_schema=None):
     return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
-
 

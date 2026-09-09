@@ -541,8 +541,12 @@ class CompatContext:
         reply = None
         if reply_raw is not None:
             fake = SimpleNamespace(message=reply_raw, client=event.client)
-            reply = Message(fake, None, chat)
-        return Message(event, sender, chat, reply)
+            reply_sender = await reply_raw.get_sender()
+            reply = Message(fake, reply_sender, chat)
+            reply.chat.id = int(getattr(event, 'chat_id', reply.chat.id) or reply.chat.id)
+        message = Message(event, sender, chat, reply)
+        message.chat.id = int(getattr(event, 'chat_id', message.chat.id) or message.chat.id)
+        return message
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
@@ -663,5 +667,4 @@ class CompatContext:
 
 def adapt(ctx, defaults=None, config_schema=None):
     return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
-
 

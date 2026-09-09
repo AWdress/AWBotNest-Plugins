@@ -76,7 +76,7 @@ async def setup(ctx):
                     # 会话禁止转发时改用复制
                     await reply.copy(reply.chat.id, message_thread_id=message.message_thread_id)
             except Exception as e:  # noqa: BLE001 - 单次失败不中断整体
-                ctx.log.debug("[转发] 单次失败: %r", e)
+                ctx.log.warning("[转发复读] 第 %s/%s 次发送失败: %r", _ + 1, re_times, e)
 
         try:
             await message.delete()

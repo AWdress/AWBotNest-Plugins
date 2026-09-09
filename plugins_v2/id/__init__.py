@@ -14,11 +14,15 @@ except ImportError:
 
 __plugin__ = {'name': '查ID',
  'id': 'id',
- 'version': '1.0.13',
+ 'version': '1.0.14',
  'author': 'AWdress',
  'description': '发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'v1.0.13 适配新版异步存储接口\n'
+ 'changelog': 'v1.0.14 修复 V2 回复消息查 ID\n'
+              '- 补全被回复消息的发送者实体，恢复用户 ID 与用户名查询\n'
+              '- 群组 ID 改用 Telethon 完整 -100 会话 ID\n'
+              '\n'
+              'v1.0.13 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
