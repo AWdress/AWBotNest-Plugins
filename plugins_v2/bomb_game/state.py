@@ -2,35 +2,62 @@
 # 数字炸弹游戏 - 状态管理（GameStateManager）
 #
 # 原项目用 data/bomb_game_state.json 在 user/bot 多实例间同步状态。
-# 迁到平台后是单插件单进程：这里改为「内存单实例 + ctx.kv 持久化」。
-#   - 每群一个 kv 键：game:<chat_id>，值为 JSON-able dict。
-#   - 实例化时从 kv 一次性恢复所有活跃局，之后内存状态即权威，每次变更立刻写 kv。
+# 原生 V2 使用 ctx.sessions 保存活跃局，ctx.storage 保存关键检查点。
+#   - 每群一个 Session 和 storage 键：game:<chat_id>。
+#   - Session lock 内只进行校验和内存变更；持久化在释放锁后执行。
 #   - 配置（entry_fee / pool_ratio / wait_time / 范围调整）从 ctx.config 实时读取，
 #     不再 import config。
 #
-# 不 import pyrogram / core；方法接收的 client 是平台传入的 pyrogram Client。
+# client 是平台提供的 Telethon TelegramClient。
 # =============================================================================
 
-import asyncio
+import copy
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
-from ._helpers import build_shrink_config, calc_shrink_amount, select_smart_bomb_position
+from .helpers import build_shrink_config, calc_shrink_amount, select_smart_bomb_position
 
 _KEY_PREFIX = "game:"
 
 
 class GameStateManager:
-    """游戏状态管理器（内存权威 + ctx.kv 持久化）。"""
+    """Session Runtime authority with asynchronous Storage checkpoints."""
 
     def __init__(self, ctx):
         self._ctx = ctx
-        self.kv = ctx.kv
+        self.storage = ctx.storage
         self.log = ctx.log
         self.state: Dict[str, dict] = {}
-        self._locks: Dict[int, asyncio.Lock] = {}
+        self._sessions: Dict[str, object] = {}
         self._invalid_chat_ids: set = set()
-        self._load_state()
+
+    async def initialize(self):
+        """Restore persisted games into the platform Session Runtime."""
+        self.state = {}
+        try:
+            values = await self.storage.items()
+            for key, data in values.items():
+                if key.startswith(_KEY_PREFIX) and isinstance(data, dict):
+                    chat_id = key[len(_KEY_PREFIX):]
+                    session = await self._ctx.sessions.get(chat_id, initial=data)
+                    session.data.clear()
+                    session.data.update(copy.deepcopy(data))
+                    self._sessions[chat_id] = session
+                    self.state[chat_id] = session.data
+        except Exception as error:
+            self.log.warning("加载游戏状态失败: %s", error)
+
+    async def ensure_session(self, chat_id: int):
+        key = str(chat_id)
+        session = self._sessions.get(key)
+        if session is None:
+            saved = await self.storage.get(_KEY_PREFIX + key, {})
+            initial = saved if isinstance(saved, dict) else {}
+            session = await self._ctx.sessions.get(key, initial=initial)
+            self._sessions[key] = session
+            self.state[key] = session.data
+        session.touch()
+        return session
 
     # ── 配置读取（实时） ─────────────────────────────────────────────────────
     @property
@@ -60,42 +87,16 @@ class GameStateManager:
         return build_shrink_config(self.config)
 
     # ── 持久化 ───────────────────────────────────────────────────────────────
-    def _load_state(self):
-        """从 kv 恢复所有局（仅在实例化时调用一次）。"""
-        self.state = {}
-        try:
-            for key in self.kv.keys():
-                if key.startswith(_KEY_PREFIX):
-                    chat_id_str = key[len(_KEY_PREFIX):]
-                    data = self.kv.get(key)
-                    if isinstance(data, dict):
-                        self.state[chat_id_str] = data
-        except Exception as e:
-            self.log.warning("加载游戏状态失败: %s", e)
-            self.state = {}
-
-    def _persist(self, chat_id_str: str):
-        """把单局写回 kv（不存在则删除对应键）。"""
-        key = _KEY_PREFIX + chat_id_str
-        if chat_id_str in self.state:
-            self.kv.set(key, self.state[chat_id_str])
+    async def checkpoint(self, chat_id: int):
+        key = str(chat_id)
+        if key in self.state:
+            await self.storage.set(_KEY_PREFIX + key, copy.deepcopy(self.state[key]))
         else:
-            self.kv.delete(key)
-
-    def _save_state(self):
-        """兼容旧调用：全量写回所有局。"""
-        for chat_id_str in list(self.state.keys()):
-            self.kv.set(_KEY_PREFIX + chat_id_str, self.state[chat_id_str])
-
-    # 旧代码到处调用 _load_state() 做跨进程同步；单进程下内存即权威，置为 no-op。
-    def reload(self):
-        pass
+            await self.storage.delete(_KEY_PREFIX + key)
 
     # ── 并发锁 / 黑名单 ──────────────────────────────────────────────────────
     def _get_lock(self, chat_id: int):
-        if chat_id not in self._locks:
-            self._locks[chat_id] = asyncio.Lock()
-        return self._locks[chat_id]
+        return self._sessions[str(chat_id)].lock
 
     def _is_chat_id_valid(self, chat_id: int) -> bool:
         return chat_id not in self._invalid_chat_ids
@@ -109,7 +110,7 @@ class GameStateManager:
         try:
             if not self._is_chat_id_valid(chat_id):
                 return False
-            await client.get_chat(chat_id)
+            await client.get_entity(chat_id)
             return True
         except Exception as e:
             name = type(e).__name__
@@ -125,8 +126,9 @@ class GameStateManager:
         chat_id_str = str(chat_id)
         if chat_id_str in self.state:
             del self.state[chat_id_str]
-            self._persist(chat_id_str)
-            self._locks.pop(chat_id, None)
+            await self.storage.delete(_KEY_PREFIX + chat_id_str)
+            self._sessions.pop(chat_id_str, None)
+            await self._ctx.sessions.reset(chat_id_str)
 
     # ── 范围调整 / 动态移弹 ──────────────────────────────────────────────────
     def _calculate_shrink_amount(self, distance: int, result_type: str) -> int:
@@ -157,13 +159,13 @@ class GameStateManager:
         if new_bomb != current_bomb:
             game_info["bomb_number"] = new_bomb
             game_info["adjustment_count"] += 1
-            self._persist(str(chat_id))
             return True
         return False
 
     # ── 游戏生命周期 ─────────────────────────────────────────────────────────
     async def start_game(self, client, chat_id: int, bomb_number: int, admin_id: int, continuous: bool = False) -> bool:
         """开始游戏（奖池模式总是启用）。"""
+        await self.ensure_session(chat_id)
         if not await self._validate_chat_access(client, chat_id):
             self.log.error("无法在聊天ID %s 中开始游戏", chat_id)
             return False
@@ -177,8 +179,16 @@ class GameStateManager:
         entry_fee = self.get_entry_fee()
         pool_ratio = self.get_pool_ratio()
         wait_time = self.get_wait_time()
+        try:
+            min_range = max(1, min(100, int(self.config.get("default_min", 1))))
+            max_range = max(min_range, min(100, int(self.config.get("default_max", 100))))
+        except (TypeError, ValueError):
+            min_range, max_range = 1, 100
+        bomb_number = max(min_range, min(max_range, bomb_number))
 
-        self.state[str(chat_id)] = {
+        session = self._sessions[str(chat_id)]
+        session.data.clear()
+        session.data.update({
             "active": True,
             "bomb_number": bomb_number,
             "original_bomb_number": bomb_number,
@@ -186,8 +196,8 @@ class GameStateManager:
             "continuous": continuous,
             "start_time": datetime.now().isoformat(),
             "guesses": [],
-            "min_range": 1,
-            "max_range": 100,
+            "min_range": min_range,
+            "max_range": max_range,
             "winner": None,
             "adjustment_count": 0,
             "dynamic_mode": True,
@@ -200,25 +210,47 @@ class GameStateManager:
             "pool_ratio": pool_ratio,
             "wait_time": wait_time,
             "game_phase": "waiting",
-        }
-        self._persist(str(chat_id))
+        })
+        self.state[str(chat_id)] = session.data
+        session.touch()
+        await self.checkpoint(chat_id)
         self.log.info("游戏已在聊天ID %s 中开始，奖池模式: 启用", chat_id)
         return True
 
-    def end_game(self, chat_id: int, winner_id: Optional[int] = None) -> bool:
-        if not self.is_game_active(chat_id):
+    async def end_game(self, chat_id: int, winner_id: Optional[int] = None) -> bool:
+        session = self._sessions[str(chat_id)]
+        async with session.lock:
+            if not session.data.get("active"):
+                return False
+            if winner_id:
+                session.data["winner"] = winner_id
+            session.data["active"] = False
+            session.data["settling"] = False
+            session.data["end_time"] = datetime.now().isoformat()
+            session.touch()
+            snapshot = copy.deepcopy(session.data)
+        await self.storage.set(_KEY_PREFIX + str(chat_id), snapshot)
+        return True
+
+    async def release_settlement(self, chat_id: int) -> bool:
+        """发奖失败时解除结算占用，保留原局供安全重试。"""
+        session = self._sessions.get(str(chat_id))
+        if session is None:
             return False
-        if winner_id:
-            self.state[str(chat_id)]["winner"] = winner_id
-        self.state[str(chat_id)]["active"] = False
-        self.state[str(chat_id)]["end_time"] = datetime.now().isoformat()
-        self._persist(str(chat_id))
+        async with session.lock:
+            if not session.data.get("active") or not session.data.get("settling"):
+                return False
+            session.data["settling"] = False
+            session.data["winner"] = None
+            session.touch()
+            snapshot = copy.deepcopy(session.data)
+        await self.storage.set(_KEY_PREFIX + str(chat_id), snapshot)
         return True
 
     async def end_game_and_cleanup(self, client, chat_id: int, winner_id: Optional[int] = None) -> bool:
         if not self.is_game_active(chat_id):
             return False
-        game_ended = self.end_game(chat_id, winner_id)
+        game_ended = await self.end_game(chat_id, winner_id)
         if game_ended:
             await self.delete_start_message(client, chat_id)
         return game_ended
@@ -293,11 +325,79 @@ class GameStateManager:
                 if game_info["min_range"] > game_info["max_range"]:
                     game_info["min_range"] = game_info["max_range"]
 
-                self._persist(str(chat_id))
-                return True, 0
+                snapshot_ready = True
+            if snapshot_ready:
+                await self.checkpoint(chat_id)
+            return True, 0
         except Exception as e:
             self.log.error("添加猜测记录失败 (chat=%s, user=%s): %s", chat_id, user_id, e)
             return False, 0
+
+    async def evaluate_guess(self, chat_id: int, user_id: int, guess: int,
+                             *, instant_win: bool = False) -> dict:
+        """Atomically apply one guess using only the Session lock.
+
+        No Telegram, Storage, HTTP or other slow await occurs while the lock is
+        held.  The durable checkpoint is written after releasing it.
+        """
+        session = self._sessions[str(chat_id)]
+        async with session.lock:
+            game = session.data
+            if not game.get("active") or game.get("settling"):
+                return {"status": "inactive"}
+            if game.get("game_phase") != "playing":
+                return {"status": game.get("game_phase", "inactive")}
+            if str(user_id) not in game.get("participants", {}):
+                return {"status": "not_participant"}
+            if not game["min_range"] <= guess <= game["max_range"]:
+                return {"status": "out_of_range", "range": (game["min_range"], game["max_range"])}
+
+            now = datetime.now()
+            for record in reversed(game["guesses"]):
+                if record["user_id"] == user_id:
+                    elapsed = (now - datetime.fromisoformat(record["timestamp"])).total_seconds()
+                    if elapsed < 10:
+                        return {"status": "cooldown", "seconds": max(1, int(10 - elapsed))}
+                    break
+
+            bomb = game["bomb_number"]
+            result = "bomb" if guess == bomb else ("too_high" if guess > bomb else "too_low")
+            span = game["max_range"] - game["min_range"] + 1
+            if game.get("explosion_scenario") == "last_5" and game.get("final_bomb") is None and span <= 5:
+                import random
+                game["final_bomb"] = random.choice(list(range(game["min_range"], game["max_range"] + 1)))
+            explode = (instant_win or result == "bomb" or span == 1 or
+                       (game.get("explosion_scenario") == "last_5" and span <= 5
+                        and guess == game.get("final_bomb")))
+            if explode:
+                game["settling"] = True
+                game["winner"] = user_id
+                session.touch()
+                snapshot = copy.deepcopy(game)
+                action = {"status": "explode", "result": result, "snapshot": snapshot}
+            else:
+                original_bomb = game["bomb_number"]
+                adjusted = self._adjust_bomb_number(chat_id, guess, result)
+                game["guesses"].append({"user_id": user_id, "guess": guess, "result": result,
+                                        "timestamp": now.isoformat(), "bomb_adjusted": adjusted})
+                if result == "too_high":
+                    distance = guess - original_bomb
+                    adjustment = self._calculate_shrink_amount(distance, result)
+                    new_max = min(game["max_range"], guess - 1)
+                    game["max_range"] = min(new_max, guess - adjustment) if adjustment >= 0 else min(100, new_max + abs(adjustment), guess - 1)
+                    game["max_range"] = max(game["min_range"], game["max_range"])
+                else:
+                    distance = original_bomb - guess
+                    adjustment = self._calculate_shrink_amount(distance, result)
+                    new_min = max(game["min_range"], guess + 1)
+                    game["min_range"] = max(new_min, guess + adjustment) if adjustment >= 0 else max(1, new_min - abs(adjustment), guess + 1)
+                    game["min_range"] = min(game["max_range"], game["min_range"])
+                session.touch()
+                snapshot = copy.deepcopy(game)
+                action = {"status": "accepted", "result": result,
+                          "range": (game["min_range"], game["max_range"]), "snapshot": snapshot}
+        await self.storage.set(_KEY_PREFIX + str(chat_id), snapshot)
+        return action
 
     def check_guess(self, chat_id: int, guess: int) -> str:
         if not self.is_game_active(chat_id):
@@ -335,20 +435,19 @@ class GameStateManager:
         return game_info["min_range"] == game_info["max_range"]
 
     # ── 奖池 / 参与者 ────────────────────────────────────────────────────────
-    def add_pending_participant(self, chat_id: int, user_id: int, amount: int, message_id: int = None) -> bool:
-        if not self.is_game_active(chat_id):
-            return False
-        game_info = self.state[str(chat_id)]
-        if str(user_id) in game_info["participants"]:
-            return False
-        if str(user_id) in game_info.get("pending_participants", {}):
-            return False
-        game_info.setdefault("pending_participants", {})[str(user_id)] = {
-            "amount": amount,
-            "timestamp": datetime.now().isoformat(),
-            "message_id": message_id,
-        }
-        self._persist(str(chat_id))
+    async def add_pending_participant(self, chat_id: int, user_id: int, amount: int, message_id: int = None) -> bool:
+        session = self._sessions[str(chat_id)]
+        async with session.lock:
+            game_info = session.data
+            if not game_info.get("active") or str(user_id) in game_info.get("participants", {}) \
+                    or str(user_id) in game_info.get("pending_participants", {}):
+                return False
+            game_info.setdefault("pending_participants", {})[str(user_id)] = {
+                "amount": amount, "timestamp": datetime.now().isoformat(), "message_id": message_id,
+            }
+            session.touch()
+            snapshot = copy.deepcopy(game_info)
+        await self.storage.set(_KEY_PREFIX + str(chat_id), snapshot)
         self.log.info("用户 %s 添加到待确认列表，金额: %s", user_id, amount)
         return True
 
@@ -358,24 +457,26 @@ class GameStateManager:
         game_info = self.state[str(chat_id)]
         return str(user_id) in game_info.get("pending_participants", {})
 
-    def confirm_participation(self, chat_id: int, user_id: int) -> bool:
-        if not self.is_game_active(chat_id):
-            return False
-        game_info = self.state[str(chat_id)]
-        pending = game_info.get("pending_participants", {})
-        if str(user_id) not in pending:
-            return False
-        pending_info = pending[str(user_id)]
-        amount = pending_info["amount"]
-        message_id = pending_info.get("message_id")
-        del pending[str(user_id)]
-        game_info["participants"][str(user_id)] = {"amount": amount, "message_id": message_id}
-        game_info["pool_amount"] += amount
-        self._persist(str(chat_id))
-        self.log.info("用户 %s 参与确认成功，金额: %s，总奖池: %s", user_id, amount, game_info["pool_amount"])
+    async def confirm_participation(self, chat_id: int, user_id: int) -> bool:
+        session = self._sessions[str(chat_id)]
+        async with session.lock:
+            game_info = session.data
+            pending = game_info.get("pending_participants", {})
+            if not game_info.get("active") or str(user_id) not in pending:
+                return False
+            pending_info = pending.pop(str(user_id))
+            amount = pending_info["amount"]
+            game_info["participants"][str(user_id)] = {
+                "amount": amount, "message_id": pending_info.get("message_id"),
+            }
+            game_info["pool_amount"] += amount
+            session.touch()
+            snapshot = copy.deepcopy(game_info)
+        await self.storage.set(_KEY_PREFIX + str(chat_id), snapshot)
+        self.log.info("用户 %s 参与确认成功，金额: %s，总奖池: %s", user_id, amount, snapshot["pool_amount"])
         return True
 
-    def cleanup_expired_pending_participants(self, chat_id: int, max_age_minutes: int = 5) -> int:
+    async def cleanup_expired_pending_participants(self, chat_id: int, max_age_minutes: int = 5) -> int:
         if not self.is_game_active(chat_id):
             return 0
         game_info = self.state[str(chat_id)]
@@ -394,7 +495,7 @@ class GameStateManager:
         for user_id_str in expired:
             del pending[user_id_str]
         if expired:
-            self._persist(str(chat_id))
+            await self.checkpoint(chat_id)
         return len(expired)
 
     def get_pool_info(self, chat_id: int) -> dict:
@@ -431,22 +532,22 @@ class GameStateManager:
         return [int(uid) for uid in game_info.get("participants", {}).keys()]
 
     # ── 消息ID追踪 ───────────────────────────────────────────────────────────
-    def set_start_message_id(self, chat_id: int, message_id: int) -> bool:
+    async def set_start_message_id(self, chat_id: int, message_id: int) -> bool:
         if not self.is_game_active(chat_id):
             return False
         self.state[str(chat_id)]["start_message_id"] = message_id
-        self._persist(str(chat_id))
+        await self.checkpoint(chat_id)
         return True
 
     def get_start_message_id(self, chat_id: int) -> Optional[int]:
         info = self.state.get(str(chat_id))
         return info.get("start_message_id") if info else None
 
-    def set_last_game_message_id(self, chat_id: int, message_id: int) -> bool:
+    async def set_last_game_message_id(self, chat_id: int, message_id: int) -> bool:
         if str(chat_id) not in self.state:
             return False
         self.state[str(chat_id)]["last_game_message_id"] = message_id
-        self._persist(str(chat_id))
+        await self.checkpoint(chat_id)
         return True
 
     def get_last_game_message_id(self, chat_id: int) -> Optional[int]:
@@ -462,11 +563,11 @@ class GameStateManager:
             self.log.warning("删除开始消息失败: %s", e)
 
     # ── 游戏阶段 ─────────────────────────────────────────────────────────────
-    def set_game_phase(self, chat_id: int, phase: str) -> bool:
+    async def set_game_phase(self, chat_id: int, phase: str) -> bool:
         if not self.is_game_active(chat_id):
             return False
         self.state[str(chat_id)]["game_phase"] = phase
-        self._persist(str(chat_id))
+        await self.checkpoint(chat_id)
         return True
 
     def get_game_phase(self, chat_id: int) -> str:
@@ -481,12 +582,13 @@ class GameStateManager:
         return self.get_game_phase(chat_id) == "playing"
 
     # ── 中断 / 返还奖池 / 清理 ───────────────────────────────────────────────
-    async def _return_pool_to_participants(self, client, chat_id: int, game_info: dict):
+    async def _return_pool_to_participants(self, client, chat_id: int, game_info: dict) -> bool:
         """返还奖池给参与者（reply +金额 让群转账 bot 打款）。"""
         try:
             participants = game_info.get("participants", {})
             if not participants:
-                return
+                return True
+            all_returned = True
             return_msg = (
                 f"**游戏中断，奖池返还**\n\n"
                 f"总奖池：{game_info.get('pool_amount', 0)} 魔力\n"
@@ -503,38 +605,43 @@ class GameStateManager:
                         amount = participant_info
                         message_id = None
                     try:
-                        user = await client.get_users(user_id)
+                        user = await client.get_entity(user_id)
                         user_name = user.first_name or str(user_id)
                         if user.last_name:
                             user_name += f" {user.last_name}"
                     except Exception:
                         user_name = str(user_id)
                     if message_id:
-                        await client.send_message(chat_id, f"+{amount}", reply_to_message_id=message_id)
+                        await client.send_message(chat_id, f"+{amount}", reply_to=message_id)
                     else:
                         await client.send_message(chat_id, f"@{user_id} +{amount}")
                     return_msg += f"• {user_name}：+{amount} 魔力\n"
                 except Exception as e:
+                    all_returned = False
                     self.log.error("返还奖池给用户 %s 失败: %s", user_id_str, e)
                     return_msg += f"• 用户 {user_id_str}：返还失败\n"
             await client.send_message(chat_id, return_msg)
             self.log.info("奖池返还完成，聊天ID: %s", chat_id)
+            return all_returned
         except Exception as e:
             self.log.error("返还奖池失败: %s", e)
+            return False
 
     async def interrupt_game_and_return_pool(self, client, chat_id: int, reason: str = "manual") -> bool:
         if not self.is_game_active(chat_id):
             return False
         game_info = self.state[str(chat_id)]
         if game_info.get("pool_amount", 0) > 0:
-            await self._return_pool_to_participants(client, chat_id, game_info)
+            if not await self._return_pool_to_participants(client, chat_id, copy.deepcopy(game_info)):
+                self.log.error("奖池未能完整返还，保留游戏状态以便重试，聊天ID: %s", chat_id)
+                return False
         if game_info.get("pending_participants"):
             game_info["pending_participants"] = {}
         await self.delete_start_message(client, chat_id)
         game_info["active"] = False
         game_info["end_time"] = datetime.now().isoformat()
         game_info["end_reason"] = reason
-        self._persist(str(chat_id))
+        await self.checkpoint(chat_id)
         self.log.info("游戏已中断并返还奖池，聊天ID: %s, 原因: %s", chat_id, reason)
         return True
 
@@ -552,7 +659,9 @@ class GameStateManager:
                 start_time = datetime.fromisoformat(game_info.get("start_time", "1970-01-01T00:00:00"))
                 if start_time < datetime.now() - timedelta(hours=2):
                     if game_info.get("pool_amount", 0) > 0:
-                        await self._return_pool_to_participants(client, int(chat_id), game_info)
+                        if not await self._return_pool_to_participants(client, int(chat_id), copy.deepcopy(game_info)):
+                            self.log.error("超时游戏奖池未完整返还，保留状态以便重试，聊天ID: %s", chat_id)
+                            continue
                         returned_pools.append(chat_id)
                     game_info["active"] = False
                     game_info["end_time"] = datetime.now().isoformat()
@@ -560,7 +669,9 @@ class GameStateManager:
                     to_remove.append(chat_id)
         for chat_id in to_remove:
             self.state.pop(chat_id, None)
-            self.kv.delete(_KEY_PREFIX + chat_id)
+            await self.storage.delete(_KEY_PREFIX + chat_id)
+            self._sessions.pop(chat_id, None)
+            await self._ctx.sessions.reset(chat_id)
         return len(to_remove), len(returned_pools)
 
     # ── 状态文案 ─────────────────────────────────────────────────────────────

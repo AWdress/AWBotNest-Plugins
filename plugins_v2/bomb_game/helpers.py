@@ -2,7 +2,7 @@
 # 数字炸弹游戏 - 纯辅助函数与文案
 #
 # 这里只放无副作用的工具：配置解析、消息形态判定、文案构建、难度生成。
-# 不 import pyrogram / core / config，所有运行期能力由调用方（__init__.py / _game.py）经 ctx 提供。
+# 无框架兼容依赖；所有运行期能力由原生 V2 入口和游戏引擎经 ctx 提供。
 # =============================================================================
 
 import re
@@ -94,7 +94,7 @@ def difficulty_description(shrink_cfg: dict) -> str:
 
 # ─── 消息形态判定 ────────────────────────────────────────────────────────────
 def text_of(message) -> str:
-    return (message.text or "").strip() if getattr(message, "text", None) else ""
+    return str(getattr(message, "raw_text", "") or "").strip()
 
 
 def is_start_command(text: str) -> bool:
@@ -208,10 +208,11 @@ def select_smart_bomb_position(available_numbers: list, guess_history: list) -> 
 
 
 # ─── 文案构建 ────────────────────────────────────────────────────────────────
-def build_start_message(wait_time: int, entry_fee: int, continuous: bool, restart: bool = False) -> str:
+def build_start_message(wait_time: int, entry_fee: int, continuous: bool, restart: bool = False,
+                        min_range: int = 1, max_range: int = 100) -> str:
     """构建游戏准备/重新开始消息。"""
     title = "数字炸弹游戏重新开始！" if restart else "数字炸弹游戏准备中！"
-    bomb_line = "新的炸弹数字已设置（1-100之间）" if restart else "炸弹数字已设置（1-100之间）"
+    bomb_line = ("新的炸弹数字已设置" if restart else "炸弹数字已设置") + f"（{min_range}-{max_range}之间）"
     mode_text = "持续模式" if continuous else "单次模式"
     return (
         f"**{title}**\n\n"

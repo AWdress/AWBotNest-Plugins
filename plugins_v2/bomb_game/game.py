@@ -5,14 +5,13 @@
 # 所有后台延时任务（等待开始、持续重开、自动删除）登记到 self._tasks，
 # teardown 时统一 cancel。
 #
-# 不 import pyrogram / core / config。client 为平台传入的 pyrogram Client，
-# ctx 提供配置/日志。
+# 直接使用 Telethon Event/TelegramClient；ctx 提供配置、任务与日志。
 # =============================================================================
 
 import asyncio
 import random
 
-from ._helpers import (
+from .helpers import (
     generate_difficult_bomb_number,
     build_shrink_config,
     calc_shrink_amount,
@@ -29,7 +28,6 @@ class NumberBombGame:
         self.log = ctx.log
         self.state_manager = state_manager
         self.valid_groups = valid_groups          # 由 __init__.py 在每次操作前刷新
-        self._processing_locks = {}
         self._tasks: set = set()
         # 已提示过的非参与者，避免重复提示。key:(chat_id,user_id) value:"no_game"或start_time
         self._notified_non_participants: dict = {}
@@ -50,18 +48,13 @@ class NumberBombGame:
             task.cancel()
         self._tasks.clear()
 
-    def _get_processing_lock(self, chat_id: int):
-        if chat_id not in self._processing_locks:
-            self._processing_locks[chat_id] = asyncio.Lock()
-        return self._processing_locks[chat_id]
-
     # ── 自动删除 ─────────────────────────────────────────────────────────────
     def _should_auto_delete(self, chat_id=None) -> bool:
         if not self.config.get("auto_delete_enabled", True):
             return False
         # 按群覆盖：在停用列表里的群即使总开关开着也不删
         if chat_id is not None:
-            raw = self.config.get("auto_delete_disabled_groups")
+            raw = self.config.get("no_delete_groups")
             items = raw if isinstance(raw, list) else str(raw or "").replace(",", "\n").split("\n")
             for part in items:
                 if str(part).strip():
@@ -73,12 +66,17 @@ class NumberBombGame:
         return True
 
     async def _schedule_auto_delete(self, message, delay: int = 15):
-        chat_id = getattr(getattr(message, "chat", None), "id", None)
+        chat_id = getattr(message, "chat_id", None)
         if not self._should_auto_delete(chat_id):
             return
 
+        try:
+            configured_delay = max(0, int(self.config.get("auto_delete_delay", delay)))
+        except (TypeError, ValueError):
+            configured_delay = delay
+
         async def _delete():
-            await asyncio.sleep(delay)
+            await asyncio.sleep(configured_delay)
             try:
                 await message.delete()
             except Exception as e:
@@ -88,7 +86,24 @@ class NumberBombGame:
 
     # ── 难度 ─────────────────────────────────────────────────────────────────
     def _generate_difficult_bomb_number(self) -> int:
-        return generate_difficult_bomb_number()
+        try:
+            low = max(1, min(100, int(self.config.get("default_min", 1))))
+            high = max(low, min(100, int(self.config.get("default_max", 100))))
+        except (TypeError, ValueError):
+            low, high = 1, 100
+        for _ in range(32):
+            candidate = generate_difficult_bomb_number()
+            if low <= candidate <= high:
+                return candidate
+        return random.randint(low, high)
+
+    def _configured_range(self):
+        try:
+            low = max(1, min(100, int(self.config.get("default_min", 1))))
+            high = max(low, min(100, int(self.config.get("default_max", 100))))
+            return low, high
+        except (TypeError, ValueError):
+            return 1, 100
 
     def _shrink_cfg(self) -> dict:
         return build_shrink_config(self.config)
@@ -118,7 +133,7 @@ class NumberBombGame:
             names = []
             for uid in participant_ids:
                 try:
-                    user = await client.get_users(uid)
+                    user = await client.get_entity(uid)
                     name = user.first_name or str(uid)
                     if user.last_name:
                         name += f" {user.last_name}"
@@ -137,7 +152,7 @@ class NumberBombGame:
             )
             new_text = (
                 f"**数字炸弹游戏准备中！**\n\n"
-                f"炸弹数字已设置（1-100之间）\n"
+                f"炸弹数字已设置（{self._configured_range()[0]}-{self._configured_range()[1]}之间）\n"
                 f"**奖池模式已启用**\n\n"
                 f"**参与阶段（{wait_time}秒）**\n"
                 f"参与费用：{entry_fee} 魔力\n"
@@ -149,18 +164,19 @@ class NumberBombGame:
                 f"中奖者获得奖池奖励"
                 f"{participant_section}"
             )
-            await client.edit_message_text(chat_id, start_message_id, new_text)
+            await client.edit_message(chat_id, start_message_id, new_text)
             self.log.info("已更新群组 %s 的游戏开始消息，参与者: %s 人", chat_id, len(names))
         except Exception as e:
             self.log.warning("更新游戏开始消息失败: %s", e)
 
     # ── 开始游戏 ─────────────────────────────────────────────────────────────
     async def start_game(self, client, message, admin_id: int, continuous: bool = False) -> bool:
-        chat_id = message.chat.id
+        chat_id = message.chat_id
         if chat_id not in self.valid_groups and self.valid_groups:
             self.log.warning("群组 %s 不在有效群组列表中", chat_id)
             return False
-        sender_id = message.from_user.id if message.from_user else admin_id
+        sender = getattr(message, "_bomb_sender", None)
+        sender_id = sender.id if sender else admin_id
         if sender_id != admin_id:
             self.log.warning("用户 %s 不是管理员 %s", sender_id, admin_id)
             return False
@@ -176,13 +192,14 @@ class NumberBombGame:
 
         wait_time = self.state_manager.get_wait_time()
         entry_fee = self.state_manager.get_entry_fee()
-        start_msg = build_start_message(wait_time, entry_fee, continuous)
+        low, high = self._configured_range()
+        start_msg = build_start_message(wait_time, entry_fee, continuous, min_range=low, max_range=high)
         try:
             sent_message = await client.send_message(chat_id, start_msg)
             # 新局开始，清理该群非参与者通知记录
             for k in [k for k in self._notified_non_participants if k[0] == chat_id]:
                 del self._notified_non_participants[k]
-            self.state_manager.set_start_message_id(chat_id, sent_message.id)
+            await self.state_manager.set_start_message_id(chat_id, sent_message.id)
             self._track(self._start_game_after_wait(client, chat_id, wait_time, continuous))
             return True
         except Exception as e:
@@ -203,7 +220,7 @@ class NumberBombGame:
             if participants_count == 0:
                 self.log.warning("没有玩家参与，取消游戏: %s", chat_id)
                 start_message_id = self.state_manager.get_start_message_id(chat_id)
-                self.state_manager.end_game(chat_id)
+                await self.state_manager.end_game(chat_id)
                 try:
                     sent_message = await client.send_message(
                         chat_id, "**游戏取消**\n\n没有玩家参与，游戏自动取消")
@@ -217,7 +234,7 @@ class NumberBombGame:
                         self.log.warning("删除开始消息失败: %s", e)
                 return
 
-            self.state_manager.set_game_phase(chat_id, "playing")
+            await self.state_manager.set_game_phase(chat_id, "playing")
 
             start_message_id = self.state_manager.get_start_message_id(chat_id)
             if start_message_id:
@@ -226,7 +243,7 @@ class NumberBombGame:
                 except Exception as e:
                     self.log.warning("删除开始消息失败: %s", e)
 
-            self.state_manager.cleanup_expired_pending_participants(chat_id, 5)
+            await self.state_manager.cleanup_expired_pending_participants(chat_id, 5)
 
             pool_ratio = self.state_manager.get_pool_ratio()
             winner_reward = int(pool_amount * pool_ratio)
@@ -249,7 +266,7 @@ class NumberBombGame:
             )
             try:
                 sent_message = await client.send_message(chat_id, game_start_msg)
-                self.state_manager.set_last_game_message_id(chat_id, sent_message.id)
+                await self.state_manager.set_last_game_message_id(chat_id, sent_message.id)
                 self.log.info("数字炸弹游戏在群组 %s 中正式开始，参与者: %s 人", chat_id, participants_count)
             except Exception as e:
                 self.log.error("发送游戏开始消息失败: %s", e)
@@ -260,8 +277,9 @@ class NumberBombGame:
 
     # ── 结束游戏 ─────────────────────────────────────────────────────────────
     async def end_game(self, client, message, admin_id: int) -> bool:
-        chat_id = message.chat.id
-        sender_id = message.from_user.id if message.from_user else admin_id
+        chat_id = message.chat_id
+        sender = getattr(message, "_bomb_sender", None)
+        sender_id = sender.id if sender else admin_id
         if sender_id != admin_id:
             return False
         if not self.state_manager.is_game_active(chat_id):
@@ -284,8 +302,11 @@ class NumberBombGame:
 
     # ── 处理猜测 ─────────────────────────────────────────────────────────────
     async def process_guess(self, client, message) -> bool:
-        chat_id = message.chat.id
-        user_id = message.from_user.id
+        chat_id = message.chat_id
+        sender = getattr(message, "_bomb_sender", None)
+        if sender is None:
+            return False
+        user_id = sender.id
         if chat_id not in self.valid_groups and self.valid_groups:
             return False
 
@@ -300,11 +321,9 @@ class NumberBombGame:
                 self._notified_non_participants[key] = "no_game"
             return False
 
-        lock = self._get_processing_lock(chat_id)
         try:
             async with asyncio.timeout(10):
-                async with lock:
-                    return await self._process_guess_internal(client, message, user_id)
+                return await self._process_guess_internal(client, message, user_id)
         except asyncio.TimeoutError:
             self.log.warning("处理猜测超时: 群组 %s, 用户 %s", chat_id, user_id)
             return False
@@ -313,8 +332,8 @@ class NumberBombGame:
             return False
 
     async def _process_guess_internal(self, client, message, user_id: int) -> bool:
-        from ._helpers import parse_guess
-        chat_id = message.chat.id
+        from .helpers import parse_guess
+        chat_id = message.chat_id
 
         if not self.state_manager.is_playing_phase(chat_id):
             if self.state_manager.is_waiting_phase(chat_id):
@@ -369,7 +388,7 @@ class NumberBombGame:
                 self._notified_non_participants[key] = start_time
             return False
 
-        guess = parse_guess((message.text or "").strip())
+        guess = parse_guess((message.raw_text or "").strip())
         if guess is None:
             try:
                 sent_message = await message.reply(
@@ -389,53 +408,26 @@ class NumberBombGame:
                 self.log.error("发送范围提示失败: %s", e)
             return False
 
-        # 一发命中机制（千分率）
-        if random.random() < self._instant_win_probability():
-            self.log.info("用户 %s 触发一发猜中机制，猜测数字: %s", user_id, guess)
+        action = await self.state_manager.evaluate_guess(
+            chat_id, user_id, guess,
+            instant_win=random.random() < self._instant_win_probability(),
+        )
+        status = action.get("status")
+        if status == "explode":
             await self.handle_bomb_explosion_with_pool(client, message, chat_id, user_id, guess)
-            return True
-
-        result = self.state_manager.check_guess(chat_id, guess)
-        is_last_number = self.state_manager.is_last_number(chat_id)
-        should_trigger = is_last_number
-
-        min_range, max_range = self.state_manager.get_range_info(chat_id)
-        is_last_5_numbers = (max_range - min_range + 1) <= 5
-
-        game_info = self.state_manager.get_game_info(chat_id)
-
-        # 10%场景：到最后5个数字时确定最终炸弹
-        if (game_info["explosion_scenario"] == "last_5" and
-                game_info["final_bomb"] is None and is_last_5_numbers):
-            available_numbers = list(range(min_range, max_range + 1))
-            if available_numbers:
-                game_info["final_bomb"] = random.choice(available_numbers)
-
-        should_explode = False
-        if result == "bomb":
-            should_explode = True
-        elif should_trigger and is_last_number:
-            should_explode = True
-        elif game_info["explosion_scenario"] == "last_5" and is_last_5_numbers:
-            if guess == game_info.get("final_bomb", guess):
-                should_explode = True
-
-        if should_explode:
-            await self.handle_bomb_explosion_with_pool(client, message, chat_id, user_id, guess)
-        else:
-            guess_added, remaining_time = await self.state_manager.add_guess(chat_id, user_id, guess, result)
-            if guess_added:
-                await self._send_guess_feedback(client, message, result, guess)
-            else:
-                try:
-                    sent_message = await message.reply(f"请等待{remaining_time}秒后再猜测！")
-                    await self._schedule_auto_delete(sent_message, 5)
-                except Exception as e:
-                    self.log.error("发送冷却提示失败: %s", e)
+        elif status == "accepted":
+            await self._send_guess_feedback(client, message, action["result"], guess)
+        elif status == "cooldown":
+            sent_message = await message.reply(f"请等待{action['seconds']}秒后再猜测！")
+            await self._schedule_auto_delete(sent_message, 5)
+        elif status == "out_of_range":
+            low, high = action["range"]
+            sent_message = await message.reply(f"请输入 {low}-{high} 范围内的数字！")
+            await self._schedule_auto_delete(sent_message, 10)
         return True
 
     async def _send_guess_feedback(self, client, message, result: str, guess: int):
-        chat_id = message.chat.id
+        chat_id = message.chat_id
         min_range, max_range = self.state_manager.get_range_info(chat_id)
         game_info = self.state_manager.get_game_info(chat_id)
 
@@ -480,7 +472,7 @@ class NumberBombGame:
                 except Exception:
                     pass
             sent_message = await message.reply(feedback)
-            self.state_manager.set_last_game_message_id(chat_id, sent_message.id)
+            await self.state_manager.set_last_game_message_id(chat_id, sent_message.id)
         except Exception as e:
             self.log.error("发送反馈消息失败: %s", e)
 
@@ -489,8 +481,10 @@ class NumberBombGame:
         try:
             await message.reply(f"+{points}")
             self.log.info("数字炸弹游戏奖励：用户 %s 获得 %s 魔力值", user_id, points)
+            return True
         except Exception as e:
             self.log.error("发放魔力值奖励失败: %s", e)
+            return False
 
     # ── 爆炸结算 ─────────────────────────────────────────────────────────────
     async def handle_bomb_explosion_with_pool(self, client, message, chat_id: int, user_id: int, guess: int):
@@ -503,11 +497,14 @@ class NumberBombGame:
             if pool_info["amount"] > 0:
                 winner_reward, system_cut = self.state_manager.calculate_pool_reward(chat_id)
                 if winner_reward > 0:
-                    await self._award_magic_points(client, message, user_id, winner_reward)
+                    if not await self._award_magic_points(client, message, user_id, winner_reward):
+                        await self.state_manager.release_settlement(chat_id)
+                        self.log.error("奖池结算中止并保留游戏：奖励未成功发放，聊天ID: %s", chat_id)
+                        return
                 pool_ratio = pool_info.get("pool_ratio", 0.5)
                 explosion_msg = (
                     f"**数字炸弹爆炸！**\n\n"
-                    f"获胜者：{message.from_user.first_name}\n"
+                    f"获胜者：{getattr(getattr(message, '_bomb_sender', None), 'first_name', None) or user_id}\n"
                     f"炸弹数字：{guess}\n\n"
                     f"**奖池结算**\n"
                     f"总奖池：{pool_info['amount']} 魔力\n"
@@ -519,7 +516,7 @@ class NumberBombGame:
             else:
                 explosion_msg = (
                     f"**数字炸弹爆炸！**\n\n"
-                    f"获胜者：{message.from_user.first_name}\n"
+                    f"获胜者：{getattr(getattr(message, '_bomb_sender', None), 'first_name', None) or user_id}\n"
                     f"炸弹数字：{guess}\n\n"
                     f"**奖池为空**\n"
                     f"没有玩家参与奖池，无奖励发放\n\n"
@@ -560,10 +557,12 @@ class NumberBombGame:
                 return
             wait_time = self.state_manager.get_wait_time()
             entry_fee = self.state_manager.get_entry_fee()
-            new_start_msg = build_start_message(wait_time, entry_fee, True, restart=True)
+            low, high = self._configured_range()
+            new_start_msg = build_start_message(wait_time, entry_fee, True, restart=True,
+                                                min_range=low, max_range=high)
             sent_new_message = await client.send_message(chat_id, new_start_msg)
             self.log.info("持续模式：在群组 %s 中自动开始新游戏", chat_id)
-            self.state_manager.set_start_message_id(chat_id, sent_new_message.id)
+            await self.state_manager.set_start_message_id(chat_id, sent_new_message.id)
             self._track(self._start_game_after_wait(client, chat_id, wait_time, True))
         except asyncio.CancelledError:
             raise
@@ -588,7 +587,7 @@ class NumberBombGame:
                         chat_id,
                         "参与无效！游戏已正式开始，参与通道已关闭。\n\n"
                         "本次魔力不退还，下次请在参与阶段回复开始消息参与哦～",
-                        reply_to_message_id=transform_message.id if transform_message else None,
+                        reply_to=transform_message.id if transform_message else None,
                     )
                     await self._schedule_auto_delete(hint_msg, 10)
                 except Exception as e:
@@ -608,7 +607,7 @@ class NumberBombGame:
                     f"参与无效！\n\n"
                     f"必须先**回复游戏开始消息**发送 +{pool_info.get('entry_fee', bonus)}，等待转账确认后才算参与。\n"
                     f"直接发送转账不算参与，本次魔力不退还哦～",
-                    reply_to_message_id=transform_message.id if transform_message else None,
+                    reply_to=transform_message.id if transform_message else None,
                 )
                 await self._schedule_auto_delete(hint_msg, 10)
             except Exception as e:
@@ -626,12 +625,13 @@ class NumberBombGame:
             self.log.warning("转账金额 %s 与参与费用 %s 不一致", bonus_amount, pool_info["entry_fee"])
             return
 
-        if self.state_manager.confirm_participation(chat_id, user_id):
+        if await self.state_manager.confirm_participation(chat_id, user_id):
             updated_pool_info = self.state_manager.get_pool_info(chat_id)
             winner_reward = int(updated_pool_info["amount"] * updated_pool_info["pool_ratio"])
             user_name = "未知用户"
-            if transform_message and transform_message.from_user:
-                user_name = transform_message.from_user.first_name or "未知用户"
+            sender = getattr(transform_message, "_bomb_sender", None) if transform_message else None
+            if sender:
+                user_name = sender.first_name or "未知用户"
             try:
                 success_msg = await client.send_message(
                     chat_id,
