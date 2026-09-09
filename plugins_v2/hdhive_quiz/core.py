@@ -173,6 +173,7 @@ async def _resolve_answer(ctx, parsed: dict) -> tuple[object, str, str]:
 async def setup(ctx):
     global _bank
     _bank = Bank(ctx)
+    await _bank.initialize()
 
     async def _do_sync(reason: str = ""):
         _sync_status["running"] = True
@@ -208,7 +209,7 @@ async def setup(ctx):
         hours = int(cfg.get("bank_sync_hours", 12) or 12)
     except (ValueError, TypeError):
         hours = 12
-    ctx.schedule(_scheduled_sync, "interval", hours=max(1, hours), id="题库同步")
+    ctx.schedule_interval("题库同步", _scheduled_sync, seconds=max(1, hours) * 3600)
 
     # ───────── Vue 模式后端 API ─────────
     @ctx.on_api("/status", methods=["GET"])
@@ -250,8 +251,9 @@ async def setup(ctx):
         return {"items": await _chat_name_items(ctx, _effective_cfg(ctx).get("chat_ids", ""))}
 
     # ───────── 手动刷新题库命令 .hqsync ─────────
-    @ctx.on_message(ctx.filters.outgoing & ctx.filters.text, group=-12)
-    async def on_sync_cmd(client, message):
+    @ctx.on_message(outgoing=True, incoming=False)
+    async def on_sync_cmd(event):
+        client, message = event.client, event.message
         if not re.match(r"^[/\.]hqsync(?:\s|$)", message.text or "", re.IGNORECASE):
             return
         try:
@@ -266,8 +268,9 @@ async def setup(ctx):
             pass
 
     # ───────── 监听答题红包 ─────────
-    @ctx.on_message(ctx.filters.group & (ctx.filters.text | ctx.filters.caption), group=7)
-    async def on_quiz_packet(client, message):
+    @ctx.on_message()
+    async def on_quiz_packet(event):
+        client, message = event.client, event.message
         cfg = _effective_cfg(ctx)
         if not cfg.get("enabled", False):
             return

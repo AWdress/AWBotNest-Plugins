@@ -110,6 +110,7 @@ class Bank:
         self._ctx = ctx
         self._log = ctx.log
         self._index: dict[str, dict] = {}
+        self._last_sync = 0.0
         self._cache_path = os.path.join(ctx.data_dir, "bank_index.json")
         self._load_cache()
 
@@ -118,10 +119,13 @@ class Bank:
         return len(self._index)
 
     def last_sync(self) -> float:
+        return self._last_sync
+
+    async def initialize(self) -> None:
         try:
-            return float(self._ctx.kv.get(_KV_LAST_SYNC, 0) or 0)
+            self._last_sync = float(await self._ctx.storage.get(_KV_LAST_SYNC, 0) or 0)
         except Exception:
-            return 0.0
+            self._last_sync = 0.0
 
     def _load_cache(self) -> None:
         try:
@@ -154,7 +158,8 @@ class Bank:
         self._save_cache()
         try:
             import time as _t
-            self._ctx.kv.set(_KV_LAST_SYNC, _t.time())
+            self._last_sync = _t.time()
+            await self._ctx.storage.set(_KV_LAST_SYNC, self._last_sync)
         except Exception:
             pass
         self._log.info("[影巢答题] 题库同步完成，共 %d 题", len(index))
