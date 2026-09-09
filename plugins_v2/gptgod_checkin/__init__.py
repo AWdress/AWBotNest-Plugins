@@ -1,8 +1,7 @@
 """AWBotNest 2 entry; generated from the maintained V1 plugin."""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
+from .core import setup as _native_setup, teardown as _native_teardown
 try:
     from ._legacy import DEFAULTS as _legacy_defaults
 except ImportError:
@@ -14,7 +13,8 @@ except ImportError:
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '1.1.18',
+ 'version': '2.0.0',
+ 'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。',
  'changelog': 'v1.1.18 适配新版异步存储接口\n'
@@ -137,21 +137,9 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
  'v1_compatible_version': '1.1.9',
  'v2_adapter': 'telethon',
  'tags': ['GPT-GOD签到', '多账号', '网页自动化']}
-_active_context = None
-
-
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
+    await _native_setup(ctx)
 
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _native_teardown(ctx)

@@ -688,10 +688,10 @@ async def _run(ctx, source: str) -> dict:
             result = {"ok": False, "message": "请先添加至少一个 GPT-GOD 签到账号"}
         else:
             ctx.log.info("开始%s签到，共 %s 个账号", source, len(accounts))
-            sessions = ctx.kv.get(SESSION_KEY, {}) or {}
+            sessions = await ctx.storage.get(SESSION_KEY, {}) or {}
             if not isinstance(sessions, dict):
                 sessions = {}
-            legacy_session = ctx.kv.get(LEGACY_SESSION_KEY, {}) or {}
+            legacy_session = await ctx.storage.get(LEGACY_SESSION_KEY, {}) or {}
             if isinstance(legacy_session, dict):
                 legacy_email = str(legacy_session.get("email") or "").casefold()
                 legacy_cookie = str(legacy_session.get("cookie") or "")
@@ -784,8 +784,8 @@ async def _run(ctx, source: str) -> dict:
                         break
                 account_results.append(item)
 
-            ctx.kv.set(SESSION_KEY, sessions)
-            ctx.kv.delete(LEGACY_SESSION_KEY)
+            await ctx.storage.set(SESSION_KEY, sessions)
+            await ctx.storage.delete(LEGACY_SESSION_KEY)
             success_count = sum(1 for item in account_results if item["ok"])
             failed_count = len(account_results) - success_count
             summary = f"多账号签到完成：成功 {success_count}，失败 {failed_count}"
@@ -800,7 +800,7 @@ async def _run(ctx, source: str) -> dict:
         stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         display = f"{stamp} · {result['message']}"
         record = {"time": stamp, **result}
-        history = ctx.kv.get(HISTORY_KEY, [])
+        history = await ctx.storage.get(HISTORY_KEY, [])
         if not isinstance(history, list):
             history = []
         history = [*history, record][-HISTORY_LIMIT:]
@@ -812,8 +812,8 @@ async def _run(ctx, source: str) -> dict:
             "last_result": display,
             "checkin_history": history_display or "暂无记录",
         })
-        ctx.kv.set("last_result", record)
-        ctx.kv.set(HISTORY_KEY, history)
+        await ctx.storage.set("last_result", record)
+        await ctx.storage.set(HISTORY_KEY, history)
         if ctx.config.get("notify", True):
             try:
                 level = "success" if result["ok"] else ("warning" if result.get("partial") else "error")
@@ -846,9 +846,7 @@ async def setup(ctx):
             return {"ok": False, "message": "请先添加至少一个 GPT-GOD 签到账号"}
         if _run_lock and _run_lock.locked():
             return {"ok": True, "message": "签到任务已在后台运行，请查看运行日志"}
-        task = ctx.create_task(
-            _run(ctx, "手动"), name="GPT-GOD 手动签到", operation="manual_checkin"
-        )
+        task = ctx.create_task(_run(ctx, "手动"), name="GPT-GOD 手动签到")
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
         return {"ok": True, "message": "多账号签到已在后台开始，请查看运行日志"}
@@ -862,18 +860,10 @@ async def setup(ctx):
             if _run_lock and _run_lock.locked():
                 ctx.log.warning("已有签到任务运行，跳过本次定时触发")
                 return
-            ctx.create_task(
-                _run(ctx, "定时"), name="GPT-GOD 定时签到", operation="scheduled_checkin"
-            )
+            ctx.create_task(_run(ctx, "定时"), name="GPT-GOD 定时签到")
             ctx.log.info("定时签到已投递后台执行")
 
-        ctx.schedule(
-            _scheduled_checkin,
-            "cron",
-            hour=hour,
-            minute=minute,
-            id="GPT-GOD 每日签到",
-        )
+        ctx.schedule_cron("GPT-GOD 每日签到", _scheduled_checkin, hour=hour, minute=minute)
         ctx.log.info("已注册每日签到任务：%02d:%02d", hour, minute)
     else:
         ctx.log.info("自动签到未启用，仅保留手动签到")

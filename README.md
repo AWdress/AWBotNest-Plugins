@@ -16,7 +16,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | 3 | [通用抽奖](plugins_v2/common_lottery/) | 2.0.0 | 自动参与 @Lottery8Bot 等通用抽奖：解析口令、按需自动加群、随机等待后发口令。任意群可用。 | 是 |
 | 4 | [定时自动回复](plugins_v2/custom_auto_reply/) | 2.0.0 | 到点自动用你的账号往指定群/会话发消息。支持多个会话，每个会话可单独设时间和内容。时间支持每天定点、每隔几小时/几分钟、或 cron 表达式。 | 是 |
 | 5 | [取消息结构](plugins_v2/getmsg/) | 2.0.0 | 回复一条消息再发 /getmsg，把该消息的 Telethon 原始结构导出为 txt，便于调试。 | 是 |
-| 6 | [GPT-GOD 自动签到](plugins_v2/gptgod_checkin/) | 1.1.18 | 使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。 | 是 |
+| 6 | [GPT-GOD 自动签到](plugins_v2/gptgod_checkin/) | 2.0.0 | 使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。 | 是 |
 | 7 | [HDHive抽奖](plugins_v2/hdhive_lottery/) | 2.0.0 | 自动参与 HDHive 抽奖：监听抽奖消息，随机等待后发口令参与，开奖检测中奖并通知。 | 是 |
 | 8 | [查ID](plugins_v2/id/) | 2.0.0 | 发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。 | 是 |
 | 9 | [举牌](plugins_v2/jupai/) | 2.0.0 | 发送 /jupai 文字（或回复一条消息再发 /jupai），把文字转成举牌人图片。 | 是 |
