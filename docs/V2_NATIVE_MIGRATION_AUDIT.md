@@ -19,7 +19,7 @@
 | custom_auto_reply | Automation | 低 | 否 | 否 | 是 | 否 | Telegram | Schema | 已完成 |
 | custom_plugin | Utility | 中 | 否 | 否 | 否 | 是 | Telegram | Vue | 已完成 |
 | digital_pet | Interactive | 中 | 是 | 是 | 是 | 是 | Telegram | 否 | P2 |
-| dyp_redpacket | Interactive | 中 | 是 | 是 | 是 | 否 | Telegram | 否 | P2 |
+| dyp_redpacket | Interactive | 中 | 否 | 否 | 否 | 是 | Telegram | 否 | 已完成 |
 | emby_toolbox | External | 高 | 是 | 是 | 是 | 是 | Emby | Vue | P4 |
 | getmsg | Utility | 低 | 否 | 否 | 是 | 否 | Telegram | 否 | 已完成 |
 | gptgod_checkin | External | 中 | 是 | 是 | 是 | 是 | Browser | 否 | P4 |

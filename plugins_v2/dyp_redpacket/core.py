@@ -108,11 +108,12 @@ def _meta_brief(meta: dict) -> str:
 
 
 async def setup(ctx):
-    records = Records(ctx.kv, ctx.log)
+    records = Records(ctx.storage, ctx.log)
 
     # ───────── 逐格点击 ─────────
-    @ctx.on_message(ctx.filters.group, group=-9)
-    async def on_dyp_packet(client, message):
+    @ctx.on_message()
+    async def on_dyp_packet(event):
+        client, message = event.client, event.message
         cfg = ctx.config
         if not cfg.get("dyp_enabled", False):
             return
@@ -155,7 +156,7 @@ async def setup(ctx):
                 ctx.log.info("[癫影积分红包] 第%d格(行%d列%d) 结果=%r", idx, row, col, rstr)
 
                 if is_snatch_success(rstr):
-                    records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                    await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
                                          "meta": brief, "result": rstr, "ok": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
@@ -166,7 +167,7 @@ async def setup(ctx):
                 if is_thunder_hit(rstr):
                     # 踩雷 = 用掉唯一一次机会，停手，别再点（赌输了）。
                     ctx.log.info("[癫影积分红包] 踩雷，停手 msg=%s 结果=%r", message.id, rstr)
-                    records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+                    await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
                                          "meta": brief, "result": rstr, "ok": False, "mine": True})
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
@@ -181,7 +182,7 @@ async def setup(ctx):
                 await asyncio.sleep(0.3)
         # 全部试完，落地格全被别人抢走，自己没抢到
         ctx.log.info("[癫影积分红包] 所有格子均已被抢完，未抢到 msg=%s", message.id)
-        records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
+        await records.add_history({"type": "癫影积分红包", "group_id": message.chat.id,
                              "meta": brief, "result": "未抢到", "ok": False})
 
     ctx.log.info("[癫影积分红包] 已加载")
