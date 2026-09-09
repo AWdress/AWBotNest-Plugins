@@ -53,7 +53,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | quiz_game | 趣味答题 | 1.1.10 | ✅ |
 | red_packet_grab | 自动抢红包 | 1.2.12 | ✅ |
 | red_packet_send | 发红包 | 1.0.22 | ✅ |
-| transfer | 多站点转账 | 1.1.8 | ✅ |
+| transfer | 多站点转账 | 1.1.9 | ✅ |
 | yingchao_redpacket | 影巢口令红包（测试） | 1.0.13 | ✅ |
 | zhuque_lottery | 朱雀 | 1.0.17 | ✅ |
 

@@ -535,14 +535,36 @@ class CompatContext:
         await self._kv.close()
 
     async def _message(self, event):
-        sender = await event.get_sender()
-        chat = await event.get_chat()
-        reply_raw = await event.get_reply_message() if event.is_reply else None
-        reply = None
-        if reply_raw is not None:
-            fake = SimpleNamespace(message=reply_raw, client=event.client)
-            reply = Message(fake, None, chat)
-        return Message(event, sender, chat, reply)
+        async def resolve(value, fallback_chat=None, depth=0, is_event=False):
+            """Resolve the sender and two reply levels required by transfer parsing."""
+            # A Telethon Message also has a ``message`` attribute containing
+            # its text, so only unwrap that attribute for the outer event.
+            raw = value.message if is_event else value
+            sender_getter = getattr(value, 'get_sender', None)
+            if not callable(sender_getter):
+                sender_getter = getattr(raw, 'get_sender', None)
+            sender = await sender_getter() if callable(sender_getter) else getattr(raw, 'sender', None)
+
+            chat_getter = getattr(value, 'get_chat', None)
+            if not callable(chat_getter):
+                chat_getter = getattr(raw, 'get_chat', None)
+            chat = await chat_getter() if callable(chat_getter) else fallback_chat
+
+            reply = None
+            if depth < 2 and getattr(raw, 'reply_to_msg_id', None):
+                reply_getter = getattr(value, 'get_reply_message', None)
+                if not callable(reply_getter):
+                    reply_getter = getattr(raw, 'get_reply_message', None)
+                reply_raw = await reply_getter() if callable(reply_getter) else None
+                if reply_raw is not None:
+                    reply = await resolve(reply_raw, chat, depth + 1)
+
+            wrapper = value if is_event else SimpleNamespace(
+                message=raw, client=getattr(event, 'client', None)
+            )
+            return Message(wrapper, sender, chat, reply)
+
+        return await resolve(event, is_event=True)
 
     def on_message(self, value=None, *, group=0, target='auto', pattern=None,
                    chats=None, incoming=True, outgoing=False):
@@ -663,5 +685,3 @@ class CompatContext:
 
 def adapt(ctx, defaults=None, config_schema=None):
     return CompatContext(ctx, defaults=defaults, config_schema=config_schema)
-
-

@@ -14,13 +14,18 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '1.1.8',
+ 'version': '1.1.9',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v1.1.8 适配新版异步存储接口\n'
+ 'changelog': 'v1.1.9 修复 V2 转账排行榜无数据\n'
+              '- 完整读取转账确认消息的两层回复链与每层发送者\n'
+              '- 修复 V2 下转入、转出方向无法识别，导致记录未进入排行榜的问题\n'
+              '- 增加回复链、聚合榜单及管理接口回归验证\n'
+              '\n'
+              'v1.1.8 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
