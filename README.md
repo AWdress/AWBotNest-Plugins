@@ -26,7 +26,7 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | 13 | [删除自己消息](plugins_v2/self_delete/) | 2.0.0 | 发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。 | 是 |
 | 14 | [115搜索结果转发](plugins_v2/trans115search/) | 2.0.0 | 监听来源会话里机器人发的「列表」消息，自动转发到你指定的目标会话。 | 是 |
 | 15 | [U2送糖](plugins_v2/u2_dmhy/) | 1.0.15 | 用 /u2 或 /u2s 带 cookie 给 u2.dmhy.org 用户赠送 UCoin。单人/批量，自带站点限频冷却。 | 是 |
-| 16 | [Webhook 通知桥](plugins_v2/webhook_bridge/) | 1.0.10 | 接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。 | 是 |
+| 16 | [Webhook 通知桥](plugins_v2/webhook_bridge/) | 2.0.0 | 接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。 | 是 |
 | 17 | [小姐姐视频](plugins_v2/xjj/) | 2.0.0 | 发送 /xjj 或 .xjj 获取一条随机短视频。 | 是 |
 | 18 | [转发复读](plugins_v2/zf/) | 2.0.0 | 回复一条消息再发 /zf [次数]，把它在当前会话转发/复读若干次。 | 是 |
 | 19 | [P站图片](plugins_v2/zpr/) | 2.0.0 | 发送 /zpr [关键词] [数量] [r18] 获取二次元图片；/zp 同时附带原图文件。 | 是 |

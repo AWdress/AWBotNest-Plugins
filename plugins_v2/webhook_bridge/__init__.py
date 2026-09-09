@@ -1,23 +1,17 @@
-"""AWBotNest 2 entry; generated from the maintained V1 plugin."""
+"""AWBotNest V2 原生 Webhook 通知桥。"""
 from __future__ import annotations
 
-from ._compat import adapt
-from ._legacy import setup as _legacy_setup
-try:
-    from ._legacy import DEFAULTS as _legacy_defaults
-except ImportError:
-    _legacy_defaults = {}
-try:
-    from ._legacy import teardown as _legacy_teardown
-except ImportError:
-    _legacy_teardown = None
+from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'Webhook 通知桥',
  'id': 'webhook_bridge',
- 'version': '1.0.10',
+ 'version': '2.0.0',
  'author': 'AWdress',
  'description': '接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。',
- 'changelog': 'v1.0.10 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.0 完成原生 V2 迁移\n'
+              '- 使用原生公开 Webhook、异步存储与动作接口\n'
+              '- 修复重载后的路由注册、去重、限流和统计持久化\n\n'
+              'v1.0.10 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'
@@ -36,6 +30,7 @@ __plugin__ = {'name': 'Webhook 通知桥',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png',
  'scope': 'standalone',
  'webhook': True,
+ 'plugin_api_version': 2,
  'config_schema': {'enabled': {'type': 'boolean',
                                'default': True,
                                'label': '接收并转发',
@@ -160,21 +155,9 @@ __plugin__ = {'name': 'Webhook 通知桥',
  'v1_compatible_version': '1.0.1',
  'v2_adapter': 'telethon',
  'tags': ['Webhook桥接', '外部通知', '签名校验']}
-_active_context = None
-
-
 async def setup(ctx):
-    global _active_context
-    _active_context = adapt(ctx, _legacy_defaults, __plugin__.get('config_schema'))
-    await _active_context.initialize()
-    await _legacy_setup(_active_context)
+    await _native_setup(ctx)
 
 
 async def teardown(ctx):
-    global _active_context
-    adapted = _active_context
-    _active_context = None
-    if adapted is not None and _legacy_teardown is not None:
-        await _legacy_teardown(adapted)
-    if adapted is not None:
-        await adapted.close()
+    await _native_teardown(ctx)

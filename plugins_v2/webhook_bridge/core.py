@@ -224,20 +224,20 @@ def _limited(text: str, maximum: int) -> str:
     return f"{text[:maximum].rstrip()}\n\n… 已截断 {omitted} 个字符"
 
 
-def _stats(ctx: Any) -> dict[str, Any]:
-    value = ctx.kv.get("stats", {})
+async def _stats(ctx: Any) -> dict[str, Any]:
+    value = await ctx.storage.get("stats", {})
     return value if isinstance(value, dict) else {}
 
 
-def _save_stat(ctx: Any, outcome: str, detail: str = "") -> None:
-    stats = _stats(ctx)
+async def _save_stat(ctx: Any, outcome: str, detail: str = "") -> None:
+    stats = await _stats(ctx)
     stats["received"] = int(stats.get("received", 0)) + 1
     stats[outcome] = int(stats.get(outcome, 0)) + 1
     stats["last_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
     stats["last_outcome"] = outcome
     if detail:
         stats["last_detail"] = detail[:300]
-    ctx.kv.set("stats", stats)
+    await ctx.storage.set("stats", stats)
 
 
 async def setup(ctx):
@@ -248,33 +248,33 @@ async def setup(ctx):
         ctx.log.info("[webhook_bridge] 收到 Webhook 请求：%s", getattr(req, "path", "receive"))
         cfg = ctx.config
         if not cfg.get("enabled", True):
-            _save_stat(ctx, "disabled")
+            await _save_stat(ctx, "disabled")
             return {"ok": False, "ignored": True, "reason": "plugin forwarding disabled"}
 
         now = time.time()
         limit = max(1, int(cfg.get("rate_limit", 30) or 30))
-        rate = ctx.kv.get("rate", {})
+        rate = await ctx.storage.get("rate", {})
         if not isinstance(rate, dict) or now - float(rate.get("start", 0) or 0) >= 60:
             rate = {"start": now, "count": 0}
         if int(rate.get("count", 0)) >= limit:
-            _save_stat(ctx, "rate_limited")
+            await _save_stat(ctx, "rate_limited")
             ctx.log.warning("Webhook 已触发速率限制：%s/分钟", limit)
             return {"ok": False, "ignored": True, "reason": "rate limit exceeded"}
         rate["count"] = int(rate.get("count", 0)) + 1
-        ctx.kv.set("rate", rate)
+        await ctx.storage.set("rate", rate)
 
         digest = _digest(req)
         dedupe_seconds = max(0, int(cfg.get("dedupe_seconds", 60) or 0))
-        recent = ctx.kv.get("recent", {})
+        recent = await ctx.storage.get("recent", {})
         if not isinstance(recent, dict):
             recent = {}
         last_seen = float(recent.get(digest, 0) or 0)
         if dedupe_seconds and now - last_seen < dedupe_seconds:
-            _save_stat(ctx, "duplicate")
+            await _save_stat(ctx, "duplicate")
             return {"ok": True, "ignored": True, "reason": "duplicate"}
         recent = {key: seen for key, seen in recent.items() if now - float(seen or 0) < max(dedupe_seconds, 60)}
         recent[digest] = now
-        ctx.kv.set("recent", recent)
+        await ctx.storage.set("recent", recent)
 
         try:
             data = _payload(req)
@@ -330,11 +330,11 @@ async def setup(ctx):
             category = str(cfg.get("category", "外部事件") or "外部事件").strip()
             await ctx.notify("\n\n".join(parts), level=level, category=category)
             detail = rendered_title or event or source or "事件已转发"
-            _save_stat(ctx, "forwarded", detail)
+            await _save_stat(ctx, "forwarded", detail)
             ctx.update_config({"runtime_status": f"最近转发：{time.strftime('%Y-%m-%d %H:%M:%S')} · {detail}"})
             return {"ok": True, "forwarded": True, "level": level}
         except Exception as exc:
-            _save_stat(ctx, "failed", str(exc))
+            await _save_stat(ctx, "failed", str(exc))
             ctx.update_config({"runtime_status": f"最近失败：{time.strftime('%Y-%m-%d %H:%M:%S')} · {exc}"})
             ctx.log.exception("Webhook 转发失败")
             raise
@@ -350,7 +350,7 @@ async def setup(ctx):
 
     @ctx.action("show_stats")
     async def show_stats():
-        stats = _stats(ctx)
+        stats = await _stats(ctx)
         if not stats:
             return {"ok": True, "message": "尚未收到 Webhook。"}
         labels = {
@@ -362,9 +362,9 @@ async def setup(ctx):
         return {"ok": True, "message": "\n".join(lines)}
 
     @ctx.action("clear_state")
-    def clear_state():
+    async def clear_state():
         for key in ("stats", "recent", "rate"):
-            ctx.kv.delete(key)
+            await ctx.storage.delete(key)
         ctx.update_config({"runtime_status": "统计和去重状态已清空"})
         return {"ok": True, "message": "统计、限流和去重状态已清空。"}
 
