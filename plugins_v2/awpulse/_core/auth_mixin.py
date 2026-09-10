@@ -312,7 +312,9 @@ class AuthMixin:
             logging.debug("开始获取用户信息...")
             
             # 访问个人中心页面
-            profile_url = f"{self.base_url}home.php?mod=space&uid=&do=profile"
+            # 不要带空 uid；部分 Discuz 部署会把 uid= 空值当成无效用户，
+            # 返回通用页后既取不到资料，也更容易触发额外验证。
+            profile_url = f"{self.base_url}home.php?mod=space&do=profile"
             self._goto_with_retry(profile_url, purpose="用户资料页", timeout_ms=60000, retries=2)
             time.sleep(3)
             

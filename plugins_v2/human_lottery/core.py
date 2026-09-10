@@ -636,7 +636,17 @@ async def setup(ctx):
             if create is not None:
                 handled = True
                 if create.get("error"):
-                    await client.send_message(event.chat_id, create["error"])
+                    reply = await client.send_message(event.chat_id, create["error"])
+                    # 参数错误提示也属于命令反馈，按同一清理策略自动删除，
+                    # 避免群里长期堆积“参数不足/过多”的提示消息。
+                    if reply and cfg.get("delete_commands", True):
+                        delay = _to_int(
+                            cfg.get("participation_reply_delete", 5), 5, 0, 86400,
+                        )
+                        ctx.create_task(
+                            _manager._delete_later(client, event.chat_id, [reply.id], delay),
+                            name="human-lottery-error-delete",
+                        )
                 else:
                     await _manager.create(client, message, chat, creator, create)
             elif text == str(cfg["status_word"]).strip():

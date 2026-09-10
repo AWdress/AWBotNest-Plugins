@@ -17,6 +17,9 @@ from awbotnest.sessions import SessionManager
 
 import plugins_v2.auto_changename as auto_changename
 import plugins_v2.bomb_game as bomb_game
+import plugins_v2.human_lottery as human_lottery
+import plugins_v2.transfer as transfer
+import plugins_v2.transfer.core as transfer_core
 from plugins_v2.bomb_game.state import GameStateManager
 
 
@@ -72,6 +75,77 @@ class TelegramClient:
 
 
 class NativeReferenceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_human_lottery_invalid_create_reply_is_cleaned_up(self):
+        class Message:
+            def __init__(self, text, mid=10):
+                self.raw_text = text; self.text = text; self.id = mid; self.chat_id = -1001
+                self.deleted = False
+            async def delete(self): self.deleted = True
+        class Client:
+            def __init__(self): self.sent = []
+            async def send_message(self, chat_id, text, **kwargs):
+                self.sent.append(text); return Message(text, 20 + len(self.sent))
+        class Context:
+            def __init__(self):
+                self.config = {"delete_commands": True, "participation_reply_delete": 0}
+                self.storage = MemoryStorage(); self.log = Log(); self.handlers = []; self.tasks = []
+            def on_message(self, **kwargs):
+                return lambda fn: (self.handlers.append(fn) or fn)
+            def on_api(self, *args, **kwargs): return lambda fn: fn
+            def create_task(self, awaitable, **kwargs):
+                task = asyncio.create_task(awaitable, name=kwargs.get("name")); self.tasks.append(task); return task
+            async def notify(self, *args, **kwargs): pass
+        class Event:
+            is_group = True; chat_id = -1001
+            def __init__(self, message, client): self.message = message; self.client = client
+            async def get_chat(self): return SimpleNamespace(id=self.chat_id, title="测试群")
+            async def get_sender(self): return SimpleNamespace(id=1, first_name="测试")
+        ctx = Context(); await human_lottery.setup(ctx)
+        command = Message("创建抽奖 1000魔力 3 10分钟")
+        client = Client(); await ctx.handlers[0](Event(command, client))
+        self.assertTrue(command.deleted)
+        self.assertEqual(len(client.sent), 1)
+        await asyncio.gather(*ctx.tasks, return_exceptions=True)
+
+    async def test_transfer_ssd_telethon_rows_are_clickable(self):
+        class Context:
+            def __init__(self):
+                self.config = {"ssd_click_mode": "once"}; self.storage = MemoryStorage(); self.kv = self.storage
+                self.log = Log(); self.handlers = []; self.cleanups = []
+            def on_message(self, **kwargs): return lambda fn: (self.handlers.append(fn) or fn)
+            def on_edited_message(self, **kwargs): return lambda fn: fn
+            def on_api(self, *args, **kwargs): return lambda fn: fn
+            def add_cleanup(self, fn): self.cleanups.append(fn)
+        class Message:
+            def __init__(self, text, reply=None, is_self=False):
+                self.text = text; self.raw_text = text; self.caption = ""; self.chat_id = -1002014253433
+                self.id = 30; self.reply_to_msg_id = 29; self._reply = reply
+                self._is_self = is_self
+                self.reply_markup = SimpleNamespace(rows=[SimpleNamespace(buttons=[SimpleNamespace(text="确认")])])
+                self.clicked = []
+            async def get_reply_message(self): return self._reply
+            async def get_sender(self): return SimpleNamespace(id=1 if self._is_self else 2, is_self=self._is_self)
+            async def click(self, **kwargs): self.clicked.append(kwargs)
+        class Event:
+            is_group = True
+            def __init__(self, message): self.message = message; self.client = SimpleNamespace()
+            @property
+            def chat_id(self): return self.message.chat_id
+            async def get_sender(self): return await self.message.get_sender()
+            async def get_reply_message(self): return await self.message.get_reply_message()
+        reply = Message("+100", is_self=True)
+        message = Message("请确认你的转账", reply)
+        ctx = Context(); await transfer.setup(ctx)
+        handler = next(fn for fn in ctx.handlers if fn.__name__ == "ssd_confirm_click")
+        await handler(Event(message))
+        self.assertEqual(message.clicked, [{"x": 0, "y": 0}])
+
+    async def test_transfer_rich_updates_expose_message_id_for_cleanup(self):
+        update = SimpleNamespace(message=SimpleNamespace(id=77))
+        updates = SimpleNamespace(updates=[update])
+        self.assertEqual(transfer_core._sent_message_id(updates), 77)
+        self.assertEqual(transfer_core._sent_message_id({"ok": True, "result": {"message_id": 88}}), 88)
+
     async def test_auto_changename_native_scheduler_and_telethon_request(self):
         class User:
             def __init__(self):

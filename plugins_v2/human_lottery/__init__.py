@@ -9,12 +9,15 @@ except ImportError:
 
 __plugin__ = {'name': '幸运抽奖',
  'id': 'human_lottery',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'description': '用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 修复创建抽奖参数提示清理\n'
+              '- 参数不足或过多时，错误提示按参与回复清理时间自动删除\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

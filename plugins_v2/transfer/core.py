@@ -255,12 +255,20 @@ async def setup(ctx):
             text = message.text or getattr(message, "caption", "") or ""
             if "转账金额过大" not in text and "请确认你的转账" not in text:
                 return
-            row, col = (0, 0) if mode == "once" else (1, 0)
             markup = getattr(message, "reply_markup", None)
+            # Pyrogram exposes ``inline_keyboard`` while Telethon exposes
+            # ReplyInlineMarkup.rows[].buttons[].  Accept both layouts; the
+            # previous Pyrogram-only lookup silently skipped every SSD prompt.
             kb = getattr(markup, "inline_keyboard", None) if markup else None
-            try:
-                callback_data = kb[row][col].callback_data
-            except (TypeError, AttributeError, IndexError):
+            if kb is None and markup is not None:
+                kb = [list(getattr(row, "buttons", ()) or ())
+                      for row in (getattr(markup, "rows", ()) or ())]
+            kb = [list(row or ()) for row in (kb or ()) if row]
+            if not kb:
+                return
+            row = 0 if mode == "once" else min(1, len(kb) - 1)
+            col = 0
+            if col >= len(kb[row]):
                 return
             await asyncio.sleep(0.5)
             try:
@@ -633,7 +641,7 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     # 15 秒后自删。不要依赖不同发送接口返回对象上的 delete() 实现；统一使用
     # 当前用户客户端按 chat_id/message_id 删除，兼容文本、图片与富文本返回值。
     if sent is not None:
-        sent_id = int(getattr(sent, "id", 0) or 0)
+        sent_id = _sent_message_id(sent)
         if sent_id:
             ctx.create_task(
                 _auto_delete(ctx, client, message.chat_id, sent_id, 15),
@@ -641,6 +649,45 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
             )
         else:
             ctx.log.warning("排行榜消息已发送，但返回值缺少消息 ID，无法自动删除")
+
+
+def _sent_message_id(value) -> int:
+    """Extract a Telegram message id from Telethon, Bot API, or platform wrappers.
+
+    Telethon Rich Message requests return an ``Updates`` container instead of a
+    Message, while Bot API responses use ``result.message_id``.  Normalizing
+    these shapes keeps the auto-delete path working for rich-table output.
+    """
+    pending = [value]
+    seen = set()
+    while pending:
+        item = pending.pop()
+        if item is None or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, dict):
+            for key in ("message_id", "id"):
+                try:
+                    candidate = int(item.get(key) or 0)
+                except (TypeError, ValueError):
+                    candidate = 0
+                if candidate:
+                    return candidate
+            pending.extend(item.get(key) for key in ("result", "message", "updates") if key in item)
+            continue
+        try:
+            candidate = int(getattr(item, "id", 0) or 0)
+        except (TypeError, ValueError):
+            candidate = 0
+        if candidate:
+            return candidate
+        nested = getattr(item, "message", None)
+        if nested is not None:
+            pending.append(nested)
+        updates = getattr(item, "updates", None)
+        if updates:
+            pending.extend(updates)
+    return 0
 
 
 async def _send_reply(client, chat_id, target, text=None, photo=None, caption=None):
