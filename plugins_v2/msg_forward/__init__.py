@@ -4,19 +4,7 @@ import asyncio
 import re
 import time
 
-__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.1","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
-
-_plugin_changelog = "v2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\n" + __plugin__.get("changelog", "")
-__plugin__.update({
-    "version": "2.0.2",
-    "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。",
-    "changelog": _plugin_changelog,
-    "config_schema": {**__plugin__["config_schema"], "backfill_limit": {
-        "type": "integer", "default": 100, "min": 1, "max": 500,
-        "label": "遗漏补全回查条数", "help": "执行‘补全遗漏’时每条规则最多回查的来源消息数",
-        "section": "功能开关", "order": 3,
-    }},
-})
+__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.3","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"backfill_limit":{"type":"integer","default":100,"min":1,"max":500,"label":"遗漏补全回查条数","help":"执行‘补全遗漏’时每条规则最多回查的来源消息数","section":"功能开关","order":3},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
 
 _URL_RE=re.compile(r"https?://",re.I)
 def _split(raw):

@@ -2,6 +2,8 @@
 # ai 插件私有辅助：AI 调用封装（仅使用平台统一 AI）
 # =============================================================================
 
+import asyncio
+import json
 from pathlib import Path
 
 
@@ -9,6 +11,8 @@ def classify_error(err: Exception) -> str:
     """把上游/SDK 异常转成可展示的中文提示（脱敏 + 截断）。"""
     msg = str(err) or err.__class__.__name__
     lower = msg.lower()
+    if isinstance(err, json.JSONDecodeError) or "expecting value" in lower or "非 json" in lower:
+        return "AI 服务返回了空响应或非 JSON 内容，请检查接口地址、模型兼容性和上游服务状态"
     # 脱敏：避免把 key/token 打到群里
     if "api_key" in lower or "authorization" in lower or "bearer" in lower:
         msg = "(错误信息已脱敏)"
@@ -47,14 +51,26 @@ async def generate(
     if not user_prompt:
         user_prompt = "请回复。"
 
-    if image_bytes:
-        return await ctx.ai.vision(
-            image=image_bytes, prompt=user_prompt, system=system_msg
-        )
-    else:
+    async def request() -> str:
+        if image_bytes:
+            return await ctx.ai.vision(
+                image=image_bytes, prompt=user_prompt, system=system_msg
+            )
         return await ctx.ai.chat(
             prompt=user_prompt, system=system_msg, temperature=temperature
         )
+
+    try:
+        return await request()
+    except json.JSONDecodeError:
+        # 部分 OpenAI 兼容上游会偶发返回 200 空正文；短暂退避后仅重试一次。
+        await asyncio.sleep(1)
+        try:
+            return await request()
+        except json.JSONDecodeError as retry_error:
+            raise RuntimeError(
+                "AI 服务连续返回空响应或非 JSON 内容，请检查接口地址、模型兼容性和上游服务状态"
+            ) from retry_error
 
 
 async def generate_image(
