@@ -146,6 +146,28 @@ class NativeReferenceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transfer_core._sent_message_id(updates), 77)
         self.assertEqual(transfer_core._sent_message_id({"ok": True, "result": {"message_id": 88}}), 88)
 
+    async def test_transfer_html_replies_use_explicit_parse_mode(self):
+        class Client:
+            def __init__(self): self.messages = []; self.files = []
+            async def send_message(self, *args, **kwargs):
+                self.messages.append((args, kwargs)); return "message"
+            async def send_file(self, *args, **kwargs):
+                self.files.append((args, kwargs)); return "file"
+        class Target:
+            id = 9
+            def __init__(self): self.replies = []
+            async def reply(self, *args, **kwargs):
+                self.replies.append((args, kwargs)); return "reply"
+
+        client = Client(); target = Target()
+        await transfer_core._send_reply(client, -1001, None, text="<b>致谢</b>")
+        await transfer_core._send_reply(client, -1001, target, text="<blockquote>榜单</blockquote>")
+        await transfer_core._send_reply(client, -1001, target, photo="rank.jpg", caption="<i>附注</i>")
+
+        self.assertEqual(client.messages[0][1]["parse_mode"], "html")
+        self.assertEqual(target.replies[0][1]["parse_mode"], "html")
+        self.assertEqual(client.files[0][1]["parse_mode"], "html")
+
     async def test_auto_changename_native_scheduler_and_telethon_request(self):
         class User:
             def __init__(self):

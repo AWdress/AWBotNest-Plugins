@@ -1,10 +1,12 @@
 """AWBotNest V2 原生规则消息转发插件。"""
 from __future__ import annotations
 import asyncio
+from io import BytesIO
+import mimetypes
 import re
 import time
 
-__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.3","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"backfill_limit":{"type":"integer","default":100,"min":1,"max":500,"label":"遗漏补全回查条数","help":"执行‘补全遗漏’时每条规则最多回查的来源消息数","section":"功能开关","order":3},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
+__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.4","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"backfill_limit":{"type":"integer","default":100,"min":1,"max":500,"label":"遗漏补全回查条数","help":"执行‘补全遗漏’时每条规则最多回查的来源消息数","section":"功能开关","order":3},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.4 修复复制搬运图片变成 unnamed 文件\n- 内存下载后恢复媒体文件名与扩展名，图片继续按 Telegram 照片发送\n- 文件、视频、音频按原媒体类型设置发送参数，并保留说明文字实体\n\nv2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
 
 _URL_RE=re.compile(r"https?://",re.I)
 def _split(raw):
@@ -55,20 +57,67 @@ async def _album(client,event):
         if getattr(message,"grouped_id",None)==grouped:found.append(message)
     return found or [event.message]
 
+def _media_filename(message):
+    """为内存媒体恢复文件名，避免 Telethon 把图片作为 unnamed 文档发送。"""
+    file_info=getattr(message,"file",None)
+    name=getattr(file_info,"name",None)
+    document=getattr(message,"document",None)
+    if not name and document:
+        for attribute in getattr(document,"attributes",None) or []:
+            name=getattr(attribute,"file_name",None)
+            if name:break
+    mime=str(getattr(file_info,"mime_type",None) or getattr(document,"mime_type",None) or "")
+    extension=mimetypes.guess_extension(mime.split(";",1)[0].strip()) if mime else None
+    if extension==".jpe":extension=".jpg"
+    mid=getattr(message,"id",0) or int(time.time()*1000)
+    if not name:
+        if getattr(message,"photo",None):name=f"photo_{mid}.jpg"
+        elif getattr(message,"gif",None):name=f"animation_{mid}.gif"
+        elif getattr(message,"video",None):name=f"video_{mid}{extension or '.mp4'}"
+        elif getattr(message,"voice",None):name=f"voice_{mid}{extension or '.ogg'}"
+        elif getattr(message,"audio",None):name=f"audio_{mid}{extension or '.mp3'}"
+        else:name=f"file_{mid}{extension or '.bin'}"
+    name=str(name).replace("\\","/").rsplit("/",1)[-1].strip() or f"file_{mid}.bin"
+    if "." not in name and extension:name+=extension
+    return name
+
+def _copy_force_document(messages):
+    media_messages=[message for message in messages if getattr(message,"media",None)]
+    return bool(media_messages) and all(
+        getattr(message,"document",None)
+        and not any(getattr(message,key,None) for key in ("photo","video","gif","audio","voice"))
+        for message in media_messages
+    )
+
 async def _copy(client,target,messages):
-    if len(messages)==1 and not messages[0].media:return await client.send_message(target,messages[0].raw_text or "")
+    if len(messages)==1 and not messages[0].media:
+        return await client.send_message(
+            target,messages[0].raw_text or "",parse_mode=None,
+            formatting_entities=getattr(messages[0],"entities",None),
+        )
     files=[]
     for message in messages:
         if message.media:
             downloaded = await client.download_media(message,bytes)
             if downloaded is not None:
-                files.append(downloaded)
-    caption=next((m.raw_text for m in messages if m.raw_text),None)
-    if files:return await client.send_file(target,files if len(files)>1 else files[0],caption=caption)
+                stream=BytesIO(downloaded)
+                stream.name=_media_filename(message)
+                files.append(stream)
+    caption_message=next((m for m in messages if m.raw_text),None)
+    caption=caption_message.raw_text if caption_message else None
+    if files:return await client.send_file(
+        target,files if len(files)>1 else files[0],caption=caption,
+        parse_mode=None,formatting_entities=getattr(caption_message,"entities",None),
+        force_document=_copy_force_document(messages),
+        supports_streaming=any(getattr(message,"video",None) for message in messages),
+    )
     # 媒体下载失败时不要把 None 传给 send_file；回退为原生转发，至少保证消息可达。
     if any(getattr(message,"media",None) for message in messages):
         return await client.forward_messages(target,messages)
-    return await client.send_message(target,caption or "")
+    return await client.send_message(
+        target,caption or "",parse_mode=None,
+        formatting_entities=getattr(caption_message,"entities",None),
+    )
 
 async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
     """回查来源历史并补发遗漏消息，返回 (sent_count, skipped_count)。"""

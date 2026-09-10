@@ -53,9 +53,9 @@ class MessageForwardBackfillTests(unittest.IsolatedAsyncioTestCase):
     def test_final_version_is_statically_scannable(self):
         metadata = PluginScanner.metadata(Path(msg_forward.__file__))
 
-        self.assertEqual(metadata["version"], "2.0.3")
+        self.assertEqual(metadata["version"], "2.0.4")
         self.assertIn("backfill_limit", metadata["config_schema"])
-        self.assertTrue(metadata["changelog"].startswith("v2.0.3"))
+        self.assertTrue(metadata["changelog"].startswith("v2.0.4"))
 
     async def test_backfill_sends_oldest_first_groups_album_and_deduplicates(self):
         client = _Client()

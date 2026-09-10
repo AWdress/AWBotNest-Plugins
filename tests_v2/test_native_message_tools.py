@@ -1,4 +1,6 @@
 from __future__ import annotations
+import ast
+import re
 import unittest
 import tempfile
 from pathlib import Path
@@ -93,6 +95,42 @@ class NativeMessageToolTests(unittest.IsolatedAsyncioTestCase):
         await msg_forward._copy(client,-1002,[message])
         self.assertEqual(len(client.forwarded),1)
         self.assertFalse(client.files)
+
+    async def test_message_forward_copy_keeps_photo_as_photo(self):
+        class CopyClient:
+            def __init__(self): self.files=[]
+            async def download_media(self,*args,**kwargs): return b"jpeg-data"
+            async def send_file(self,*args,**kwargs): self.files.append((args,kwargs));return "sent"
+        entities=[SimpleNamespace(offset=0,length=2)]
+        message=SimpleNamespace(
+            id=321,raw_text="图片说明",entities=entities,media=object(),photo=object(),
+            video=None,gif=None,document=None,audio=None,voice=None,file=None,
+        )
+        client=CopyClient();result=await msg_forward._copy(client,-1002,[message])
+        self.assertEqual(result,"sent")
+        args,kwargs=client.files[0];stream=args[1]
+        self.assertEqual(stream.name,"photo_321.jpg")
+        self.assertEqual(stream.getvalue(),b"jpeg-data")
+        self.assertFalse(kwargs["force_document"])
+        self.assertIsNone(kwargs["parse_mode"])
+        self.assertIs(kwargs["formatting_entities"],entities)
+
+    def test_literal_telegram_html_calls_declare_parse_mode(self):
+        tag=re.compile(r"<(?:b|strong|i|em|u|s|strike|del|code|pre|a|blockquote|tg-spoiler|tg-emoji)(?:[ >])")
+        violations=[]
+        for path in Path("plugins_v2").rglob("*.py"):
+            source=path.read_text(encoding="utf-8")
+            tree=ast.parse(source)
+            for node in ast.walk(tree):
+                if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Attribute):continue
+                if node.func.attr not in {"send_message","send_file","reply","respond","edit"}:continue
+                strings=[item.value for item in ast.walk(node) if isinstance(item,ast.Constant) and isinstance(item.value,str)]
+                if not any(tag.search(value) for value in strings):continue
+                keywords={item.arg:item.value for item in node.keywords if item.arg}
+                mode=keywords.get("parse_mode")
+                if not (isinstance(mode,ast.Constant) and str(mode.value).lower()=="html"):
+                    violations.append(f"{path}:{node.lineno}")
+        self.assertEqual(violations,[])
 
     async def test_xjj_extracts_nested_video_url(self):
         class Response:
