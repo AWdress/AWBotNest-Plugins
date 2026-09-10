@@ -6,7 +6,7 @@ import mimetypes
 import re
 import time
 
-__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.4","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"backfill_limit":{"type":"integer","default":100,"min":1,"max":500,"label":"遗漏补全回查条数","help":"执行‘补全遗漏’时每条规则最多回查的来源消息数","section":"功能开关","order":3},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.4 修复复制搬运图片变成 unnamed 文件\n- 内存下载后恢复媒体文件名与扩展名，图片继续按 Telegram 照片发送\n- 文件、视频、音频按原媒体类型设置发送参数，并保留说明文字实体\n\nv2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
+__plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.5","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"backfill_limit":{"type":"integer","default":100,"min":1,"max":500,"label":"遗漏补全回查条数","help":"执行‘补全遗漏’时每条规则最多回查的来源消息数","section":"功能开关","order":3},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.5 修复原生转发无响应\n- 改用来源会话与消息 ID 调用 Telethon 转发，兼容单条消息和相册\n- 原生转发返回空结果时自动降级为复制搬运\n- 来源频道禁止转发时记录原因并自动复制补发\n\nv2.0.4 修复复制搬运图片变成 unnamed 文件\n- 内存下载后恢复媒体文件名与扩展名，图片继续按 Telegram 照片发送\n- 文件、视频、音频按原媒体类型设置发送参数，并保留说明文字实体\n\nv2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
 
 _URL_RE=re.compile(r"https?://",re.I)
 def _split(raw):
@@ -89,7 +89,48 @@ def _copy_force_document(messages):
         for message in media_messages
     )
 
-async def _copy(client,target,messages):
+def _forward_restricted(error):
+    name=type(error).__name__.lower()
+    detail=str(error).lower()
+    return (
+        "forwardsrestricted" in name
+        or "forwards_restricted" in detail
+        or "protected chat" in detail
+        or "禁止转发" in detail
+    )
+
+async def _native_forward(client,target,messages):
+    """按来源会话和消息 ID 转发，兼容单条、相册及不同 Telethon 版本。"""
+    ids=[getattr(message,"id",None) for message in messages]
+    source=getattr(messages[0],"_input_chat",None)
+    if source is None:
+        get_input_chat=getattr(messages[0],"get_input_chat",None)
+        if callable(get_input_chat):
+            try:source=await get_input_chat()
+            except Exception:source=None
+    source=source or getattr(messages[0],"peer_id",None) or getattr(messages[0],"chat_id",None)
+    if source is not None and all(message_id is not None for message_id in ids):
+        payload=ids[0] if len(ids)==1 else ids
+        return await client.forward_messages(target,payload,from_peer=source)
+    payload=messages[0] if len(messages)==1 else messages
+    return await client.forward_messages(target,payload)
+
+async def _forward(client,target,messages,log=None):
+    """执行原生转发；受保护来源或空响应时自动降级为复制搬运。"""
+    try:
+        result=await _native_forward(client,target,messages)
+        if result is None or (isinstance(result,(list,tuple)) and not any(result)):
+            if log:log.warning("[消息转发] 原生转发未返回消息，自动降级为复制搬运 -> %s",target)
+            return await _copy(client,target,messages,allow_native_fallback=False)
+        return result
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        if not _forward_restricted(error):raise
+        if log:log.warning("[消息转发] 来源禁止原生转发，自动降级为复制搬运 -> %s: %r",target,error)
+        return await _copy(client,target,messages,allow_native_fallback=False)
+
+async def _copy(client,target,messages,allow_native_fallback=True):
     if len(messages)==1 and not messages[0].media:
         return await client.send_message(
             target,messages[0].raw_text or "",parse_mode=None,
@@ -113,7 +154,8 @@ async def _copy(client,target,messages):
     )
     # 媒体下载失败时不要把 None 传给 send_file；回退为原生转发，至少保证消息可达。
     if any(getattr(message,"media",None) for message in messages):
-        return await client.forward_messages(target,messages)
+        if allow_native_fallback:return await _native_forward(client,target,messages)
+        raise RuntimeError("原生转发受限且媒体下载失败，无法执行复制补发")
     return await client.send_message(
         target,caption or "",parse_mode=None,
         formatting_entities=getattr(caption_message,"entities",None),
@@ -157,7 +199,7 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
                         if rule.get("copy"):
                             await _copy(client, target, messages)
                         else:
-                            await client.forward_messages(target, messages)
+                            await _forward(client, target, messages, log)
                         sent.add(dedupe_key)
                         sent_count += 1
                         log.info("[消息转发] 补全 %s (%s) -> %s (%s)，消息 %s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)))
@@ -212,7 +254,7 @@ async def setup(ctx):
                     if rule.get("copy"):
                         await _copy(event.client,target,messages)
                     else:
-                        await event.client.forward_messages(target,messages)
+                        await _forward(event.client,target,messages,ctx.log)
                     ids = tuple(getattr(message, "id", 0) for message in messages)
                     sent.add(f"{source}:{target}:{','.join(map(str, ids))}")
                     try:

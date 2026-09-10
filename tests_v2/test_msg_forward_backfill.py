@@ -32,7 +32,9 @@ class _Client:
         return _Entity()
 
     async def forward_messages(self, target, messages):
-        self.forwarded.append((target, [message.id for message in messages]))
+        items = messages if isinstance(messages, list) else [messages]
+        self.forwarded.append((target, [message.id for message in items]))
+        return messages
 
     def iter_messages(self, source, limit):
         async def generate():
@@ -53,9 +55,9 @@ class MessageForwardBackfillTests(unittest.IsolatedAsyncioTestCase):
     def test_final_version_is_statically_scannable(self):
         metadata = PluginScanner.metadata(Path(msg_forward.__file__))
 
-        self.assertEqual(metadata["version"], "2.0.4")
+        self.assertEqual(metadata["version"], "2.0.5")
         self.assertIn("backfill_limit", metadata["config_schema"])
-        self.assertTrue(metadata["changelog"].startswith("v2.0.4"))
+        self.assertTrue(metadata["changelog"].startswith("v2.0.5"))
 
     async def test_backfill_sends_oldest_first_groups_album_and_deduplicates(self):
         client = _Client()

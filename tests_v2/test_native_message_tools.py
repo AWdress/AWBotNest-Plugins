@@ -115,6 +115,50 @@ class NativeMessageToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(kwargs["parse_mode"])
         self.assertIs(kwargs["formatting_entities"],entities)
 
+    async def test_message_forward_native_uses_source_and_message_id(self):
+        class ForwardClient:
+            def __init__(self): self.calls=[]
+            async def forward_messages(self,*args,**kwargs):
+                self.calls.append((args,kwargs));return "forwarded"
+        message=SimpleNamespace(id=77,chat_id=-1001,peer_id=None)
+        client=ForwardClient()
+        result=await msg_forward._forward(client,-1002,[message])
+        self.assertEqual(result,"forwarded")
+        self.assertEqual(client.calls,[((-1002,77),{"from_peer":-1001})])
+
+    async def test_message_forward_empty_result_falls_back_to_copy(self):
+        class ForwardClient:
+            def __init__(self): self.files=[]
+            async def forward_messages(self,*args,**kwargs): return []
+            async def download_media(self,*args,**kwargs): return b"jpeg-data"
+            async def send_file(self,*args,**kwargs): self.files.append((args,kwargs));return "copied"
+        message=SimpleNamespace(
+            id=78,chat_id=-1001,peer_id=None,raw_text="图片",entities=None,
+            media=object(),photo=object(),video=None,gif=None,document=None,
+            audio=None,voice=None,file=None,
+        )
+        client=ForwardClient()
+        result=await msg_forward._forward(client,-1002,[message],Log())
+        self.assertEqual(result,"copied")
+        self.assertEqual(client.files[0][0][1].name,"photo_78.jpg")
+
+    async def test_message_forward_protected_source_falls_back_to_copy(self):
+        class ChatForwardsRestrictedError(Exception): pass
+        class ForwardClient:
+            def __init__(self): self.files=[]
+            async def forward_messages(self,*args,**kwargs): raise ChatForwardsRestrictedError("protected chat")
+            async def download_media(self,*args,**kwargs): return b"jpeg-data"
+            async def send_file(self,*args,**kwargs): self.files.append((args,kwargs));return "copied"
+        message=SimpleNamespace(
+            id=79,chat_id=-1001,peer_id=None,raw_text="图片",entities=None,
+            media=object(),photo=object(),video=None,gif=None,document=None,
+            audio=None,voice=None,file=None,
+        )
+        client=ForwardClient()
+        result=await msg_forward._forward(client,-1002,[message],Log())
+        self.assertEqual(result,"copied")
+        self.assertEqual(len(client.files),1)
+
     def test_literal_telegram_html_calls_declare_parse_mode(self):
         tag=re.compile(r"<(?:b|strong|i|em|u|s|strike|del|code|pre|a|blockquote|tg-spoiler|tg-emoji)(?:[ >])")
         violations=[]
