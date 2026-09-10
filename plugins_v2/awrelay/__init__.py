@@ -9,11 +9,15 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '2.0.1',
+ 'version': '2.0.2',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v2.0.1 修复群组识别、相册与运行日志\n'
+ 'changelog': 'v2.0.2 修复首次启动无法解析话题群\n'
+              '- 数字群组 ID 未命中 Telethon 实体缓存时，从 Bot 对话列表解析完整实体\n'
+              '- 缓存目标群完整实体并预热 InputPeer，恢复论坛查询、话题创建和消息复制\n'
+              '\n'
+              'v2.0.1 修复群组识别、相册与运行日志\n'
               '- 仅处理 Telegram 真实私聊，避免频道消息误判为访客消息\n'
               '- 改用 Telethon grouped_id 恢复相册聚合转发\n'
               '- 启动时校验完整群组 ID、超级群和论坛状态，并记录双向转发结果\n'

@@ -11,7 +11,7 @@ from telethon import Button, functions, utils
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.2.10",
+    "version": "1.2.11",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -23,8 +23,11 @@ __plugin__ = {
 }
 
 __plugin__.update(
-    version="1.2.10",
+    version="1.2.11",
     changelog=(
+        "v1.2.11 修复 Bot 会话首次启动无法解析话题群\n"
+        "- 数字 ID 未命中 Telethon 实体缓存时自动遍历对话并缓存目标群\n"
+        "- 论坛查询、创建和消息复制统一复用已解析的 InputPeer\n\n"
         "v1.2.10 修复 V2 群组识别与相册转发\n"
         "- 仅把真实私聊识别为访客消息，避免广播频道误入私聊流程\n"
         "- 使用 Telethon grouped_id 恢复相册聚合，并补充目标论坛与双向转发日志\n\n"
@@ -52,6 +55,7 @@ _media_tasks = set()
 _topic_locks = defaultdict(asyncio.Lock)
 _storage_state = {}
 _storage_tasks = set()
+_target_entities = {}
 
 
 def _cfg(ctx):
@@ -159,6 +163,47 @@ def _target_id(cfg):
         return 0
 
 
+async def _resolve_target_entity(client, target_id):
+    """Resolve a numeric chat ID even when this Telethon session has no entity cache."""
+    cache_key = (id(client), int(target_id))
+    cached = _target_entities.get(cache_key)
+    if cached is not None:
+        return cached
+    first_error = None
+    try:
+        entity = await client.get_entity(target_id)
+    except (ValueError, TypeError) as exc:
+        first_error = exc
+        entity = None
+    if entity is None:
+        try:
+            async for dialog in client.iter_dialogs(limit=None):
+                candidate = getattr(dialog, "entity", None)
+                try:
+                    candidate_id = int(utils.get_peer_id(candidate)) if candidate is not None else 0
+                except (TypeError, ValueError):
+                    continue
+                if candidate_id == int(target_id):
+                    entity = candidate
+                    break
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if entity is None:
+        if first_error is not None:
+            raise first_error
+        raise ValueError(f"无法在 Bot 对话列表中找到会话 {target_id}")
+    # Passing the full entity gives Telethon the access_hash and warms its session cache.
+    await client.get_input_entity(entity)
+    _target_entities[cache_key] = entity
+    return entity
+
+
+async def _target_peer(client, target_id):
+    entity = await _resolve_target_entity(client, target_id)
+    return await client.get_input_entity(entity)
+
+
 async def _validate_target(ctx, cfg):
     """解析并记录目标实体，尽早暴露错误 ID、非群组和非论坛配置。"""
     target_id = _target_id(cfg)
@@ -172,7 +217,7 @@ async def _validate_target(ctx, cfg):
         ctx.log.warning("平台 Bot 尚未连接，暂时无法校验话题群组 %s", target_id)
         return None
     try:
-        entity = await ctx.bot.get_entity(target_id)
+        entity = await _resolve_target_entity(ctx.bot, target_id)
     except Exception as exc:
         ctx.log.error("无法识别话题群组 %s：%s", target_id, exc)
         return None
@@ -200,7 +245,7 @@ async def _matching_topics(client, target_id, suffix):
     """直接读取 Telegram 原始话题响应，避开高层解析器的 users=None 缺陷。"""
     result = await client(
         functions.messages.GetForumTopicsRequest(
-            peer=await client.get_input_entity(target_id),
+            peer=await _target_peer(client, target_id),
             offset_date=0, offset_id=0, offset_topic=0, limit=100,
             q=suffix.rsplit(" ", 1)[-1],
         )
@@ -216,7 +261,7 @@ async def _matching_topics(client, target_id, suffix):
 async def _topics_by_id(client, target_id, topic_ids):
     result = await client(
         functions.messages.GetForumTopicsByIDRequest(
-            peer=await client.get_input_entity(target_id), topics=[int(item) for item in topic_ids],
+            peer=await _target_peer(client, target_id), topics=[int(item) for item in topic_ids],
         )
     )
     return getattr(result, "topics", None) or []
@@ -315,7 +360,7 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     title = base[:128 - len(suffix)] + suffix
     try:
         topic = await client(functions.messages.CreateForumTopicRequest(
-            peer=await client.get_input_entity(target_id), title=title,
+            peer=await _target_peer(client, target_id), title=title,
         ))
         topic_id = next((int(getattr(getattr(u, "message", None), "id", 0) or 0)
                          for u in getattr(topic, "updates", [])
@@ -385,7 +430,7 @@ async def _copy_messages_to_topic(client, target_id, topic_id, messages):
             from_peer=await client.get_input_entity(source_chat_id),
             id=[int(message.id) for message in messages],
             random_id=[client.rnd_id() for _ in messages],
-            to_peer=await client.get_input_entity(target_id),
+            to_peer=await _target_peer(client, target_id),
             drop_author=True,
             top_msg_id=topic_id,
         )
@@ -705,5 +750,6 @@ async def teardown(ctx):
     _media_tasks.clear()
     _media_groups.clear()
     _topic_locks.clear()
+    _target_entities.clear()
     _captcha_pending.clear()
     _user_msg_times.clear()
