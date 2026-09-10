@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AI 助手',
  'id': 'ai',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'author': 'AWdress',
  'description': '私聊/群@你时 AI 人形对话（带记忆）；支持主动搭话、/ai 图文解释，以及通过平台统一 AI 使用 /生图 或 /draw 生成图片。自带 Vue 配置界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/ai.png',
- 'changelog': 'v2.0.2 修复 /ai 空响应解析失败\n'
+ 'changelog': 'v2.0.3 修复 /ai 解释格式显示\n'
+              '- 编辑解释消息时显式启用 Telegram HTML 解析\n'
+              '- 问题与回答继续进行 HTML 转义，避免内容注入标签\n'
+              '- HTML 编辑失败时使用不解析格式的纯文本降级\n'
+              '\n'
+              'v2.0.2 修复 /ai 空响应解析失败\n'
               '- AI 上游返回空正文或非 JSON 时自动退避重试一次\n'
               '- 连续异常时显示可操作的接口、模型兼容性与服务状态提示\n'
               '\n'
