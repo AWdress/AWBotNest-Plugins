@@ -56,6 +56,45 @@ class PTCheckinStateTests(unittest.TestCase):
         self.assertTrue(any("turnstile.getResponse" in script for script in page.scripts))
         self.assertTrue(context.log.info.called)
 
+    def test_u2_rejected_answer_is_not_reported_as_success(self):
+        self.assertEqual(
+            core._u2_result_state('{"status":"error","message":"Wrong answer"}'),
+            ("failed", "U2 未接受本次签到验证答案"),
+        )
+
+    def test_u2_json_success_receipt_is_recognized(self):
+        self.assertEqual(
+            core._u2_result_state('{"status":"success","message":"ok"}'),
+            ("success", "签到成功"),
+        )
+
+    def test_u2_submission_uses_real_browser_click(self):
+        class Submit:
+            clicked = False
+
+            def click(self, timeout=None):
+                self.clicked = True
+                self.timeout = timeout
+
+        class Page:
+            waited = []
+
+            def wait_for_load_state(self, state, timeout=None):
+                self.waited.append((state, timeout))
+
+            def wait_for_timeout(self, milliseconds):
+                self.waited.append(("timeout", milliseconds))
+
+            def content(self):
+                return "<p>签到成功</p>"
+
+        page, submit = Page(), Submit()
+        body = core._u2_submit_with_browser(page, submit)
+
+        self.assertTrue(submit.clicked)
+        self.assertEqual(submit.timeout, 15_000)
+        self.assertEqual(body, "<p>签到成功</p>")
+
 
 if __name__ == '__main__':
     unittest.main()

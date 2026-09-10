@@ -109,6 +109,15 @@ def _all_lottery_groups(cfg) -> list[int]:
     return list(groups)
 
 
+def _participation_success_text(lottery_id, message, chat, info, keyword) -> str:
+    """生成参与成功通知；群名由事件显式传入，避免后台任务引用失效的局部变量。"""
+    chat_title = getattr(chat, "title", None) or str(getattr(message, "chat_id", ""))
+    return (
+        f"抽奖参与成功\n\n{lottery_id}\n\n{chat_title}\n\n"
+        f"{info.get('prize', '')}\n\n{keyword}\n\n{getattr(message, 'link', '')}"
+    )
+
+
 async def setup(ctx):
     global _store, _runtime_ctx
     _runtime_ctx = ctx
@@ -219,9 +228,9 @@ async def setup(ctx):
             'original_message': message,
         })
         ctx.log.info("符合条件，准备参与抽奖 %s", lottery_id)
-        _spawn(_participate(client, message, lottery_id, info))
+        _spawn(_participate(client, message, chat, lottery_id, info))
 
-    async def _participate(client, message, lottery_id, info):
+    async def _participate(client, message, chat, lottery_id, info):
         cfg = ctx.config
         # 等待时间（总开关 + 群组专属覆盖全局）
         if cfg.get("lottery_wait_enabled", False):
@@ -269,18 +278,19 @@ async def setup(ctx):
             else:
                 await client.send_message(message.chat_id, keyword, parse_mode=None)
 
-            if lottery_id in _state.lottery_list:
-                _state.lottery_list[lottery_id]['flag'] = 1
-            ctx.log.info("抽奖参与成功 %s", lottery_id)
-            await _maybe_notify(
-                f"抽奖参与成功\n\n{lottery_id}\n\n{getattr(chat, 'title', message.chat_id)}\n\n"
-                f"{info.get('prize','')}\n\n{keyword}\n\n{getattr(message, 'link', '')}",
-                "success", client)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("发送抽奖消息失败 %s: %r", lottery_id, e)
             await _maybe_notify(
                 f"抽奖参与失败\n\n{lottery_id}\n\n{keyword}\n\n{e}",
                 "error", client)
+            return
+
+        if lottery_id in _state.lottery_list:
+            _state.lottery_list[lottery_id]['flag'] = 1
+        ctx.log.info("抽奖参与成功 %s", lottery_id)
+        await _maybe_notify(
+            _participation_success_text(lottery_id, message, chat, info, keyword),
+            "success", client)
 
     async def _participate_via_first(client, message, lottery_id, keyword, original_message):
         """转发第一个参与者：标记等待，最多等30秒，超时降级。"""

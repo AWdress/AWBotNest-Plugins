@@ -416,18 +416,38 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     raw = text or ""
     visible = _html_visible_text(raw)
     compact = re.sub(r"\s+", "", visible).lower()
+    if any(marker in compact for marker in (
+        "签到失败", "簽到失敗", "验证失败", "驗證失敗", "答案错误", "答案錯誤",
+        "wronganswer", "incorrectanswer", "invalidcaptcha", "captchaexpired",
+        "请求已过期", "請求已過期", "操作频繁", "操作頻繁", "请稍后再试", "請稍後再試",
+    )) or re.search(r'"status"\s*:\s*"error"', raw, re.IGNORECASE):
+        return "failed", "U2 未接受本次签到验证答案"
     if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
         "今日已签到", "今日已簽到", "已完成签到", "已完成簽到",
         "alreadyshoweduptoday", "alreadycheckedintoday", "youhaveshoweduptoday",
-    )):
+    )) or re.search(r'"status"\s*:\s*"already"', raw, re.IGNORECASE):
         return "already", "今天已经签到"
     if any(marker in compact for marker in (
         "签到成功", "簽到成功", "成功签到", "成功簽到", "showupsuccess", "check-insuccess",
         "thankyouforshowingup", "thanksforshowingup",
-    )) or re.search(r"window\.location(?:\.href)?\s*=\s*['\"]showup\.php", raw, re.IGNORECASE):
+    )) or re.search(r'"status"\s*:\s*"(?:success|ok)"', raw, re.IGNORECASE) \
+            or re.search(r'"success"\s*:\s*true', raw, re.IGNORECASE) \
+            or re.search(r"window\.location(?:\.href)?\s*=\s*['\"]showup\.php", raw, re.IGNORECASE):
         return "success", "签到成功"
     return None
+
+
+def _u2_submit_with_browser(page, submit) -> str:
+    """使用真实浏览器表单提交 U2 验证，避免 fetch/XHR 被站点 WAF 拒绝。"""
+    submit.click(timeout=15_000)
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=30_000)
+    except Exception:
+        # 页面可能在原文档内直接渲染结果；继续读取当前 DOM 进行严格判定。
+        pass
+    page.wait_for_timeout(1_000)
+    return page.content()
 
 
 def _ttg_result_state(text: str) -> tuple[str, str] | None:
@@ -892,23 +912,16 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
                 raise RuntimeError("U2 未解析到验证图片")
             options = [str(submits.nth(i).get_attribute("value") or "") for i in range(submits.count())]
             submit = submits.nth(_ai_image_choice(ctx, loop, captcha_image.first.screenshot(), options))
-            result = _fetch_same_origin(page, "https://u2.dmhy.org/showup.php?action=show", method="POST", data={
-                "req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到",
-                str(submit.get_attribute("name")): str(submit.get_attribute("value")),
-            })
-            body = result.get("text", "")
+            body = _u2_submit_with_browser(page, submit)
             posted = _u2_result_state(body)
             if posted:
                 if posted[0] == "failed":
                     raise RuntimeError(posted[1])
                 return {"status": "success", "message": posted[1]}
-            result_path = (urlparse(str(result.get("url") or "")).path or "").lower()
-            result_domain = (urlparse(str(result.get("url") or "")).hostname or "").lower()
-            if result.get("status") == 200 and _same_site_domain(result_domain, site["domain"]) \
-                    and "name=\"username\"" not in body.lower():
-                suffix = "提交后跳转已确认" if result_path not in {"/showup.php", "showup.php"} else "站点接受签到表单"
-                return {"status": "success", "message": f"签到成功（{suffix}）"}
-            page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
+            page.goto(
+                f"https://u2.dmhy.org/?_awbn_checkin={int(time.time())}",
+                wait_until="domcontentloaded", timeout=60_000,
+            )
             confirmed = page.content()
             final = _u2_result_state(confirmed)
             if final:
@@ -1589,7 +1602,7 @@ async def _run(ctx, source: str) -> dict:
                 try:
                     outcome = None
                     browser_reason = ""
-                    if key != "tjupt":
+                    if key not in {"tjupt", "u2"}:
                         _state.update({"phase": "HTTP 请求", "message": f"{site['name']} 正在使用轻量 HTTP 签到"})
                         _runtime_log(ctx, "使用轻量 HTTP 检查签到状态", site=site["name"])
                         try:
@@ -1598,6 +1611,8 @@ async def _run(ctx, source: str) -> dict:
                             browser_reason = str(fallback)
                         except httpx.RequestError as fallback:
                             browser_reason = f"HTTP 网络异常（{type(fallback).__name__}），切换 CloakBrowser"
+                    elif key == "u2":
+                        browser_reason = "U2 使用浏览器原生表单提交，避免站点拦截 HTTP 自动请求"
                     else:
                         browser_reason = "TJUPT 需要页面交互验证"
 

@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.2 增强 Audiences Turnstile 诊断\n'
+ 'changelog': 'v2.0.3 修复 U2 签到提交\n'
+              '- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n'
+              '- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n'
+              '- 补充错误答案与过期验证识别，避免未确认状态重复误报\n'
+              '\n'
+              'v2.0.2 增强 Audiences Turnstile 诊断\n'
               '- 兼容 Cloudflare turnstile.getResponse 令牌读取方式\n'
               '- 记录令牌来源与超时页面、表单、组件和 iframe 信息\n'
               '- 验证失败仍保持失败，不会误报签到成功\n'
