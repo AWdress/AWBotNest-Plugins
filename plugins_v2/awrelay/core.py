@@ -357,8 +357,20 @@ async def _validate_target(ctx, cfg):
     if not is_forum:
         ctx.log.error("目标群组 %s 未开启话题模式，请先在 Telegram 中启用论坛话题", target_id)
         return None
-    if bot_api_resolved:
-        _bot_api_targets.add(_target_key(ctx.bot, target_id))
+    # Telegram 禁止 Bot 调用 GetForumTopicsRequest 等 MTProto 论坛方法。
+    # 即使 Telethon 已经拿到群实体/access_hash，话题核验、创建和消息复制
+    # 也必须统一走当前 Bot 的官方 Bot API。
+    if not _bot_token(ctx):
+        ctx.log.error(
+            "当前实际 Bot 缺少可用 Token，无法执行话题创建和消息复制：%s",
+            bot_label,
+        )
+        return None
+    _bot_api_targets.add(_target_key(ctx.bot, target_id))
+    if not bot_api_resolved:
+        ctx.log.info(
+            "话题操作已使用 Telegram Bot API，避免 Bot 调用受限的 MTProto 论坛接口"
+        )
     return entity
 
 
@@ -411,6 +423,14 @@ def _missing_topic_error(exc):
         "topic_closed", "topic_id_invalid", "message_id_invalid",
         "awrelay_topic_route_mismatch",
     ))
+
+
+def _public_forward_error(exc):
+    """给访客显示可定位但不携带敏感数据的错误摘要。"""
+    detail = " ".join(str(exc).split()) or type(exc).__name__
+    # Telethon 错误常附带很长的文档 URL，用户端只需要 RPC 原因。
+    detail = detail.split(". Please read https://docs.telethon.dev/", 1)[0]
+    return detail[:350]
 
 
 async def _topic_for(ctx, client, user, cfg, force=False):
@@ -639,18 +659,24 @@ async def _send_content_to_topic(ctx, client, target_id, topic_id, message):
 
 
 async def _forward_one_unlocked(ctx, client, message, user, cfg):
-    topic_id = await _topic_for(ctx, client, user, cfg)
     target_id = _target_id(cfg)
+    try:
+        topic_id = await _topic_for(ctx, client, user, cfg)
+    except Exception as exc:
+        raise RuntimeError(f"话题准备失败：{exc}") from exc
     try:
         sent_id = await _send_content_to_topic(ctx, client, target_id, topic_id, message)
     except Exception as exc:
         if not _missing_topic_error(exc):
-            raise
+            raise RuntimeError(f"消息复制失败：{exc}") from exc
         topics = _topics(ctx)
         topics.pop(str(user.id), None)
         _set_dict(ctx, "topics", topics)
-        topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-        sent_id = await _send_content_to_topic(ctx, client, target_id, topic_id, message)
+        try:
+            topic_id = await _topic_for(ctx, client, user, cfg, force=True)
+            sent_id = await _send_content_to_topic(ctx, client, target_id, topic_id, message)
+        except Exception as retry_exc:
+            raise RuntimeError(f"失效话题重建后转发仍失败：{retry_exc}") from retry_exc
     if sent_id:
         _save_mapping(ctx, sent_id, user.id, message.id)
         ctx.log.info(
@@ -829,8 +855,13 @@ async def setup(ctx):
         try:
             await _forward_one(ctx, client, message, user, cfg)
         except Exception as exc:
-            ctx.log.error("消息转发失败（用户 %s）：%s", user.id, exc)
-            await message.reply("❌ 消息转发失败，请确认话题目标、模式和 Bot 权限后重试。")
+            media_type = type(getattr(message, "media", None)).__name__ if getattr(message, "media", None) else "text"
+            ctx.log.exception(
+                "消息转发失败：用户=%s，原会话=%s，原消息=%s，目标群=%s，类型=%s：%s",
+                user.id, getattr(message, "chat_id", "-"), getattr(message, "id", "-"),
+                _target_id(cfg), media_type, exc,
+            )
+            await message.reply(f"❌ 消息转发失败\n原因：{_public_forward_error(exc)}")
 
     @ctx.on_callback(pattern=rb"^awrelay_captcha:")
     async def captcha_click(query):
