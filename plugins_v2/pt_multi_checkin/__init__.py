@@ -5,11 +5,21 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.0',
+ 'version': '2.0.2',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.2 增强 Audiences Turnstile 诊断\n'
+              '- 兼容 Cloudflare turnstile.getResponse 令牌读取方式\n'
+              '- 记录令牌来源与超时页面、表单、组件和 iframe 信息\n'
+              '- 验证失败仍保持失败，不会误报签到成功\n'
+              '\n'
+              'v2.0.1 修复 OurBits 首页误判已签到\n'
+              '- 普通登录首页不再被当作已签到凭据\n'
+              '- HTTP 与浏览器流程均只接受明确签到状态或签到回执\n'
+              '- 未确认状态继续进入 attendance.php，不再误报成功\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

@@ -166,14 +166,14 @@ def _reply_of(msg):
     """
     if not msg:
         return None
-    return getattr(msg, "_v2_reply", None) or getattr(msg, "reply_to_message", None)
+    return getattr(msg, "_v2_reply", None)
 
 
 def _sender_of(msg):
-    return getattr(msg, "_v2_sender", None) or getattr(msg, "from_user", None)
+    return getattr(msg, "_v2_sender", None) or getattr(msg, "sender", None)
 
 
-def _from_user_is_self(msg) -> bool:
+def _sender_is_self(msg) -> bool:
     sender = _sender_of(msg)
     return bool(sender and getattr(sender, "is_self", False))
 
@@ -189,9 +189,9 @@ def detect_direction(message) -> Optional[str]:
     if not rtm:
         return None
     rtm2 = _reply_of(rtm)
-    if _from_user_is_self(rtm2):
+    if _sender_is_self(rtm2):
         return "in"
-    if _from_user_is_self(rtm):
+    if _sender_is_self(rtm):
         return "out"
     return None
 

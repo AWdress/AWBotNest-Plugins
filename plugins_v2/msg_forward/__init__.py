@@ -6,6 +6,18 @@ import time
 
 __plugin__={"id":"msg_forward","name":"消息转发","version":"2.0.1","author":"AWdress","scope":"user","plugin_api_version":2,"requirements":[],"render_mode":"schema","description":"把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。","icon":"https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png","tags":["消息转发","规则路由","跨群同步"],"config_schema":{"enable":{"type":"boolean","default":False,"label":"启用转发","section":"功能开关","order":1},"forward_album":{"type":"boolean","default":True,"label":"整组转发相册","section":"功能开关","order":2},"resolved_chat_names":{"type":"info","label":"已识别会话名称","section":"规则","order":9},"rules":{"type":"list","default":[],"label":"转发规则","item_label":"规则","section":"规则","order":10,"fields":{"source":{"type":"string","label":"来源会话"},"targets":{"type":"string","label":"转发到"},"types":{"type":"multiselect","label":"消息类型","default":[],"options":[{"value":"text","label":"文本"},{"value":"link","label":"链接"},{"value":"photo","label":"图片"},{"value":"video","label":"视频"},{"value":"document","label":"文件"},{"value":"audio","label":"音频"}]},"kw":{"type":"string","label":"关键词"},"nkw":{"type":"string","label":"排除词"},"sender":{"type":"string","label":"只转谁发的"},"copy":{"type":"boolean","label":"复制搬运","default":False}}}},"resources":{"timeout_seconds":120,"max_concurrency":8,"max_background_tasks":32},"changelog":"v2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层"}
 
+_plugin_changelog = "v2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\n" + __plugin__.get("changelog", "")
+__plugin__.update({
+    "version": "2.0.2",
+    "description": "把来源会话的消息按规则转发到目标会话，支持多规则、类型、关键词、发送者过滤、相册及复制搬运。可按需回查历史消息补发遗漏。",
+    "changelog": _plugin_changelog,
+    "config_schema": {**__plugin__["config_schema"], "backfill_limit": {
+        "type": "integer", "default": 100, "min": 1, "max": 500,
+        "label": "遗漏补全回查条数", "help": "执行‘补全遗漏’时每条规则最多回查的来源消息数",
+        "section": "功能开关", "order": 3,
+    }},
+})
+
 _URL_RE=re.compile(r"https?://",re.I)
 def _split(raw):
     if isinstance(raw,(list,tuple,set)):return [str(x).strip() for x in raw if str(x).strip()]
@@ -70,8 +82,65 @@ async def _copy(client,target,messages):
         return await client.forward_messages(target,messages)
     return await client.send_message(target,caption or "")
 
+async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
+    """回查来源历史并补发遗漏消息，返回 (sent_count, skipped_count)。"""
+    sent_count = skipped = 0
+    limit = max(1, min(int(limit or 100), 500))
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        source = _peer(rule.get("source"))
+        if source is None:
+            log.warning("[消息转发] 规则 %s 来源无效，已跳过", index + 1)
+            continue
+        try:
+            source_entity = await client.get_entity(source)
+            source_id = getattr(source_entity, "id", source)
+            groups = {}
+            async for message in client.iter_messages(source_entity, limit=limit):
+                if getattr(message, "action", None) is not None:
+                    continue
+                gid = getattr(message, "grouped_id", None)
+                key = ("album", gid) if gid and forward_album else ("message", getattr(message, "id", 0))
+                groups.setdefault(key, []).append(message)
+            # iter_messages yields newest first; send oldest first.
+            for messages in reversed(list(groups.values())):
+                messages = sorted(messages, key=lambda m: getattr(m, "id", 0))
+                text = next((getattr(m, "raw_text", "") for m in messages if getattr(m, "raw_text", "")), "")
+                sender = await messages[0].get_sender() if hasattr(messages[0], "get_sender") else None
+                if not _passes(rule, messages, text, sender):
+                    continue
+                ids = tuple(getattr(m, "id", 0) for m in messages)
+                for target in filter(lambda x: x is not None, (_peer(x) for x in _split(rule.get("targets")))):
+                    dedupe_key = f"{source}:{target}:{','.join(map(str, ids))}"
+                    if dedupe_key in sent:
+                        skipped += 1
+                        continue
+                    try:
+                        if rule.get("copy"):
+                            await _copy(client, target, messages)
+                        else:
+                            await client.forward_messages(target, messages)
+                        sent.add(dedupe_key)
+                        sent_count += 1
+                        log.info("[消息转发] 补全 %s (%s) -> %s (%s)，消息 %s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:
+                        log.warning("[消息转发] 补全失败 %s -> %s: %r", source_id, target, error)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            log.warning("[消息转发] 回查来源 %s 失败: %r", source, error)
+    return sent_count, skipped
+
 async def setup(ctx):
     seen={};names={}
+    sent = set(str(x) for x in (await ctx.storage.get("backfill_sent", []) or []))
+    backfill_task = None
+    async def persist_sent():
+        # Keep the checkpoint bounded while surviving reloads.
+        await ctx.storage.set("backfill_sent", list(sent)[-5000:])
     async def resolve(client,target):
         key=str(target)
         if key not in names:
@@ -107,8 +176,41 @@ async def setup(ctx):
                         await _copy(event.client,target,messages)
                     else:
                         await event.client.forward_messages(target,messages)
+                    ids = tuple(getattr(message, "id", 0) for message in messages)
+                    sent.add(f"{source}:{target}:{','.join(map(str, ids))}")
+                    try:
+                        await persist_sent()
+                    except Exception as error:
+                        ctx.log.warning("[消息转发] 转发已完成，但去重检查点保存失败: %r", error)
                     ctx.log.info("[消息转发] %s (%s) -> %s (%s)",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target)
                 except asyncio.CancelledError:raise
                 except Exception as error:ctx.log.warning("[消息转发] 转发失败 %s -> %s: %r",event.chat_id,target,error)
+
+    @ctx.action("backfill")
+    async def action_backfill():
+        nonlocal backfill_task
+        if not ctx.config.get("enable", False):
+            return {"ok": False, "message": "请先启用转发插件"}
+        if backfill_task is not None and not backfill_task.done():
+            return {"ok": False, "message": "遗漏补全任务正在运行"}
+        if not ctx.user:
+            return {"ok": False, "message": "用户客户端尚未连接"}
+        rules = [r for r in (ctx.config.get("rules") or []) if isinstance(r, dict)]
+        if not rules:
+            return {"ok": False, "message": "尚未配置转发规则"}
+        async def run_backfill():
+            count, skipped = await _backfill(
+                ctx.user, rules, ctx.config.get("backfill_limit", 100), sent,
+                ctx.log, resolve, bool(ctx.config.get("forward_album", True)),
+            )
+            await persist_sent()
+            ctx.log.info("[消息转发] 遗漏补全完成：补发 %s 组，跳过 %s 组", count, skipped)
+        backfill_task = ctx.create_task(run_backfill(), name="消息转发：遗漏补全")
+        return {"ok": True, "message": "已开始回查历史消息并补发遗漏，详情见插件日志"}
+
+    def cleanup_backfill():
+        if backfill_task is not None and not backfill_task.done():
+            backfill_task.cancel()
+    ctx.add_cleanup(cleanup_backfill)
 
 async def teardown(ctx):ctx.log.info("[消息转发] 已停用")

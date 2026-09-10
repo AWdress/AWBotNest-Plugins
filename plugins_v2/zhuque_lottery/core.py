@@ -43,7 +43,7 @@ from . import _ydx
 __plugin__ = {
     "name": "朱雀",
     "id": "zhuque_lottery",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -985,7 +985,8 @@ async def _ydx_reveal(ctx, state, store, client, message, match):
     bet_side = ""
     bet_amount = 0
     win_amount = 0
-    rmsg = getattr(message, "reply_to_message", None)
+    # _prepare() 已通过 Telethon get_reply_message() 预载到 _v2_reply。
+    rmsg = getattr(message, "_v2_reply", None)
     if rmsg:
         firstname = _ydx.listof_winners_check(rmsg, me_id)
         if firstname:

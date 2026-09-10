@@ -6,12 +6,12 @@ import secrets
 import time
 from collections import defaultdict, deque
 from datetime import datetime
-from telethon import Button, functions
+from telethon import Button, functions, utils
 
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.2.9",
+    "version": "1.2.10",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -21,6 +21,16 @@ __plugin__ = {
     "render_mode": "vue",
     "requirements": [],
 }
+
+__plugin__.update(
+    version="1.2.10",
+    changelog=(
+        "v1.2.10 修复 V2 群组识别与相册转发\n"
+        "- 仅把真实私聊识别为访客消息，避免广播频道误入私聊流程\n"
+        "- 使用 Telethon grouped_id 恢复相册聚合，并补充目标论坛与双向转发日志\n\n"
+        + __plugin__["changelog"]
+    ),
+)
 
 DEFAULTS = {
     "enabled": False,
@@ -143,7 +153,47 @@ def _thread_id(message):
 
 
 def _target_id(cfg):
-    return int(cfg.get("group_id") or 0)
+    try:
+        return int(str(cfg.get("group_id") or "0").strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _validate_target(ctx, cfg):
+    """解析并记录目标实体，尽早暴露错误 ID、非群组和非论坛配置。"""
+    target_id = _target_id(cfg)
+    if not cfg.get("enabled"):
+        ctx.log.info("插件当前未启用，等待配置后接收私聊消息")
+        return None
+    if not target_id:
+        ctx.log.error("插件已启用，但未配置有效的话题群组 ID（应为完整 -100... ID）")
+        return None
+    if not ctx.bot or not ctx.bot.is_connected():
+        ctx.log.warning("平台 Bot 尚未连接，暂时无法校验话题群组 %s", target_id)
+        return None
+    try:
+        entity = await ctx.bot.get_entity(target_id)
+    except Exception as exc:
+        ctx.log.error("无法识别话题群组 %s：%s", target_id, exc)
+        return None
+    resolved_id = int(utils.get_peer_id(entity))
+    title = getattr(entity, "title", None) or getattr(entity, "first_name", None) or "-"
+    is_group = bool(getattr(entity, "megagroup", False))
+    is_forum = bool(getattr(entity, "forum", False))
+    ctx.log.info(
+        "已识别话题群组：%s（配置 ID=%s，实际 ID=%s，超级群=%s，论坛=%s）",
+        title, target_id, resolved_id, is_group, is_forum,
+    )
+    if resolved_id != target_id:
+        ctx.log.error("话题群组 ID 不匹配：配置 %s，Telegram 返回 %s", target_id, resolved_id)
+        return None
+    if not is_group:
+        ctx.log.error("目标 %s 不是超级群，AWRelay 无法创建论坛话题", target_id)
+        return None
+    if not is_forum:
+        ctx.log.error("目标群组 %s 未开启话题模式，请先在 Telegram 中启用论坛话题", target_id)
+        return None
+    return entity
 
 
 async def _matching_topics(client, target_id, suffix):
@@ -301,6 +351,7 @@ async def _topic_for(ctx, client, user, cfg, force=False):
         target_id, f"{link}{username}\n🆔 <code>{user.id}</code>",
         reply_to=topic_id, parse_mode="html",
     )
+    ctx.log.info("已为用户 %s 创建话题 %s（目标群 %s）", user.id, topic_id, target_id)
     return topic_id
 
 
@@ -388,8 +439,10 @@ async def _forward_one_unlocked(ctx, client, message, user, cfg):
         sent_id = await _send_content_to_topic(client, target_id, topic_id, message)
     if sent_id:
         _save_mapping(ctx, sent_id, user.id, message.id)
-    else:
-        ctx.log.debug("媒体已发送，但 Pyrogram 未解析出消息 ID（用户 %s，话题 %s）", user.id, topic_id)
+        ctx.log.info(
+            "访客消息已转发：用户 %s，原消息 %s，目标群 %s，话题 %s，消息 %s",
+            user.id, message.id, target_id, topic_id, sent_id,
+        )
     topics = _topics(ctx)
     if str(user.id) in topics:
         topics[str(user.id)]["last_active"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -444,7 +497,8 @@ async def setup(ctx):
     ctx.add_cleanup(_flush_storage)
 
     cfg_at_start = _cfg(ctx)
-    if cfg_at_start.get("enabled") and cfg_at_start.get("startup_notify", True) and _target_id(cfg_at_start) and ctx.bot and ctx.bot.is_connected():
+    validated_target = await _validate_target(ctx, cfg_at_start)
+    if cfg_at_start.get("enabled") and cfg_at_start.get("startup_notify", True) and validated_target is not None:
         try:
             me = await ctx.bot.get_me()
             started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -498,7 +552,8 @@ async def setup(ctx):
 
     @ctx.on_message(incoming=True)
     async def private_message(event):
-        if event.is_group:
+        # 广播频道同样 is_group=False，只有 is_private 才能代表真实访客私聊。
+        if not getattr(event, "is_private", False):
             return
         client, message = event.client, event.message
         user = await event.get_sender()
@@ -506,6 +561,7 @@ async def setup(ctx):
         if not cfg["enabled"] or not user:
             return
         if user.id in _ids(ctx, "banned_users"):
+            ctx.log.info("忽略黑名单用户 %s 的私聊消息 %s", user.id, message.id)
             return
         command = _command(message)
         if command in ("/start", "/help"):
@@ -515,26 +571,32 @@ async def setup(ctx):
         if cfg["captcha_enabled"] and user.id not in verified:
             pending = _captcha_pending.get(user.id)
             if pending:
+                ctx.log.info("用户 %s 尚未完成人机验证，消息 %s 未转发", user.id, message.id)
                 await message.reply("🔐 请点击上方按钮完成验证，再发送消息。")
                 return
             question, answer = _generate_captcha()
             _captcha_pending[user.id] = {"answer": answer}
+            ctx.log.info("已向用户 %s 发送人机验证，消息 %s 暂不转发", user.id, message.id)
             await message.reply(
                 f"🔐 <b>人机验证</b>\n━━━━━━━━━━━━━━\n为防止机器人骚扰，发送消息前请先完成验证：\n\n👉 <b>{question}</b>\n\n请点击下方正确答案。",
                 buttons=_captcha_markup(user.id, answer), parse_mode="html",
             )
             return
         if _rate_limited(user.id, cfg):
+            ctx.log.warning("用户 %s 触发发送频率限制，消息 %s 未转发", user.id, message.id)
             await message.reply("⏳ 您发送得太频繁了，请稍后再试。")
             return
         if _is_spam(message.raw_text or "", cfg):
             ctx.log.info("拦截疑似广告消息：用户 %s", user.id)
             return
-        media_id = getattr(message, "media_group_id", None)
+        # Telethon 使用 grouped_id；media_group_id 是 Pyrogram 字段，始终为空。
+        media_id = getattr(message, "grouped_id", None)
         if media_id:
-            _media_groups.setdefault(str(media_id), []).append(message)
-            if len(_media_groups[str(media_id)]) == 1:
-                task = ctx.create_task(_flush_media(ctx, client, str(media_id), cfg), name=f"awrelay-media-{media_id}")
+            media_key = f"{message.chat_id}:{media_id}"
+            _media_groups.setdefault(media_key, []).append(message)
+            if len(_media_groups[media_key]) == 1:
+                ctx.log.info("开始聚合用户 %s 的相册 %s", user.id, media_id)
+                task = ctx.create_task(_flush_media(ctx, client, media_key, cfg), name=f"awrelay-media-{media_id}")
                 _media_tasks.add(task)
                 task.add_done_callback(_media_tasks.discard)
             return
@@ -588,6 +650,7 @@ async def setup(ctx):
             return
         admins = _configured_admins(cfg)
         if admins and sender.id not in admins:
+            ctx.log.warning("忽略非管理员 %s 在中转群 %s 的消息 %s", sender.id, event.chat_id, message.id)
             return
         mappings = _mappings(ctx)
         reply_id = str(getattr(message, "reply_to_msg_id", "") or "")
@@ -608,9 +671,18 @@ async def setup(ctx):
             await message.reply("在用户话题内直接发送或回复消息即可回传。回复用户消息后使用 /ban 或 /unban 管理黑名单。")
             return
         if not user_id or (message.raw_text or "").startswith("/"):
+            if not user_id and not (message.raw_text or "").startswith("/"):
+                ctx.log.warning(
+                    "中转群消息 %s 未匹配用户：chat_id=%s，topic_id=%s，reply_id=%s",
+                    message.id, event.chat_id, topic_id, reply_id or "-",
+                )
             return
         try:
             await _send_to_user(client, user_id, message)
+            ctx.log.info(
+                "管理员回复已发送：管理员 %s，中转消息 %s，话题 %s，用户 %s",
+                sender.id, message.id, topic_id or "-", user_id,
+            )
         except Exception as exc:
             ctx.log.error("回复用户 %s 失败：%s", user_id, exc)
             await message.reply(f"❌ 发送失败：<code>{html.escape(str(exc))}</code>", parse_mode="html")

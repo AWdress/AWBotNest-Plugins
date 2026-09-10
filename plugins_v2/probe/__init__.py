@@ -5,12 +5,17 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '插件开发探针',
  'id': 'probe',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '开发插件时采集消息/会话/按钮/回调的完整信息：回复消息发 .probe 导出带访问路径的字段速查 + 原始结构；.cbprobe 抓 Bot 收到的回调。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'v1.0.11 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 完成开发探针 Telethon 原生化\n'
+              '- 修复回复消息、相册、发送者、按钮和回调字段读取\n'
+              '- 文件投递改用 Telethon send_file 与平台默认 Bot 会话\n'
+              '- 报告改为 V2 事件注册建议，不再输出 ctx.filters 或 Pyrogram 字段\n'
+              '\n'
+              'v1.0.11 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

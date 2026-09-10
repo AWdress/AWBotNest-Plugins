@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.35",
+    "version": "2.5.53",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
+    "changelog": "v2.5.53 增强 Audiences Turnstile 令牌读取与诊断\n- 除隐藏字段外读取 Cloudflare 官方 getResponse 返回值\n- 提交前记录令牌取得方式，超时时输出页面与 iframe 诊断\n\nv2.5.52 修复 OurBits 首页误判已签到\n- 删除仅凭首页导航文字判断已签到的错误逻辑\n- HTTP 与浏览器流程只接受明确状态或签到回执\n\nv2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -394,19 +394,6 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
-def _ourbits_home_completed(text: str, path: str) -> bool:
-    """识别 OurBits 签到后跳转到的无文字回执首页。"""
-    if (path or "/").lower() != "/":
-        return False
-    compact = re.sub(r"\s+", "", text or "").lower()
-    authenticated = all(marker in compact for marker in ("首页", "论坛", "种子"))
-    login_markers = ("用户名", "密码", "登录", "安全验证", "checkingyourbrowser")
-    attendance_markers = ("立即签到", "点击签到", "今日未签到", "attendance.php")
-    return authenticated \
-        and not any(marker in compact for marker in login_markers) \
-        and not any(marker in compact for marker in attendance_markers)
-
-
 def _hhan_result_state(html: str) -> tuple[str, str] | None:
     """HHanClub 会反复展示最近一次奖励，须以当天记录创建时间区分本次与已签到。"""
     today = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d")
@@ -660,8 +647,6 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         page.goto(home_url, wait_until="domcontentloaded", timeout=60_000)
         for _ in range(15):
             home_text = _page_text(page)
-            if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(home_text, urlparse(page.url).path):
-                return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
             state = _nexus_result_state(home_text)
             if state:
                 status, message = state
@@ -1009,6 +994,7 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
     deadline = time.monotonic() + 180
     started_at = time.monotonic()
     click_count = 0
+    token_logged = False
     # Docker 中 Turnstile 的验证时间明显长于本地。短间隔反复点击会干扰甚至
     # 重置正在执行的 challenge，因此只在首次及长时间无结果时有限重试。
     retry_after = (0, 60, 120)
@@ -1024,15 +1010,31 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
         turnstile_present = page.locator("#attendance-form .cf-turnstile").count() > 0
         if not form_present and not turnstile_present:
             return _confirm_result(page, attempts=2, expected_domain="audiences.me")
-        token = page.evaluate("""() => {
+        token_info = page.evaluate("""() => {
             const names = ['cf-turnstile-response', 'cf-token'];
             for (const name of names) {
                 const input = document.querySelector(`[name="${name}"]`);
-                if (input && String(input.value || '').trim()) return String(input.value).trim();
+                if (input && String(input.value || '').trim()) {
+                    return {token: String(input.value).trim(), source: name};
+                }
             }
-            return '';
+            try {
+                if (window.turnstile && typeof window.turnstile.getResponse === 'function') {
+                    const response = String(window.turnstile.getResponse() || '').trim();
+                    if (response) return {token: response, source: 'turnstile.getResponse'};
+                }
+            } catch (_) {}
+            return {token: '', source: ''};
         }""")
+        token = str((token_info or {}).get("token", "")).strip()
         if token:
+            if ctx is not None and not token_logged:
+                _runtime_log(
+                    ctx,
+                    f"已取得 Turnstile 验证令牌（来源：{token_info.get('source') or '未知'}），正在提交签到",
+                    site="Audiences",
+                )
+                token_logged = True
             page.evaluate("""() => {
                 const form = document.querySelector('#attendance-form');
                 if (!form || form.dataset.awSubmitted === '1') return;
@@ -1092,6 +1094,20 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
             page.wait_for_timeout(min(1_000, max(1, int((deadline - time.monotonic()) * 1000))))
+    try:
+        diagnostics = page.evaluate("""() => ({
+            url: location.href,
+            title: document.title,
+            forms: document.querySelectorAll('#attendance-form').length,
+            widgets: document.querySelectorAll('.cf-turnstile').length,
+            iframes: Array.from(document.querySelectorAll('iframe')).map(frame => ({
+                title: frame.title || '', src: String(frame.src || '').slice(0, 160)
+            }))
+        })""")
+    except Exception as exc:
+        diagnostics = {"diagnostic_error": str(exc)}
+    if ctx is not None:
+        _runtime_log(ctx, f"Turnstile 超时诊断：{diagnostics}", level="error", site="Audiences")
     raise RuntimeError("Audiences Turnstile 未在 180 秒内签发有效验证令牌；当前浏览器隔离上下文将被关闭")
 
 
@@ -1171,8 +1187,6 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
         if not path.lower().endswith("/attendance.php"):
             page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
             return _browser_checkin(page, expected_domain, ctx, loop, piggo_submitted=True)
-    if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(text, path):
-        return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1345,11 +1359,6 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             # Audiences 的 attendance.php 在 Docker/CF 链路中会完成签到后返回无回执的站点模板。
             # 此处仅接受已通过登录与安全页检查的 2xx 同站请求，避免把登录页或挑战页误报为成功。
             response_domain = (urlparse(str(response.url)).hostname or "").lower()
-            response_path = urlparse(str(response.url)).path or "/"
-            if key == "ourbits" and response.status_code < 300 \
-                    and _same_site_domain(response_domain, site["domain"]) \
-                    and _ourbits_home_completed(visible_text, response_path):
-                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             if key == "audiences" and response.status_code < 300 \
                     and _same_site_domain(response_domain, site["domain"]):
                 return {"status": "success", "message": "签到请求已完成（站点未返回文字回执）", "engine": "http"}

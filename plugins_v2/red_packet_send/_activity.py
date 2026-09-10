@@ -229,7 +229,7 @@ class ActivityManager:
         total_amount = int(round(total_amount))
         chat_id = message.chat_id
         key = self._key(client, chat_id)
-        sender = sender or getattr(message, "from_user", None)
+        sender = sender or getattr(message, "sender", None)
         user_id = sender.id if sender else 0
         username = (
             (sender.username or sender.first_name) if sender else str(user_id)
@@ -421,7 +421,7 @@ class ActivityManager:
         if key not in self.active:
             return False
 
-        sender = sender or getattr(message, "from_user", None)
+        sender = sender or getattr(message, "sender", None)
         user_id = sender.id if sender else 0
         username = (
             (sender.username or sender.first_name) if sender else str(user_id)
@@ -605,7 +605,7 @@ class ActivityManager:
             if notice:
                 _track(self.ctx.create_task(_auto_delete(notice, 8)))
             return False
-        sender = sender or getattr(message, "from_user", None)
+        sender = sender or getattr(message, "sender", None)
         user_id = sender.id if sender else 0
         if activity["creator_id"] != user_id:
             notice = await client.send_message(chat_id, "只有红包创建者才能结束活动")

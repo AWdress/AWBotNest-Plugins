@@ -31,15 +31,15 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
-    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-    "changelog": "v1.4.1 重做 Vue 界面配色\n- 去除大面积墨绿色背景，改为与平台一致的深海军蓝中性层次\n- Emby 青蓝仅用于开关、主按钮和选中状态\n- 重新校正卡片、输入框、次要文字与边框对比度\n\nv1.4.0 迁移 Vue 媒体维护控制台\n- 新增实时任务状态、历史记录和后台 API",
+    "icon": "https://cdn.simpleicons.org/emby",
+    "changelog": "v1.4.2 修复 Emby API 客户端逻辑\n- 使用 VirtualFolders 正确解析媒体库 ID，兼容反代与管理员用户\n- 递归展开媒体库文件夹并补齐 Genre、Tag、ProviderIds 等字段\n- 统一更新与 PlaybackInfo 请求路径，修复多项功能同时失败\n- 图标替换为 Emby Logo\n\nv1.4.1 重做 Vue 界面配色\n- 去除大面积墨绿色背景，改为与平台一致的深海军蓝中性层次\n- Emby 青蓝仅用于开关、主按钮和选中状态\n- 重新校正卡片、输入框、次要文字与边框对比度\n\nv1.4.0 迁移 Vue 媒体维护控制台\n- 新增实时任务状态、历史记录和后台 API",
     "scope": "standalone",
     "render_mode": "vue",
     "min_platform_version": "1.1.4.0",
-    "plugin_api_version": 1,
+    "plugin_api_version": 2,
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
     "resources": {
@@ -202,7 +202,7 @@ def _resolve_user_id(cfg: Dict[str, Any]) -> str:
 
 def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str, Any]:
     url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Items/{item_id}"
-    r = requests.get(url, headers=_headers(cfg['api_key']), timeout=30)
+    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
     r.raise_for_status()
     return r.json()
 
@@ -211,16 +211,18 @@ def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     item_id = str(item['Id'])
     base = _base_url(cfg['emby_server'])
     url = f"{base}/emby/Items/{item_id}"
-    params = {'api_key': cfg['api_key']}
+    # reqformat=json is required by some Emby versions/reverse proxies.  Keep
+    # the token in both header and query for compatibility with older servers.
+    params = {'api_key': cfg['api_key'], 'reqformat': 'json'}
     try:
-        r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+        r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), json=item, timeout=60)
         r.raise_for_status()
     except requests.HTTPError as e:
         if '404' in str(e):
             # 某些条目需要通过用户路径更新
             user_id = _resolve_user_id(cfg)
             url = f"{base}/emby/Users/{user_id}/Items/{item_id}"
-            r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), data=json.dumps(item, ensure_ascii=False), timeout=60)
+            r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), json=item, timeout=60)
             r.raise_for_status()
         else:
             raise
@@ -241,33 +243,90 @@ def _refresh_item(cfg: Dict[str, Any], item_id: str) -> None:
 
 
 def _get_libraries(cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return Emby virtual folders (the canonical media-library endpoint).
+
+    ``/Users/{id}/Views`` is user-specific and may omit libraries for limited
+    users or return collection views.  The original emby_scripts client uses
+    ``/Library/VirtualFolders``; use it first and retain a Views fallback for
+    older installations that disable the endpoint.
+    """
+    base = _base_url(cfg['emby_server'])
+    headers = _headers(cfg['api_key'])
+    params = {'api_key': cfg['api_key']}
+    url = f"{base}/emby/Library/VirtualFolders"
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict) and isinstance(data.get('Items'), list):
+            return data['Items']
+    except requests.RequestException:
+        # Fall through to the user Views endpoint for legacy/proxied servers.
+        pass
     user_id = _resolve_user_id(cfg)
-    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Views"
-    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+    r = requests.get(f"{base}/emby/Users/{user_id}/Views", params=params, headers=headers, timeout=30)
     r.raise_for_status()
-    return r.json().get('Items', [])
+    data = r.json()
+    return data.get('Items', []) if isinstance(data, dict) else []
 
 
 def _get_library_id(cfg: Dict[str, Any], lib_name: str) -> Optional[str]:
     for item in _get_libraries(cfg):
         if item.get('Name') == lib_name:
-            return str(item.get('Id'))
+            # VirtualFolders returns ``ItemId``; the Views fallback returns
+            # ``Id``.  Accept both so library matching works on every Emby
+            # version and through reverse proxies.
+            value = item.get('ItemId') or item.get('Id')
+            return str(value) if value else None
     return None
 
 
 def _get_lib_items(cfg: Dict[str, Any], parent_id: str) -> List[Dict[str, Any]]:
-    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{_resolve_user_id(cfg)}/Items"
-    params = {
-        'api_key': cfg['api_key'],
-        'ParentId': parent_id,
-        'Recursive': 'false',
-        'Fields': 'ProviderIds,Name,Type',
-        'SortBy': 'SortName',
-        'SortOrder': 'Ascending',
-    }
-    r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
-    r.raise_for_status()
-    return r.json().get('Items', [])
+    """Recursively collect all non-folder media items below a library.
+
+    A library can contain nested folders (especially with mixed content).  A
+    single non-recursive request only returns those folders, causing every
+    maintenance worker to silently process zero items.  Match the reference
+    client's recursive folder walk while requesting every field used by the
+    workers, avoiding an extra GET for metadata-only features.
+    """
+    # Match emby_scripts: the system Items endpoint sees every item under the
+    # selected virtual folder and is not restricted by the chosen user's views.
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+    fields = (
+        'ProviderIds,SortName,Tags,TagItems,Genres,GenreItems,LockedFields,'
+        'Name,Type,Path,ParentIndexNumber,IndexNumber,SeriesName,SeasonName'
+    )
+    pending = [str(parent_id)]
+    result: List[Dict[str, Any]] = []
+    seen = set()
+    while pending:
+        current = pending.pop(0)
+        if not current or current in seen:
+            continue
+        seen.add(current)
+        params = {
+            'api_key': cfg['api_key'],
+            'ParentId': current,
+            'Recursive': 'false',
+            'Fields': fields,
+            'SortBy': 'SortName',
+            'SortOrder': 'Ascending',
+        }
+        r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get('Items', []) if isinstance(data, dict) else []
+        for item in items:
+            if not isinstance(item, dict) or not item.get('Id'):
+                continue
+            if item.get('Type') == 'Folder':
+                pending.append(str(item['Id']))
+            else:
+                result.append(item)
+    return result
 
 
 def _tmdb_fetch(cfg: Dict[str, Any], tmdb_id: str, is_movie: bool) -> Optional[Dict[str, Any]]:
@@ -747,10 +806,24 @@ def _strm_mediainfo(cfg: Dict[str, Any], ctx=None) -> str:
                 media_streams = item.get('MediaStreams') or []
                 if len(media_streams) != 0:
                     continue
-                url = f"{_base_url(cfg['emby_server'])}/Items/{item_id}/PlaybackInfo?AutoOpenLiveStream=true&IsPlayback=true&api_key={cfg['api_key']}&UserId={user_id}"
-                r = requests.post(url, headers=_headers(cfg['api_key']), timeout=60)
-                if r.status_code == 200:
-                    count += 1
+                # PlaybackInfo is exposed without the legacy /emby prefix on
+                # current Emby servers (same route used by emby_scripts).
+                url = f"{_base_url(cfg['emby_server'])}/Items/{item_id}/PlaybackInfo"
+                params = {
+                    'AutoOpenLiveStream': 'true',
+                    'IsPlayback': 'true',
+                    'api_key': cfg['api_key'],
+                    'UserId': user_id,
+                }
+                try:
+                    r = requests.post(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
+                    if r.status_code in (200, 204):
+                        count += 1
+                    elif ctx:
+                        ctx.log.warning(f'[emby_toolbox] STRM 刷新失败 {item_id}: HTTP {r.status_code}')
+                except requests.RequestException as exc:
+                    if ctx:
+                        ctx.log.warning(f'[emby_toolbox] STRM 刷新异常 {item_id}: {exc}')
                 time.sleep(delay)
     result = f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
     if ctx:

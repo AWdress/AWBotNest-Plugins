@@ -5,14 +5,18 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '发红包',
  'id': 'red_packet_send',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0'],
  'description': '用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 '
                 'Vue 配置界面 + 红包监控。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 清理发送者字段迁移残留\n'
+              '- 活动创建、参与和手动结束统一读取 Telethon sender\n'
+              '- 移除 Pyrogram from_user 兼容分支\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

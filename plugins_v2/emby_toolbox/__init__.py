@@ -5,11 +5,17 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
- 'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'icon': 'https://cdn.simpleicons.org/emby',
+ 'changelog': 'v2.0.1 修复 Emby API 客户端逻辑\n'
+              '- 使用 VirtualFolders 正确解析媒体库 ID，并兼容旧版 Views 接口\n'
+              '- 递归展开媒体库文件夹，补齐维护功能所需的元数据字段\n'
+              '- 统一更新与 PlaybackInfo 请求路径，修复多项功能失败\n'
+              '- 图标替换为 Emby Logo\n'
+              '\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

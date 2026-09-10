@@ -7,13 +7,13 @@ import re
 import time
 
 from .captcha_solver import cleanup_debug_files
+from .checkin_state import checkin_state
 from .human_simulation import human_like_delay
-
 
 class CheckinMixin:
     """每日签到流程（含验证码识别调度）"""
 
-    def daily_checkin(self, test_mode=False):
+    def daily_checkin(self, test_mode=False, _submission_attempt=1):
         """每日签到"""
         import re
         
@@ -61,17 +61,9 @@ class CheckinMixin:
                     logging.warning(f"检测到页面错误: {error_keyword}")
                     return False
             
-            # 使用正则表达式检查签到状态
-            # 未签到按钮: <a href="javascript:;" class="ddpc_sign_btn_grey">今日未签到，点击签到</a>
-            not_signed_pattern = r'(ddpc_sign_btn|sign.*btn).*?>(.*?未签到.*?点击签到|.*?点击签到|.*?今日未签到)'
-            has_not_signed = bool(re.search(not_signed_pattern, page_text, re.IGNORECASE | re.DOTALL))
-            
-            # 已签到按钮: <a href="javascript:;" class="ddpc_sign_btn_grey">今日已签到</a>
-            # 注意：排除统计信息"今日已签到 31842 人"（后面跟着数字）
-            signed_pattern = r'(ddpc_sign_btn|sign.*btn).*?>.*?今日已签到(?!\s*\d)'
-            has_signed = False
-            if not has_not_signed:
-                has_signed = bool(re.search(signed_pattern, page_text, re.IGNORECASE | re.DOTALL))
+            state = checkin_state(page_text)
+            has_not_signed = state == 'unsigned'
+            has_signed = state == 'signed'
             
             # 判断签到状态
             if has_signed:
@@ -316,6 +308,7 @@ class CheckinMixin:
             # 会短暂返回“请稍后再试”，此时再次点击会触发频率限制，甚至弹出一轮新验证码。
             # 因此这里只做带退避的状态确认，绝不盲目重复提交签到。
             confirm_delays = (3, 8, 15, 30)
+            still_not_signed = False
             for result_attempt, delay in enumerate(confirm_delays, start=1):
                 logging.info(
                     "等待签到结果确认（第 %s/%s 次，%s 秒）...",
@@ -324,13 +317,16 @@ class CheckinMixin:
                 time.sleep(delay)
                 if result_attempt > 1:
                     try:
-                        self.page.goto(main_url, wait_until='domcontentloaded')
+                        separator = '&' if '?' in main_url else '?'
+                        confirm_url = f"{main_url}{separator}_awpulse_ts={int(time.time() * 1000)}"
+                        self.page.goto(confirm_url, wait_until='domcontentloaded')
                         time.sleep(2)
                     except Exception as e:
                         logging.debug(f"刷新签到页确认状态失败: {e}")
                 result_content = self.page.content()
 
-                if re.search(signed_pattern, result_content, re.IGNORECASE | re.DOTALL):
+                result_state = checkin_state(result_content)
+                if result_state == 'signed':
                     logging.info("=" * 60)
                     logging.info("签到成功！")
                     logging.info("=" * 60)
@@ -349,11 +345,18 @@ class CheckinMixin:
                     logging.warning(f"检测到页面错误: {last_error_keyword}")
                     return False
 
-                still_not_signed = bool(re.search(not_signed_pattern, result_content, re.IGNORECASE | re.DOTALL))
+                still_not_signed = result_state == 'unsigned'
                 if still_not_signed:
-                    logging.info("签到页暂未更新，继续等待服务器确认；不会重复点击签到")
+                    logging.info("签到页仍显示未签到，继续等待服务器确认")
                 else:
                     logging.info("签到页尚未出现明确结果，继续等待确认")
+
+            # 验证码弹窗关闭却始终明确显示“未签到”，说明本次校验没有真正触发
+            # 签到提交。只允许一次受控重试；未知状态和临时错误绝不重复点击。
+            if still_not_signed and _submission_attempt < 2:
+                logging.warning("验证码结束后服务端仍明确显示未签到，10 秒后重新提交一次签到")
+                time.sleep(10)
+                return self.daily_checkin(test_mode=test_mode, _submission_attempt=_submission_attempt + 1)
             
             logging.error("签到失败")
             # 保存调试信息

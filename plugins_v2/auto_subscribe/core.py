@@ -21,11 +21,11 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_subscribe.png",
-    "changelog": "v1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
+    "changelog": "v1.4.3 修复缺集订阅占用额度\n- 缺集列表与现有订阅交叉核对，已订阅项目在新增上限前跳过\n- 兼容 tmdbId/mediaType 字段及接口竞态返回\n\nv1.3.3 适配平台后台任务治理\n- 手动运行改由 ctx.create_task 托管，停用或重载插件时可由平台安全回收\n- 声明长任务超时、并发与后台任务配额，避免重复任务失控\n\nv1.3.2 标明独立运行\n- 插件不依赖用户账号或机器人，安装后会显示“独立运行”\n- 定时订阅、平台 AI 和通知功能保持不变\n\nv1.3.1 增强蜜柑番剧识别\n- 自动拆分蜜柑中英、中日混合标题及常见分隔符标题，逐个交给 NextFind 核验\n- 原标题仍搜不到时，根据蜜柑详情页的 Bangumi ID 获取中文名、原名和别名继续搜索\n- 无需额外服务、Endpoint 或 Token；全部候选仍须取得有效 TMDB 结果才会订阅\n\nv1.2.0 新增平台 AI 辅助识别\n- 可选在常规搜索无结果时调用平台 AI 提取标准电影/剧集名、类型与季号\n- AI 结果必须经 NextFind 再次搜索并取得有效 TMDB 结果后才会订阅\n- 默认关闭，平台 AI 不可用或识别失败时安全降级为原有未识别流程\n\nv1.1.0 新增自动补缺集\n- 接入 NextFind /subscriptions/info 批量查询活跃剧集的入库进度\n- 仅对明确存在缺集的订阅调用 /media/fill_missing，并支持配置每轮处理上限\n- 可在不启用榜单源时独立执行补缺，运行通知会显示检查与触发数量\n\nv1.0.6 修复并发运行\n- 新增整轮运行互斥锁，手动与定时并发时跳过重复轮次，避免去重历史互相覆盖",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -178,11 +178,11 @@ class _PlatformAIProxy:
 
 
 def _tmdb_id(item: dict) -> str:
-    return str(item.get("tmdb_id") or item.get("id") or "").strip()
+    return str(item.get("tmdb_id") or item.get("tmdbId") or item.get("media_id") or item.get("id") or "").strip()
 
 
 def _media_type(item: dict) -> str:
-    return str(item.get("media_type") or item.get("raw_type") or item.get("type") or "").lower()
+    return str(item.get("media_type") or item.get("mediaType") or item.get("raw_type") or item.get("type") or "").lower()
 
 
 def _has_missing_episodes(item: dict) -> bool:
@@ -311,27 +311,51 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
             log.info("[自动订阅] 缺集订阅：NextFind 本地库暂无缺集媒体")
         return stats, added_titles
 
-    if log:
-        log.info("[自动订阅] 缺集订阅：检索到 %d 条缺集媒体，本轮处理上限 %d", len(items), limit)
+    # /local_library/filter historically did not always include is_subscribed.
+    # Cross-check the active subscription list before applying the per-round
+    # add limit so existing subscriptions neither call /subscriptions/add nor
+    # consume one of the available slots.
+    active_ids = set()
+    try:
+        for subscription in client.list_subscriptions() or []:
+            if isinstance(subscription, dict) and _tmdb_id(subscription):
+                active_ids.add(_tmdb_id(subscription))
+    except Exception as exc:
+        if log:
+            log.warning("[自动订阅] 缺集订阅：读取现有订阅失败，将仅使用缺集列表状态: %r", exc)
 
-    for item in items[:limit]:
+    pending = []
+    for item in items:
         if not isinstance(item, dict):
             stats["failed"] += 1
             continue
-        tmdb_id = item.get("tmdb_id") or item.get("tmdbId") or item.get("id") or item.get("media_id")
+        tmdb_id = _tmdb_id(item)
         title = item.get("title") or item.get("name") or item.get("cn_name") or str(tmdb_id)
-        media_type = str(item.get("media_type") or item.get("mediaType") or item.get("type") or "tv").lower()
+        media_type = _media_type(item) or "tv"
         if not tmdb_id or media_type not in ("tv", "movie"):
             stats["failed"] += 1
             continue
-        if item.get("is_subscribed") or item.get("subscribed") or item.get("has_subscribed"):
+        if item.get("is_subscribed") or item.get("subscribed") or item.get("has_subscribed") or tmdb_id in active_ids:
             stats["skipped"] += 1
             continue
+        pending.append((item, tmdb_id, title, media_type))
+
+    if log:
+        log.info(
+            "[自动订阅] 缺集订阅：检索到 %d 条，已订阅跳过 %d 条，待新增 %d 条，本轮新增上限 %d",
+            len(items), stats["skipped"], len(pending), limit,
+        )
+
+    for item, tmdb_id, title, media_type in pending[:limit]:
         try:
             ok, message = client.add(tmdb_id, media_type, item.get("season"))
             if ok:
                 stats["added"] += 1
                 added_titles.append(f"{title}(缺集)")
+                active_ids.add(tmdb_id)
+            elif any(marker in str(message or "").lower() for marker in ("已订阅", "already", "exist")):
+                # A concurrent/manual subscription may win after the pre-check.
+                stats["skipped"] += 1
             else:
                 stats["failed"] += 1
             if log:

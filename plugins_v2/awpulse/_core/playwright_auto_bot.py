@@ -23,6 +23,7 @@ from .human_simulation import human_like_delay, random_scroll, random_mouse_move
 from .browser_mixin import BrowserMixin
 from .auth_mixin import AuthMixin
 from .checkin_mixin import CheckinMixin
+from .checkin_state import checkin_state
 from .reply_mixin import ReplyMixin
 
 # 可写根目录（由插件在运行前注入 AWPULSE_BASE = ctx.data_dir）
@@ -154,8 +155,7 @@ class PlaywrightAutoBot(BrowserMixin, AuthMixin, CheckinMixin, ReplyMixin):
                     self.page.goto(main_url, wait_until='domcontentloaded')
                     time.sleep(2)
                     page_text = self.page.content()
-                    signed_pattern = r'(ddpc_sign_btn|sign.*btn).*?>.*?今日已签到(?!\s*\d)'
-                    if re.search(signed_pattern, page_text, re.IGNORECASE | re.DOTALL):
+                    if checkin_state(page_text) == 'signed':
                         logging.info("今日已签到")
                         already_checked_in = True
                         if not is_test_mode:
