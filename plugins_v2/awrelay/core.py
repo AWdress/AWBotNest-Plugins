@@ -6,12 +6,13 @@ import secrets
 import time
 from collections import defaultdict, deque
 from datetime import datetime
+from types import SimpleNamespace
 from telethon import Button, functions, utils
 
 __plugin__ = {
     "name": "AWRelay",
     "id": "awrelay",
-    "version": "1.2.11",
+    "version": "1.2.12",
     "author": "AWdress",
     "description": "轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png",
@@ -23,8 +24,12 @@ __plugin__ = {
 }
 
 __plugin__.update(
-    version="1.2.11",
+    version="1.2.12",
     changelog=(
+        "v1.2.12 增加私有论坛 Bot API 回退\n"
+        "- Telethon 无法取得频道 access_hash 时改用当前平台 Bot 的官方 Bot API\n"
+        "- 支持数字群 ID 校验、创建话题、启动通知和消息复制，不再依赖实体缓存\n"
+        "- 回退失败时明确提示 Bot 未入群、群 ID 错误或目标未开启论坛\n\n"
         "v1.2.11 修复 Bot 会话首次启动无法解析话题群\n"
         "- 数字 ID 未命中 Telethon 实体缓存时自动遍历对话并缓存目标群\n"
         "- 论坛查询、创建和消息复制统一复用已解析的 InputPeer\n\n"
@@ -56,6 +61,7 @@ _topic_locks = defaultdict(asyncio.Lock)
 _storage_state = {}
 _storage_tasks = set()
 _target_entities = {}
+_bot_api_targets = set()
 
 
 def _cfg(ctx):
@@ -163,6 +169,57 @@ def _target_id(cfg):
         return 0
 
 
+def _target_key(client, target_id):
+    return id(client), int(target_id)
+
+
+def _bot_token(ctx):
+    """Return the token belonging to the same platform Bot client used by this plugin."""
+    selected_id = str(getattr(ctx, "bot_id", "") or "")
+    accounts = getattr(ctx, "accounts", None)
+    current_bot = getattr(ctx, "bot", None)
+    if accounts is not None and current_bot is not None:
+        selected_id = next(
+            (str(bot_id) for bot_id, client in accounts.bots.items() if client is current_bot),
+            selected_id,
+        )
+    settings = getattr(ctx, "settings", None)
+    if settings is None:
+        return ""
+    selected_id = selected_id or str(getattr(settings, "default_bot_id", "default") or "default")
+    for spec in settings.bot_specs():
+        if str(getattr(spec, "id", "")) == selected_id:
+            return str(getattr(spec, "token", "") or "").strip()
+    return ""
+
+
+async def _bot_api_call(ctx, method, payload):
+    """Use Bot API for numeric chat IDs when MTProto lacks the channel access_hash."""
+    token = _bot_token(ctx)
+    if not token:
+        raise RuntimeError("平台当前 Bot 缺少可用 Token，无法启用 Bot API 回退")
+    try:
+        response = await ctx.http.post(
+            f"https://api.telegram.org/bot{token}/{method}", json=payload, timeout=30,
+        )
+    except Exception as exc:
+        detail = str(exc).replace(token, "***")[:300]
+        raise RuntimeError(f"Telegram Bot API {method} 请求失败：{type(exc).__name__}: {detail}") from exc
+    status = int(getattr(response, "status_code", 0) or 0)
+    try:
+        data = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"Telegram Bot API {method} 返回非 JSON 响应（HTTP {status or '-'}）") from exc
+    if not isinstance(data, dict) or not data.get("ok"):
+        description = str(data.get("description") or "未知错误") if isinstance(data, dict) else "响应格式异常"
+        raise RuntimeError(f"Telegram Bot API {method} 失败（HTTP {status or '-'}）：{description[:300]}")
+    return data.get("result")
+
+
+def _uses_bot_api(client, target_id):
+    return _target_key(client, target_id) in _bot_api_targets
+
+
 async def _resolve_target_entity(client, target_id):
     """Resolve a numeric chat ID even when this Telethon session has no entity cache."""
     cache_key = (id(client), int(target_id))
@@ -216,12 +273,34 @@ async def _validate_target(ctx, cfg):
     if not ctx.bot or not ctx.bot.is_connected():
         ctx.log.warning("平台 Bot 尚未连接，暂时无法校验话题群组 %s", target_id)
         return None
+    bot_api_resolved = False
     try:
         entity = await _resolve_target_entity(ctx.bot, target_id)
-    except Exception as exc:
-        ctx.log.error("无法识别话题群组 %s：%s", target_id, exc)
-        return None
-    resolved_id = int(utils.get_peer_id(entity))
+    except Exception as telethon_error:
+        try:
+            chat = await _bot_api_call(ctx, "getChat", {"chat_id": target_id})
+            if not isinstance(chat, dict):
+                raise RuntimeError("Telegram Bot API getChat 未返回会话信息")
+            entity = SimpleNamespace(
+                _awrelay_peer_id=int(chat.get("id") or target_id),
+                title=str(chat.get("title") or chat.get("username") or target_id),
+                first_name=str(chat.get("first_name") or ""),
+                megagroup=chat.get("type") == "supergroup",
+                forum=bool(chat.get("is_forum")),
+            )
+            bot_api_resolved = True
+            ctx.log.warning(
+                "Telethon 无法取得话题群 %s 的 access_hash，已切换 Telegram Bot API：%s",
+                target_id, telethon_error,
+            )
+        except Exception as bot_api_error:
+            ctx.log.error(
+                "无法识别话题群组 %s：Telethon 实体解析失败（%s）；Bot API 回退失败（%s）。"
+                "请确认平台当前 Bot 已加入目标群、群 ID 正确且 Bot 未被移除",
+                target_id, telethon_error, bot_api_error,
+            )
+            return None
+    resolved_id = int(getattr(entity, "_awrelay_peer_id", 0) or utils.get_peer_id(entity))
     title = getattr(entity, "title", None) or getattr(entity, "first_name", None) or "-"
     is_group = bool(getattr(entity, "megagroup", False))
     is_forum = bool(getattr(entity, "forum", False))
@@ -238,11 +317,16 @@ async def _validate_target(ctx, cfg):
     if not is_forum:
         ctx.log.error("目标群组 %s 未开启话题模式，请先在 Telegram 中启用论坛话题", target_id)
         return None
+    if bot_api_resolved:
+        _bot_api_targets.add(_target_key(ctx.bot, target_id))
     return entity
 
 
-async def _matching_topics(client, target_id, suffix):
+async def _matching_topics(ctx, client, target_id, suffix):
     """直接读取 Telegram 原始话题响应，避开高层解析器的 users=None 缺陷。"""
+    if _uses_bot_api(client, target_id):
+        # Bot API can create/use a topic but cannot enumerate forum topics.
+        return []
     result = await client(
         functions.messages.GetForumTopicsRequest(
             peer=await _target_peer(client, target_id),
@@ -258,7 +342,9 @@ async def _matching_topics(client, target_id, suffix):
     ]
 
 
-async def _topics_by_id(client, target_id, topic_ids):
+async def _topics_by_id(ctx, client, target_id, topic_ids):
+    if _uses_bot_api(client, target_id):
+        return []
     result = await client(
         functions.messages.GetForumTopicsByIDRequest(
             peer=await _target_peer(client, target_id), topics=[int(item) for item in topic_ids],
@@ -293,6 +379,10 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     target_id = _target_id(cfg)
     if not target_id:
         raise ValueError("请先配置话题目标会话")
+    target_key = _target_key(client, target_id)
+    if target_key not in _target_entities and target_key not in _bot_api_targets:
+        if await _validate_target(ctx, cfg) is None:
+            raise RuntimeError(f"无法使用话题群组 {target_id}，请检查本轮启动日志")
     base = (f"{user.first_name or ''} {user.last_name or ''}".strip() or f"用户{user.id}")
     suffix = f" · {user.id}"
     existing = topics.get(key)
@@ -305,8 +395,13 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     # 每次发送前都按 ID 核验。Telegram 对已删除的话题 ID 可能不报错而把消息投到
     # General（“全部”），因此 reconciled 标记不能作为永久有效的依据。
     if not force and existing and existing.get("topic_id"):
+        if _uses_bot_api(client, target_id):
+            # Bot API has no getForumTopic/listForumTopics method. Optimistically reuse
+            # the persisted topic; copyMessage will report a deleted/closed topic and
+            # the normal recovery path below will create a replacement.
+            return int(existing["topic_id"])
         try:
-            direct = await _topics_by_id(client, target_id, [existing["topic_id"]])
+            direct = await _topics_by_id(ctx, client, target_id, [existing["topic_id"]])
             if any(_valid_topic(item, existing["topic_id"], suffix) for item in direct):
                 existing["reconciled_v4"] = True
                 existing["target_id"] = target_id
@@ -332,7 +427,7 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     # 用户 ID 认领旧话题；若曾误建重复话题，优先选择创建时间最早的有效话题。
     if not force:
         try:
-            matches = await _matching_topics(client, target_id, suffix)
+            matches = await _matching_topics(ctx, client, target_id, suffix)
             if matches:
                 chosen = min(matches, key=lambda item: getattr(item, "date", 0) or 0)
                 chosen_id = int(chosen.id)
@@ -359,12 +454,18 @@ async def _topic_for(ctx, client, user, cfg, force=False):
 
     title = base[:128 - len(suffix)] + suffix
     try:
-        topic = await client(functions.messages.CreateForumTopicRequest(
-            peer=await _target_peer(client, target_id), title=title,
-        ))
-        topic_id = next((int(getattr(getattr(u, "message", None), "id", 0) or 0)
-                         for u in getattr(topic, "updates", [])
-                         if getattr(getattr(u, "message", None), "id", 0)), 0)
+        if _uses_bot_api(client, target_id):
+            topic = await _bot_api_call(ctx, "createForumTopic", {
+                "chat_id": target_id, "name": title,
+            })
+            topic_id = int((topic or {}).get("message_thread_id") or 0)
+        else:
+            topic = await client(functions.messages.CreateForumTopicRequest(
+                peer=await _target_peer(client, target_id), title=title,
+            ))
+            topic_id = next((int(getattr(getattr(u, "message", None), "id", 0) or 0)
+                             for u in getattr(topic, "updates", [])
+                             if getattr(getattr(u, "message", None), "id", 0)), 0)
     except Exception as exc:
         # Telegram 可能已创建成功，但客户端在解析 Updates 时抛错。先按标题回查，
         # 确认不存在后才报告失败；绝不在同一次请求里再次创建，避免重复话题。
@@ -372,7 +473,7 @@ async def _topic_for(ctx, client, user, cfg, force=False):
         topic_id = 0
     if not topic_id:
         await asyncio.sleep(1.0)
-        created_matches = await _matching_topics(client, target_id, suffix)
+        created_matches = await _matching_topics(ctx, client, target_id, suffix)
         if created_matches:
             topic_id = int(max(created_matches, key=lambda item: getattr(item, "date", 0) or 0).id)
     if not topic_id:
@@ -392,10 +493,16 @@ async def _topic_for(ctx, client, user, cfg, force=False):
     _set_dict(ctx, "topics", topics)
     link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
     username = f"  @{html.escape(user.username)}" if user.username else ""
-    await client.send_message(
-        target_id, f"{link}{username}\n🆔 <code>{user.id}</code>",
-        reply_to=topic_id, parse_mode="html",
-    )
+    topic_intro = f"{link}{username}\n🆔 <code>{user.id}</code>"
+    if _uses_bot_api(client, target_id):
+        await _bot_api_call(ctx, "sendMessage", {
+            "chat_id": target_id, "message_thread_id": topic_id,
+            "text": topic_intro, "parse_mode": "HTML",
+        })
+    else:
+        await client.send_message(
+            target_id, topic_intro, reply_to=topic_id, parse_mode="html",
+        )
     ctx.log.info("已为用户 %s 创建话题 %s（目标群 %s）", user.id, topic_id, target_id)
     return topic_id
 
@@ -422,9 +529,31 @@ def _raw_message_ids(result):
     return message_ids or fallback_ids
 
 
-async def _copy_messages_to_topic(client, target_id, topic_id, messages):
+async def _copy_messages_to_topic(ctx, client, target_id, topic_id, messages):
     """由 Telegram 服务端无署名复制媒体，避免转发来源的 file_id 不可复用。"""
     source_chat_id = messages[0].chat_id
+    if _uses_bot_api(client, target_id):
+        message_ids = [int(message.id) for message in messages]
+        if len(message_ids) == 1:
+            result = await _bot_api_call(ctx, "copyMessage", {
+                "chat_id": target_id,
+                "from_chat_id": source_chat_id,
+                "message_id": message_ids[0],
+                "message_thread_id": topic_id,
+            })
+            sent_id = int((result or {}).get("message_id") or 0)
+            return [sent_id] if sent_id else []
+        result = await _bot_api_call(ctx, "copyMessages", {
+            "chat_id": target_id,
+            "from_chat_id": source_chat_id,
+            "message_ids": message_ids,
+            "message_thread_id": topic_id,
+        })
+        return [
+            int(item.get("message_id") or 0)
+            for item in (result or [])
+            if isinstance(item, dict) and item.get("message_id")
+        ]
     result = await client(
         functions.messages.ForwardMessagesRequest(
             from_peer=await client.get_input_entity(source_chat_id),
@@ -461,9 +590,9 @@ async def _copy_messages_to_topic(client, target_id, topic_id, messages):
     return sent_ids
 
 
-async def _send_content_to_topic(client, target_id, topic_id, message):
+async def _send_content_to_topic(ctx, client, target_id, topic_id, message):
     """等价于原项目 copy_message：所有内容均由 Telegram 服务端无署名复制。"""
-    sent_ids = await _copy_messages_to_topic(client, target_id, topic_id, [message])
+    sent_ids = await _copy_messages_to_topic(ctx, client, target_id, topic_id, [message])
     if sent_ids:
         return sent_ids[0]
     raise RuntimeError("Telegram 已响应媒体复制请求，但原始响应中没有消息 ID")
@@ -473,7 +602,7 @@ async def _forward_one_unlocked(ctx, client, message, user, cfg):
     topic_id = await _topic_for(ctx, client, user, cfg)
     target_id = _target_id(cfg)
     try:
-        sent_id = await _send_content_to_topic(client, target_id, topic_id, message)
+        sent_id = await _send_content_to_topic(ctx, client, target_id, topic_id, message)
     except Exception as exc:
         if not _missing_topic_error(exc):
             raise
@@ -481,7 +610,7 @@ async def _forward_one_unlocked(ctx, client, message, user, cfg):
         topics.pop(str(user.id), None)
         _set_dict(ctx, "topics", topics)
         topic_id = await _topic_for(ctx, client, user, cfg, force=True)
-        sent_id = await _send_content_to_topic(client, target_id, topic_id, message)
+        sent_id = await _send_content_to_topic(ctx, client, target_id, topic_id, message)
     if sent_id:
         _save_mapping(ctx, sent_id, user.id, message.id)
         ctx.log.info(
@@ -548,14 +677,19 @@ async def setup(ctx):
             me = await ctx.bot.get_me()
             started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             username = f"@{html.escape(me.username)}" if me.username else html.escape(me.first_name or "AWRelay")
-            await ctx.bot.send_message(
-                _target_id(cfg_at_start),
+            target_id = _target_id(cfg_at_start)
+            notice = (
                 "<b>AWRelay 已启动</b>\n\n"
                 f"机器人：{username}\n"
                 f"时间：{started_at}\n\n"
-                "用户私聊消息将转发至对应话题，在话题内直接发送即可回复用户。",
-                parse_mode="html",
+                "用户私聊消息将转发至对应话题，在话题内直接发送即可回复用户。"
             )
+            if _uses_bot_api(ctx.bot, target_id):
+                await _bot_api_call(ctx, "sendMessage", {
+                    "chat_id": target_id, "text": notice, "parse_mode": "HTML",
+                })
+            else:
+                await ctx.bot.send_message(target_id, notice, parse_mode="html")
         except Exception as exc:
             ctx.log.warning("发送启动通知失败：%s", exc)
 
@@ -567,8 +701,12 @@ async def setup(ctx):
         group_title = str(target_id or "-")
         if target_id and ctx.bot and ctx.bot.is_connected():
             try:
-                chat = await ctx.bot.get_entity(target_id)
-                group_title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or group_title
+                if _uses_bot_api(ctx.bot, target_id):
+                    chat = await _bot_api_call(ctx, "getChat", {"chat_id": target_id})
+                    group_title = str((chat or {}).get("title") or (chat or {}).get("first_name") or group_title)
+                else:
+                    chat = await ctx.bot.get_entity(target_id)
+                    group_title = getattr(chat, "title", None) or getattr(chat, "first_name", None) or group_title
             except Exception:  # noqa: BLE001
                 pass
         return {"bot_running": bool(cfg["enabled"]), "bot_status": "运行中" if cfg["enabled"] else "已停止",
@@ -751,5 +889,6 @@ async def teardown(ctx):
     _media_groups.clear()
     _topic_locks.clear()
     _target_entities.clear()
+    _bot_api_targets.clear()
     _captcha_pending.clear()
     _user_msg_times.clear()

@@ -22,6 +22,16 @@ class _HeldTask:
         return None
 
 
+class _Response:
+    status_code = 200
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+
 class _Context:
     def __init__(self, config=None):
         self.config = config or {}
@@ -60,7 +70,9 @@ class AWRelayTests(unittest.IsolatedAsyncioTestCase):
         for messages in core._media_groups.values():
             messages.clear()
         core._media_groups.clear()
+        core._storage_state.clear()
         core._target_entities.clear()
+        core._bot_api_targets.clear()
         for context in getattr(self, "contexts", []):
             for task in context.held_tasks:
                 task.coroutine.close()
@@ -158,6 +170,83 @@ class AWRelayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.dialog_scans, 1)
         self.assertIsNone(client.asserted_limit)
         self.assertEqual(client.input_requests, [entity, entity])
+
+    async def test_bot_api_fallback_handles_uncached_private_forum(self):
+        target_id = -1004462559854
+
+        class _Client:
+            def is_connected(self):
+                return True
+
+            async def get_entity(self, peer):
+                raise ValueError("Could not find the input entity for PeerChannel")
+
+            async def iter_dialogs(self, limit=None):
+                if False:
+                    yield None
+
+        client = _Client()
+        context = _Context({"enabled": True, "group_id": str(target_id)})
+        context.bot = client
+        context.bot_id = ""
+        context.accounts = SimpleNamespace(bots={"default": client})
+        context.settings = SimpleNamespace(
+            default_bot_id="default",
+            bot_specs=lambda: [SimpleNamespace(id="default", token="123:secret")],
+        )
+        context.http = SimpleNamespace(post=AsyncMock(side_effect=[
+            _Response({"ok": True, "result": {
+                "id": target_id, "title": "中转论坛", "type": "supergroup", "is_forum": True,
+            }}),
+            _Response({"ok": True, "result": {"message_id": 88}}),
+        ]))
+
+        entity = await core._validate_target(context, context.config)
+        sent = await core._copy_messages_to_topic(
+            context, client, target_id, 66, [SimpleNamespace(id=7, chat_id=42)]
+        )
+
+        self.assertEqual(entity.title, "中转论坛")
+        self.assertTrue(core._uses_bot_api(client, target_id))
+        self.assertEqual(sent, [88])
+        self.assertEqual(context.http.post.await_count, 2)
+        copy_call = context.http.post.await_args_list[1]
+        self.assertTrue(copy_call.args[0].endswith("/copyMessage"))
+        self.assertEqual(copy_call.kwargs["json"], {
+            "chat_id": target_id,
+            "from_chat_id": 42,
+            "message_id": 7,
+            "message_thread_id": 66,
+        })
+
+    async def test_bot_api_fallback_creates_topic_and_intro(self):
+        target_id = -1004462559854
+        client = object()
+        context = _Context({"enabled": True, "group_id": str(target_id)})
+        context.bot = client
+        context.bot_id = ""
+        context.accounts = SimpleNamespace(bots={"default": client})
+        context.settings = SimpleNamespace(
+            default_bot_id="default",
+            bot_specs=lambda: [SimpleNamespace(id="default", token="123:secret")],
+        )
+        context.http = SimpleNamespace(post=AsyncMock(side_effect=[
+            _Response({"ok": True, "result": {"message_thread_id": 77}}),
+            _Response({"ok": True, "result": {"message_id": 78}}),
+        ]))
+        self.contexts = getattr(self, "contexts", []) + [context]
+        core._bot_api_targets.add(core._target_key(client, target_id))
+        user = SimpleNamespace(id=42, first_name="测试", last_name="用户", username="tester")
+
+        topic_id = await core._topic_for(context, client, user, context.config)
+
+        self.assertEqual(topic_id, 77)
+        create_call, intro_call = context.http.post.await_args_list
+        self.assertTrue(create_call.args[0].endswith("/createForumTopic"))
+        self.assertEqual(create_call.kwargs["json"]["chat_id"], target_id)
+        self.assertTrue(create_call.kwargs["json"]["name"].endswith(" · 42"))
+        self.assertTrue(intro_call.args[0].endswith("/sendMessage"))
+        self.assertEqual(intro_call.kwargs["json"]["message_thread_id"], 77)
 
 
 if __name__ == "__main__":
