@@ -5,13 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AWBlackJack',
  'id': 'awblackjack',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'description': 'SpringSunday 21 点单账号自动挂机插件，通过 MQTT 与其他实例同步对局状态并协助处理平局。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/awblackjack.png',
  'scope': 'standalone',
  'requirements': ['aiomqtt>=2.0', 'aiohttp>=3.9', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 统一富文本表格通知\n'
+              '- 进程异常和平局协同通知改为平台结构化表格\n\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

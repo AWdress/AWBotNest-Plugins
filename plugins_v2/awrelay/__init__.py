@@ -9,11 +9,16 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v2.0.3 增加私有论坛 Bot API 回退\n'
+ 'changelog': 'v2.0.4 修复平台 Bot 路由未应用\n'
+              '- 启动时主动读取平台为 AWRelay 分配的 Bot，不再错误使用默认 Bot\n'
+              '- 群组校验、私聊监听、话题创建和消息复制统一使用同一个路由 Bot\n'
+              '- 校验日志显示实际 Bot 用户名和 ID，便于核对路由\n'
+              '\n'
+              'v2.0.3 增加私有论坛 Bot API 回退\n'
               '- Telethon 仍无法取得频道 access_hash 时，自动使用当前平台 Bot 的官方 Bot API\n'
               '- 数字群 ID 的校验、创建话题、启动通知和消息复制不再依赖实体缓存\n'
               '- 回退失败时区分 Bot 未入群、群 ID 错误和未开启论坛等原因\n'

@@ -827,7 +827,10 @@ async def _run(ctx, source: str) -> dict:
                     for item in result.get("accounts", [])
                 ]
                 await asyncio.wait_for(
-                    ctx.notify(rows or result["message"], level=level, category="GPT-GOD 签到"),
+                    ctx.notify(
+                        rows or [{"运行结果": result["message"]}],
+                        level=level, category="GPT-GOD 签到",
+                    ),
                     timeout=30,
                 )
             except Exception as exc:  # noqa: BLE001 - 通知失败不改变签到结果

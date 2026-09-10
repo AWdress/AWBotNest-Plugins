@@ -391,7 +391,10 @@ async def _run(ctx):
             level = "success" if status == "completed" else ("error" if status == "failed" else "warning")
             try:
                 await ctx.notify(
-                    f"📖 憨憨一键已读\n\n处理消息：{processed} 条\n检查页面：{pages_checked} 页\n结果：{detail}",
+                    {
+                        "任务": "憨憨一键已读", "处理消息": f"{processed} 条",
+                        "检查页面": f"{pages_checked} 页", "结果": detail,
+                    },
                     level=level, category="憨憨一键已读",
                 )
             except Exception as exc:  # noqa: BLE001
@@ -475,7 +478,10 @@ async def _run_delete(ctx):
             level = "success" if status == "completed" else ("error" if status == "failed" else "warning")
             try:
                 await ctx.notify(
-                    f"憨憨消息删除\n\n删除消息：{processed} 条\n处理批次：{batches} 批\n结果：{detail}",
+                    {
+                        "任务": "憨憨消息删除", "删除消息": f"{processed} 条",
+                        "处理批次": f"{batches} 批", "结果": detail,
+                    },
                     level=level, category="憨憨消息管理",
                 )
             except Exception as exc:  # noqa: BLE001

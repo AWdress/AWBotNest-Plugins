@@ -9,11 +9,12 @@ except ImportError:
 
 __plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 统一富文本表格通知\n- 转盘、赠豆和消息管理通知统一使用结构化表格\n\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

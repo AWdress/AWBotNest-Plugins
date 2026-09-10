@@ -539,8 +539,11 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
         word = "收到" if direction == "in" else "发出"
         try:
             await ctx.notify(
-                f"{site.site_name} {word}转账：{display_name} {amount} {site.bonus_name}"
-                f"（累计{stat['count']}次/{stat['total']}）",
+                {
+                    "站点": site.site_name, "方向": word, "用户": display_name,
+                    "本次金额": f"{amount} {site.bonus_name}",
+                    "累计": f"{stat['count']} 次 / {stat['total']} {site.bonus_name}",
+                },
                 level="info", category="转账", account=client,
             )
         except Exception as e:

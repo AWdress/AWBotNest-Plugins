@@ -554,7 +554,10 @@ async def _handle_card(ctx, api_fn, message, args):
     body = "\n".join(result_lines) or "无可回收道具"
     await waiting.edit(f"**朱雀道具卡回收完成：**\n{body}\n\n合计回血约 **{total_back:,.0f}** 灵石")
     if ctx.config.get("owner_notify", True) and total_back > 0:
-        await ctx.notify(f"朱雀道具卡回收回血约 {total_back:,.0f} 灵石", level="success", category="道具回收")
+        await ctx.notify(
+            {"状态": "回收完成", "预计回血": f"{total_back:,.0f} 灵石"},
+            level="success", category="道具回收",
+        )
 
 
 # ─── 4. 魔法卡定时 ───────────────────────────────────────────────────────────
@@ -581,7 +584,10 @@ async def _do_firegenshin(ctx, api_fn):
         await ctx.kv.set("firegenshin_total", prev + total)
         ctx.log.info("魔法卡释放成功，获得 %s 灵石", total)
         if ctx.config.get("owner_notify", True):
-            await ctx.notify(f"朱雀魔法卡释放获得 {total} 灵石", level="success", category="魔法卡")
+            await ctx.notify(
+                {"状态": "释放成功", "获得": f"{total} 灵石"},
+                level="success", category="魔法卡",
+            )
     else:
         ctx.log.warning("魔法卡释放失败或无奖励，将在下次间隔重试")
 
@@ -794,9 +800,10 @@ async def _handle_redpocket(ctx, client, message):
             ctx.log.info("抢到红包 %s: %s 灵石(第%s次)", redpocket_name, bonus, retry + 1)
             if ctx.config.get("owner_notify", True):
                 await ctx.notify(
-                    f"{red_from_user} 发的朱雀红包\n\n"
-                    f"{redpocket_name}\n\n"
-                    f"抢了 {retry + 1} 次，成功抢到 {bonus} 灵石",
+                    {
+                        "发送者": red_from_user, "红包": redpocket_name,
+                        "尝试次数": retry + 1, "获得": f"{bonus} 灵石",
+                    },
                     level="success", category="红包雨", account=client,
                 )
             return
@@ -935,7 +942,7 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
             )
             return
 
-    await ctx.notify(body, level="info", category="转账", account=client)
+    await ctx.notify({"转账结果": body}, level="info", category="转账", account=client)
 
 
 # ─── 8. 鳄鱼丼 YDX ──────────────────────────────────────────────────────────

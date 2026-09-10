@@ -135,7 +135,7 @@ async def setup(ctx):
         if skip and not ctx.config.get("notify_skips", False):
             return
         try:
-            await ctx.notify(text, level=level, category="小菜抽奖", account=client)
+            await ctx.notify({"通知内容": text}, level=level, category="小菜抽奖", account=client)
         except Exception:  # noqa: BLE001
             pass
 
@@ -717,7 +717,7 @@ async def setup(ctx):
                     f"  {f['user_name']}({f['user_id']}): {f['reason']}" for f in all_failed[:10])
             if ctx.config.get("notify_owner", True):
                 try:
-                    await ctx.notify(msg, level="success" if not all_failed else "warning",
+                    await ctx.notify({"发奖结果": msg}, level="success" if not all_failed else "warning",
                                      category="小菜抽奖", account=client)
                 except Exception:  # noqa: BLE001
                     pass

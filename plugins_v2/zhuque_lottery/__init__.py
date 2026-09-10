@@ -9,13 +9,14 @@ except ImportError:
 
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'requirements': ['httpx>=0.27', 'numpy>=1.24', 'pandas>=2.0'],
  'author': 'AWdress',
  'scope': 'user',
  'description': '朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png',
- 'changelog': 'v2.0.3 修复 YDX 回复链结算\n'
+ 'changelog': 'v2.0.4 统一富文本表格通知\n- 道具、魔法卡、红包雨和转账通知改为结构化表格\n\n'
+              'v2.0.3 修复 YDX 回复链结算\n'
               '- 使用 Telethon 预载的 get_reply_message 结果读取下注回执\n'
               '- 移除导致 YDX 结算始终找不到回复的 Pyrogram 字段残留\n'
               '\n'

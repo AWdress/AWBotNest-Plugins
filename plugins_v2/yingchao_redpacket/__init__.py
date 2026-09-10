@@ -5,14 +5,15 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '影巢口令红包（测试）',
  'id': 'yingchao_redpacket',
- 'version': '2.0.1',
+ 'version': '2.0.2',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '影巢口令红包（测试功能）：监控指定发包人发的口令红包，OCR识别图片口令或复制他人口令参与，含陷阱防护。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v2.0.1 修复 Telethon 消息字段与回复参数\n'
+ 'changelog': 'v2.0.2 统一富文本表格通知\n- 抢包结果改为平台结构化表格\n\n'
+              'v2.0.1 修复 Telethon 消息字段与回复参数\n'
               '- 使用事件 sender/chat 和 Telethon reply_to、reply_to_msg_id\n'
               '- 修复口令红包监控、复制模式和历史记录在真实消息中的异常\n'
               '\n'

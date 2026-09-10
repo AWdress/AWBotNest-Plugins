@@ -24,8 +24,11 @@ __plugin__ = {
 }
 
 __plugin__.update(
-    version="1.2.12",
+    version="1.2.13",
     changelog=(
+        "v1.2.13 修复 V2 Bot 路由未应用\n"
+        "- 启动时主动读取平台给 AWRelay 分配的 Bot，避免错误使用默认 Bot\n"
+        "- 群组校验、私聊监听、话题创建与消息复制统一使用同一个路由 Bot\n\n"
         "v1.2.12 增加私有论坛 Bot API 回退\n"
         "- Telethon 无法取得频道 access_hash 时改用当前平台 Bot 的官方 Bot API\n"
         "- 支持数字群 ID 校验、创建话题、启动通知和消息复制，不再依赖实体缓存\n"
@@ -173,6 +176,33 @@ def _target_key(client, target_id):
     return id(client), int(target_id)
 
 
+def _apply_configured_bot_route(ctx):
+    """Apply the V2 platform Bot route before handlers capture their clients.
+
+    AWBotNest V1 resolves ``ctx.bot`` from the per-plugin Bot assignment.  Some
+    V2 platform releases only pass the manifest's static ``bot`` field into the
+    plugin context, so a routed plugin can otherwise be attached to the default
+    Bot.  That looks exactly like a bad group ID: both MTProto and Bot API answer
+    ``chat not found`` even though the Bot selected in the UI is in the forum.
+    """
+    settings = getattr(ctx, "settings", None)
+    accounts = getattr(ctx, "accounts", None)
+    routes = getattr(settings, "bot_routing", None)
+    bots = getattr(accounts, "bots", None)
+    if not isinstance(routes, dict) or not isinstance(bots, dict):
+        return str(getattr(ctx, "bot_id", "") or "")
+
+    route = str(routes.get(getattr(ctx, "plugin_id", "awrelay"), "") or "")
+    for candidate in (item.strip() for item in route.split(",")):
+        if candidate and candidate in bots:
+            previous = str(getattr(ctx, "bot_id", "") or "")
+            ctx.bot_id = candidate
+            if candidate != previous:
+                ctx.log.info("已应用平台 Bot 路由：%s", candidate)
+            return candidate
+    return str(getattr(ctx, "bot_id", "") or "")
+
+
 def _bot_token(ctx):
     """Return the token belonging to the same platform Bot client used by this plugin."""
     selected_id = str(getattr(ctx, "bot_id", "") or "")
@@ -273,6 +303,16 @@ async def _validate_target(ctx, cfg):
     if not ctx.bot or not ctx.bot.is_connected():
         ctx.log.warning("平台 Bot 尚未连接，暂时无法校验话题群组 %s", target_id)
         return None
+    bot_label = "未知"
+    try:
+        bot_me = await ctx.bot.get_me()
+        bot_name = f"@{bot_me.username}" if getattr(bot_me, "username", None) else (
+            getattr(bot_me, "first_name", None) or "Bot"
+        )
+        bot_label = f"{bot_name} / {getattr(bot_me, 'id', '-')}"
+        ctx.log.info("AWRelay 当前使用 Bot：%s", bot_label)
+    except Exception as exc:  # noqa: BLE001 - identity logging must not block validation
+        ctx.log.debug("读取 AWRelay Bot 身份失败：%r", exc)
     bot_api_resolved = False
     try:
         entity = await _resolve_target_entity(ctx.bot, target_id)
@@ -296,8 +336,8 @@ async def _validate_target(ctx, cfg):
         except Exception as bot_api_error:
             ctx.log.error(
                 "无法识别话题群组 %s：Telethon 实体解析失败（%s）；Bot API 回退失败（%s）。"
-                "请确认平台当前 Bot 已加入目标群、群 ID 正确且 Bot 未被移除",
-                target_id, telethon_error, bot_api_error,
+                "当前实际使用 Bot：%s。请确认该 Bot 已加入目标群、群 ID 正确且 Bot 未被移除",
+                target_id, telethon_error, bot_api_error, bot_label,
             )
             return None
     resolved_id = int(getattr(entity, "_awrelay_peer_id", 0) or utils.get_peer_id(entity))
@@ -662,6 +702,9 @@ async def _send_to_user(client, user_id, message):
 
 
 async def setup(ctx):
+    # Must happen before reading ctx.bot and before decorators register event
+    # handlers, otherwise the default Bot is captured for the whole lifecycle.
+    _apply_configured_bot_route(ctx)
     _storage_state.clear()
     _storage_state.update(dict(await ctx.storage.items()))
     async def _flush_storage():

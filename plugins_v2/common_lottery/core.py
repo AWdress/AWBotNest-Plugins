@@ -236,7 +236,10 @@ async def setup(ctx):
                 ctx.log.info("[通用抽奖] 需加群但未开自动加群，跳过: %s", link)
                 if notify:
                     try:
-                        await ctx.notify(f"通用抽奖需手动加群\n\n奖品：{info['prize']}\n\n群链接：{link}\n\n来源：{getattr(message, 'link', '')}",
+                        await ctx.notify({
+                            "状态": "需手动加群", "奖品": info["prize"],
+                            "群链接": link, "来源": getattr(message, "link", ""),
+                        },
                                          level="info", category="通用抽奖", account=client)
                     except Exception:
                         pass
@@ -246,7 +249,10 @@ async def setup(ctx):
             if not ok:
                 if notify:
                     try:
-                        await ctx.notify(f"通用抽奖加群失败\n\n奖品：{info['prize']}\n\n详情：{detail}\n\n来源：{getattr(message, 'link', '')}",
+                        await ctx.notify({
+                            "状态": "加群失败", "奖品": info["prize"],
+                            "详情": detail, "来源": getattr(message, "link", ""),
+                        },
                                          level="warning", category="通用抽奖", account=client)
                     except Exception:
                         pass
@@ -271,11 +277,18 @@ async def setup(ctx):
             ctx.log.info("[通用抽奖] 已发口令参与: %s", key)
             if notify:
                 draw = info.get("draw_time") or (f"参与人数到 {info['target']}" if info.get("target") else "")
-                join_line = ("加群：" + "; ".join(join_details) + "\n\n") if join_details else ""
                 try:
+                    notice = {
+                        "状态": "参与成功", "奖品": info["prize"],
+                        "群组": getattr(chat, "title", event.chat_id),
+                        "口令": info["keyword"], "来源": getattr(message, "link", ""),
+                    }
+                    if join_details:
+                        notice["加群"] = "; ".join(join_details)
+                    if draw:
+                        notice["开奖"] = draw
                     await ctx.notify(
-                        f"通用抽奖参与成功\n\n奖品：{info['prize']}\n\n群组：{getattr(chat, 'title', event.chat_id)}\n\n{join_line}"
-                        f"{('开奖：' + draw + chr(10)*2) if draw else ''}口令：{info['keyword']}\n\n来源：{getattr(message, 'link', '')}",
+                        notice,
                         level="success", category="通用抽奖", account=client,
                     )
                 except Exception:
@@ -284,7 +297,10 @@ async def setup(ctx):
             ctx.log.error("[通用抽奖] 发口令失败: %r", e)
             if notify:
                 try:
-                    await ctx.notify(f"通用抽奖参与失败\n\n奖品：{info['prize']}\n\n原因：{e}\n\n来源：{getattr(message, 'link', '')}",
+                    await ctx.notify({
+                        "状态": "参与失败", "奖品": info["prize"],
+                        "原因": str(e), "来源": getattr(message, "link", ""),
+                    },
                                      level="error", category="通用抽奖", account=client)
                 except Exception:
                     pass

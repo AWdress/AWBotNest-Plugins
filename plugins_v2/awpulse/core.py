@@ -257,7 +257,7 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("notify", True):
             try:
                 await asyncio.wait_for(
-                    ctx.notify("AWPulse · %s：%s" % (label, msg), level="warning", category="AWPulse"),
+                    ctx.notify({"任务": label, "状态": "已跳过", "详情": msg}, level="warning", category="AWPulse"),
                     timeout=30,
                 )
             except Exception as e:  # noqa: BLE001
@@ -280,7 +280,7 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("notify", True):
             try:
                 await asyncio.wait_for(
-                    ctx.notify("AWPulse 运行异常：%s" % e, level="error", category="AWPulse"),
+                    ctx.notify({"状态": "运行异常", "详情": str(e)}, level="error", category="AWPulse"),
                     timeout=30,
                 )
             except Exception:
@@ -307,7 +307,7 @@ async def _run(ctx, label: str) -> str:
     if cfg.get("notify", True):
         try:
             await asyncio.wait_for(
-                ctx.notify(summary, level="success" if ok else "error", category="AWPulse"),
+                ctx.notify({"运行结果": summary}, level="success" if ok else "error", category="AWPulse"),
                 timeout=30,
             )
         except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果

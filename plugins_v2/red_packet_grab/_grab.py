@@ -443,7 +443,7 @@ class Grabber:
 
     async def _safe_notify(self, text, level="info", account=None) -> None:
         try:
-            await self._ctx.notify(text, level=level, category="自动抢红包", account=account)
+            await self._ctx.notify({"通知内容": text}, level=level, category="自动抢红包", account=account)
         except Exception:  # noqa: BLE001
             pass
 

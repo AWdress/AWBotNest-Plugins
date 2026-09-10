@@ -430,8 +430,11 @@ class LotteryManager:
         if self._cfg("notify_owner", True):
             try:
                 await self.ctx.notify(
-                    f"抽奖 #{activity['lottery_id']} {status}：{activity['prize']}，"
-                    f"参与 {len(participants)} 人，中奖 {len(winners)} 人",
+                    {
+                        "抽奖编号": activity["lottery_id"], "状态": status,
+                        "奖品": activity["prize"], "参与人数": len(participants),
+                        "中奖人数": len(winners),
+                    },
                     level="success" if winners else "warning",
                     category="幸运抽奖",
                     account=activity["client"],

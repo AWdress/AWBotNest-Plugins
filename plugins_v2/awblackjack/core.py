@@ -421,7 +421,10 @@ async def _supervise(ctx):
         ctx.log.error("AWBlackJack 工作进程退出，代码=%s", code)
         if ctx.config.get("notify_errors", True):
             try:
-                await ctx.notify(f"挂机进程异常退出，代码 {code}", level="error", category="运行状态")
+                await ctx.notify(
+                    {"状态": "挂机进程异常退出", "退出代码": code},
+                    level="error", category="运行状态",
+                )
             except Exception as exc:
                 ctx.log.warning("AWBlackJack 异常通知失败：%r", exc)
         if not ctx.config.get("auto_restart", True):
@@ -447,7 +450,7 @@ async def _handle_alert(ctx, cfg: dict, payload: dict) -> None:
     if alert_type == "help_failed" and cfg.get("notify_errors", True):
         try:
             await ctx.notify(
-                str(payload.get("message") or "平局协助失败"),
+                {"协助结果": str(payload.get("message") or "平局协助失败")},
                 level="warning",
                 category="平局协同",
             )

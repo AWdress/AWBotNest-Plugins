@@ -950,7 +950,10 @@ async def _previous_setup(ctx):
             ctx.log.info(f'[emby_toolbox] 定时任务全部完成')
             _set_last_summary(ctx, f'定时任务完成\n{summary}')
             try:
-                await ctx.notify(f'[Emby工具箱] 定时任务完成\n{summary}', category='Emby工具箱')
+                await ctx.notify(
+                    {'任务': '定时维护', '状态': '完成', '结果': summary},
+                    category='Emby工具箱',
+                )
             except Exception:
                 pass
         
@@ -1141,7 +1144,7 @@ async def setup(ctx):
             if source == '定时':
                 try:
                     await asyncio.wait_for(ctx.notify(
-                        f'[Emby工具箱] {label}完成\n{summary}', category='Emby工具箱'
+                        {'任务': label, '状态': '完成', '结果': summary}, category='Emby工具箱'
                     ), timeout=30)
                 except Exception:
                     ctx.log.warning('[emby_toolbox] 结果通知发送失败', exc_info=True)

@@ -480,7 +480,7 @@ async def setup(ctx):
     async def _notify_cookie(detail: str):
         if ctx.config.get("notify_cookie_error", True) and "Cookie" in detail:
             try:
-                await ctx.notify(detail, level="warning", category="憨憨转盘")
+                await ctx.notify({"Cookie 状态": detail}, level="warning", category="憨憨转盘")
             except Exception:
                 pass
 
@@ -489,7 +489,7 @@ async def setup(ctx):
             return
         try:
             await ctx.notify(
-                text,
+                {"运行结果": text},
                 level="success" if success else "warning",
                 category="憨憨转盘",
             )

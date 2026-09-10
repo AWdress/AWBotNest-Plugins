@@ -133,7 +133,7 @@ def _is_safe_reply(text: str) -> bool:
 
 async def _safe_notify(ctx, client, text, level="info"):
     try:
-        await ctx.notify(text, level=level, category="影巢答题红包", account=client)
+        await ctx.notify({"通知内容": text}, level=level, category="影巢答题红包", account=client)
     except Exception:  # noqa: BLE001
         pass
 

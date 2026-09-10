@@ -5,11 +5,12 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。',
- 'changelog': 'v1.1.18 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 统一富文本表格通知\n- 签到汇总与无账号结果统一使用结构化表格\n\n'
+              'v1.1.18 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

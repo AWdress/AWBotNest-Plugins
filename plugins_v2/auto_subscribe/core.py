@@ -403,7 +403,10 @@ async def _run(ctx, label: str) -> str:
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
             if cfg.get("notify", True):
-                await ctx.notify(f"自动订阅运行异常：{e}", level="error", category="自动订阅")
+                await ctx.notify(
+                    {"状态": "运行异常", "详情": str(e)},
+                    level="error", category="自动订阅",
+                )
             return f"运行异常：{e}"
 
         _state_set(ctx, "handled", result.handled)
@@ -449,7 +452,7 @@ async def _run(ctx, label: str) -> str:
             has_add = result.added or missing_added
             level = "error" if has_err else ("success" if has_add else "info")
             try:
-                await ctx.notify(summary, level=level, category="自动订阅")
+                await ctx.notify({"运行结果": summary}, level=level, category="自动订阅")
             except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
                 ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
         total_added_count = len(result.added) + len(missing_added)

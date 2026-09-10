@@ -5,7 +5,7 @@ from .core import setup as _native_setup
 
 __plugin__ = {'name': '定时自动回复',
  'id': 'custom_auto_reply',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'requirements': [],
  'author': 'AWdress',
@@ -101,7 +101,7 @@ __plugin__ = {'name': '定时自动回复',
                                          '例：`0 9 * * 1-5` 工作日每天 9:00；`*/15 9-18 * * *` 9~18 点每 15 分钟一次；`30 8 '
                                          '1 * *` 每月 1 号 8:30。'}},
  'tags': ['定时消息', '多会话规则', '自动发送'],
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n- 使用平台原生间隔与 Cron 调度\n- 使用 Telethon 原生账号、会话及消息接口\n- 保留逐会话时间、内容和通知功能并移除 V1 兼容层'}
+ 'changelog': 'v2.0.1 统一富文本表格通知\n- 定时发送成功和失败通知改为平台结构化表格\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用平台原生间隔与 Cron 调度\n- 使用 Telethon 原生账号、会话及消息接口\n- 保留逐会话时间、内容和通知功能并移除 V1 兼容层'}
 
 
 async def setup(ctx):

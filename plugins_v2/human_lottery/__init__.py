@@ -9,12 +9,13 @@ except ImportError:
 
 __plugin__ = {'name': '幸运抽奖',
  'id': 'human_lottery',
- 'version': '2.0.1',
+ 'version': '2.0.2',
  'author': 'AWdress',
  'scope': 'user',
  'description': '用用户账号在群里像真人一样发起抽奖：群友发送关键词参与，到时随机开奖，支持状态、提前开奖、取消和历史记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/lucky_lottery.svg',
- 'changelog': 'v2.0.1 修复创建抽奖参数提示清理\n'
+ 'changelog': 'v2.0.2 统一富文本表格通知\n- 开奖结果通知改为平台结构化表格\n\n'
+              'v2.0.1 修复创建抽奖参数提示清理\n'
               '- 参数不足或过多时，错误提示按参与回复清理时间自动删除\n'
               '\n'
               'v2.0.0 原生 AWBotNest V2 迁移\n'

@@ -189,7 +189,7 @@ async def setup(ctx):
 
 async def _notify(ctx, client, text, level="info"):
     try:
-        await ctx.notify(text, level=level, category="拼手气红包", account=client)
+        await ctx.notify({"通知内容": text}, level=level, category="拼手气红包", account=client)
     except Exception:  # noqa: BLE001
         pass
 

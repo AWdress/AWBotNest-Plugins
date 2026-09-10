@@ -295,7 +295,7 @@ def _make_action(ctx, target, message_text):
                     # 级别/插件名/账号名由平台统一格式化，这里只给业务内容
                     try:
                         await ctx.notify(
-                            f"定时回复失败\n目标：{target_name} ({target})\n错误：{send_err}",
+                            {"状态": "发送失败", "目标": f"{target_name} ({target})", "错误": str(send_err)},
                             level="error", category="定时回复", account=app,
                         )
                     except Exception:
@@ -307,7 +307,7 @@ def _make_action(ctx, target, message_text):
                 preview = message_text[:100] + ("..." if len(message_text) > 100 else "")
                 try:
                     await ctx.notify(
-                        f"定时回复已发送\n目标：{target_name} ({target})\n内容：\n{preview}\n{link}",
+                        {"状态": "已发送", "目标": f"{target_name} ({target})", "内容": preview, "消息链接": link},
                         level="success", category="定时回复", account=app,
                     )
                 except Exception:

@@ -5,13 +5,14 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '癫影积分红包',
  'id': 'dyp_redpacket',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'description': '监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg',
- 'changelog': 'v1.2.10 适配新版异步存储接口\n'
+ 'changelog': 'v2.0.1 统一富文本表格通知\n- 红包结果改为平台结构化表格\n\n'
+              'v1.2.10 适配新版异步存储接口\n'
               '- 兼容新版平台异步 KV 与原有同步 KV\n'
               '- 启用时预载数据，按顺序托管写入并在停用时等待完成\n'
               '\n'

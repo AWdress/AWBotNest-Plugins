@@ -5,10 +5,11 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
- 'changelog': 'v2.0.2 修复验证码结束后未提交签到\n'
+ 'changelog': 'v2.0.3 统一富文本表格通知\n- 运行结果、跳过和异常通知改为平台结构化表格\n\n'
+              'v2.0.2 修复验证码结束后未提交签到\n'
               '- 签到状态只读取真实按钮，避免页面统计文字干扰判断\n'
               '- 状态确认加入防缓存参数，确保读取服务端最新结果\n'
               '- 验证结束后仍明确未签到时仅受控重试一次\n'

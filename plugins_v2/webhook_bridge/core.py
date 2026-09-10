@@ -328,7 +328,7 @@ async def setup(ctx):
                     parts.append("\n".join(metadata))
 
             category = str(cfg.get("category", "外部事件") or "外部事件").strip()
-            await ctx.notify("\n\n".join(parts), level=level, category=category)
+            await ctx.notify({"事件内容": "\n\n".join(parts)}, level=level, category=category)
             detail = rendered_title or event or source or "事件已转发"
             await _save_stat(ctx, "forwarded", detail)
             ctx.update_config({"runtime_status": f"最近转发：{time.strftime('%Y-%m-%d %H:%M:%S')} · {detail}"})
@@ -342,7 +342,7 @@ async def setup(ctx):
     @ctx.action("test_notify")
     async def test_notify():
         await ctx.notify(
-            "【Webhook 通知桥】\n\n这是一条测试通知。插件已能使用平台统一通知渠道。",
+            {"类型": "测试通知", "状态": "平台统一通知渠道可用"},
             level=str(ctx.config.get("default_level", "info")),
             category=str(ctx.config.get("category", "外部事件") or "外部事件"),
         )

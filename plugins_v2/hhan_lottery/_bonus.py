@@ -368,7 +368,7 @@ async def setup(ctx):
     async def _cookie_error_notify(detail: str):
         if ctx.config.get("notify_cookie_error", True) and "Cookie" in detail:
             try:
-                await ctx.notify(detail, level="warning", category="憨憨赠豆")
+                await ctx.notify({"Cookie 状态": detail}, level="warning", category="憨憨赠豆")
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("[憨憨赠豆] Cookie 异常通知失败：%r", exc)
 
