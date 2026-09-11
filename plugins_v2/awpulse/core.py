@@ -306,8 +306,17 @@ async def _run(ctx, label: str) -> str:
     ctx.update_config({"last_run": _RUN["finished_at"]})
     if cfg.get("notify", True):
         try:
+            lines = [line.strip() for line in str(summary or "").splitlines() if line.strip()]
+            rows = [
+                {"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
+                for index, line in enumerate(lines)
+            ]
             await asyncio.wait_for(
-                ctx.notify({"运行结果": summary}, level="success" if ok else "error", category="AWPulse"),
+                ctx.notify(
+                    rows or [{"项目": "详情", "内容": "暂无内容"}],
+                    level="success" if ok else "error",
+                    category="AWPulse",
+                ),
                 timeout=30,
             )
         except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果

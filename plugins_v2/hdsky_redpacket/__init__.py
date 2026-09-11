@@ -5,13 +5,14 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '拼手气红包(HDSKY)',
  'id': 'hdsky_redpacket',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'description': '监控天空(HDSKY)群拼手气红包，自动点击「抢红包」按钮。可选 /red 占位发言应对「限最近发言人」。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v2.0.2 统一富文本表格通知\n- 红包结果改为平台结构化表格\n\n'
+ 'changelog': 'v2.0.3 修复多行通知显示\n- 抢包结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+              'v2.0.2 统一富文本表格通知\n- 红包结果改为平台结构化表格\n\n'
               'v2.0.1 修复 Telethon 机器人识别与消息 ID\n'
               '- 使用 User.bot 识别官方机器人并统一采用事件 chat_id\n'
               '\n'

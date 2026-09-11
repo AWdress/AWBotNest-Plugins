@@ -328,7 +328,22 @@ async def setup(ctx):
                     parts.append("\n".join(metadata))
 
             category = str(cfg.get("category", "外部事件") or "外部事件").strip()
-            await ctx.notify({"事件内容": "\n\n".join(parts)}, level=level, category=category)
+            lines = [
+                line.strip()
+                for part in parts
+                for line in str(part or "").splitlines()
+                if line.strip()
+            ]
+            rows = [
+                {"项目": "标题" if index == 0 and rendered_title else ("内容" if index == 0 else f"详情 {index}"),
+                 "内容": line}
+                for index, line in enumerate(lines)
+            ]
+            await ctx.notify(
+                rows or [{"项目": "详情", "内容": "暂无内容"}],
+                level=level,
+                category=category,
+            )
             detail = rendered_title or event or source or "事件已转发"
             await _save_stat(ctx, "forwarded", detail)
             ctx.update_config({"runtime_status": f"最近转发：{time.strftime('%Y-%m-%d %H:%M:%S')} · {detail}"})

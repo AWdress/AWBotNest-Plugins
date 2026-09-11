@@ -189,7 +189,11 @@ async def setup(ctx):
 
 async def _notify(ctx, client, text, level="info"):
     try:
-        await ctx.notify({"通知内容": text}, level=level, category="拼手气红包", account=client)
+        lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+        rows = [{"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
+                for index, line in enumerate(lines)]
+        await ctx.notify(rows or [{"项目": "详情", "内容": "暂无内容"}],
+                         level=level, category="拼手气红包", account=client)
     except Exception:  # noqa: BLE001
         pass
 

@@ -5,12 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.0.4',
+ 'version': '2.0.5',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png',
- 'changelog': 'v2.0.4 分离运行状态与用户配置\n'
+ 'changelog': 'v2.0.5 修复多行通知显示\n'
+              '- 运行摘要按状态、详情拆分为独立表格行\n'
+              '- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+              'v2.0.4 分离运行状态与用户配置\n'
               '- 上次运行、统计及补缺结果迁入插件 KV，不再作为隐藏配置保存\n'
               '- 自动迁移并清理旧版配置中的只读状态字段\n\n'
               'v2.0.3 统一富文本表格通知\n'

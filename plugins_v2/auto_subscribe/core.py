@@ -450,7 +450,16 @@ async def _run(ctx, label: str) -> str:
             has_add = result.added or missing_added
             level = "error" if has_err else ("success" if has_add else "info")
             try:
-                await ctx.notify({"运行结果": summary}, level=level, category="自动订阅")
+                lines = [line.strip() for line in str(summary or "").splitlines() if line.strip()]
+                rows = [
+                    {"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
+                    for index, line in enumerate(lines)
+                ]
+                await ctx.notify(
+                    rows or [{"项目": "详情", "内容": "暂无内容"}],
+                    level=level,
+                    category="自动订阅",
+                )
             except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
                 ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
         total_added_count = len(result.added) + len(missing_added)

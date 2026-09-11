@@ -5,10 +5,11 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'Webhook 通知桥',
  'id': 'webhook_bridge',
- 'version': '2.0.1',
+ 'version': '2.0.2',
  'author': 'AWdress',
  'description': '接收 NAS、下载器、监控、CI 等外部 Webhook，自动提取内容并通过平台统一通知渠道推送。',
- 'changelog': 'v2.0.1 统一富文本表格通知\n- 外部事件与测试通知改为平台结构化表格\n\n'
+ 'changelog': 'v2.0.2 修复多行通知显示\n- 外部事件标题、正文和元数据拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+              'v2.0.1 统一富文本表格通知\n- 外部事件与测试通知改为平台结构化表格\n\n'
               'v2.0.0 完成原生 V2 迁移\n'
               '- 使用原生公开 Webhook、异步存储与动作接口\n'
               '- 修复重载后的路由注册、去重、限流和统计持久化\n\n'

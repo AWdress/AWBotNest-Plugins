@@ -942,7 +942,17 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
             )
             return
 
-    await ctx.notify({"转账结果": body}, level="info", category="转账", account=client)
+    lines = [line.strip() for line in str(body or "").splitlines() if line.strip()]
+    rows = [
+        {"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
+        for index, line in enumerate(lines)
+    ]
+    await ctx.notify(
+        rows or [{"项目": "详情", "内容": "暂无内容"}],
+        level="info",
+        category="转账",
+        account=client,
+    )
 
 
 # ─── 8. 鳄鱼丼 YDX ──────────────────────────────────────────────────────────

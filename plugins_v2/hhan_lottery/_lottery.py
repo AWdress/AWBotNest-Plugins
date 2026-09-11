@@ -488,8 +488,13 @@ async def setup(ctx):
         if not ctx.config.get("notify_result", True):
             return
         try:
+            lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+            rows = [
+                {"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
+                for index, line in enumerate(lines)
+            ]
             await ctx.notify(
-                {"运行结果": text},
+                rows or [{"项目": "详情", "内容": "暂无内容"}],
                 level="success" if success else "warning",
                 category="憨憨转盘",
             )
