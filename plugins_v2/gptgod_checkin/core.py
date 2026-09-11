@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "1.1.9",
+    "version": "2.0.2",
     "author": "AWdress",
-    "description": "使用平台托管浏览器为多个 GPT-GOD 账号每日自动签到，支持独立会话复用、立即签到和汇总通知。",
-    "changelog": "v1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
+    "description": "使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。",
+    "changelog": "v2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -58,11 +58,27 @@ __plugin__ = {
         },
         "checkin_hour": {
             "type": "slider", "default": 8, "label": "签到小时",
-            "min": 0, "max": 23, "step": 1, "section": "定时", "cols": 6, "order": 20,
+            "min": 0, "max": 23, "step": 1, "section": "定时", "cols": 6, "order": 21,
+            "show_if": {"schedule_mode": "daily"},
         },
         "checkin_minute": {
             "type": "slider", "default": 5, "label": "签到分钟",
-            "min": 0, "max": 59, "step": 1, "section": "定时", "cols": 6, "order": 21,
+            "min": 0, "max": 59, "step": 1, "section": "定时", "cols": 6, "order": 22,
+            "show_if": {"schedule_mode": "daily"},
+        },
+        "schedule_mode": {
+            "type": "select", "default": "daily", "label": "定时方式",
+            "options": [
+                {"value": "daily", "label": "每天指定时间"},
+                {"value": "cron", "label": "Cron 表达式"},
+            ],
+            "section": "定时", "cols": 12, "order": 20,
+        },
+        "cron_expression": {
+            "type": "string", "default": "5 8 * * *", "label": "Cron 表达式",
+            "help": "依次填写：分钟 小时 日 月 星期，例如 5 8 * * * 表示每天 08:05。",
+            "section": "定时", "cols": 12, "order": 23,
+            "show_if": {"schedule_mode": "cron"},
         },
         "retry_count": {
             "type": "slider", "default": 2, "label": "失败重试次数",
@@ -107,6 +123,21 @@ def _bounded_int(value, default: int, low: int, high: int) -> int:
         return max(low, min(high, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _cron_fields(expression: str) -> dict[str, str]:
+    """把标准五段 crontab 表达式转换为平台 APScheduler 字段。"""
+    parts = str(expression or "").strip().split()
+    if len(parts) != 5:
+        raise ValueError("Cron 表达式必须包含 5 段：分钟 小时 日 月 星期")
+    minute, hour, day, month, day_of_week = parts
+    return {
+        "minute": minute,
+        "hour": hour,
+        "day": day,
+        "month": month,
+        "day_of_week": day_of_week,
+    }
 
 
 def _page_text(page) -> str:
@@ -857,6 +888,7 @@ async def setup(ctx):
     if ctx.config.get("auto_checkin", True):
         hour = _bounded_int(ctx.config.get("checkin_hour"), 8, 0, 23)
         minute = _bounded_int(ctx.config.get("checkin_minute"), 5, 0, 59)
+        schedule_mode = str(ctx.config.get("schedule_mode") or "daily").strip().lower()
 
         async def _scheduled_checkin():
             ctx.log.info("定时任务已触发")
@@ -866,8 +898,18 @@ async def setup(ctx):
             ctx.create_task(_run(ctx, "定时"), name="GPT-GOD 定时签到")
             ctx.log.info("定时签到已投递后台执行")
 
-        ctx.schedule_cron("GPT-GOD 每日签到", _scheduled_checkin, hour=hour, minute=minute)
-        ctx.log.info("已注册每日签到任务：%02d:%02d", hour, minute)
+        if schedule_mode == "cron":
+            expression = str(ctx.config.get("cron_expression") or "5 8 * * *").strip()
+            try:
+                fields = _cron_fields(expression)
+                ctx.schedule_cron("GPT-GOD 自动签到", _scheduled_checkin, **fields)
+            except Exception as exc:
+                ctx.log.error("Cron 定时配置无效，未注册自动签到：%s", exc)
+            else:
+                ctx.log.info("已注册 Cron 签到任务：%s", expression)
+        else:
+            ctx.schedule_cron("GPT-GOD 每日签到", _scheduled_checkin, hour=hour, minute=minute)
+            ctx.log.info("已注册每日签到任务：%02d:%02d", hour, minute)
     else:
         ctx.log.info("自动签到未启用，仅保留手动签到")
 

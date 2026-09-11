@@ -44,14 +44,14 @@ from . import _leaderboard as lb
 __plugin__ = {
     "name": "多站点转账",
     "id": "transfer",
-    "version": "2.0.3",
+    "version": "2.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png",
-    "changelog": "v2.0.3 修复普通 Telegram HTML 显示\n- 群内致谢、文字排行榜和图片说明显式启用 HTML 解析\n- 不再显示 <b>、<blockquote>、<i> 等原始标签\n\nv1.0.30 美化 Premium 富文本排行榜\n- 表格启用 Telegram 原生边框与斑马纹\n- 排名、用户、次数和累计金额按内容统一对齐\n- 前三名用户与名次加粗突出，累计金额右对齐显示\n\nv1.0.29 修复 Premium 富文本发送参数\n- 移除 Kurigram 2.2.24 不支持的 reply_to_message_id 参数\n- 富文本排行榜改为独立消息发送，确保原生表格正常显示\n- 文本回退仍保持回复原消息的行为\n\nv1.0.28 接入平台原生 Rich Message\n- 使用 ctx.user.send_rich() 发送 Premium 富文本表格\n- 发送前通过 supports_native_rich() 检查当前用户账号能力\n- 排行榜命令成功发送富文本后自动删除原命令消息\n- 普通账号或发送失败时继续回退排版文本榜\n\nv1.0.27 修复富文本表格被静默降级\n- 不再把 Rich Message HTML 误发到普通消息接口\n- 当前 Kurigram 未提供用户账号 Rich Message 接口时直接回退正常文本榜\n- 配置页补充 Premium 与平台能力要求\n\nv1.0.26 新增 Premium 富文本表格\n- 排行榜输出新增 Kurigram HTML 富文本表格模式\n- 自动致谢榜与排行榜命令均支持表格输出\n- 表格发送失败时自动回退文本榜\n- 配置页明确标注仅 Telegram Premium 会员可用\n\nv1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
+    "changelog": "v2.0.6 修复 SSD 确认与 ZmPT 延迟\n- SSD 大额确认改用 Telethon 原生按钮坐标并按按钮文字选择单次或 5 分钟确认\n- 恢复 ZmPT 电力致谢与榜单发送前固定等待约 11 秒\n\nv2.0.3 修复普通 Telegram HTML 显示\n- 群内致谢、文字排行榜和图片说明显式启用 HTML 解析\n- 不再显示 <b>、<blockquote>、<i> 等原始标签\n\nv1.0.30 美化 Premium 富文本排行榜\n- 表格启用 Telegram 原生边框与斑马纹\n- 排名、用户、次数和累计金额按内容统一对齐\n- 前三名用户与名次加粗突出，累计金额右对齐显示\n\nv1.0.29 修复 Premium 富文本发送参数\n- 移除 Kurigram 2.2.24 不支持的 reply_to_message_id 参数\n- 富文本排行榜改为独立消息发送，确保原生表格正常显示\n- 文本回退仍保持回复原消息的行为\n\nv1.0.28 接入平台原生 Rich Message\n- 使用 ctx.user.send_rich() 发送 Premium 富文本表格\n- 发送前通过 supports_native_rich() 检查当前用户账号能力\n- 排行榜命令成功发送富文本后自动删除原命令消息\n- 普通账号或发送失败时继续回退排版文本榜\n\nv1.0.27 修复富文本表格被静默降级\n- 不再把 Rich Message HTML 误发到普通消息接口\n- 当前 Kurigram 未提供用户账号 Rich Message 接口时直接回退正常文本榜\n- 配置页补充 Premium 与平台能力要求\n\nv1.0.26 新增 Premium 富文本表格\n- 排行榜输出新增 Kurigram HTML 富文本表格模式\n- 自动致谢榜与排行榜命令均支持表格输出\n- 表格发送失败时自动回退文本榜\n- 配置页明确标注仅 Telegram Premium 会员可用\n\nv1.0.25 修复文本排行榜不发送\n- 群内致谢与打赏榜/赏赐榜改为独立开关，单独开启排行榜也会正常发送\n- 文本模式可仅发送排行榜，不再依赖群内致谢开关\n- 图片模式与图片失败回退文本同样支持仅排行榜输出\n\nv1.0.24 修复 hdsky 转账解析\n- 修复无条件取发送者导致对手方识别错误，改为仅在缺对手方时回退取发送者\n\nv1.0.23 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示\n\nv1.0.22 修复用户名前导空白占位\n- 排行榜、通知、致谢和日志展示用户名时先移除首尾空白，再执行长度截断\n- 全空白用户名统一显示为未知用户\n\nv1.0.21 移除 Telegram 原生表格\n- 原生表格只能通过 Bot API 发送，无法使用监听账号在站点群输出，因此移除该选项及相关发送逻辑\n- 已保存原生表格选项的旧配置自动回退为文本排行榜\n\nv1.0.20 优化超长用户名显示\n- 日志、通知、致谢和各类排行榜中的超长用户名统一截断并以 ... 省略\n- 完整用户名仍保留在内部记录中，不影响用户聚合\n\nv1.0.19 优化原生表格不可用时的回退\n- 修复分配 Bot 不在目标群时反复请求并刷出 chat not found 警告\n- 首次失败明确提示 Bot 入群要求，后续直接回退文本\n\nv1.0.18 新增 Telegram 原生表格输出\n- 排行榜输出形式新增 Bot API Rich Message 原生表格\n- 原生表格使用边框和斑马纹，支持群内致谢榜及排行榜命令\n- Bot 不在目标群、无权限或服务端不支持时自动回退文本\n\nv1.0.17 完善多站点转账与排行榜\n- 修复站点转账识别、排行榜渲染与管理面板兼容问题",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -266,15 +266,19 @@ async def setup(ctx):
             kb = [list(row or ()) for row in (kb or ()) if row]
             if not kb:
                 return
-            row = 0 if mode == "once" else min(1, len(kb) - 1)
-            col = 0
-            if col >= len(kb[row]):
+            position = _ssd_button_position(kb, mode)
+            if position is None:
+                ctx.log.warning("SSD大额确认消息没有匹配 %s 的按钮，已跳过", mode)
                 return
+            row, col = position
             await asyncio.sleep(0.5)
             try:
-                await message.click(x=col, y=row)
-                ctx.log.info("SSD大额转账确认成功，点击了 %s 按钮", mode)
-            except TimeoutError:
+                # Telethon 的 Message.click 使用 i/j；V1 的 x/y 是 Pyrogram
+                # 参数，迁移后会直接抛 TypeError，导致配置看似生效却从未点击。
+                await asyncio.wait_for(message.click(i=row, j=col), timeout=10)
+                label = str(getattr(kb[row][col], "text", "") or mode).strip()
+                ctx.log.info("SSD大额转账确认成功，点击了 %s（第 %d 行第 %d 列）", label, row + 1, col + 1)
+            except (TimeoutError, asyncio.TimeoutError):
                 ctx.log.warning("SSD转账确认超时")
             except Exception as e:
                 ctx.log.error("SSD转账确认失败: %s", e)
@@ -351,6 +355,31 @@ _TRANSFER_SKIP_KEYWORDS = (
     "转账金额过大", "余额不足", "转账失败", "请确认你的转账", "确认你的转账",
     "请确认憨豆转赠", "请输入正确数量", "限额", "失败", "不足", "错误",
 )
+
+
+def _ssd_button_position(keyboard, mode: str) -> tuple[int, int] | None:
+    """按按钮文字选择 SSD 确认方式；旧版固定行号只作为最后兜底。"""
+    wanted = {
+        "once": ("单次", "一次", "本次", "once"),
+        "5min": ("5分钟", "五分钟", "5min", "5 min"),
+    }.get(mode)
+    if not wanted:
+        return None
+    for row_index, row in enumerate(keyboard or ()):
+        for col_index, button in enumerate(row or ()):
+            label = re.sub(r"\s+", "", str(getattr(button, "text", "") or "")).lower()
+            if any(marker.replace(" ", "") in label for marker in wanted):
+                return row_index, col_index
+    fallback_row = 0 if mode == "once" else 1
+    if fallback_row < len(keyboard) and keyboard[fallback_row]:
+        return fallback_row, 0
+    return None
+
+
+# ZmPT 群启用了消息发送间隔；沿用 V1 的固定等待，避免致谢/榜单过早发送失败。
+_SITE_SEND_DELAY = {
+    "zm": 11,
+}
 
 # ─── 通用站点处理（reply / plus）──────────────────────────────────────────────
 async def _handle_generic(ctx, store, client, message, site, rank_size_fn):
@@ -563,6 +592,11 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
     dmax = _safe_int(ctx.config.get("notify_delay_max", 0), 0)
     if dmax > 0 and dmax >= dmin:
         await asyncio.sleep(random.uniform(dmin, dmax))
+
+    forced_delay = _SITE_SEND_DELAY.get(site.site_name, 0)
+    if forced_delay > 0:
+        ctx.log.debug("[%s] 按站点规则延后 %s 秒发送致谢/榜单", site.site_name, forced_delay)
+        await asyncio.sleep(forced_delay)
 
     text = ""
     if notif_on:

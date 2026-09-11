@@ -5,11 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.7',
+ 'version': '2.0.8',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n'
+ 'changelog': 'v2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n'
+              '- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n'
+              '- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n'
+              '\n'
+              'v2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n'
               '- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n'
               '- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n'
               '- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n'

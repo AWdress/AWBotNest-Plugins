@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.7",
+    "version": "2.0.8",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -706,11 +706,24 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
         if current.count() != count or [_radio_label(current.nth(i)) or f"选项 {i + 1}" for i in range(count)] != options:
             raise RuntimeError("TJUPT 验证题已变化，未提交答案")
         selected = current.nth(choice)
-        selected.check()
+        # CloakBrowser 仍负责真实浏览器会话。0.5.10 的 Locator.check/click
+        # 即使传 humanize=False 也仍会进入拟人层，而拟人层不支持这里的
+        # nth + ancestor 链式 locator；直接在已解析的 DOM 元素上触发原生
+        # 表单事件，避开选择器二次解析。
+        selected.evaluate("""element => {
+            element.checked = true;
+            element.dispatchEvent(new Event('input', {bubbles: true}));
+            element.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
         submit = form.locator('button[type="submit"], input[type="submit"], button').first
         if submit.count() < 1:
             raise RuntimeError("没有找到 TJUPT 验证题提交按钮")
-        submit.click()
+        submit.evaluate("""element => {
+            const form = element.form || element.closest('form');
+            if (!form) throw new Error('TJUPT submit control has no form');
+            if (typeof form.requestSubmit === 'function') form.requestSubmit(element);
+            else element.click();
+        }""")
         page.wait_for_timeout(3_000)
         return _confirm_result(page)
     finally:
@@ -1031,8 +1044,10 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
-def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -> dict:
-    """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
+def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds: int = 30) -> dict:
+    """等待 NexusPHP Turnstile 回调提交，只接受明确的服务端结果。"""
+    site_name = "OurBits" if expected_domain.lower() == "ourbits.club" else "Audiences"
+    form_selector = "#attendance" if expected_domain.lower() == "ourbits.club" else "#attendance-form"
     timeout_seconds = max(1, min(30, int(timeout_seconds)))
     deadline = time.monotonic() + timeout_seconds
     started_at = time.monotonic()
@@ -1049,10 +1064,10 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
             if state[0] == "failed":
                 raise RuntimeError(state[1])
             return {"status": state[0], "message": state[1]}
-        form_present = page.locator("#attendance-form").count() > 0
-        turnstile_present = page.locator("#attendance-form .cf-turnstile").count() > 0
+        form_present = page.locator(form_selector).count() > 0
+        turnstile_present = page.locator(f"{form_selector} .cf-turnstile").count() > 0
         if not form_present and not turnstile_present:
-            return _confirm_result(page, attempts=2, expected_domain="audiences.me")
+            return _confirm_result(page, attempts=2, expected_domain=expected_domain)
         token_info = page.evaluate("""() => {
             const names = ['cf-turnstile-response', 'cf-token'];
             for (const name of names) {
@@ -1075,16 +1090,16 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
                 _runtime_log(
                     ctx,
                     f"已取得 Turnstile 验证令牌（来源：{token_info.get('source') or '未知'}），正在提交签到",
-                    site="Audiences",
+                    site=site_name,
                 )
                 token_logged = True
-            page.evaluate("""() => {
-                const form = document.querySelector('#attendance-form');
+            page.evaluate(f"""() => {{
+                const form = document.querySelector('{form_selector}');
                 if (!form || form.dataset.awSubmitted === '1') return;
                 form.dataset.awSubmitted = '1';
                 if (typeof form.requestSubmit === 'function') form.requestSubmit();
                 else form.submit();
-            }""")
+            }}""")
             page.wait_for_timeout(2_000)
             continue
         # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
@@ -1119,7 +1134,7 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
                     pass
             if not clicked:
                 try:
-                    widget = page.locator("#attendance-form .cf-turnstile").first
+                    widget = page.locator(f"{form_selector} .cf-turnstile").first
                     if widget.count() and widget.is_visible():
                         box = widget.bounding_box()
                         if box and box["width"] >= 80 and box["height"] >= 40:
@@ -1132,26 +1147,33 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
                 click_count += 1
                 if ctx is not None:
                     suffix = "，等待验证完成" if click_count == 1 else "，此前验证长时间无结果"
-                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次；{click_detail}{suffix}）", site="Audiences")
+                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次；{click_detail}{suffix}）", site=site_name)
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
             page.wait_for_timeout(min(1_000, max(1, int((deadline - time.monotonic()) * 1000))))
     try:
-        diagnostics = page.evaluate("""() => ({
+        diagnostics = page.evaluate(f"""() => ({{
             url: location.href,
             title: document.title,
-            forms: document.querySelectorAll('#attendance-form').length,
+            forms: document.querySelectorAll('{form_selector}').length,
             widgets: document.querySelectorAll('.cf-turnstile').length,
-            iframes: Array.from(document.querySelectorAll('iframe')).map(frame => ({
+            iframes: Array.from(document.querySelectorAll('iframe')).map(frame => ({{
                 title: frame.title || '', src: String(frame.src || '').slice(0, 160)
-            }))
-        })""")
+            }}))
+        }})""")
     except Exception as exc:
         diagnostics = {"diagnostic_error": str(exc)}
     if ctx is not None:
-        _runtime_log(ctx, f"Turnstile 超时诊断：{diagnostics}", level="error", site="Audiences")
-    raise RuntimeError(f"Audiences Turnstile 未在 {timeout_seconds} 秒内签发有效验证令牌，本轮已跳过")
+        _runtime_log(ctx, f"Turnstile 超时诊断：{diagnostics}", level="error", site=site_name)
+    raise RuntimeError(f"{site_name} Turnstile 未在 {timeout_seconds} 秒内签发有效验证令牌，本轮已跳过")
+
+
+def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -> dict:
+    """兼容旧测试与内部调用名；实际逻辑由通用 Turnstile 处理器负责。"""
+    return _turnstile_checkin(
+        page, "audiences.me", ctx, timeout_seconds=timeout_seconds,
+    )
 
 
 def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
@@ -1391,9 +1413,10 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *,
         raise RuntimeError("Cookie 已失效：站点拒绝当前登录会话，请在 CookieCloud 来源浏览器重新登录并同步")
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
-    if expected_domain.lower() == "audiences.me" and page.locator("#attendance-form .cf-turnstile").count() > 0:
+    if expected_domain.lower() in {"audiences.me", "ourbits.club"} \
+            and page.locator("form .cf-turnstile").count() > 0:
         remaining = 30 if deadline is None else max(1, int(deadline - time.monotonic()))
-        return _audiences_turnstile_checkin(page, ctx, timeout_seconds=remaining)
+        return _turnstile_checkin(page, expected_domain, ctx, timeout_seconds=remaining)
     captcha = _captcha_error(text)
     if captcha:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
