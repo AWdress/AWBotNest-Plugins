@@ -9,7 +9,7 @@ import time
 __plugin__ = {
     "id": "msg_forward",
     "name": "消息转发助手",
-    "version": "2.1.1",
+    "version": "2.1.2",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -33,6 +33,16 @@ __plugin__ = {
             "help": "执行“补全遗漏”时每条规则最多回查的来源消息数。",
             "section": "功能开关", "order": 3,
         },
+        "auto_backfill": {
+            "type": "boolean", "default": True, "label": "自动检查遗漏",
+            "help": "插件启用或重载后立即回查，之后按设定间隔自动补发遗漏消息。",
+            "section": "功能开关", "order": 4,
+        },
+        "backfill_interval_min": {
+            "type": "number", "default": 10, "min": 1, "max": 1440, "step": 1,
+            "label": "遗漏检查间隔（分钟）",
+            "section": "功能开关", "order": 5,
+        },
         "repeat_enabled": {
             "type": "boolean", "default": True, "label": "启用回复复读",
             "help": "回复一条消息并发送复读命令，在当前会话重复转发或复制。",
@@ -44,11 +54,8 @@ __plugin__ = {
             "section": "回复复读", "order": 21,
         },
         "repeat_mode": {
-            "type": "select", "default": "forward", "label": "复读方式",
-            "options": [
-                {"value": "forward", "label": "原样转发"},
-                {"value": "copy", "label": "复制重发"},
-            ],
+            "type": "boolean", "default": False, "label": "复制重发",
+            "help": "关闭时使用原样转发；开启时复制消息内容后重新发送。旧版 forward/copy 配置会自动转换。",
             "section": "回复复读", "order": 22,
         },
         "repeat_interval": {
@@ -86,13 +93,14 @@ __plugin__ = {
             },
         },
         "backfill": {
-            "type": "action", "label": "补全历史遗漏", "action": "backfill",
-            "help": "按当前规则回查来源历史消息，持久化去重后只补发遗漏内容。",
+            "type": "action", "label": "立即检查遗漏", "action": "backfill",
+            "help": "自动检查之外，可随时立即按当前规则回查一次；持久化去重后只补发遗漏内容。",
             "section": "维护", "order": 40,
         },
     },
     "resources": {"timeout_seconds": 120, "max_concurrency": 8, "max_background_tasks": 32},
-    "changelog": "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
+    "changelog": "v2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\n"
+    "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
     "v2.1.0 合并消息转发与转发复读\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\n"
     "v2.0.6 修复遗漏补全数值配置\n- backfill_limit 改用平台支持的 number 类型并限制为整数步进\n- 兼容已有数字值，运行时继续执行 1 至 500 的整数边界保护\n\n"
     "v2.0.5 修复原生转发无响应\n- 改用来源会话与消息 ID 调用 Telethon 转发，兼容单条消息和相册\n- 原生转发返回空结果时自动降级为复制搬运\n- 来源频道禁止转发时记录原因并自动复制补发\n\n"
@@ -204,35 +212,62 @@ def _forward_restricted(error):
     )
 
 async def _native_forward(client,target,messages):
-    """按来源会话和消息 ID 转发，兼容单条、相册及不同 Telethon 版本。"""
+    """优先转发原生 Message；旧 Telethon 不兼容时再按来源和消息 ID 转发。"""
+    payload=messages[0] if len(messages)==1 else messages
+    message_error=None
+    try:
+        return await client.forward_messages(target,payload)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        message_error=error
     ids=[getattr(message,"id",None) for message in messages]
-    source=getattr(messages[0],"_input_chat",None)
-    if source is None:
-        get_input_chat=getattr(messages[0],"get_input_chat",None)
-        if callable(get_input_chat):
-            try:source=await get_input_chat()
-            except Exception:source=None
+    source=None
+    get_input_chat=getattr(messages[0],"get_input_chat",None)
+    if callable(get_input_chat):
+        try:source=await get_input_chat()
+        except Exception:source=None
+    source=source or getattr(messages[0],"_input_chat",None)
     source=source or getattr(messages[0],"peer_id",None) or getattr(messages[0],"chat_id",None)
     if source is not None and all(message_id is not None for message_id in ids):
         payload=ids[0] if len(ids)==1 else ids
-        return await client.forward_messages(target,payload,from_peer=source)
-    payload=messages[0] if len(messages)==1 else messages
-    return await client.forward_messages(target,payload)
+        try:
+            return await client.forward_messages(target,payload,from_peer=source)
+        except asyncio.CancelledError:
+            raise
+        except Exception as id_error:
+            raise RuntimeError(
+                f"原生消息转发失败（{message_error!r}）；消息 ID 回退失败（{id_error!r}）"
+            ) from id_error
+    raise RuntimeError(f"原生消息转发失败且无法取得来源实体或消息 ID：{message_error!r}") from message_error
 
-async def _forward(client,target,messages,log=None):
-    """执行原生转发；受保护来源或空响应时自动降级为复制搬运。"""
+async def _forward(client,target,messages,log=None,delivery=None):
+    """执行原生转发；无法完成时自动降级为复制搬运，避免静默丢消息。"""
     try:
         result=await _native_forward(client,target,messages)
         if result is None or (isinstance(result,(list,tuple)) and not any(result)):
             if log:log.warning("[消息转发助手] 原生转发未返回消息，自动降级为复制搬运 -> %s",target)
-            return await _copy(client,target,messages,allow_native_fallback=False)
+            result=await _copy(client,target,messages,allow_native_fallback=False)
+            if delivery is not None:delivery["mode"]="复制搬运（自动降级）"
+            return result
+        if delivery is not None:delivery["mode"]="原样转发"
         return result
     except asyncio.CancelledError:
         raise
     except Exception as error:
-        if not _forward_restricted(error):raise
-        if log:log.warning("[消息转发助手] 来源禁止原生转发，自动降级为复制搬运 -> %s: %r",target,error)
-        return await _copy(client,target,messages,allow_native_fallback=False)
+        if log:
+            reason="来源禁止原生转发" if _forward_restricted(error) else "原样转发失败"
+            log.warning("[消息转发助手] %s，自动降级为复制搬运 -> %s: %r",reason,target,error)
+        try:
+            result=await _copy(client,target,messages,allow_native_fallback=False)
+            if delivery is not None:delivery["mode"]="复制搬运（自动降级）"
+            return result
+        except asyncio.CancelledError:
+            raise
+        except Exception as copy_error:
+            raise RuntimeError(
+                f"原样转发失败（{error!r}）；复制搬运回退也失败（{copy_error!r}）"
+            ) from copy_error
 
 async def _copy(client,target,messages,allow_native_fallback=True,reply_to=None):
     if len(messages)==1 and not messages[0].media:
@@ -325,6 +360,15 @@ def _migrate_zf_config(ctx):
     ctx.log.info("[消息转发助手] 已迁移旧“转发复读”配置并停用旧插件")
     return True
 
+def _normalize_repeat_mode(ctx):
+    """把旧版 select 保存的 forward/copy 原地转换为新版布尔开关。"""
+    raw=ctx.config.get("repeat_mode",False)
+    if not isinstance(raw,str):return False
+    value=raw.strip().lower()=="copy"
+    ctx.update_config({"repeat_mode":value})
+    ctx.log.info("[消息转发助手] 已将旧复读方式配置转换为%s", "复制重发" if value else "原样转发")
+    return True
+
 async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
     """回查来源历史并补发遗漏消息，返回 (sent_count, skipped_count)。"""
     sent_count = skipped = 0
@@ -379,9 +423,11 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
 
 async def setup(ctx):
     _migrate_zf_config(ctx)
+    _normalize_repeat_mode(ctx)
     seen={};names={}
     sent = set(str(x) for x in (await ctx.storage.get("backfill_sent", []) or []))
     backfill_task = None
+    backfill_lock = asyncio.Lock()
     async def persist_sent():
         # Keep the checkpoint bounded while surviving reloads.
         await ctx.storage.set("backfill_sent", list(sent)[-5000:])
@@ -391,6 +437,26 @@ async def setup(ctx):
             try:names[key]=_label(await client.get_entity(target),target)
             except Exception:names[key]=key
         return names[key]
+
+    async def run_backfill(trigger, *, require_auto=False):
+        cfg=ctx.config
+        if require_auto and not cfg.get("auto_backfill",True):return None
+        if not cfg.get("enable",False) or not ctx.user:return None
+        rules=[rule for rule in (cfg.get("rules") or []) if isinstance(rule,dict)]
+        if not rules:return None
+        if backfill_lock.locked():
+            ctx.log.debug("[消息转发助手] %s遗漏检查跳过：已有检查正在运行",trigger)
+            return None
+        async with backfill_lock:
+            count,skipped=await _backfill(
+                ctx.user,rules,cfg.get("backfill_limit",100),sent,
+                ctx.log,resolve,bool(cfg.get("forward_album",True)),
+            )
+            await persist_sent()
+            message=f"{trigger}遗漏检查完成：补发 {count} 组，跳过 {skipped} 组"
+            if count or trigger!="定时":ctx.log.info("[消息转发助手] %s",message)
+            else:ctx.log.debug("[消息转发助手] %s",message)
+            return count,skipped
     if ctx.user:
         values=[]
         for rule in ctx.config.get("rules") or []:
@@ -418,15 +484,18 @@ async def setup(ctx):
                 try:
                     if rule.get("copy"):
                         await _copy(event.client,target,messages)
+                        delivery_mode="复制搬运"
                     else:
-                        await _forward(event.client,target,messages,ctx.log)
+                        delivery={}
+                        await _forward(event.client,target,messages,ctx.log,delivery)
+                        delivery_mode=delivery.get("mode","原样转发")
                     ids = tuple(getattr(message, "id", 0) for message in messages)
                     sent.add(f"{source}:{target}:{','.join(map(str, ids))}")
                     try:
                         await persist_sent()
                     except Exception as error:
                         ctx.log.warning("[消息转发助手] 转发已完成，但去重检查点保存失败: %r", error)
-                    ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target)
+                    ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)，模式=%s",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target,delivery_mode)
                 except asyncio.CancelledError:raise
                 except Exception as error:ctx.log.warning("[消息转发助手] 转发失败 %s -> %s: %r",event.chat_id,target,error)
 
@@ -445,7 +514,8 @@ async def setup(ctx):
             return
         try:interval=max(0.0,min(float(cfg.get("repeat_interval",0.3) or 0),5.0))
         except (TypeError,ValueError):interval=0.3
-        mode=str(cfg.get("repeat_mode","forward") or "forward").strip().lower()
+        raw_mode=cfg.get("repeat_mode",False)
+        mode="copy" if (raw_mode is True or isinstance(raw_mode,str) and raw_mode.strip().lower()=="copy") else "forward"
         topic=_repeat_topic(event,source)
         completed=0
         for index in range(times):
@@ -479,20 +549,27 @@ async def setup(ctx):
             return {"ok": False, "message": "请先启用规则转发"}
         if backfill_task is not None and not backfill_task.done():
             return {"ok": False, "message": "遗漏补全任务正在运行"}
+        if backfill_lock.locked():
+            return {"ok": False, "message": "遗漏检查正在运行"}
         if not ctx.user:
             return {"ok": False, "message": "用户客户端尚未连接"}
         rules = [r for r in (ctx.config.get("rules") or []) if isinstance(r, dict)]
         if not rules:
             return {"ok": False, "message": "尚未配置转发规则"}
-        async def run_backfill():
-            count, skipped = await _backfill(
-                ctx.user, rules, ctx.config.get("backfill_limit", 100), sent,
-                ctx.log, resolve, bool(ctx.config.get("forward_album", True)),
-            )
-            await persist_sent()
-            ctx.log.info("[消息转发助手] 遗漏补全完成：补发 %s 组，跳过 %s 组", count, skipped)
-        backfill_task = ctx.create_task(run_backfill(), name="消息转发助手：遗漏补全")
+        backfill_task = ctx.create_task(run_backfill("手动"), name="消息转发助手：立即检查遗漏")
         return {"ok": True, "message": "已开始回查历史消息并补发遗漏，详情见插件日志"}
+
+    if ctx.config.get("auto_backfill",True) and ctx.config.get("enable",False) and ctx.user:
+        try:interval=max(1,min(int(ctx.config.get("backfill_interval_min",10) or 10),1440))
+        except (TypeError,ValueError):interval=10
+        schedule_interval=getattr(ctx,"schedule_interval",None)
+        if callable(schedule_interval):
+            async def scheduled_backfill():
+                await run_backfill("定时",require_auto=True)
+            schedule_interval("消息转发助手：自动检查遗漏",scheduled_backfill,seconds=interval*60)
+            ctx.log.info("[消息转发助手] 已启用自动遗漏检查，间隔 %s 分钟",interval)
+        if ctx.user and ctx.config.get("enable",False) and any(isinstance(rule,dict) for rule in (ctx.config.get("rules") or [])):
+            backfill_task=ctx.create_task(run_backfill("启动",require_auto=True),name="消息转发助手：启动检查遗漏")
 
     def cleanup_backfill():
         if backfill_task is not None and not backfill_task.done():
