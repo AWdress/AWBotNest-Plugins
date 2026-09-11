@@ -1,4 +1,4 @@
-"""AWBotNest V2 原生消息流转助手。"""
+"""AWBotNest V2 原生消息转发助手。"""
 from __future__ import annotations
 import asyncio
 from io import BytesIO
@@ -8,8 +8,8 @@ import time
 
 __plugin__ = {
     "id": "msg_forward",
-    "name": "消息流转助手",
-    "version": "2.1.0",
+    "name": "消息转发助手",
+    "version": "2.1.1",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -17,7 +17,7 @@ __plugin__ = {
     "render_mode": "schema",
     "description": "统一提供规则转发、复制搬运、历史遗漏补全和回复复读；兼容迁移原“转发复读”配置。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
-    "tags": ["消息流转", "规则路由", "转发复读"],
+    "tags": ["消息转发", "规则路由", "转发复读"],
     "config_schema": {
         "enable": {
             "type": "boolean", "default": False, "label": "启用规则转发",
@@ -92,7 +92,8 @@ __plugin__ = {
         },
     },
     "resources": {"timeout_seconds": 120, "max_concurrency": 8, "max_background_tasks": 32},
-    "changelog": "v2.1.0 合并为消息流转助手\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\n"
+    "changelog": "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
+    "v2.1.0 合并消息转发与转发复读\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\n"
     "v2.0.6 修复遗漏补全数值配置\n- backfill_limit 改用平台支持的 number 类型并限制为整数步进\n- 兼容已有数字值，运行时继续执行 1 至 500 的整数边界保护\n\n"
     "v2.0.5 修复原生转发无响应\n- 改用来源会话与消息 ID 调用 Telethon 转发，兼容单条消息和相册\n- 原生转发返回空结果时自动降级为复制搬运\n- 来源频道禁止转发时记录原因并自动复制补发\n\n"
     "v2.0.4 修复复制搬运图片变成 unnamed 文件\n- 内存下载后恢复媒体文件名与扩展名，图片继续按 Telegram 照片发送\n- 文件、视频、音频按原媒体类型设置发送参数，并保留说明文字实体\n\n"
@@ -223,14 +224,14 @@ async def _forward(client,target,messages,log=None):
     try:
         result=await _native_forward(client,target,messages)
         if result is None or (isinstance(result,(list,tuple)) and not any(result)):
-            if log:log.warning("[消息流转助手] 原生转发未返回消息，自动降级为复制搬运 -> %s",target)
+            if log:log.warning("[消息转发助手] 原生转发未返回消息，自动降级为复制搬运 -> %s",target)
             return await _copy(client,target,messages,allow_native_fallback=False)
         return result
     except asyncio.CancelledError:
         raise
     except Exception as error:
         if not _forward_restricted(error):raise
-        if log:log.warning("[消息流转助手] 来源禁止原生转发，自动降级为复制搬运 -> %s: %r",target,error)
+        if log:log.warning("[消息转发助手] 来源禁止原生转发，自动降级为复制搬运 -> %s: %r",target,error)
         return await _copy(client,target,messages,allow_native_fallback=False)
 
 async def _copy(client,target,messages,allow_native_fallback=True,reply_to=None):
@@ -321,7 +322,7 @@ def _migrate_zf_config(ctx):
         changed=True
     if not changed:return False
     ctx.update_config(updates)
-    ctx.log.info("[消息流转助手] 已迁移旧“转发复读”配置并停用旧插件")
+    ctx.log.info("[消息转发助手] 已迁移旧“转发复读”配置并停用旧插件")
     return True
 
 async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
@@ -333,7 +334,7 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
             continue
         source = _peer(rule.get("source"))
         if source is None:
-            log.warning("[消息流转助手] 规则 %s 来源无效，已跳过", index + 1)
+            log.warning("[消息转发助手] 规则 %s 来源无效，已跳过", index + 1)
             continue
         try:
             source_entity = await client.get_entity(source)
@@ -365,15 +366,15 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
                             await _forward(client, target, messages, log)
                         sent.add(dedupe_key)
                         sent_count += 1
-                        log.info("[消息流转助手] 补全 %s (%s) -> %s (%s)，消息 %s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)))
+                        log.info("[消息转发助手] 补全 %s (%s) -> %s (%s)，消息 %s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)))
                     except asyncio.CancelledError:
                         raise
                     except Exception as error:
-                        log.warning("[消息流转助手] 补全失败 %s -> %s: %r", source_id, target, error)
+                        log.warning("[消息转发助手] 补全失败 %s -> %s: %r", source_id, target, error)
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            log.warning("[消息流转助手] 回查来源 %s 失败: %r", source, error)
+            log.warning("[消息转发助手] 回查来源 %s 失败: %r", source, error)
     return sent_count, skipped
 
 async def setup(ctx):
@@ -424,10 +425,10 @@ async def setup(ctx):
                     try:
                         await persist_sent()
                     except Exception as error:
-                        ctx.log.warning("[消息流转助手] 转发已完成，但去重检查点保存失败: %r", error)
-                    ctx.log.info("[消息流转助手] %s (%s) -> %s (%s)",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target)
+                        ctx.log.warning("[消息转发助手] 转发已完成，但去重检查点保存失败: %r", error)
+                    ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target)
                 except asyncio.CancelledError:raise
-                except Exception as error:ctx.log.warning("[消息流转助手] 转发失败 %s -> %s: %r",event.chat_id,target,error)
+                except Exception as error:ctx.log.warning("[消息转发助手] 转发失败 %s -> %s: %r",event.chat_id,target,error)
 
     @ctx.on_message(incoming=False,outgoing=True)
     async def repeat(event):
@@ -459,17 +460,17 @@ async def setup(ctx):
                 raise
             except Exception as error:
                 if mode=="copy":
-                    ctx.log.warning("[消息流转助手] 第 %d/%d 次复制失败: %r",index+1,times,error)
+                    ctx.log.warning("[消息转发助手] 第 %d/%d 次复制失败: %r",index+1,times,error)
                     continue
-                ctx.log.warning("[消息流转助手] 第 %d/%d 次转发失败，尝试复制: %r",index+1,times,error)
+                ctx.log.warning("[消息转发助手] 第 %d/%d 次转发失败，尝试复制: %r",index+1,times,error)
                 try:
                     await _copy(event.client,event.chat_id,[source],reply_to=topic)
                     completed+=1
                 except Exception as copy_error:
-                    ctx.log.warning("[消息流转助手] 第 %d/%d 次复制失败: %r",index+1,times,copy_error)
+                    ctx.log.warning("[消息转发助手] 第 %d/%d 次复制失败: %r",index+1,times,copy_error)
         try:await event.delete()
         except Exception:pass
-        ctx.log.info("[消息流转助手] 回复复读完成：%s/%s，模式=%s，会话=%s",completed,times,mode,event.chat_id)
+        ctx.log.info("[消息转发助手] 回复复读完成：%s/%s，模式=%s，会话=%s",completed,times,mode,event.chat_id)
 
     @ctx.action("backfill")
     async def action_backfill():
@@ -489,8 +490,8 @@ async def setup(ctx):
                 ctx.log, resolve, bool(ctx.config.get("forward_album", True)),
             )
             await persist_sent()
-            ctx.log.info("[消息流转助手] 遗漏补全完成：补发 %s 组，跳过 %s 组", count, skipped)
-        backfill_task = ctx.create_task(run_backfill(), name="消息流转助手：遗漏补全")
+            ctx.log.info("[消息转发助手] 遗漏补全完成：补发 %s 组，跳过 %s 组", count, skipped)
+        backfill_task = ctx.create_task(run_backfill(), name="消息转发助手：遗漏补全")
         return {"ok": True, "message": "已开始回查历史消息并补发遗漏，详情见插件日志"}
 
     def cleanup_backfill():
@@ -498,4 +499,4 @@ async def setup(ctx):
             backfill_task.cancel()
     ctx.add_cleanup(cleanup_backfill)
 
-async def teardown(ctx):ctx.log.info("[消息流转助手] 已停用")
+async def teardown(ctx):ctx.log.info("[消息转发助手] 已停用")
