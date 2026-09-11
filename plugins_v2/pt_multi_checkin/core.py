@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.53",
+    "version": "2.5.54",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.5.53 增强 Audiences Turnstile 令牌读取与诊断\n- 除隐藏字段外读取 Cloudflare 官方 getResponse 返回值\n- 提交前记录令牌取得方式，超时时输出页面与 iframe 诊断\n\nv2.5.52 修复 OurBits 首页误判已签到\n- 删除仅凭首页导航文字判断已签到的错误逻辑\n- HTTP 与浏览器流程只接受明确状态或签到回执\n\nv2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
+    "changelog": "v2.5.54 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.5.53 增强 Audiences Turnstile 令牌读取与诊断\n- 除隐藏字段外读取 Cloudflare 官方 getResponse 返回值\n- 提交前记录令牌取得方式，超时时输出页面与 iframe 诊断\n\nv2.5.52 修复 OurBits 首页误判已签到\n- 删除仅凭首页导航文字判断已签到的错误逻辑\n- HTTP 与浏览器流程只接受明确状态或签到回执\n\nv2.5.35 修复 Audiences Turnstile 点击可能落在外层容器的问题\n- 优先按 Cloudflare iframe 的真实边界点击复选框区域\n- 日志记录点击方式与 iframe 尺寸，便于确认真实交互\n\nv2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
