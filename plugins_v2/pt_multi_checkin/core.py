@@ -24,15 +24,15 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.5",
+    "version": "2.0.6",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12"],
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.4.9"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -429,6 +429,20 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     raw = text or ""
     visible = _html_visible_text(raw)
     compact = re.sub(r"\s+", "", visible).lower()
+    # U2 的验证题答错仍会完成当日签到并发放 1 UCoin。
+    # 必须在 Wrong answer 等通用错误词之前识别这类成功回执。
+    challenge_form_present = bool(re.search(r'name\s*=\s*["\']req["\']', raw, re.IGNORECASE))
+    award_match = re.search(r"(\d+(?:\.\d+)?)\s*ucoin", compact, re.IGNORECASE)
+    wrong_but_awarded = (
+        not challenge_form_present
+        and any(marker in compact for marker in (
+            "回答错误", "回答錯誤", "答案错误", "答案錯誤",
+            "wronganswer", "incorrectanswer",
+        ))
+        and award_match is not None
+    )
+    if wrong_but_awarded:
+        return "success", f"签到成功（回答错误，获得 {award_match.group(1)} UCoin）"
     if any(marker in compact for marker in (
         "签到失败", "簽到失敗", "验证失败", "驗證失敗", "答案错误", "答案錯誤",
         "wronganswer", "incorrectanswer", "invalidcaptcha", "captchaexpired",
@@ -826,11 +840,11 @@ def _ai_image_choice(ctx, loop, image: bytes, options: list[str]) -> int:
         "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
         "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
         "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
-        f"程序预定位结果：{marker}；图上如有红圈和十字，它们精确标出了目标圆点。"
+        f"程序预定位结果：{marker}；红圈是启发式定位结果，需结合原图独立复核。"
         "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
         + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
     )
-    for _ in range(3):
+    for attempt in range(1, 4):
         answer = _ai_call(
             ctx, loop, "vision", image=image, prompt=prompt,
             system="先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。",
@@ -838,8 +852,10 @@ def _ai_image_choice(ctx, loop, image: bytes, options: list[str]) -> int:
         match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer, re.IGNORECASE)
         index = int(match.group(1)) - 1 if match else -1
         if 0 <= index < len(options):
+            _runtime_log(ctx, f"U2 AI 识别选项：{options[index]}", site="U2")
             return index
-    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到")
+        _runtime_log(ctx, f"U2 AI 第 {attempt}/3 次未给出有效选项", level="warning", site="U2")
+    raise RuntimeError("AI 连续 3 次未能判断 U2 图片选项，未提交签到")
 
 
 def _highlight_u2_marker(image: bytes) -> tuple[bytes, str]:
@@ -1181,6 +1197,83 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
     if ctx is not None:
         _runtime_log(ctx, f"Turnstile 超时诊断：{diagnostics}", level="error", site="Audiences")
     raise RuntimeError("Audiences Turnstile 未在 180 秒内签发有效验证令牌；当前浏览器隔离上下文将被关闭")
+
+
+def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
+    """用真实 CloakBrowser 指纹与持久上下文处理 Audiences。
+
+    平台 BrowserService 实际启动的是每轮全新的 Playwright Chromium，
+    Cloudflare 下发的通行状态无法留到下次。这里只为 Audiences 保留
+    独立 storage_state，同时用 CookieCloud 的最新站点登录 Cookie 覆盖旧值。
+    """
+    import cloakbrowser
+
+    state_path = Path(ctx.data_dir) / "audiences_storage_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
+    launch_options = {
+        "headless": headless,
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ],
+        "locale": "zh-CN",
+        "timezone": "Asia/Shanghai",
+        "humanize": True,
+    }
+    if proxy_url:
+        launch_options["proxy"] = proxy_url
+
+    browser = context = page = None
+    try:
+        browser = cloakbrowser.launch(**launch_options)
+        context_options = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "zh-CN",
+            "timezone_id": "Asia/Shanghai",
+            "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
+        }
+        if state_path.exists():
+            context_options["storage_state"] = str(state_path)
+        try:
+            context = browser.new_context(**context_options)
+        except Exception as exc:
+            if "storage_state" not in context_options:
+                raise
+            _runtime_log(
+                ctx,
+                f"已保存的 Audiences 浏览器会话无法读取（{type(exc).__name__}），本轮将重建",
+                level="warning",
+                site="Audiences",
+            )
+            context_options.pop("storage_state", None)
+            context = browser.new_context(**context_options)
+        page = context.new_page()
+        page.set_default_timeout(20_000)
+
+        # add_cookies 只覆盖 CookieCloud 本轮提供的同名 Cookie；未在
+        # CookieCloud 中出现的 Cloudflare 通行状态仍保留在持久会话中。
+        _seed_browser_cookie_jar(page, cookie, "https://audiences.me/attendance.php")
+        return _browser_checkin(page, "audiences.me", ctx, None)
+    finally:
+        if context is not None:
+            try:
+                context.storage_state(path=str(state_path))
+            except Exception as exc:
+                _runtime_log(
+                    ctx,
+                    f"保存 Audiences 浏览器会话失败：{type(exc).__name__}",
+                    level="warning",
+                    site="Audiences",
+                )
+        for item in (page, context, browser):
+            if item is not None:
+                try:
+                    item.close()
+                except Exception:
+                    pass
 
 
 def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
@@ -1720,15 +1813,34 @@ async def _run(ctx, source: str) -> dict:
                                         level="warning",
                                         site=site["name"],
                                     )
-                            outcome = await _with_heartbeat(
-                                ctx.browser.run(
-                                    site["url"], action, cookies=cookie,
-                                    headless=browser_headless,
-                                    timeout=browser_timeout,
-                                ),
-                                ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
-                                max_wait=browser_timeout + 30,
-                            )
+                            if key == "audiences":
+                                _runtime_log(
+                                    ctx,
+                                    "使用持久真实 CloakBrowser 会话处理 Turnstile",
+                                    site=site["name"],
+                                )
+                                outcome = await _with_heartbeat(
+                                    asyncio.to_thread(
+                                        _audiences_cloak_checkin,
+                                        ctx,
+                                        cookie,
+                                        browser_headless,
+                                    ),
+                                    ctx,
+                                    site["name"],
+                                    "持久 CloakBrowser 正在等待 Turnstile 或签到结果",
+                                    max_wait=240,
+                                )
+                            else:
+                                outcome = await _with_heartbeat(
+                                    ctx.browser.run(
+                                        site["url"], action, cookies=cookie,
+                                        headless=browser_headless,
+                                        timeout=browser_timeout,
+                                    ),
+                                    ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
+                                    max_wait=browser_timeout + 30,
+                                )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
                         raise RuntimeError(str((outcome or {}).get("message") or "网站返回签到失败"))

@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.5',
+ 'version': '2.0.6',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.5 恢复 OurBits 首页签到确认\n'
+ 'changelog': 'v2.0.6 修复 Audiences 与 U2 签到\n'
+              '- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n'
+              '- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n'
+              '- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n'
+              '\n'
+              'v2.0.5 恢复 OurBits 首页签到确认\n'
               '- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n'
               '- 签到后跳回站点根页且签到入口消失时确认已完成\n'
               '- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n'
@@ -79,7 +84,11 @@ __plugin__ = {'name': 'PT站自动签到',
               '\n'
               'v2.5.34 Docker 缺少 DISPLAY 时自动启动 Xvfb',
  'scope': 'standalone',
- 'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'opencv-python-headless>=4.8', 'numpy>=1.24'],
+ 'requirements': ['httpx>=0.27',
+                  'beautifulsoup4>=4.12',
+                  'cloakbrowser>=0.4.9',
+                  'opencv-python-headless>=4.8',
+                  'numpy>=1.24'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',
