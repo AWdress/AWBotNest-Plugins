@@ -5,17 +5,17 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.5.54',
+ 'version': '2.0.4',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.5.54 TJUPT AI 完全自动化\n'
+ 'changelog': 'v2.0.4 TJUPT AI 完全自动化\n'
               '- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n'
               '- AI 识别失败时自动回退到 Telegram 手动选择模式\n'
               '- 优化 AI prompt，要求直接返回选项序号\n'
               '- 增强日志输出，记录 AI 识别过程和结果\n'
               '\n'
-              'v2.5.53 增强 Audiences Turnstile 令牌读取与诊断\n'
+              'v2.0.3 修复 U2 签到提交\n'
               '- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n'
               '- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n'
               '- 补充错误答案与过期验证识别，避免未确认状态重复误报\n'
