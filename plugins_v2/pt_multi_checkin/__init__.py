@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.8',
+ 'version': '2.0.9',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n'
+ 'changelog': 'v2.0.9 修复 Audiences Docker 自动验证\n'
+              '- 改用真正的 CloakBrowser 持久 profile 与固定指纹，避免 Cloudflare Cookie 和随机指纹错配\n'
+              '- Audiences 只等待托管验证自动签发令牌，不再误点空的 Turnstile 外层容器\n'
+              '- 控件未初始化时重新加载官方 API 并显式渲染，超时日志补充脚本、指纹和控件状态\n'
+              '\n'
+              'v2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n'
               '- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n'
               '- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n'
               '\n'
@@ -95,7 +100,7 @@ __plugin__ = {'name': 'PT站自动签到',
  'scope': 'standalone',
  'requirements': ['httpx>=0.27',
                   'beautifulsoup4>=4.12',
-                  'cloakbrowser>=0.4.9'],
+                  'cloakbrowser>=0.5.10'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',

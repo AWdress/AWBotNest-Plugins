@@ -24,15 +24,15 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.8",
+    "version": "2.0.9",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.9 修复 Audiences Docker 自动验证\n- 改用真正的 CloakBrowser 持久 profile 与固定指纹，避免 Cloudflare Cookie 和随机指纹错配\n- Audiences 只等待托管验证自动签发令牌，不再误点空的 Turnstile 外层容器\n- 控件未初始化时重新加载官方 API 并显式渲染，超时日志补充脚本、指纹和控件状态\n\nv2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.4.9"],
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -1044,15 +1044,131 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
+def _bootstrap_turnstile(page, form_selector: str) -> dict:
+    """在站点自动渲染失败时重新加载并显式渲染 Turnstile。"""
+    return page.evaluate(
+        """selector => {
+            const form = document.querySelector(selector);
+            const widget = form && form.querySelector('.cf-turnstile');
+            const result = {
+                action: 'none', apiReady: Boolean(window.turnstile), sitekey: '',
+                challengeFrames: 0, error: String(window.__awTurnstileError || '')
+            };
+            if (!form || !widget) {
+                result.error = '签到表单或 Turnstile 容器不存在';
+                return result;
+            }
+            result.sitekey = String(widget.dataset.sitekey || '');
+            result.challengeFrames = widget.querySelectorAll(
+                'iframe[src*="challenges.cloudflare.com"]'
+            ).length;
+            const token = ['cf-turnstile-response', 'cf-token']
+                .map(name => form.querySelector(`[name="${name}"]`))
+                .find(input => input && String(input.value || '').trim());
+            if (token || result.challengeFrames) {
+                result.action = token ? 'token-ready' : 'challenge-ready';
+                return result;
+            }
+
+            const apiScripts = Array.from(document.scripts).filter(script =>
+                String(script.src || '').includes('challenges.cloudflare.com/turnstile/')
+            );
+            if (!window.turnstile || typeof window.turnstile.render !== 'function') {
+                if (!document.querySelector('script[data-aw-turnstile-api="1"]')) {
+                    const script = document.createElement('script');
+                    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+                    script.async = true;
+                    script.defer = true;
+                    script.dataset.awTurnstileApi = '1';
+                    script.addEventListener('error', () => {
+                        window.__awTurnstileError = 'Cloudflare Turnstile API 加载失败';
+                    });
+                    document.head.appendChild(script);
+                    result.action = apiScripts.length ? 'reload-api' : 'inject-api';
+                } else {
+                    result.action = 'wait-api';
+                }
+                return result;
+            }
+            if (!result.sitekey) {
+                result.error = 'Turnstile 容器缺少 data-sitekey';
+                return result;
+            }
+            if (widget.dataset.awExplicitRendered === '1') {
+                result.action = 'wait-explicit-widget';
+                return result;
+            }
+
+            try {
+                const originalName = String(widget.dataset.callback || '');
+                const originalCallback = originalName && typeof window[originalName] === 'function'
+                    ? window[originalName] : null;
+                const params = {
+                    sitekey: result.sitekey,
+                    callback: tokenValue => {
+                        let input = form.querySelector('[name="cf-turnstile-response"]');
+                        if (!input) {
+                            input = document.createElement('input');
+                            input.type = 'hidden';
+                            input.name = 'cf-turnstile-response';
+                            form.appendChild(input);
+                        }
+                        input.value = String(tokenValue || '');
+                        if (originalCallback) {
+                            try { originalCallback(tokenValue); } catch (_) {}
+                        }
+                        if (form.dataset.awSubmitted !== '1') {
+                            form.dataset.awSubmitted = '1';
+                            if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                            else form.submit();
+                        }
+                    },
+                    'error-callback': code => {
+                        window.__awTurnstileError = `Turnstile error ${String(code || 'unknown')}`;
+                    },
+                    'expired-callback': () => {
+                        window.__awTurnstileError = 'Turnstile token expired';
+                    }
+                };
+                const optional = {
+                    action: widget.dataset.action,
+                    cData: widget.dataset.cdata,
+                    chlPageData: widget.dataset.chlPageData,
+                    theme: widget.dataset.theme,
+                    size: widget.dataset.size,
+                    language: widget.dataset.language,
+                    appearance: widget.dataset.appearance,
+                    execution: widget.dataset.execution
+                };
+                for (const [key, value] of Object.entries(optional)) {
+                    if (value) params[key] = value;
+                }
+                widget.replaceChildren();
+                widget.dataset.awExplicitRendered = '1';
+                window.__awTurnstileWidgetId = window.turnstile.render(widget, params);
+                result.action = 'render-explicit';
+            } catch (error) {
+                result.error = String(error && error.message || error);
+                window.__awTurnstileError = result.error;
+            }
+            return result;
+        }""",
+        form_selector,
+    )
+
+
 def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds: int = 30) -> dict:
     """等待 NexusPHP Turnstile 回调提交，只接受明确的服务端结果。"""
-    site_name = "OurBits" if expected_domain.lower() == "ourbits.club" else "Audiences"
-    form_selector = "#attendance" if expected_domain.lower() == "ourbits.club" else "#attendance-form"
+    is_audiences = expected_domain.lower() == "audiences.me"
+    site_name = "Audiences" if is_audiences else "OurBits"
+    form_selector = "#attendance-form" if is_audiences else "#attendance"
     timeout_seconds = max(1, min(30, int(timeout_seconds)))
     deadline = time.monotonic() + timeout_seconds
     started_at = time.monotonic()
     click_count = 0
     token_logged = False
+    bootstrap_action = ""
+    empty_widget_logged = False
     # Docker 中 Turnstile 的验证时间明显长于本地。短间隔反复点击会干扰甚至
     # 重置正在执行的 challenge，因此只在首次及长时间无结果时有限重试。
     retry_after = (0, 15)
@@ -1102,15 +1218,46 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
             }}""")
             page.wait_for_timeout(2_000)
             continue
-        # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
-        # 先访问 frame 内的原生复选框，再以 iframe 可视坐标作为兜底。
         now = time.monotonic()
         elapsed = now - started_at
-        should_click = click_count < len(retry_after) and elapsed >= retry_after[click_count]
+        challenge_frames = [
+            frame for frame in page.frames
+            if "challenges.cloudflare.com" in str(getattr(frame, "url", "") or "")
+        ]
+        if is_audiences and elapsed >= 3 and not challenge_frames:
+            try:
+                bootstrap = _bootstrap_turnstile(page, form_selector) or {}
+                action = str(bootstrap.get("action") or "")
+                error = str(bootstrap.get("error") or "")
+                if ctx is not None and action and action != bootstrap_action:
+                    _runtime_log(
+                        ctx,
+                        f"Turnstile 初始化恢复：{action}{f'，错误：{error}' if error else ''}",
+                        level="warning" if error else "info",
+                        site=site_name,
+                    )
+                bootstrap_action = action or bootstrap_action
+            except Exception as exc:
+                if ctx is not None and bootstrap_action != "bootstrap-error":
+                    _runtime_log(
+                        ctx,
+                        f"Turnstile 显式初始化失败：{type(exc).__name__}",
+                        level="warning",
+                        site=site_name,
+                    )
+                bootstrap_action = "bootstrap-error"
+        # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
+        # 先访问 frame 内的原生复选框，再以 iframe 可视坐标作为兜底。
+        # Audiences 在正常浏览器中会自动验证，不应主动点击；OurBits 保留交互路径。
+        should_click = (
+            not is_audiences
+            and click_count < len(retry_after)
+            and elapsed >= retry_after[click_count]
+        )
         if should_click:
             clicked = False
             click_detail = ""
-            for frame in page.frames:
+            for frame in challenge_frames:
                 try:
                     checkbox = frame.locator('input[type="checkbox"]')
                     if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
@@ -1132,22 +1279,19 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
                             click_detail = f"Cloudflare iframe 坐标，尺寸 {round(box['width'])}x{round(box['height'])}"
                 except Exception:
                     pass
-            if not clicked:
-                try:
-                    widget = page.locator(f"{form_selector} .cf-turnstile").first
-                    if widget.count() and widget.is_visible():
-                        box = widget.bounding_box()
-                        if box and box["width"] >= 80 and box["height"] >= 40:
-                            page.mouse.click(box["x"] + min(32, box["width"] / 4), box["y"] + min(32, box["height"] / 2))
-                            clicked = True
-                            click_detail = f"Turnstile 外层容器兜底，尺寸 {round(box['width'])}x{round(box['height'])}"
-                except Exception:
-                    pass
             if clicked:
                 click_count += 1
                 if ctx is not None:
                     suffix = "，等待验证完成" if click_count == 1 else "，此前验证长时间无结果"
                     _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次；{click_detail}{suffix}）", site=site_name)
+            elif ctx is not None and not challenge_frames and not empty_widget_logged:
+                _runtime_log(
+                    ctx,
+                    "Turnstile 外层容器尚未生成 Cloudflare 验证 iframe，不执行无效空容器点击",
+                    level="warning",
+                    site=site_name,
+                )
+                empty_widget_logged = True
         if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0:
             page.wait_for_timeout(min(2_000, max(1, int((deadline - time.monotonic()) * 1000))))
         else:
@@ -1157,7 +1301,23 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
             url: location.href,
             title: document.title,
             forms: document.querySelectorAll('{form_selector}').length,
-            widgets: document.querySelectorAll('.cf-turnstile').length,
+            widgets: Array.from(document.querySelectorAll('.cf-turnstile')).map(widget => ({{
+                sitekey: String(widget.dataset.sitekey || '').slice(0, 24),
+                children: widget.children.length,
+                text: String(widget.textContent || '').trim().slice(0, 120)
+            }})),
+            turnstileApi: Boolean(window.turnstile),
+            turnstileError: String(window.__awTurnstileError || ''),
+            scripts: Array.from(document.scripts)
+                .map(script => String(script.src || ''))
+                .filter(src => src.includes('turnstile') || src.includes('cloudflare'))
+                .slice(0, 8),
+            navigator: {{
+                webdriver: navigator.webdriver,
+                platform: navigator.platform,
+                userAgent: navigator.userAgent,
+                languages: navigator.languages
+            }},
             iframes: Array.from(document.querySelectorAll('iframe')).map(frame => ({{
                 title: frame.title || '', src: String(frame.src || '').slice(0, 160)
             }}))
@@ -1176,23 +1336,46 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
     )
 
 
-def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
-    """用真实 CloakBrowser 指纹与持久上下文处理 Audiences。
+def _audiences_fingerprint_seed(data_dir: str | os.PathLike) -> int:
+    """为 Audiences profile 保存稳定指纹，避免 Cookie 与指纹每轮错配。"""
+    seed_path = Path(data_dir) / "audiences_fingerprint_seed.txt"
+    try:
+        saved = int(seed_path.read_text(encoding="utf-8").strip())
+        if 10_000 <= saved <= 99_999:
+            return saved
+    except (OSError, TypeError, ValueError):
+        pass
+    seed = 10_000 + secrets.randbelow(90_000)
+    seed_path.parent.mkdir(parents=True, exist_ok=True)
+    seed_path.write_text(str(seed), encoding="utf-8")
+    return seed
 
-    平台 BrowserService 实际启动的是每轮全新的 Playwright Chromium，
-    Cloudflare 下发的通行状态无法留到下次。这里只为 Audiences 保留
-    独立 storage_state，同时用 CookieCloud 的最新站点登录 Cookie 覆盖旧值。
-    """
+
+def _legacy_audiences_cookies(state_path: Path) -> list[dict]:
+    """首次改用真实 profile 时迁移旧 storage_state 中的 Cloudflare Cookie。"""
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return []
+    cookies = payload.get("cookies", []) if isinstance(payload, dict) else []
+    return [item for item in cookies if isinstance(item, dict) and item.get("name")]
+
+
+def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
+    """使用稳定指纹和真实持久 profile 处理 Audiences 自动 Turnstile。"""
     import cloakbrowser
 
     deadline = time.monotonic() + 30
-    state_path = Path(ctx.data_dir) / "audiences_storage_state.json"
-    state_path.parent.mkdir(parents=True, exist_ok=True)
+    data_dir = Path(ctx.data_dir)
+    profile_dir = data_dir / "audiences_browser_profile"
+    state_path = data_dir / "audiences_storage_state.json"
+    migration_marker = profile_dir / ".storage_state_migrated"
+    fingerprint_seed = _audiences_fingerprint_seed(data_dir)
     proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
     launch_options = {
         "headless": headless,
         "args": [
-            "--disable-blink-features=AutomationControlled",
+            f"--fingerprint={fingerprint_seed}",
             "--disable-dev-shm-usage",
             "--no-sandbox",
             "--disable-setuid-sandbox",
@@ -1200,46 +1383,52 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
         "locale": "zh-CN",
         "timezone": "Asia/Shanghai",
         "humanize": True,
+        "human_preset": "careful",
+        "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
     }
     if proxy_url:
         launch_options["proxy"] = proxy_url
 
-    browser = context = page = None
+    version = str(getattr(cloakbrowser, "__version__", "未知"))
+    _runtime_log(
+        ctx,
+        f"启动 CloakBrowser {version} 持久 profile（指纹 {fingerprint_seed}，"
+        f"{'无头' if headless else '虚拟有头'}模式）",
+        site="Audiences",
+    )
+
+    context = page = None
     try:
-        browser = cloakbrowser.launch(**launch_options)
-        context_options = {
-            "viewport": {"width": 1920, "height": 1080},
-            "locale": "zh-CN",
-            "timezone_id": "Asia/Shanghai",
-            "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
-        }
-        if state_path.exists():
-            context_options["storage_state"] = str(state_path)
-        try:
-            context = browser.new_context(**context_options)
-        except Exception as exc:
-            if "storage_state" not in context_options:
-                raise
-            _runtime_log(
-                ctx,
-                f"已保存的 Audiences 浏览器会话无法读取（{type(exc).__name__}），本轮将重建",
-                level="warning",
-                site="Audiences",
-            )
-            context_options.pop("storage_state", None)
-            context = browser.new_context(**context_options)
-        page = context.new_page()
+        context = cloakbrowser.launch_persistent_context(
+            str(profile_dir),
+            **launch_options,
+        )
+        pages = list(getattr(context, "pages", []) or [])
+        page = pages[0] if pages else context.new_page()
         page.set_default_timeout(20_000)
 
-        # add_cookies 只覆盖 CookieCloud 本轮提供的同名 Cookie；未在
-        # CookieCloud 中出现的 Cloudflare 通行状态仍保留在持久会话中。
+        if state_path.exists() and not migration_marker.exists():
+            legacy_cookies = _legacy_audiences_cookies(state_path)
+            if legacy_cookies:
+                context.add_cookies(legacy_cookies)
+                _runtime_log(
+                    ctx,
+                    f"已迁移旧浏览器会话中的 {len(legacy_cookies)} 个 Cookie",
+                    site="Audiences",
+                )
+            migration_marker.parent.mkdir(parents=True, exist_ok=True)
+            migration_marker.write_text("1", encoding="utf-8")
+
+        # CookieCloud 的最新站点 Cookie 覆盖 profile 中的同名值；未同步的
+        # Cloudflare 通行状态、缓存和站点存储由真实 profile 持续保留。
         items = []
         for part in str(cookie or "").split(";"):
             name, separator, value = part.strip().partition("=")
             if separator and name:
                 items.append({"name": name, "value": value, "url": "https://audiences.me/attendance.php"})
         if items:
-            page.context.add_cookies(items)
+            context.add_cookies(items)
+
         remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
         if remaining_ms <= 1:
             raise RuntimeError("Audiences CloakBrowser 30 秒内未完成启动，本轮已跳过")
@@ -1257,20 +1446,9 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
     finally:
         if context is not None:
             try:
-                context.storage_state(path=str(state_path))
-            except Exception as exc:
-                _runtime_log(
-                    ctx,
-                    f"保存 Audiences 浏览器会话失败：{type(exc).__name__}",
-                    level="warning",
-                    site="Audiences",
-                )
-        for item in (page, context, browser):
-            if item is not None:
-                try:
-                    item.close()
-                except Exception:
-                    pass
+                context.close()
+            except Exception:
+                pass
 
 
 def _site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headless: bool, loop) -> dict:
