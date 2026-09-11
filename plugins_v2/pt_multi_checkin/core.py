@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.4",
+    "version": "2.0.5",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -394,6 +394,19 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
+def _ourbits_home_completed(text: str, path: str) -> bool:
+    """识别 OurBits 签到后跳转到的无文字回执首页。"""
+    if (path or "/").lower() != "/":
+        return False
+    compact = re.sub(r"\s+", "", text or "").lower()
+    authenticated = all(marker in compact for marker in ("首页", "论坛", "种子"))
+    login_markers = ("用户名", "密码", "登录", "安全验证", "checkingyourbrowser")
+    attendance_markers = ("立即签到", "点击签到", "今日未签到", "attendance.php")
+    return authenticated \
+        and not any(marker in compact for marker in login_markers) \
+        and not any(marker in compact for marker in attendance_markers)
+
+
 def _hhan_result_state(html: str) -> tuple[str, str] | None:
     """HHanClub 会反复展示最近一次奖励，须以当天记录创建时间区分本次与已签到。"""
     today = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d")
@@ -710,6 +723,9 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         page.goto(home_url, wait_until="domcontentloaded", timeout=60_000)
         for _ in range(15):
             home_text = _page_text(page)
+            if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(
+                    home_text, urlparse(page.url).path):
+                return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
             state = _nexus_result_state(home_text)
             if state:
                 status, message = state
@@ -1243,6 +1259,8 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
         if not path.lower().endswith("/attendance.php"):
             page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
             return _browser_checkin(page, expected_domain, ctx, loop, piggo_submitted=True)
+    if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(text, path):
+        return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1415,6 +1433,11 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             # Audiences 的 attendance.php 在 Docker/CF 链路中会完成签到后返回无回执的站点模板。
             # 此处仅接受已通过登录与安全页检查的 2xx 同站请求，避免把登录页或挑战页误报为成功。
             response_domain = (urlparse(str(response.url)).hostname or "").lower()
+            response_path = urlparse(str(response.url)).path or "/"
+            if key == "ourbits" and response.status_code < 300 \
+                    and _same_site_domain(response_domain, site["domain"]) \
+                    and _ourbits_home_completed(visible_text, response_path):
+                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             if key == "audiences" and response.status_code < 300 \
                     and _same_site_domain(response_domain, site["domain"]):
                 return {"status": "success", "message": "签到请求已完成（站点未返回文字回执）", "engine": "http"}
