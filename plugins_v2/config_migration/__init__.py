@@ -10,10 +10,15 @@ from urllib.parse import urlparse
 
 __plugin__ = {'name': '平台迁移助手',
  'id': 'config_migration',
- 'version': '1.1.1',
+ 'version': '1.1.2',
  'author': 'AWdress',
  'description': '通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。',
- 'changelog': 'v1.1.1 适配新版 Vue 配置校验\n'
+ 'changelog': 'v1.1.2 修复预览后无法执行迁移\n'
+              '- 读取成功后由后端保存连接参数和新迁移码，避免前端保存触发插件重载并清空迁移包\n'
+              '- 兼容配置页密码脱敏占位值，重新读取时使用已保存的真实密钥\n'
+              '- 配置页重新挂载时恢复当前有效预览\n'
+              '\n'
+              'v1.1.1 适配新版 Vue 配置校验\n'
               '- Vue 页面业务字段按新规范由自定义配置页保存\n'
               '- schema 仅保留密码等敏感字段，避免数组或对象被旧类型声明拒绝\n'
               '\n'
@@ -138,8 +143,15 @@ async def _fetch(ctx, values: dict) -> dict:
     parsed=urlparse(base)
     if parsed.scheme not in {"http","https"} or not parsed.netloc:
         raise ValueError("V1 平台地址无效")
+    current = ctx.config
     key=str(values.get("v1_webhook_secret") or "").strip()
     code=str(values.get("migration_code") or "")
+    # 密码配置在管理页读取时会被脱敏为 ********。插件 API 不经过
+    # 通用配置保存端点，需要在后端恢复已保存的真实值。
+    if key == "********":
+        key = str(current.get("v1_webhook_secret") or "").strip()
+    if code == "********":
+        code = str(current.get("migration_code") or "")
     if not key or len(code)<8: raise ValueError("请填写 V1 Webhook 密钥和至少 8 位迁移码")
     url=f"{base}/api/v1/plugin/config_migration/webhook"
     response=await ctx.http.post(url, params={"apikey":key}, json={"code":code}, timeout=30)
@@ -160,6 +172,7 @@ async def setup(ctx):
     async def preview(request):
         global _bundle, _preview
         values=_body(request)
+        _bundle=None; _preview=None
         try:
             _bundle=await _fetch(ctx, values)
         except ValueError as exc:
@@ -169,8 +182,21 @@ async def setup(ctx):
             return {"ok":False, "error":"无法连接 V1 平台，请检查地址、端口及两端网络是否互通"}
         converted=_convert(_bundle); _preview=_summary(converted)
         next_code=str(_bundle.pop("next_code", "") or "")
-        if next_code:
-            ctx.update_config({"migration_code": next_code})
+        # update_config 直接持久化配置且不会重载插件。若改由前端
+        # saveConfig，平台会执行 disable/enable，导致刚读取的 _bundle 被清空。
+        ctx.update_config({
+            "v1_url": str(values.get("v1_url") or "").strip(),
+            "v1_webhook_secret": (
+                str(ctx.config.get("v1_webhook_secret") or "")
+                if str(values.get("v1_webhook_secret") or "") == "********"
+                else str(values.get("v1_webhook_secret") or "")
+            ),
+            "migration_code": next_code or (
+                str(ctx.config.get("migration_code") or "")
+                if str(values.get("migration_code") or "") == "********"
+                else str(values.get("migration_code") or "")
+            ),
+        })
         ctx.log.info("已读取 V1 迁移包：%s 个插件配置（敏感内容未写入日志）", _preview["plugin_configs"])
         return {"ok":True, "preview":_preview, "next_code":next_code,
                 "warning":"预览已脱敏；执行迁移前会自动备份 V2 配置。"}
