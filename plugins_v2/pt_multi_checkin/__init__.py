@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.10',
+ 'version': '2.0.11',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.10 修复签到参数显示不完整\n'
+ 'changelog': 'v2.0.11 对齐 CloakBrowser 官方 Turnstile 流程\n'
+              '- Audiences 与 OurBits 使用 Preview 持久会话、代理 GeoIP 和原生验证流程\n'
+              '- 移除固定语言与代理出口不一致、显式重建控件和高频 CDP 等待\n'
+              '- 清理 V2 前端隐藏文件，修复插件路径安全检查失败\n'
+              '\n'
+              'v2.0.10 修复签到参数显示不完整\n'
               '- 数字输入框保留稳定宽度，避免浏览器步进控件遮挡数值\n'
               '- 重试间隔单位改为独立布局，窄窗口自动换行且不再与数值重叠\n'
               '\n'
@@ -104,7 +109,8 @@ __plugin__ = {'name': 'PT站自动签到',
  'scope': 'standalone',
  'requirements': ['httpx>=0.27',
                   'beautifulsoup4>=4.12',
-                  'cloakbrowser>=0.5.10'],
+                  'cloakbrowser>=0.5.10',
+                  'geoip2>=4.8'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',
