@@ -145,26 +145,36 @@ async def setup(ctx):
     @ctx.on_message(incoming=True)
     async def on_new_lottery(event):
         client, message = event.client, event.message
-        sender, chat = await event.get_sender(), await event.get_chat()
-        message._v2_chat = chat
+        sender = await event.get_sender()
         cfg = ctx.config
         text = message.raw_text or ""
         if "新的抽奖已经创建" not in text or "参与关键词" not in text:
             return
         # 来源机器人校验（小菜抽奖 bot）
         bot_id = _int_cfg(cfg, "lottery_bot_id", 6461022460)
-        fu = sender
-        if not (fu and getattr(fu, "bot", False) and fu.id == bot_id):
+        sender_id = getattr(event, "sender_id", None) or getattr(sender, "id", None)
+        if sender_id != bot_id:
             return
+        chat = await event.get_chat()
+        message._v2_chat = chat
         # 参与群组校验（合并去重；不选 = 全部群组都参与）
         groups = _all_lottery_groups(cfg)
         if groups and event.chat_id not in groups:
+            ctx.log.info("[小菜抽奖] 检测到新抽奖但群组不在监听范围：chat=%s msg=%s",
+                         event.chat_id, message.id)
             return
 
         _state.prune_stale(ctx.log)
-        info = parse_new_lottery(text, message.entities)
+        try:
+            info = parse_new_lottery(text, message.entities)
+        except Exception as exc:  # noqa: BLE001 - malformed Telegram entity must not kill listener
+            ctx.log.error("[小菜抽奖] 新抽奖消息解析异常：chat=%s msg=%s error=%r",
+                          event.chat_id, message.id, exc)
+            return
         lottery_id = info.get("ID", "")
         if not lottery_id or not info.get("keyword"):
+            ctx.log.warning("[小菜抽奖] 新抽奖解析失败：chat=%s msg=%s，ID=%r，关键词=%r",
+                            event.chat_id, message.id, lottery_id, info.get("keyword"))
             return
 
         # ── 陷阱检测 ──
@@ -189,6 +199,7 @@ async def setup(ctx):
 
         # ── 总开关 ──
         if not cfg.get("auto_lottery_enabled", False):
+            ctx.log.info("[小菜抽奖] 检测到新抽奖 %s，但“自动抽奖”开关未开启", lottery_id)
             await _maybe_notify(
                 f"自动抽奖未开启，跳过\n\n{lottery_id}\n\n{getattr(message, 'link', '')}",
                 "info", client, skip=True)
@@ -196,6 +207,7 @@ async def setup(ctx):
 
         # ── 时间窗 ──
         if not is_within_time_ranges(parse_time_ranges(cfg.get("auto_lottery_time", ""))):
+            ctx.log.info("[小菜抽奖] 抽奖 %s 不在配置的参与时间段，已跳过", lottery_id)
             await _maybe_notify(
                 f"不在抽奖时间段，跳过\n\n{lottery_id}\n\n{getattr(message, 'link', '')}",
                 "info", client, skip=True)
@@ -210,6 +222,8 @@ async def setup(ctx):
                 info.get("prize", ""), prize_map, event.chat_id,
                 universal=True, case_sensitive=cfg.get("prize_case_sensitive", False))
             if hit is None:
+                ctx.log.info("[小菜抽奖] 抽奖 %s 的奖品未命中白名单，已跳过：%s",
+                             lottery_id, info.get("prize", ""))
                 await _maybe_notify(
                     f"奖品不在白名单，跳过\n\n{lottery_id}\n\n{info.get('prize','')}\n\n"
                     f"{getattr(message, 'link', '')}", "info", client, skip=True)
@@ -365,8 +379,8 @@ async def setup(ctx):
         if not (is_auto or is_manual):
             return
         bot_id = _int_cfg(cfg, "lottery_bot_id", 6461022460)
-        fu = sender
-        if not (fu and getattr(fu, "bot", False) and fu.id == bot_id):
+        sender_id = getattr(event, "sender_id", None) or getattr(sender, "id", None)
+        if sender_id != bot_id:
             return
         # 群组过滤只作用于「中奖社交回应」（感谢/黑幕/回用户名）——你只在自动参与的群里
         # 发这些社交消息，对齐原项目 lottery_draw_result 的 all_groups 过滤。
@@ -731,7 +745,14 @@ async def setup(ctx):
         n = _store.clear()
         return {"ok": True, "cleared": n}
 
-    ctx.log.info("小菜抽奖插件已启用")
+    groups = _all_lottery_groups(ctx.config)
+    ctx.log.info(
+        "[小菜抽奖] 插件已启用：自动参与=%s，来源 Bot=%s，监听群组=%s，陷阱检测=%s",
+        "开启" if ctx.config.get("auto_lottery_enabled", False) else "关闭",
+        _int_cfg(ctx.config, "lottery_bot_id", 6461022460),
+        "全部" if not groups else len(groups),
+        "开启" if ctx.config.get("trap_enabled", True) else "关闭",
+    )
 
 
 async def teardown(ctx):

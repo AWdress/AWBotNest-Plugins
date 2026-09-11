@@ -24,7 +24,12 @@ def sanitize(text: str) -> str:
 
 
 def extract_text(message) -> str:
-    raw = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+    raw = (
+        getattr(message, "raw_text", None)
+        or getattr(message, "text", None)
+        or getattr(message, "caption", None)
+        or ""
+    )
     return sanitize(raw).strip()
 
 
@@ -55,11 +60,15 @@ def parse_packet_meta(caption: str) -> dict:
 def find_numbered_buttons(message) -> list[tuple[int, int]]:
     """返回所有未抢数字按钮的 (row, col) 列表（癫影积分红包）。"""
     result: list[tuple[int, int]] = []
-    markup = getattr(message, "reply_markup", None)
-    if not markup or not getattr(markup, "inline_keyboard", None):
-        return result
-    for r, row in enumerate(markup.inline_keyboard):
-        for c, btn in enumerate(row):
+    # Telethon 的便捷属性是 ``message.buttons``；底层 ReplyInlineMarkup 则是
+    # ``reply_markup.rows[*].buttons``。V1/Pyrogram 的旧按钮集合在 V2 消息上
+    # 不存在，因此必须同时兼容前两种 Telethon 结构。
+    rows = getattr(message, "buttons", None)
+    if not rows:
+        markup = getattr(message, "reply_markup", None)
+        rows = [getattr(row, "buttons", []) for row in (getattr(markup, "rows", None) or [])]
+    for r, row in enumerate(rows or []):
+        for c, btn in enumerate(row or []):
             text = (getattr(btn, "text", "") or "").strip()
             if re.search(r"[一-鿿]", text):  # 含中文 → 管理员按钮（如「终止(管理员)」），跳过
                 continue

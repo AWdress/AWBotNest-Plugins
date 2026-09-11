@@ -118,11 +118,12 @@ async def setup(ctx):
         if not cfg.get("dyp_enabled", False):
             return
         fu = await event.get_sender()
-        chat = await event.get_chat()
-        if not (fu and getattr(fu, "is_bot", False) and fu.id == _DYP_BOT_ID):
+        sender_id = getattr(event, "sender_id", None) or getattr(fu, "id", None)
+        if sender_id != _DYP_BOT_ID:
             return
         if event.chat_id != _DYP_GROUP_ID:
             return
+        chat = await event.get_chat()
         # 该 bot 在该群只发红包，匹配「红包」即可。混合红包文案含「红包」（也含「雷包」，
         # 但已不再据此整包跳过）。
         caption = extract_text(message)
@@ -151,7 +152,9 @@ async def setup(ctx):
 
         for idx, (row, col) in enumerate(positions, start=1):
             try:
-                result = await message.click(x=col, y=row, timeout=10)
+                # Telethon 使用 i/j，而非 Pyrogram 的 x/y；Message.click 本身
+                # 没有 timeout 参数，超时由 asyncio 托管。
+                result = await asyncio.wait_for(message.click(i=row, j=col), timeout=10)
                 rtext = getattr(result, "text", None) or getattr(result, "message", None) or ""
                 rstr = rtext or str(result)
                 ctx.log.info("[癫影积分红包] 第%d格(行%d列%d) 结果=%r", idx, row, col, rstr)
@@ -186,7 +189,13 @@ async def setup(ctx):
         await records.add_history({"type": "癫影积分红包", "group_id": event.chat_id,
                              "meta": brief, "result": "未抢到", "ok": False})
 
-    ctx.log.info("[癫影积分红包] 已加载")
+    ctx.log.info(
+        "[癫影积分红包] 已加载：自动抢包=%s，固定群=%s，延迟=%s~%s 秒",
+        "开启" if ctx.config.get("dyp_enabled", False) else "关闭",
+        _DYP_GROUP_ID,
+        ctx.config.get("dyp_delay", 0),
+        ctx.config.get("dyp_delay_max", 0),
+    )
 
 
 async def _notify(ctx, client, text, level="info"):

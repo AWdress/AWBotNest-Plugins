@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, time
+from telethon.helpers import add_surrogate, del_surrogate
 
 
 # ─── 配置解析工具 ────────────────────────────────────────────────────────────
@@ -179,10 +180,32 @@ _NEW_LOTTERY_PATTERNS = {
 }
 
 
+def _entity_kind(entity) -> str:
+    """返回统一的消息实体类型名，兼容 Telethon 与旧 Pyrogram 数据。"""
+    legacy_type = getattr(entity, "type", None)
+    if legacy_type is not None:
+        return str(legacy_type).split('.')[-1].lower()
+    name = type(entity).__name__
+    if name.startswith("MessageEntity"):
+        name = name[len("MessageEntity"):]
+    aliases = {"TextUrl": "text_link", "Url": "url", "Bold": "bold"}
+    return aliases.get(name, name.lower())
+
+
+def _entity_text(text: str, entity) -> str:
+    """按 Telegram UTF-16 offset/length 安全截取实体文本。"""
+    try:
+        surrogate = add_surrogate(text)
+        start = int(entity.offset)
+        return del_surrogate(surrogate[start:start + int(entity.length)])
+    except (AttributeError, TypeError, ValueError):
+        return ""
+
+
 def parse_new_lottery(text: str, entities=None) -> dict:
     """
     解析「新的抽奖已经创建」消息，返回结构化信息字典。
-    entities: 可选的 pyrogram entities 列表，用于保留关键词中的粗体格式（** 包裹）。
+    entities: 可选的 Telethon/Pyrogram entities 列表，用于保留关键词中的粗体格式（** 包裹）。
     """
     info: dict = {}
     for key, pat in _NEW_LOTTERY_PATTERNS.items():
@@ -200,19 +223,21 @@ def parse_new_lottery(text: str, entities=None) -> dict:
     # 保留关键词的粗体格式
     keyword_with_format = info['keyword']
     if entities and info['keyword']:
-        keyword_start = text.find(info['keyword'])
+        surrogate_text = add_surrogate(text)
+        surrogate_keyword = add_surrogate(info['keyword'])
+        keyword_start = surrogate_text.find(surrogate_keyword)
         if keyword_start != -1:
-            keyword_end = keyword_start + len(info['keyword'])
+            keyword_end = keyword_start + len(surrogate_keyword)
             for entity in entities:
-                entity_start = entity.offset
-                entity_end = entity.offset + entity.length
+                entity_start = int(getattr(entity, "offset", -1))
+                entity_end = entity_start + int(getattr(entity, "length", 0))
                 if (keyword_start <= entity_start < keyword_end or
                         keyword_start < entity_end <= keyword_end):
-                    entity_type = str(entity.type).split('.')[-1].lower()
-                    if entity_type == 'bold':
-                        bold_text = text[entity_start:entity_end]
-                        keyword_with_format = keyword_with_format.replace(
-                            bold_text, f'**{bold_text}**')
+                    if _entity_kind(entity) == 'bold':
+                        bold_text = _entity_text(text, entity)
+                        if bold_text:
+                            keyword_with_format = keyword_with_format.replace(
+                                bold_text, f'**{bold_text}**')
     info['keyword'] = keyword_with_format
 
     # 参与人数（陷阱检测用）
@@ -460,13 +485,13 @@ def extract_participation_target(draw_text: str, entities, user_name: str, user_
     user_match = re.search(user_text_pattern, draw_text)
     if not user_match:
         return None
-    user_end_pos = user_match.end()
+    user_end_pos = len(add_surrogate(draw_text[:user_match.end()]))
     participation_link = None
     for entity in entities:
-        entity_start = entity.offset
-        entity_text = draw_text[entity_start:entity_start + entity.length]
+        entity_start = int(getattr(entity, "offset", -1))
+        entity_text = _entity_text(draw_text, entity)
         if user_end_pos <= entity_start <= user_end_pos + 30:
-            entity_type_str = str(entity.type).split('.')[-1].lower()
+            entity_type_str = _entity_kind(entity)
             if entity_type_str == "text_link":
                 if getattr(entity, "url", None):
                     if "参与消息" in entity_text or "/c/" in entity.url:

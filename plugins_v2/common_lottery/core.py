@@ -112,7 +112,7 @@ def _extract_join_targets(message) -> list:
     """从抽奖消息提取需加入的群/频道（text_link entity 优先，回退正文 t.me）。"""
     targets = []
     for entity in (message.entities or []):
-        # 不 import pyrogram，用 entity.type 的字符串名判断 TEXT_LINK
+        # Telethon 的 MessageEntityTextUrl 直接暴露 url。
         url = getattr(entity, "url", None)
         if url:
             url = url.strip()
@@ -142,11 +142,15 @@ def _normalize_join_arg(link: str):
 
 
 async def _check_joined(client, link: str, log) -> bool:
-    """只读检测是否已加入（仅公开 username/链接有效）。"""
+    """只读检测是否已加入，兼容公开链接与私有邀请链接。"""
     arg, is_invite = _normalize_join_arg(link)
-    if not arg or is_invite:
+    if not arg:
         return False
     try:
+        if is_invite:
+            invite_hash = str(arg).rstrip("/").rsplit("/", 1)[-1].lstrip("+")
+            result = await client(functions.messages.CheckChatInviteRequest(invite_hash))
+            return type(result).__name__ == "ChatInviteAlready"
         await client.get_permissions(arg, "me")
         return True
     except Exception as e:  # noqa: BLE001 - UserNotParticipant 等统一视为未加入
@@ -167,7 +171,7 @@ async def _ensure_joined(client, link: str) -> tuple:
             await client(functions.channels.JoinChannelRequest(arg))
         return True, f"已加入: {link}"
     except Exception as e:  # noqa: BLE001
-        name = type(e).__name__
+        name = type(e).__name__.removesuffix("Error")
         if name == "UserAlreadyParticipant":
             return True, f"已在群内: {link}"
         if name == "FloodWait":
@@ -199,22 +203,28 @@ def _parse_lottery(message) -> dict:
 
 
 async def setup(ctx):
-    @ctx.on_message()
+    @ctx.on_message(incoming=True)
     async def common_new_lottery(event):
         client, message = event.client, event.message
         cfg = ctx.config
         text = message.raw_text or ""
         fu = await event.get_sender()
-        chat = await event.get_chat()
-        if not (fu and getattr(fu, "bot", False) and fu.id == _BOT_ID):
+        sender_id = getattr(event, "sender_id", None) or getattr(fu, "id", None)
+        if sender_id != _BOT_ID:
             return
         # 抽奖消息特征：含口令 + （人数/日期开奖）
         if "🔑" not in text or "抽奖口令" not in text:
             return
         if not ("开奖需要参与人数" in text or "开奖日期" in text):
+            ctx.log.debug("[通用抽奖] 收到 Lottery8Bot 口令消息，但未识别开奖条件：msg=%s",
+                          message.id)
             return
         if not _group_allowed(cfg, event.chat_id):
+            ctx.log.info("[通用抽奖] 检测到抽奖但群组不在监听范围：chat=%s msg=%s",
+                         event.chat_id, message.id)
             return
+
+        chat = await event.get_chat()
 
         _prune_stale(ctx.log)
         info = _parse_lottery(message)
@@ -305,13 +315,14 @@ async def setup(ctx):
                 except Exception:
                     pass
 
-    @ctx.on_message()
+    @ctx.on_message(incoming=True)
     async def common_draw_result(event):
         client, message = event.client, event.message
         cfg = ctx.config
         text = message.raw_text or ""
         fu = await event.get_sender()
-        if not (fu and getattr(fu, "bot", False) and fu.id == _BOT_ID):
+        sender_id = getattr(event, "sender_id", None) or getattr(fu, "id", None)
+        if sender_id != _BOT_ID:
             return
         if "开奖了" not in text or "本期总参与人数" not in text:
             return
@@ -321,6 +332,15 @@ async def setup(ctx):
         for k in [k for k, v in _lottery_list.items() if v["chat_id"] == event.chat_id]:
             _lottery_list.pop(k, None)
             _added_at.pop(k, None)
+
+    groups = _parse_groups(ctx.config.get("groups"))
+    ctx.log.info(
+        "[通用抽奖] 已启用：来源 Bot=%s，监听群组=%s，自动加群=%s，等待=%s~%s 秒",
+        _BOT_ID,
+        "全部" if not groups else len(groups),
+        "开启" if ctx.config.get("auto_join", False) else "关闭",
+        *_wait_range(ctx.config),
+    )
 
 
 async def teardown(ctx):
