@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.6",
+    "version": "2.0.7",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -394,19 +394,6 @@ def _nexus_result_state(text: str) -> tuple[str, str] | None:
     return None
 
 
-def _ourbits_home_completed(text: str, path: str) -> bool:
-    """识别 OurBits 签到后跳转到的无文字回执首页。"""
-    if (path or "/").lower() != "/":
-        return False
-    compact = re.sub(r"\s+", "", text or "").lower()
-    authenticated = all(marker in compact for marker in ("首页", "论坛", "种子"))
-    login_markers = ("用户名", "密码", "登录", "安全验证", "checkingyourbrowser")
-    attendance_markers = ("立即签到", "点击签到", "今日未签到", "attendance.php")
-    return authenticated \
-        and not any(marker in compact for marker in login_markers) \
-        and not any(marker in compact for marker in attendance_markers)
-
-
 def _hhan_result_state(html: str) -> tuple[str, str] | None:
     """HHanClub 会反复展示最近一次奖励，须以当天记录创建时间区分本次与已签到。"""
     today = datetime.now(_CHINA_TZ).strftime("%Y-%m-%d")
@@ -424,7 +411,7 @@ def _hhan_result_state(html: str) -> tuple[str, str] | None:
     return "already", "今天已经签到"
 
 
-def _u2_result_state(text: str) -> tuple[str, str] | None:
+def _u2_result_state(text: str, *, submitted: bool = False) -> tuple[str, str] | None:
     """识别 U2 的最终签到状态；不把未签到时的 Show Up 菜单当成成功。"""
     raw = text or ""
     visible = _html_visible_text(raw)
@@ -443,6 +430,12 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
     )
     if wrong_but_awarded:
         return "success", f"签到成功（回答错误，获得 {award_match.group(1)} UCoin）"
+    wrong_answer = any(marker in compact for marker in (
+        "回答错误", "回答錯誤", "答案错误", "答案錯誤",
+        "wronganswer", "incorrectanswer",
+    ))
+    if submitted and wrong_answer:
+        return "success", "签到成功（回答错误，获得 1 UCoin）"
     if any(marker in compact for marker in (
         "签到失败", "簽到失敗", "验证失败", "驗證失敗", "答案错误", "答案錯誤",
         "wronganswer", "incorrectanswer", "invalidcaptcha", "captchaexpired",
@@ -467,7 +460,28 @@ def _u2_result_state(text: str) -> tuple[str, str] | None:
 
 def _u2_submit_with_browser(page, submit) -> str:
     """使用真实浏览器表单提交 U2 验证，避免 fetch/XHR 被站点 WAF 拒绝。"""
-    submit.click(timeout=15_000)
+    submit.evaluate("""element => {
+        const form = element.form;
+        if (!form) throw new Error('submit control has no form');
+        const message = form.querySelector('[name="message"]');
+        if (message && !String(message.value || '').trim()) {
+            message.value = '每日自动签到';
+            message.dispatchEvent(new Event('input', {bubbles: true}));
+            message.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit(element);
+            return;
+        }
+        if (element.name) {
+            const hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = element.name;
+            hidden.value = element.value || '';
+            form.appendChild(hidden);
+        }
+        form.submit();
+    }""")
     try:
         page.wait_for_load_state("domcontentloaded", timeout=30_000)
     except Exception:
@@ -737,9 +751,6 @@ def _confirm_result(page, *, attempts: int = 3, expected_domain: str = "") -> di
         page.goto(home_url, wait_until="domcontentloaded", timeout=60_000)
         for _ in range(15):
             home_text = _page_text(page)
-            if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(
-                    home_text, urlparse(page.url).path):
-                return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
             state = _nexus_result_state(home_text)
             if state:
                 status, message = state
@@ -834,67 +845,6 @@ def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
     raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
 
 
-def _ai_image_choice(ctx, loop, image: bytes, options: list[str]) -> int:
-    image, marker = _highlight_u2_marker(image)
-    prompt = (
-        "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
-        "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
-        "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
-        f"程序预定位结果：{marker}；红圈是启发式定位结果，需结合原图独立复核。"
-        "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
-        + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
-    )
-    for attempt in range(1, 4):
-        answer = _ai_call(
-            ctx, loop, "vision", image=image, prompt=prompt,
-            system="先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。",
-        )
-        match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer, re.IGNORECASE)
-        index = int(match.group(1)) - 1 if match else -1
-        if 0 <= index < len(options):
-            _runtime_log(ctx, f"U2 AI 识别选项：{options[index]}", site="U2")
-            return index
-        _runtime_log(ctx, f"U2 AI 第 {attempt}/3 次未给出有效选项", level="warning", site="U2")
-    raise RuntimeError("AI 连续 3 次未能判断 U2 图片选项，未提交签到")
-
-
-def _highlight_u2_marker(image: bytes) -> tuple[bytes, str]:
-    """定位半透明圆点并高亮；OpenCV 不可用或置信度不足时安全回退原图。"""
-    try:
-        import cv2  # 平台 ddddocr 运行环境已提供，保持插件无额外强制依赖
-        import numpy as np
-
-        frame = cv2.imdecode(np.frombuffer(image, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if frame is None:
-            return image, "未能预定位，请直接观察半透明圆点"
-        gray = cv2.medianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 5)
-        height, width = gray.shape[:2]
-        shortest = min(height, width)
-        circles = cv2.HoughCircles(
-            gray, cv2.HOUGH_GRADIENT, dp=1.2, minDist=max(30, shortest // 10),
-            param1=80, param2=28,
-            minRadius=max(12, int(shortest * 0.035)), maxRadius=max(24, int(shortest * 0.085)),
-        )
-        if circles is None:
-            return image, "未能预定位，请直接观察半透明圆点"
-        yy, xx = np.ogrid[:height, :width]
-        ranked = []
-        for raw_x, raw_y, raw_r in circles[0]:
-            mask = (xx - raw_x) ** 2 + (yy - raw_y) ** 2 <= (raw_r * 0.72) ** 2
-            ranked.append((float(gray[mask].std()), int(round(raw_x)), int(round(raw_y)), int(round(raw_r))))
-        deviation, x, y, radius = min(ranked)
-        if deviation > 24:
-            return image, "预定位置信度不足，请直接观察半透明圆点"
-        cv2.circle(frame, (x, y), radius + 7, (0, 0, 255), 4)
-        cv2.line(frame, (max(0, x - radius - 12), y), (min(width - 1, x + radius + 12), y), (0, 0, 255), 2)
-        cv2.line(frame, (x, max(0, y - radius - 12)), (x, min(height - 1, y + radius + 12)), (0, 0, 255), 2)
-        ok, encoded = cv2.imencode(".png", frame)
-        horizontal = "左侧" if x < width * 0.45 else ("右侧" if x > width * 0.55 else "水平中央")
-        vertical = "上方" if y < height * 0.4 else ("下方" if y > height * 0.6 else "垂直中央")
-        marker = f"圆点中心在整图{horizontal}{vertical}（x={x}/{width}, y={y}/{height}）"
-        return (bytes(encoded) if ok else image), marker
-    except Exception:
-        return image, "未能预定位，请直接观察半透明圆点"
 
 
 def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
@@ -963,34 +913,38 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             return _response_result(result.get("text", ""), success=('"state":"success"', '"state":true'), already=("已签到",))
         if key == "u2":
             initial = _u2_result_state(html)
-            if initial:
+            if initial and initial[0] != "failed":
                 return {"status": initial[0], "message": initial[1]}
             # U2 的权威状态位于首页顶部：[立即签到] 成功后变为 [已签到]。
             # showup.php 本身可能继续显示表单，因此必须先查首页，避免重复提交。
             page.goto("https://u2.dmhy.org/", wait_until="domcontentloaded", timeout=60_000)
             home_state = _u2_result_state(page.content())
-            if home_state:
+            if home_state and home_state[0] != "failed":
                 return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
             if datetime.now(_CHINA_TZ).hour < 9:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
             page.goto(site["url"], wait_until="domcontentloaded", timeout=60_000)
             html = page.content()
-            form = page.locator("form").filter(has=page.locator('input[name="req"]')).first
+            form = page.locator('form:has(input[name="req"])').first
             req = form.locator('input[name="req"]').get_attribute("value")
             hash_value = form.locator('input[name="hash"]').get_attribute("value")
             form_value = form.locator('input[name="form"]').get_attribute("value")
-            submits = form.locator('input[type="submit"]')
-            captcha_image = form.locator('img[alt="captcha"], img[src*="image.php"]')
+            submits = page.locator('form:has(input[name="req"]) input[type="submit"]')
             if not req or not hash_value or not form_value or submits.count() < 1:
                 raise RuntimeError("U2 未解析到签到表单")
-            if captcha_image.count() < 1:
-                raise RuntimeError("U2 未解析到验证图片")
-            options = [str(submits.nth(i).get_attribute("value") or "") for i in range(submits.count())]
-            submit = submits.nth(_ai_image_choice(ctx, loop, captcha_image.first.screenshot(), options))
+            choice = secrets.randbelow(submits.count())
+            submit = submits.nth(choice)
+            _runtime_log(
+                ctx,
+                f"U2 验证题任意选择第 {choice + 1}/{submits.count()} 项；答错仍会完成签到并获得 1 UCoin",
+                site="U2",
+            )
             body = _u2_submit_with_browser(page, submit)
-            posted = _u2_result_state(body)
+            posted = _u2_result_state(body, submitted=True)
             if posted:
                 if posted[0] == "failed":
+                    excerpt = re.sub(r"\s+", " ", _html_visible_text(body)).strip()[:500]
+                    _runtime_log(ctx, f"U2 提交回执：{excerpt}", level="warning", site="U2")
                     raise RuntimeError(posted[1])
                 return {"status": "success", "message": posted[1]}
             page.goto(
@@ -1077,15 +1031,16 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
-def _audiences_turnstile_checkin(page, ctx=None) -> dict:
+def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -> dict:
     """等待 Audiences Turnstile 回调自动提交，并只接受明确的服务端结果。"""
-    deadline = time.monotonic() + 180
+    timeout_seconds = max(1, min(30, int(timeout_seconds)))
+    deadline = time.monotonic() + timeout_seconds
     started_at = time.monotonic()
     click_count = 0
     token_logged = False
     # Docker 中 Turnstile 的验证时间明显长于本地。短间隔反复点击会干扰甚至
     # 重置正在执行的 challenge，因此只在首次及长时间无结果时有限重试。
-    retry_after = (0, 60, 120)
+    retry_after = (0, 15)
     while time.monotonic() < deadline:
         text = _page_text(page)
         html = page.content()
@@ -1196,7 +1151,7 @@ def _audiences_turnstile_checkin(page, ctx=None) -> dict:
         diagnostics = {"diagnostic_error": str(exc)}
     if ctx is not None:
         _runtime_log(ctx, f"Turnstile 超时诊断：{diagnostics}", level="error", site="Audiences")
-    raise RuntimeError("Audiences Turnstile 未在 180 秒内签发有效验证令牌；当前浏览器隔离上下文将被关闭")
+    raise RuntimeError(f"Audiences Turnstile 未在 {timeout_seconds} 秒内签发有效验证令牌，本轮已跳过")
 
 
 def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
@@ -1208,6 +1163,7 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
     """
     import cloakbrowser
 
+    deadline = time.monotonic() + 30
     state_path = Path(ctx.data_dir) / "audiences_storage_state.json"
     state_path.parent.mkdir(parents=True, exist_ok=True)
     proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
@@ -1255,8 +1211,27 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
 
         # add_cookies 只覆盖 CookieCloud 本轮提供的同名 Cookie；未在
         # CookieCloud 中出现的 Cloudflare 通行状态仍保留在持久会话中。
-        _seed_browser_cookie_jar(page, cookie, "https://audiences.me/attendance.php")
-        return _browser_checkin(page, "audiences.me", ctx, None)
+        items = []
+        for part in str(cookie or "").split(";"):
+            name, separator, value = part.strip().partition("=")
+            if separator and name:
+                items.append({"name": name, "value": value, "url": "https://audiences.me/attendance.php"})
+        if items:
+            page.context.add_cookies(items)
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        if remaining_ms <= 1:
+            raise RuntimeError("Audiences CloakBrowser 30 秒内未完成启动，本轮已跳过")
+        try:
+            page.goto(
+                "https://audiences.me/attendance.php",
+                wait_until="domcontentloaded",
+                timeout=remaining_ms,
+            )
+        except Exception as exc:
+            if time.monotonic() >= deadline or "timeout" in str(exc).lower():
+                raise RuntimeError("Audiences CloakBrowser 30 秒内没有取得页面结果，本轮已跳过") from exc
+            raise
+        return _browser_checkin(page, "audiences.me", ctx, None, deadline=deadline)
     finally:
         if context is not None:
             try:
@@ -1276,12 +1251,95 @@ def _audiences_cloak_checkin(ctx, cookie: str, headless: bool) -> dict:
                     pass
 
 
-def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_submitted: bool = False) -> dict:
+def _site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headless: bool, loop) -> dict:
+    """所有 PT 站浏览器降级统一使用真实 CloakBrowser。"""
+    if key == "audiences":
+        return _audiences_cloak_checkin(ctx, cookie, headless)
+
+    import cloakbrowser
+
+    state_path = Path(ctx.data_dir) / f"{key}_storage_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
+    launch_options = {
+        "headless": headless,
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-dev-shm-usage",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ],
+        "locale": "zh-CN",
+        "timezone": "Asia/Shanghai",
+        "humanize": True,
+    }
+    if proxy_url:
+        launch_options["proxy"] = proxy_url
+
+    browser = context = page = None
+    try:
+        browser = cloakbrowser.launch(**launch_options)
+        context_options = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": "zh-CN",
+            "timezone_id": "Asia/Shanghai",
+            "extra_http_headers": {"Accept-Language": "zh-CN,zh;q=0.9"},
+        }
+        if state_path.exists():
+            context_options["storage_state"] = str(state_path)
+        try:
+            context = browser.new_context(**context_options)
+        except Exception as exc:
+            if "storage_state" not in context_options:
+                raise
+            _runtime_log(
+                ctx,
+                f"已保存的浏览器会话无法读取（{type(exc).__name__}），本轮将重建",
+                level="warning",
+                site=site["name"],
+            )
+            context_options.pop("storage_state", None)
+            context = browser.new_context(**context_options)
+        page = context.new_page()
+        page.set_default_timeout(20_000)
+        seed_url = "https://piggo.me/" if key == "piggo" else site["url"]
+        _seed_browser_cookie_jar(page, cookie, seed_url)
+        if key in {"ourbits", "piggo", "hhan", "tjupt"}:
+            result = _browser_checkin(page, site["domain"], ctx, loop)
+            if key == "piggo":
+                refreshed = _refreshed_cookie_header(page, site["domain"])
+                if refreshed:
+                    _browser_cookie_cache[key] = refreshed
+            return result
+        return _special_checkin(page, key, site, ctx, loop)
+    finally:
+        if context is not None:
+            try:
+                context.storage_state(path=str(state_path))
+            except Exception as exc:
+                _runtime_log(
+                    ctx,
+                    f"保存浏览器会话失败：{type(exc).__name__}",
+                    level="warning",
+                    site=site["name"],
+                )
+        for item in (page, context, browser):
+            if item is not None:
+                try:
+                    item.close()
+                except Exception:
+                    pass
+
+
+def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *,
+                     piggo_submitted: bool = False, deadline: float | None = None) -> dict:
     """在平台托管的同步 Playwright 页面内完成单站签到。"""
     page.set_default_timeout(20_000)
     challenge_reload_done = False
     piggo_reentries = 0
     for challenge_round in range(100):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RuntimeError("Audiences CloakBrowser 30 秒内没有取得页面结果，本轮已跳过")
         title = (page.title() or "").lower()
         text = _page_text(page).lower()
         path = urlparse(page.url).path or "/"
@@ -1313,7 +1371,10 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
             page.reload(wait_until="domcontentloaded", timeout=60_000)
             challenge_reload_done = True
             continue
-        page.wait_for_timeout(3_000)
+        wait_ms = 3_000
+        if deadline is not None:
+            wait_ms = min(wait_ms, max(1, int((deadline - time.monotonic()) * 1000)))
+        page.wait_for_timeout(wait_ms)
     else:
         detail = f"；已重进签到页 {piggo_reentries} 次" if piggo_reentries else ""
         raise RuntimeError(f"Cloudflare/雷池验证等待超时{detail}；若为交互式验证码需要人工处理")
@@ -1331,7 +1392,8 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
     if any(marker in low for marker in ("没有权限", "无权访问", "permission denied", "access denied", "page not found", "404 not found")):
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
     if expected_domain.lower() == "audiences.me" and page.locator("#attendance-form .cf-turnstile").count() > 0:
-        return _audiences_turnstile_checkin(page, ctx)
+        remaining = 30 if deadline is None else max(1, int(deadline - time.monotonic()))
+        return _audiences_turnstile_checkin(page, ctx, timeout_seconds=remaining)
     captcha = _captcha_error(text)
     if captcha:
         if expected_domain == "tjupt.org" and ctx is not None and loop is not None and "签到图片验证码" in captcha:
@@ -1352,8 +1414,6 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *, piggo_s
         if not path.lower().endswith("/attendance.php"):
             page.goto("https://piggo.me/attendance.php", wait_until="domcontentloaded", timeout=60_000)
             return _browser_checkin(page, expected_domain, ctx, loop, piggo_submitted=True)
-    if expected_domain.lower() == "ourbits.club" and _ourbits_home_completed(text, path):
-        return {"status": "already", "message": "今天已经签到（首页状态已确认）"}
     initial_state = _site_result_state(text, expected_domain)
     if initial_state:
         status, message = initial_state
@@ -1448,33 +1508,6 @@ async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
     raise RuntimeError("AI 连续 3 次未能可靠识别验证码，未提交签到") from last_error
 
 
-async def _http_ai_image_choice(ctx, image: bytes, options: list[str]) -> int:
-    if not _ai_available(ctx, "vision"):
-        raise RuntimeError("平台未配置视觉模型，无法识别 U2 签到验证")
-    image, marker = _highlight_u2_marker(image)
-    prompt = (
-        "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
-        "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
-        "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
-        f"程序预定位结果：{marker}；图上如有红圈和十字，它们精确标出了目标圆点。"
-        "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
-        + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
-    )
-    last_error: Exception | None = None
-    for _ in range(3):
-        try:
-            answer = str(await ctx.ai.vision(
-                image=image, prompt=prompt,
-                system="先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。",
-            ) or "").strip()
-            match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer, re.IGNORECASE)
-            index = int(match.group(1)) - 1 if match else -1
-            if 0 <= index < len(options):
-                return index
-            last_error = RuntimeError("模型未返回有效选项编号")
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到") from last_error
 
 
 def _soup_value(soup: BeautifulSoup, name: str) -> str:
@@ -1527,10 +1560,6 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             # 此处仅接受已通过登录与安全页检查的 2xx 同站请求，避免把登录页或挑战页误报为成功。
             response_domain = (urlparse(str(response.url)).hostname or "").lower()
             response_path = urlparse(str(response.url)).path or "/"
-            if key == "ourbits" and response.status_code < 300 \
-                    and _same_site_domain(response_domain, site["domain"]) \
-                    and _ourbits_home_completed(visible_text, response_path):
-                return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             if key == "audiences" and response.status_code < 300 \
                     and _same_site_domain(response_domain, site["domain"]):
                 return {"status": "success", "message": "签到请求已完成（站点未返回文字回执）", "engine": "http"}
@@ -1678,33 +1707,27 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             return {**_response_result(body, success=('"state":"success"', '"state":true'), already=("已签到",)), "engine": "http"}
         if key == "u2":
             initial = _u2_result_state(text)
-            if initial:
+            if initial and initial[0] != "failed":
                 return {"status": initial[0], "message": initial[1], "engine": "http"}
             # 签到状态只在首页顶部可靠展示；先确认首页再解析/提交表单。
             _, home = await get("https://u2.dmhy.org/")
             home_state = _u2_result_state(home)
-            if home_state:
+            if home_state and home_state[0] != "failed":
                 return {"status": "already", "message": "今天已经签到（首页状态已确认）", "engine": "http"}
             if datetime.now(_CHINA_TZ).hour < 9:
                 raise RuntimeError("U2 站点规则要求 09:00 后签到")
             soup = BeautifulSoup(text, "html.parser")
             req, hash_value, form_value = (_soup_value(soup, name) for name in ("req", "hash", "form"))
             submits = soup.select('input[type="submit"][name]')
-            captcha_node = soup.select_one('form[action*="showup.php"] img[alt="captcha"], form[action*="showup.php"] img[src*="image.php"]')
-            if not req or not hash_value or not form_value or not submits or not captcha_node:
+            if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
-            image_url = str(response.url.join(str(captcha_node.get("src") or "")))
-            image_response = await client.get(image_url)
-            if image_response.status_code >= 400:
-                raise _NeedsBrowser("HTTP 下载 U2 验证图片失败，切换 CloakBrowser")
-            options = [str(node.get("value") or "") for node in submits]
-            submit = submits[await _http_ai_image_choice(ctx, image_response.content, options)]
+            submit = submits[secrets.randbelow(len(submits))]
             post_response, body = await post(
                 "https://u2.dmhy.org/showup.php?action=show",
                 data={"req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到", submit.get("name"): submit.get("value")},
                 extra_headers={"Referer": str(response.url)},
             )
-            posted = _u2_result_state(body)
+            posted = _u2_result_state(body, submitted=True)
             if posted:
                 if posted[0] == "failed":
                     raise RuntimeError(posted[1])
@@ -1780,19 +1803,7 @@ async def _run(ctx, source: str) -> dict:
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
                         if outcome is None:
-                            def action(page, site_key=key, current_site=site):
-                                seed_url = "https://piggo.me/" if site_key == "piggo" else current_site["url"]
-                                _seed_browser_cookie_jar(page, cookie, seed_url)
-                                if site_key in {"audiences", "ourbits", "piggo", "hhan", "tjupt"}:
-                                    result = _browser_checkin(page, current_site["domain"], ctx, loop)
-                                    if site_key == "piggo":
-                                        refreshed = _refreshed_cookie_header(page, current_site["domain"])
-                                        if refreshed:
-                                            _browser_cookie_cache[site_key] = refreshed
-                                    return result
-                                return _special_checkin(page, site_key, current_site, ctx, loop)
-
-                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"audiences", "ourbits", "piggo", "hhan"} else 150)
+                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"ourbits", "piggo", "hhan"} else (30 if key == "audiences" else 150))
                             browser_headless = bool(cfg.get("headless", True))
                             if key == "audiences" and os.path.exists("/.dockerenv"):
                                 display = _ensure_docker_display(ctx)
@@ -1813,34 +1824,26 @@ async def _run(ctx, source: str) -> dict:
                                         level="warning",
                                         site=site["name"],
                                     )
-                            if key == "audiences":
-                                _runtime_log(
+                            _runtime_log(
+                                ctx,
+                                "使用真实 CloakBrowser 浏览器会话",
+                                site=site["name"],
+                            )
+                            outcome = await _with_heartbeat(
+                                asyncio.to_thread(
+                                    _site_cloak_checkin,
                                     ctx,
-                                    "使用持久真实 CloakBrowser 会话处理 Turnstile",
-                                    site=site["name"],
-                                )
-                                outcome = await _with_heartbeat(
-                                    asyncio.to_thread(
-                                        _audiences_cloak_checkin,
-                                        ctx,
-                                        cookie,
-                                        browser_headless,
-                                    ),
-                                    ctx,
-                                    site["name"],
-                                    "持久 CloakBrowser 正在等待 Turnstile 或签到结果",
-                                    max_wait=240,
-                                )
-                            else:
-                                outcome = await _with_heartbeat(
-                                    ctx.browser.run(
-                                        site["url"], action, cookies=cookie,
-                                        headless=browser_headless,
-                                        timeout=browser_timeout,
-                                    ),
-                                    ctx, site["name"], "CloakBrowser 正在等待安全验证或页面结果",
-                                    max_wait=browser_timeout + 30,
-                                )
+                                    key,
+                                    site,
+                                    cookie,
+                                    browser_headless,
+                                    loop,
+                                ),
+                                ctx,
+                                site["name"],
+                                "CloakBrowser 正在等待安全验证或页面结果",
+                                max_wait=40 if key == "audiences" else browser_timeout + 30,
+                            )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
                         raise RuntimeError(str((outcome or {}).get("message") or "网站返回签到失败"))

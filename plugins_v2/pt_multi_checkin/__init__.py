@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.6',
+ 'version': '2.0.7',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.6 修复 Audiences 与 U2 签到\n'
+ 'changelog': 'v2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n'
+              '- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n'
+              '- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n'
+              '- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n'
+              '\n'
+              'v2.0.6 修复 Audiences 与 U2 签到\n'
               '- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n'
               '- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n'
               '- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n'
@@ -86,9 +91,7 @@ __plugin__ = {'name': 'PT站自动签到',
  'scope': 'standalone',
  'requirements': ['httpx>=0.27',
                   'beautifulsoup4>=4.12',
-                  'cloakbrowser>=0.4.9',
-                  'opencv-python-headless>=4.8',
-                  'numpy>=1.24'],
+                  'cloakbrowser>=0.4.9'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',
