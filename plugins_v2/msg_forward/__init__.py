@@ -1,15 +1,13 @@
 """AWBotNest V2 原生消息转发助手。"""
 from __future__ import annotations
 import asyncio
-from io import BytesIO
-import mimetypes
 import re
 import time
 
 __plugin__ = {
     "id": "msg_forward",
     "name": "消息转发助手",
-    "version": "2.1.3",
+    "version": "2.1.4",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -99,7 +97,8 @@ __plugin__ = {
         },
     },
     "resources": {"timeout_seconds": 120, "max_concurrency": 8, "max_background_tasks": 32},
-    "changelog": "v2.1.3 修复历史媒体漏发与立即检查反馈\n- 媒体复制的下载或上传请求失败时自动降级为原样转发，不再因 Telegram 重试耗尽直接漏发\n- 原生转发返回空结果时继续尝试消息 ID 路径，所有路径均无有效结果时不再误记成功\n- 补全日志显示实际投递模式，立即检查按钮点击后马上记录受理或占用状态\n\n"
+    "changelog": "v2.1.4 恢复合并前的复制与转发语义\n- 复制搬运恢复为 Telegram 服务端无署名复制，不再下载图片后重新上传\n- 原样转发继续保留来源标记，两种模式严格按规则执行且不再相互降级\n- 复制与转发只有取得目标消息 ID 才记录成功，失败消息继续由遗漏检查重试\n- 升级后每条复制规则仅重新检查最新一条旧记录，修复 2.1.3 已误记的降级转发且避免批量重复\n\n"
+    "v2.1.3 修复历史媒体漏发与立即检查反馈\n- 媒体复制的下载或上传请求失败时自动降级为原样转发，不再因 Telegram 重试耗尽直接漏发\n- 原生转发返回空结果时继续尝试消息 ID 路径，所有路径均无有效结果时不再误记成功\n- 补全日志显示实际投递模式，立即检查按钮点击后马上记录受理或占用状态\n\n"
     "v2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\n"
     "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
     "v2.1.0 合并消息转发与转发复读\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\n"
@@ -170,53 +169,21 @@ async def _album(client,event):
         if getattr(message,"grouped_id",None)==grouped:found.append(message)
     return found or [event.message]
 
-def _media_filename(message):
-    """为内存媒体恢复文件名，避免 Telethon 把图片作为 unnamed 文档发送。"""
-    file_info=getattr(message,"file",None)
-    name=getattr(file_info,"name",None)
-    document=getattr(message,"document",None)
-    if not name and document:
-        for attribute in getattr(document,"attributes",None) or []:
-            name=getattr(attribute,"file_name",None)
-            if name:break
-    mime=str(getattr(file_info,"mime_type",None) or getattr(document,"mime_type",None) or "")
-    extension=mimetypes.guess_extension(mime.split(";",1)[0].strip()) if mime else None
-    if extension==".jpe":extension=".jpg"
-    mid=getattr(message,"id",0) or int(time.time()*1000)
-    if not name:
-        if getattr(message,"photo",None):name=f"photo_{mid}.jpg"
-        elif getattr(message,"gif",None):name=f"animation_{mid}.gif"
-        elif getattr(message,"video",None):name=f"video_{mid}{extension or '.mp4'}"
-        elif getattr(message,"voice",None):name=f"voice_{mid}{extension or '.ogg'}"
-        elif getattr(message,"audio",None):name=f"audio_{mid}{extension or '.mp3'}"
-        else:name=f"file_{mid}{extension or '.bin'}"
-    name=str(name).replace("\\","/").rsplit("/",1)[-1].strip() or f"file_{mid}.bin"
-    if "." not in name and extension:name+=extension
-    return name
-
-def _copy_force_document(messages):
-    media_messages=[message for message in messages if getattr(message,"media",None)]
-    return bool(media_messages) and all(
-        getattr(message,"document",None)
-        and not any(getattr(message,key,None) for key in ("photo","video","gif","audio","voice"))
-        for message in media_messages
-    )
-
-def _forward_restricted(error):
-    name=type(error).__name__.lower()
-    detail=str(error).lower()
-    return (
-        "forwardsrestricted" in name
-        or "forwards_restricted" in detail
-        or "protected chat" in detail
-        or "禁止转发" in detail
-    )
-
 def _delivery_ids(result):
     """只把带 Telegram 消息 ID 的发送结果视为已实际投递。"""
     items=result if isinstance(result,(list,tuple)) else [result]
-    return [int(value) for item in items if item is not None
+    direct=[int(value) for item in items if item is not None
             for value in [getattr(item,"id",None)] if isinstance(value,int) and value>0]
+    if direct:return direct
+    message_ids=[];fallback_ids=[]
+    for update in getattr(result,"updates",None) or []:
+        message=getattr(update,"message",None)
+        value=getattr(message,"id",None)
+        if isinstance(value,int) and value>0:message_ids.append(value)
+        elif update.__class__.__name__=="UpdateMessageID":
+            value=getattr(update,"id",None)
+            if isinstance(value,int) and value>0:fallback_ids.append(value)
+    return message_ids or fallback_ids
 
 async def _history_entity(client,value):
     """历史回查优先使用本地实体缓存，避免 get_entity 额外请求反复失败。"""
@@ -227,128 +194,80 @@ async def _history_entity(client,value):
         except Exception:pass
     return await client.get_entity(value)
 
-async def _native_forward(client,target,messages):
-    """优先转发原生 Message；旧 Telethon 不兼容时再按来源和消息 ID 转发。"""
-    payload=messages[0] if len(messages)==1 else messages
-    message_error=None
-    try:
-        result=await client.forward_messages(target,payload)
-        if _delivery_ids(result):
-            return result
-        message_error=RuntimeError("原生 Message 转发未返回目标消息 ID")
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        message_error=error
+async def _server_forward(client,target,messages,*,drop_author,top_msg_id=None):
+    """复刻 V1 copy/forward：由 Telegram 服务端按消息 ID 复制或转发。"""
+    from telethon.helpers import generate_random_long
+    from telethon.tl.functions.messages import ForwardMessagesRequest
+
     ids=[getattr(message,"id",None) for message in messages]
+    if not ids or not all(isinstance(value,int) and value>0 for value in ids):
+        raise RuntimeError("无法取得来源消息 ID")
     source=None
     get_input_chat=getattr(messages[0],"get_input_chat",None)
     if callable(get_input_chat):
         try:source=await get_input_chat()
+        except asyncio.CancelledError:raise
         except Exception:source=None
     source=source or getattr(messages[0],"_input_chat",None)
     source=source or getattr(messages[0],"peer_id",None) or getattr(messages[0],"chat_id",None)
-    if source is not None and all(message_id is not None for message_id in ids):
-        payload=ids[0] if len(ids)==1 else ids
-        try:
-            result=await client.forward_messages(target,payload,from_peer=source)
-            if _delivery_ids(result):
-                return result
-            raise RuntimeError("消息 ID 转发未返回目标消息 ID")
-        except asyncio.CancelledError:
-            raise
-        except Exception as id_error:
-            raise RuntimeError(
-                f"原生消息转发失败（{message_error!r}）；消息 ID 回退失败（{id_error!r}）"
-            ) from id_error
-    raise RuntimeError(f"原生消息转发失败且无法取得来源实体或消息 ID：{message_error!r}") from message_error
+    if source is None:raise RuntimeError("无法取得来源会话")
+    get_input_entity=getattr(client,"get_input_entity",None)
+    if callable(get_input_entity):
+        source=await get_input_entity(source)
+        target=await get_input_entity(target)
+    result=await client(ForwardMessagesRequest(
+        from_peer=source,
+        id=ids,
+        random_id=[generate_random_long() for _ in ids],
+        to_peer=target,
+        top_msg_id=int(top_msg_id) if top_msg_id else None,
+        drop_author=bool(drop_author),
+    ))
+    if not _delivery_ids(result):
+        mode="复制搬运" if drop_author else "原样转发"
+        raise RuntimeError(f"{mode}未返回目标消息 ID")
+    return result
+
+async def _native_forward(client,target,messages,top_msg_id=None):
+    """恢复合并前的 Telethon 高级转发；论坛话题才使用底层请求。"""
+    if top_msg_id:
+        return await _server_forward(
+            client,target,messages,drop_author=False,top_msg_id=top_msg_id,
+        )
+    ids=[getattr(message,"id",None) for message in messages]
+    if not ids or not all(isinstance(value,int) and value>0 for value in ids):
+        raise RuntimeError("无法取得来源消息 ID")
+    source=None
+    get_input_chat=getattr(messages[0],"get_input_chat",None)
+    if callable(get_input_chat):
+        try:source=await get_input_chat()
+        except asyncio.CancelledError:raise
+        except Exception:source=None
+    source=source or getattr(messages[0],"_input_chat",None)
+    source=source or getattr(messages[0],"peer_id",None) or getattr(messages[0],"chat_id",None)
+    if source is None:raise RuntimeError("无法取得来源会话")
+    payload=ids[0] if len(ids)==1 else ids
+    result=await client.forward_messages(target,payload,from_peer=source)
+    if not _delivery_ids(result):raise RuntimeError("原样转发未返回目标消息 ID")
+    return result
 
 async def _forward(client,target,messages,log=None,delivery=None):
-    """执行原生转发；无法完成时自动降级为复制搬运，避免静默丢消息。"""
-    try:
-        result=await _native_forward(client,target,messages)
-        if delivery is not None:
-            delivery["mode"]="原样转发"
-            delivery["message_ids"]=_delivery_ids(result)
-        return result
-    except asyncio.CancelledError:
-        raise
-    except Exception as error:
-        if log:
-            reason="来源禁止原生转发" if _forward_restricted(error) else "原样转发失败"
-            log.warning("[消息转发助手] %s，自动降级为复制搬运 -> %s: %r",reason,target,error)
-        try:
-            result=await _copy(client,target,messages,allow_native_fallback=False)
-            if delivery is not None:
-                delivery["mode"]="复制搬运（自动降级）"
-                delivery["message_ids"]=_delivery_ids(result)
-            return result
-        except asyncio.CancelledError:
-            raise
-        except Exception as copy_error:
-            raise RuntimeError(
-                f"原样转发失败（{error!r}）；复制搬运回退也失败（{copy_error!r}）"
-            ) from copy_error
+    """严格执行原样转发，不改变规则选定的模式。"""
+    result=await _native_forward(client,target,messages)
+    if delivery is not None:
+        delivery["mode"]="原样转发"
+        delivery["message_ids"]=_delivery_ids(result)
+    return result
 
-async def _copy(client,target,messages,allow_native_fallback=True,reply_to=None,log=None,delivery=None):
-    """复制消息；下载、上传或发送失败时可自动降级为原样转发。"""
-    try:
-        if len(messages)==1 and not messages[0].media:
-            result=await client.send_message(
-                target,messages[0].raw_text or "",parse_mode=None,
-                formatting_entities=getattr(messages[0],"entities",None),
-                reply_to=reply_to,
-            )
-        else:
-            files=[]
-            for message in messages:
-                if not message.media:continue
-                downloaded=await client.download_media(message,bytes)
-                if downloaded is None:
-                    raise RuntimeError(f"消息 {getattr(message,'id','?')} 的媒体下载返回空结果")
-                stream=BytesIO(downloaded)
-                stream.name=_media_filename(message)
-                files.append(stream)
-            caption_message=next((m for m in messages if m.raw_text),None)
-            caption=caption_message.raw_text if caption_message else None
-            if files:
-                result=await client.send_file(
-                    target,files if len(files)>1 else files[0],caption=caption,
-                    parse_mode=None,formatting_entities=getattr(caption_message,"entities",None),
-                    force_document=_copy_force_document(messages),
-                    supports_streaming=any(getattr(message,"video",None) for message in messages),
-                    reply_to=reply_to,
-                )
-            else:
-                result=await client.send_message(
-                    target,caption or "",parse_mode=None,
-                    formatting_entities=getattr(caption_message,"entities",None),
-                    reply_to=reply_to,
-                )
-        message_ids=_delivery_ids(result)
-        if not message_ids:
-            raise RuntimeError("复制搬运未返回目标消息 ID")
-        if delivery is not None:
-            delivery["mode"]="复制搬运"
-            delivery["message_ids"]=message_ids
-        return result
-    except asyncio.CancelledError:
-        raise
-    except Exception as copy_error:
-        if not allow_native_fallback:raise
-        if log:log.warning("[消息转发助手] 复制搬运失败，自动降级为原样转发 -> %s: %r",target,copy_error)
-        try:
-            result=await _native_forward(client,target,messages)
-            if delivery is not None:
-                delivery["mode"]="原样转发（自动降级）"
-                delivery["message_ids"]=_delivery_ids(result)
-            return result
-        except asyncio.CancelledError:
-            raise
-        except Exception as forward_error:
-            raise RuntimeError(
-                f"复制搬运失败（{copy_error!r}）；原样转发回退也失败（{forward_error!r}）"
-            ) from forward_error
+async def _copy(client,target,messages,reply_to=None,log=None,delivery=None):
+    """严格执行 Telegram 服务端无署名复制，不下载媒体且不降级。"""
+    result=await _server_forward(
+        client,target,messages,drop_author=True,top_msg_id=reply_to,
+    )
+    if delivery is not None:
+        delivery["mode"]="复制搬运"
+        delivery["message_ids"]=_delivery_ids(result)
+    return result
 
 def _repeat_topic(event,source):
     """取得论坛话题根消息；普通回复不被误当成话题。"""
@@ -362,24 +281,8 @@ def _repeat_topic(event,source):
     return None
 
 async def _repeat_forward(client,chat_id,source,topic_id=None):
-    """原样转发回复消息；论坛话题使用底层 top_msg_id 保持投递位置。"""
-    if not topic_id:
-        return await client.forward_messages(chat_id,source)
-    try:
-        from telethon.helpers import generate_random_long
-        from telethon.tl.functions.messages import ForwardMessagesRequest
-        from_peer=await source.get_input_chat() if callable(getattr(source,"get_input_chat",None)) else None
-        from_peer=from_peer or await client.get_input_entity(getattr(source,"chat_id",chat_id))
-        to_peer=await client.get_input_entity(chat_id)
-        return await client(ForwardMessagesRequest(
-            from_peer=from_peer,id=[source.id],to_peer=to_peer,
-            random_id=[generate_random_long()],top_msg_id=int(topic_id),
-        ))
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # 部分 Telethon 层或普通群不支持 top_msg_id；继续使用稳定的高级接口。
-        return await client.forward_messages(chat_id,source)
+    """原样转发回复消息，并保持论坛话题位置。"""
+    return await _native_forward(client,chat_id,[source],top_msg_id=topic_id)
 
 def _migrate_zf_config(ctx):
     """一次性吸收旧 zf 配置，并从恢复列表停用旧插件避免重复复读。"""
@@ -415,6 +318,24 @@ def _normalize_repeat_mode(ctx):
     ctx.update_config({"repeat_mode":value})
     ctx.log.info("[消息转发助手] 已将旧复读方式配置转换为%s", "复制重发" if value else "原样转发")
     return True
+
+def _latest_legacy_copy_keys(rules,sent):
+    """每个复制目标只挑最新旧检查点，避免升级修复造成整批历史重复。"""
+    selected=set()
+    for rule in rules or []:
+        if not isinstance(rule,dict) or not rule.get("copy"):continue
+        source=_peer(rule.get("source"))
+        if source is None:continue
+        for target in filter(lambda value:value is not None,(_peer(x) for x in _split(rule.get("targets")))):
+            prefix=f"{source}:{target}:"
+            candidates=[]
+            for key in sent:
+                if not key.startswith(prefix):continue
+                try:ids=tuple(int(value) for value in key[len(prefix):].split(","))
+                except (TypeError,ValueError):continue
+                if ids:candidates.append((max(ids),ids,key))
+            if candidates:selected.add(max(candidates)[2])
+    return selected
 
 async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
     """回查来源历史并补发遗漏消息，返回 (sent_count, skipped_count)。"""
@@ -479,6 +400,21 @@ async def setup(ctx):
     async def persist_sent():
         # Keep the checkpoint bounded while surviving reloads.
         await ctx.storage.set("backfill_sent", list(sent)[-5000:])
+    try:
+        migrated=bool(await ctx.storage.get("strict_copy_v214_migrated",False))
+        pending=set(str(x) for x in (await ctx.storage.get("strict_copy_v214_pending",[]) or []))
+        if not migrated:
+            if not pending:
+                pending=_latest_legacy_copy_keys(ctx.config.get("rules") or [],sent)
+                await ctx.storage.set("strict_copy_v214_pending",list(pending))
+            if pending:
+                sent.difference_update(pending)
+                await persist_sent()
+                ctx.log.info("[消息转发助手] 已安排重新复制 %s 条旧记录，以修复此前的模式降级",len(pending))
+            await ctx.storage.set("strict_copy_v214_migrated",True)
+            await ctx.storage.set("strict_copy_v214_pending",[])
+    except Exception as error:
+        ctx.log.warning("[消息转发助手] 旧复制记录修复准备失败，将在下次重载重试: %r",error)
     async def resolve(client,target):
         key=str(target)
         if key not in names:
@@ -576,15 +512,8 @@ async def setup(ctx):
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                if mode=="copy":
-                    ctx.log.warning("[消息转发助手] 第 %d/%d 次复制失败: %r",index+1,times,error)
-                    continue
-                ctx.log.warning("[消息转发助手] 第 %d/%d 次转发失败，尝试复制: %r",index+1,times,error)
-                try:
-                    await _copy(event.client,event.chat_id,[source],reply_to=topic,log=ctx.log)
-                    completed+=1
-                except Exception as copy_error:
-                    ctx.log.warning("[消息转发助手] 第 %d/%d 次复制失败: %r",index+1,times,copy_error)
+                action="复制" if mode=="copy" else "转发"
+                ctx.log.warning("[消息转发助手] 第 %d/%d 次%s失败: %r",index+1,times,action,error)
         try:await event.delete()
         except Exception:pass
         ctx.log.info("[消息转发助手] 回复复读完成：%s/%s，模式=%s，会话=%s",completed,times,mode,event.chat_id)
