@@ -226,6 +226,14 @@ const DEFAULTS = {
   notify: true,
   target_forums: ['fid=141'],
   reply_templates: ['谢谢楼主分享！', '感谢分享，收藏了！'],
+  smart_reply_templates: {
+    general: ['内容很不错！', '楼主辛苦了！', '感谢分享！', '支持原创！', '很有意思！'],
+    resource: ['资源很棒，感谢分享！', '好东西，必须收藏！', '链接有效，谢谢楼主！', '资源质量很高！'],
+    photo: ['照片拍得真不错！', '颜值很高啊，赞！', '摄影技术很棒！', '拍摄角度很好，学习了！'],
+    video: ['视频质量不错！', '内容很精彩，感谢分享！', '画质清晰，很棒！', '剪辑得很好，专业！'],
+    story: ['好精彩的故事！情节很吸引人！', '写得真好，很有代入感！', '故事很棒，期待后续！'],
+  },
+  reply_rules: null,
   skip_keywords: ['公告', '通知', '规则', '版规', '置顶', '热门', '2024年永久访问本站方法', 'APP下载', '白名单', '邀请码', '访问方法', '屏蔽', '封禁', '违规', '删除', '警告', '发布器', '最新方法', '申诉', '二次验证', '禁止申诉', '高薪', '招聘'],
   skip_prefixes: ['【公告】', '【通知】', '【规则】', '【版规】', '公告:', '通知:', '规则:', '版规:'],
   admin_usernames: ['admin', '管理员', '版主'],
@@ -237,6 +245,7 @@ const DEFAULTS = {
   ai_reply_reject_markers: '',
   proxy: { enabled: false, http_proxy: '', https_proxy: '', no_proxy: 'localhost,127.0.0.1', use_for_browser: false },
   browser_headers: { user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36', accept_language: 'zh-CN,zh;q=0.9,en;q=0.8' },
+  log_level: 'INFO',
 };
 
 function deepMerge(base, over) {
@@ -289,6 +298,8 @@ const keywordsText = lineModel('skip_keywords');
 const prefixesText = lineModel('skip_prefixes');
 const adminsText = lineModel('admin_usernames');
 const timesText = lineModel('schedule_times');
+const smartTemplatesText = ref(JSON.stringify(DEFAULTS.smart_reply_templates, null, 2));
+const replyRulesText = ref('');
 const replyMin = computed({ get: () => cfg.reply_interval[0], set: v => { cfg.reply_interval[0] = Number(v); } });
 const replyMax = computed({ get: () => cfg.reply_interval[1], set: v => { cfg.reply_interval[1] = Number(v); } });
 
@@ -313,6 +324,8 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig();
     Object.assign(cfg, deepMerge(DEFAULTS, saved || {}));
+    smartTemplatesText.value = JSON.stringify(cfg.smart_reply_templates || {}, null, 2);
+    replyRulesText.value = cfg.reply_rules ? JSON.stringify(cfg.reply_rules, null, 2) : '';
     LEGACY_AI_KEYS.forEach(key => delete cfg[key]);
     if (cfg.proxy) delete cfg.proxy.use_for_ai;
     if (!Array.isArray(cfg.reply_interval) || cfg.reply_interval.length < 2) cfg.reply_interval = [60, 120];
@@ -329,6 +342,12 @@ onUnmounted(() => { clearInterval(statusTimer); clearInterval(logTimer); });
 async function save() {
   saving.value = true;
   try {
+    const smartTemplates = JSON.parse(smartTemplatesText.value || '{}');
+    const replyRules = replyRulesText.value.trim() ? JSON.parse(replyRulesText.value) : null;
+    if (!smartTemplates || Array.isArray(smartTemplates) || typeof smartTemplates !== 'object') throw new Error('智能回复模板必须是 JSON 对象');
+    if (replyRules !== null && (!replyRules || Array.isArray(replyRules) || typeof replyRules !== 'object')) throw new Error('自定义特征规则必须是 JSON 对象');
+    cfg.smart_reply_templates = smartTemplates;
+    cfg.reply_rules = replyRules;
     const payload = JSON.parse(JSON.stringify(cfg));
     LEGACY_AI_KEYS.forEach(key => delete payload[key]);
     if (payload.proxy) delete payload.proxy.use_for_ai;
@@ -810,6 +829,29 @@ return (_ctx, _cache) => {
                             [_vModelText, _unref(templatesText)]
                           ])
                         ]),
+                        _createElementVNode("section", { class: "card" }, [
+                          _createElementVNode("div", { class: "card-h" }, "智能回复模板与特征规则"),
+                          _createElementVNode("p", { class: "tip" }, "使用 JSON 对象配置各内容类型的候选回复；自定义规则留空时使用内置识别逻辑。保存时会校验 JSON。"),
+                          _createElementVNode("label", { class: "row col" }, [
+                            _createElementVNode("span", null, "智能回复模板"),
+                            _withDirectives(_createElementVNode("textarea", {
+                              "onUpdate:modelValue": $event => ((smartTemplatesText).value = $event),
+                              class: "inp code", rows: "10", spellcheck: "false"
+                            }, null, 8, ["onUpdate:modelValue"]), [
+                              [_vModelText, smartTemplatesText.value]
+                            ])
+                          ]),
+                          _createElementVNode("label", { class: "row col" }, [
+                            _createElementVNode("span", null, "自定义特征规则（可选）"),
+                            _withDirectives(_createElementVNode("textarea", {
+                              "onUpdate:modelValue": $event => ((replyRulesText).value = $event),
+                              class: "inp code", rows: "8", spellcheck: "false",
+                              placeholder: "留空使用内置规则；格式：{\"features\": {...}, \"generic_fallback\": [...]}"
+                            }, null, 8, ["onUpdate:modelValue"]), [
+                              [_vModelText, replyRulesText.value]
+                            ])
+                          ])
+                        ]),
                         _createElementVNode("section", _hoisted_65, [
                           _cache[94] || (_cache[94] = _createElementVNode("div", { class: "card-h" }, "过滤", -1)),
                           _createElementVNode("label", _hoisted_66, [
@@ -1029,6 +1071,22 @@ return (_ctx, _cache) => {
                           : (group.value === 'net')
                             ? (_openBlock(), _createElementBlock(_Fragment, { key: 6 }, [
                                 _cache[126] || (_cache[126] = _createElementVNode("h3", { class: "det-title" }, "代理与浏览器", -1)),
+                                _createElementVNode("section", { class: "card" }, [
+                                  _createElementVNode("label", { class: "row" }, [
+                                    _createElementVNode("span", null, "日志级别"),
+                                    _withDirectives(_createElementVNode("select", {
+                                      "onUpdate:modelValue": $event => ((cfg.log_level) = $event),
+                                      class: "inp"
+                                    }, [
+                                      _createElementVNode("option", { value: "DEBUG" }, "DEBUG（调试）"),
+                                      _createElementVNode("option", { value: "INFO" }, "INFO（常规）"),
+                                      _createElementVNode("option", { value: "WARNING" }, "WARNING（警告）"),
+                                      _createElementVNode("option", { value: "ERROR" }, "ERROR（错误）")
+                                    ], 8, ["onUpdate:modelValue"]), [
+                                      [_vModelSelect, cfg.log_level]
+                                    ])
+                                  ])
+                                ]),
                                 _createElementVNode("section", _hoisted_87, [
                                   _cache[122] || (_cache[122] = _createElementVNode("div", { class: "card-h" }, "代理", -1)),
                                   _createElementVNode("label", _hoisted_88, [

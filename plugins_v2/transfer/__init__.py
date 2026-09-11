@@ -9,13 +9,14 @@ except ImportError:
 
 __plugin__ = {'name': '多站点转账',
  'id': 'transfer',
- 'version': '2.0.4',
+ 'version': '2.0.5',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'imgkit>=1.2'],
  'description': '监听多个PT站群的转账bot，记录转入/转出并生成排行榜。站点群组/bot内置，用户只开关每站点功能。自带 Vue 配置界面 + 排行榜管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/transfer.png',
- 'changelog': 'v2.0.4 统一富文本表格通知\n- 主人转账通知改为平台结构化表格\n\n'
+ 'changelog': 'v2.0.5 清理隐藏全局开关\n- 群内致谢、转入榜和转出榜只读取配置页可见的每站点开关\n- 移除已废弃全局字段的运行时回退，避免隐藏配置影响行为\n\n'
+              'v2.0.4 统一富文本表格通知\n- 主人转账通知改为平台结构化表格\n\n'
               'v2.0.3 修复普通 Telegram HTML 显示\n'
               '- 群内致谢、文字排行榜和图片说明显式启用 HTML 解析\n'
               '- 不再显示 <b>、<blockquote>、<i> 等原始标签\n'

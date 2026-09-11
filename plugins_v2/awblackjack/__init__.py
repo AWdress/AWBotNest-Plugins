@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .core import setup as _core_setup, teardown as _core_teardown
 
-__plugin__ = {'name': 'AWBlackJack',
+__plugin__ = {'name': 'AWBlackjack',
  'id': 'awblackjack',
  'version': '2.0.1',
  'author': 'AWdress',
@@ -261,5 +261,3 @@ async def setup(ctx):
 
 async def teardown(ctx):
     await _core_teardown(ctx)
-
-__plugin__["name"] = 'AWBlackjack'

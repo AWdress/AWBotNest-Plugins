@@ -550,14 +550,11 @@ async def _record_and_notify(ctx, store, client, message, target, site, directio
             ctx.log.debug("ctx.notify 失败: %s", e)
 
     # 群内致谢与排行榜是两个独立开关：任意一个开启都应进入发送流程。
-    notif_on = site.notification if site.notification is not None \
-        else bool(ctx.config.get("notification", False))
+    notif_on = bool(site.notification)
     if direction == "in":
-        lb_on = site.leaderboard if site.leaderboard is not None \
-            else bool(ctx.config.get("leaderboard_in", False))
+        lb_on = bool(site.leaderboard)
     else:
-        lb_on = site.payleaderboard if site.payleaderboard is not None \
-            else bool(ctx.config.get("leaderboard_out", False))
+        lb_on = bool(site.payleaderboard)
     if not notif_on and not lb_on:
         return
 

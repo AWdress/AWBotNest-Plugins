@@ -417,7 +417,7 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("auto_subscribe_missing") and not getattr(result, "auth_error", ""):
             try:
                 missing_subs, missing_added = await asyncio.to_thread(_subscribe_missing_round, cfg, ctx.log)
-                ctx.update_config({"last_missing_subscription_stats": missing_subs})
+                _state_set(ctx, "last_missing_subscription_stats", missing_subs)
             except Exception as exc:
                 ctx.log.error("[自动订阅] 本地缺集订阅失败: %r", exc)
 
@@ -425,7 +425,7 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("auto_fill_missing") and not getattr(result, "auth_error", ""):
             try:
                 fill_stats = await asyncio.to_thread(_fill_missing_round, cfg, ctx.log)
-                ctx.update_config({"last_fill_missing_stats": fill_stats})
+                _state_set(ctx, "last_fill_missing_stats", fill_stats)
             except Exception as exc:  # noqa: BLE001
                 ctx.log.error("[自动订阅] 自动补缺集失败: %r", exc)
 
@@ -438,10 +438,8 @@ async def _run(ctx, label: str) -> str:
             agg["missing_checked"] = missing_subs.get("checked", 0)
             agg["missing_added"] = missing_subs.get("added", 0)
             agg["missing_skipped"] = missing_subs.get("skipped", 0)
-        ctx.update_config({
-            "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "last_stats": agg,
-        })
+        _state_set(ctx, "last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        _state_set(ctx, "last_stats", agg)
 
         summary = _summary(result, label, missing_subs=missing_subs, fill_stats=fill_stats, extra_added=missing_added)
 
@@ -508,6 +506,19 @@ async def setup(ctx):
     _run_lock = asyncio.Lock()
     _state.clear()
     _state.update(dict(await ctx.storage.items()))
+    # 旧版曾把只读运行统计写进可编辑配置；迁入 KV 后从配置中清理，避免“后端使用但页面不显示”。
+    runtime_keys=("last_run","last_stats","last_missing_subscription_stats","last_fill_missing_stats")
+    legacy=ctx.config
+    for key in runtime_keys:
+        if key in legacy and key not in _state:
+            _state[key]=legacy[key]
+            await ctx.storage.set(key,legacy[key])
+    settings=getattr(ctx,"settings",None)
+    plugin_config=getattr(settings,"plugin_config",None)
+    saved=plugin_config.get("auto_subscribe") if isinstance(plugin_config,dict) else None
+    if isinstance(saved,dict) and any(key in saved for key in runtime_keys):
+        for key in runtime_keys:saved.pop(key,None)
+        ctx.update_config({})
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/meta", methods=["GET"])
     async def _api_meta(req):
@@ -546,8 +557,8 @@ async def setup(ctx):
         items.sort(key=lambda x: x.get("time", ""), reverse=True)
         return {
             "items": items,
-            "last_run": ctx.config.get("last_run", ""),
-            "stats": ctx.config.get("last_stats", {}),
+            "last_run": _state_get("last_run", ""),
+            "stats": _state_get("last_stats", {}),
         }
 
     @ctx.on_api("/history/delete", methods=["POST"])

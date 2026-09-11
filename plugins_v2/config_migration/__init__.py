@@ -10,10 +10,14 @@ from urllib.parse import urlparse
 
 __plugin__ = {'name': '平台迁移助手',
  'id': 'config_migration',
- 'version': '1.1.2',
+ 'version': '1.1.3',
  'author': 'AWdress',
  'description': '通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。',
- 'changelog': 'v1.1.2 修复预览后无法执行迁移\n'
+ 'changelog': 'v1.1.3 迁移合并后的消息流转配置\n'
+              '- V1 转发复读配置、账号范围、启用状态和 Bot 路由直接改写到消息流转助手\n'
+              '- 同时存在消息转发配置时只补齐复读字段，不覆盖现有规则\n'
+              '\n'
+              'v1.1.2 修复预览后无法执行迁移\n'
               '- 读取成功后由后端保存连接参数和新迁移码，避免前端保存触发插件重载并清空迁移包\n'
               '- 兼容配置页密码脱敏占位值，重新读取时使用已保存的真实密钥\n'
               '- 配置页重新挂载时恢复当前有效预览\n'
@@ -115,14 +119,34 @@ def _convert(bundle: dict) -> dict:
     if isinstance(ai_settings,dict): system["ai_settings"] = copy.deepcopy(ai_settings)
     cookie_settings=bundle.get("cookie_settings")
     if isinstance(cookie_settings,dict): system["cookie_settings"] = copy.deepcopy(cookie_settings)
+    plugin_config=copy.deepcopy(state.get("config") or {})
+    plugin_accounts=copy.deepcopy(state.get("account_scope") or {})
+    bot_routing=copy.deepcopy(state.get("bot_choice") or {})
+    # “转发复读”已并入 msg_forward；在导入阶段直接改写，避免迁移后生成不存在的 zf 插件配置。
+    legacy_zf=plugin_config.pop("zf",None)
+    if isinstance(legacy_zf,dict):
+        target=plugin_config.setdefault("msg_forward",{})
+        if isinstance(target,dict):
+            for source_key,target_key in {
+                "command":"repeat_command","interval":"repeat_interval","max_times":"repeat_max_times",
+            }.items():
+                if source_key in legacy_zf and target_key not in target:target[target_key]=copy.deepcopy(legacy_zf[source_key])
+            target.setdefault("repeat_enabled",True)
+    if "zf" in plugin_accounts and "msg_forward" not in plugin_accounts:
+        plugin_accounts["msg_forward"]=plugin_accounts["zf"]
+    plugin_accounts.pop("zf",None)
+    if "zf" in bot_routing and "msg_forward" not in bot_routing:
+        bot_routing["msg_forward"]=bot_routing["zf"]
+    bot_routing.pop("zf",None)
     enabled_raw=state.get("enabled") or {}
     enabled=[str(k) for k,v in enabled_raw.items() if v] if isinstance(enabled_raw,dict) else [str(x) for x in enabled_raw]
+    enabled=list(dict.fromkeys("msg_forward" if item=="zf" else item for item in enabled))
     return {
         "system": system,
-        "plugin_config": copy.deepcopy(state.get("config") or {}),
+        "plugin_config": plugin_config,
         "enabled_plugins": enabled,
-        "plugin_accounts": copy.deepcopy(state.get("account_scope") or {}),
-        "bot_routing": copy.deepcopy(state.get("bot_choice") or {}),
+        "plugin_accounts": plugin_accounts,
+        "bot_routing": bot_routing,
     }
 
 
