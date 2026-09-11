@@ -9,7 +9,7 @@ import time
 __plugin__ = {
     "id": "msg_forward",
     "name": "消息转发助手",
-    "version": "2.1.2",
+    "version": "2.1.3",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -99,7 +99,8 @@ __plugin__ = {
         },
     },
     "resources": {"timeout_seconds": 120, "max_concurrency": 8, "max_background_tasks": 32},
-    "changelog": "v2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\n"
+    "changelog": "v2.1.3 修复历史媒体漏发与立即检查反馈\n- 媒体复制的下载或上传请求失败时自动降级为原样转发，不再因 Telegram 重试耗尽直接漏发\n- 原生转发返回空结果时继续尝试消息 ID 路径，所有路径均无有效结果时不再误记成功\n- 补全日志显示实际投递模式，立即检查按钮点击后马上记录受理或占用状态\n\n"
+    "v2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\n"
     "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
     "v2.1.0 合并消息转发与转发复读\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\n"
     "v2.0.6 修复遗漏补全数值配置\n- backfill_limit 改用平台支持的 number 类型并限制为整数步进\n- 兼容已有数字值，运行时继续执行 1 至 500 的整数边界保护\n\n"
@@ -211,12 +212,30 @@ def _forward_restricted(error):
         or "禁止转发" in detail
     )
 
+def _delivery_ids(result):
+    """只把带 Telegram 消息 ID 的发送结果视为已实际投递。"""
+    items=result if isinstance(result,(list,tuple)) else [result]
+    return [int(value) for item in items if item is not None
+            for value in [getattr(item,"id",None)] if isinstance(value,int) and value>0]
+
+async def _history_entity(client,value):
+    """历史回查优先使用本地实体缓存，避免 get_entity 额外请求反复失败。"""
+    get_input_entity=getattr(client,"get_input_entity",None)
+    if callable(get_input_entity):
+        try:return await get_input_entity(value)
+        except asyncio.CancelledError:raise
+        except Exception:pass
+    return await client.get_entity(value)
+
 async def _native_forward(client,target,messages):
     """优先转发原生 Message；旧 Telethon 不兼容时再按来源和消息 ID 转发。"""
     payload=messages[0] if len(messages)==1 else messages
     message_error=None
     try:
-        return await client.forward_messages(target,payload)
+        result=await client.forward_messages(target,payload)
+        if _delivery_ids(result):
+            return result
+        message_error=RuntimeError("原生 Message 转发未返回目标消息 ID")
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -232,7 +251,10 @@ async def _native_forward(client,target,messages):
     if source is not None and all(message_id is not None for message_id in ids):
         payload=ids[0] if len(ids)==1 else ids
         try:
-            return await client.forward_messages(target,payload,from_peer=source)
+            result=await client.forward_messages(target,payload,from_peer=source)
+            if _delivery_ids(result):
+                return result
+            raise RuntimeError("消息 ID 转发未返回目标消息 ID")
         except asyncio.CancelledError:
             raise
         except Exception as id_error:
@@ -245,12 +267,9 @@ async def _forward(client,target,messages,log=None,delivery=None):
     """执行原生转发；无法完成时自动降级为复制搬运，避免静默丢消息。"""
     try:
         result=await _native_forward(client,target,messages)
-        if result is None or (isinstance(result,(list,tuple)) and not any(result)):
-            if log:log.warning("[消息转发助手] 原生转发未返回消息，自动降级为复制搬运 -> %s",target)
-            result=await _copy(client,target,messages,allow_native_fallback=False)
-            if delivery is not None:delivery["mode"]="复制搬运（自动降级）"
-            return result
-        if delivery is not None:delivery["mode"]="原样转发"
+        if delivery is not None:
+            delivery["mode"]="原样转发"
+            delivery["message_ids"]=_delivery_ids(result)
         return result
     except asyncio.CancelledError:
         raise
@@ -260,7 +279,9 @@ async def _forward(client,target,messages,log=None,delivery=None):
             log.warning("[消息转发助手] %s，自动降级为复制搬运 -> %s: %r",reason,target,error)
         try:
             result=await _copy(client,target,messages,allow_native_fallback=False)
-            if delivery is not None:delivery["mode"]="复制搬运（自动降级）"
+            if delivery is not None:
+                delivery["mode"]="复制搬运（自动降级）"
+                delivery["message_ids"]=_delivery_ids(result)
             return result
         except asyncio.CancelledError:
             raise
@@ -269,39 +290,65 @@ async def _forward(client,target,messages,log=None,delivery=None):
                 f"原样转发失败（{error!r}）；复制搬运回退也失败（{copy_error!r}）"
             ) from copy_error
 
-async def _copy(client,target,messages,allow_native_fallback=True,reply_to=None):
-    if len(messages)==1 and not messages[0].media:
-        return await client.send_message(
-            target,messages[0].raw_text or "",parse_mode=None,
-            formatting_entities=getattr(messages[0],"entities",None),
-            reply_to=reply_to,
-        )
-    files=[]
-    for message in messages:
-        if message.media:
-            downloaded = await client.download_media(message,bytes)
-            if downloaded is not None:
+async def _copy(client,target,messages,allow_native_fallback=True,reply_to=None,log=None,delivery=None):
+    """复制消息；下载、上传或发送失败时可自动降级为原样转发。"""
+    try:
+        if len(messages)==1 and not messages[0].media:
+            result=await client.send_message(
+                target,messages[0].raw_text or "",parse_mode=None,
+                formatting_entities=getattr(messages[0],"entities",None),
+                reply_to=reply_to,
+            )
+        else:
+            files=[]
+            for message in messages:
+                if not message.media:continue
+                downloaded=await client.download_media(message,bytes)
+                if downloaded is None:
+                    raise RuntimeError(f"消息 {getattr(message,'id','?')} 的媒体下载返回空结果")
                 stream=BytesIO(downloaded)
                 stream.name=_media_filename(message)
                 files.append(stream)
-    caption_message=next((m for m in messages if m.raw_text),None)
-    caption=caption_message.raw_text if caption_message else None
-    if files:return await client.send_file(
-        target,files if len(files)>1 else files[0],caption=caption,
-        parse_mode=None,formatting_entities=getattr(caption_message,"entities",None),
-        force_document=_copy_force_document(messages),
-        supports_streaming=any(getattr(message,"video",None) for message in messages),
-        reply_to=reply_to,
-    )
-    # 媒体下载失败时不要把 None 传给 send_file；回退为原生转发，至少保证消息可达。
-    if any(getattr(message,"media",None) for message in messages):
-        if allow_native_fallback:return await _native_forward(client,target,messages)
-        raise RuntimeError("原生转发受限且媒体下载失败，无法执行复制补发")
-    return await client.send_message(
-        target,caption or "",parse_mode=None,
-        formatting_entities=getattr(caption_message,"entities",None),
-        reply_to=reply_to,
-    )
+            caption_message=next((m for m in messages if m.raw_text),None)
+            caption=caption_message.raw_text if caption_message else None
+            if files:
+                result=await client.send_file(
+                    target,files if len(files)>1 else files[0],caption=caption,
+                    parse_mode=None,formatting_entities=getattr(caption_message,"entities",None),
+                    force_document=_copy_force_document(messages),
+                    supports_streaming=any(getattr(message,"video",None) for message in messages),
+                    reply_to=reply_to,
+                )
+            else:
+                result=await client.send_message(
+                    target,caption or "",parse_mode=None,
+                    formatting_entities=getattr(caption_message,"entities",None),
+                    reply_to=reply_to,
+                )
+        message_ids=_delivery_ids(result)
+        if not message_ids:
+            raise RuntimeError("复制搬运未返回目标消息 ID")
+        if delivery is not None:
+            delivery["mode"]="复制搬运"
+            delivery["message_ids"]=message_ids
+        return result
+    except asyncio.CancelledError:
+        raise
+    except Exception as copy_error:
+        if not allow_native_fallback:raise
+        if log:log.warning("[消息转发助手] 复制搬运失败，自动降级为原样转发 -> %s: %r",target,copy_error)
+        try:
+            result=await _native_forward(client,target,messages)
+            if delivery is not None:
+                delivery["mode"]="原样转发（自动降级）"
+                delivery["message_ids"]=_delivery_ids(result)
+            return result
+        except asyncio.CancelledError:
+            raise
+        except Exception as forward_error:
+            raise RuntimeError(
+                f"复制搬运失败（{copy_error!r}）；原样转发回退也失败（{forward_error!r}）"
+            ) from forward_error
 
 def _repeat_topic(event,source):
     """取得论坛话题根消息；普通回复不被误当成话题。"""
@@ -381,7 +428,7 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
             log.warning("[消息转发助手] 规则 %s 来源无效，已跳过", index + 1)
             continue
         try:
-            source_entity = await client.get_entity(source)
+            source_entity = await _history_entity(client,source)
             source_id = getattr(source_entity, "id", source)
             groups = {}
             async for message in client.iter_messages(source_entity, limit=limit):
@@ -404,13 +451,14 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
                         skipped += 1
                         continue
                     try:
+                        delivery={}
                         if rule.get("copy"):
-                            await _copy(client, target, messages)
+                            await _copy(client,target,messages,log=log,delivery=delivery)
                         else:
-                            await _forward(client, target, messages, log)
+                            await _forward(client,target,messages,log,delivery)
                         sent.add(dedupe_key)
                         sent_count += 1
-                        log.info("[消息转发助手] 补全 %s (%s) -> %s (%s)，消息 %s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)))
+                        log.info("[消息转发助手] 补全 %s (%s) -> %s (%s)，来源消息=%s，目标消息=%s，模式=%s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)),",".join(map(str,delivery.get("message_ids") or [])),delivery.get("mode","未知"))
                     except asyncio.CancelledError:
                         raise
                     except Exception as error:
@@ -482,20 +530,19 @@ async def setup(ctx):
             if source is None or not _source_matches(event.chat_id,chat,source) or not _passes(rule,messages,text,sender):continue
             for target in filter(lambda x:x is not None,(_peer(x) for x in _split(rule.get("targets")))):
                 try:
+                    delivery={}
                     if rule.get("copy"):
-                        await _copy(event.client,target,messages)
-                        delivery_mode="复制搬运"
+                        await _copy(event.client,target,messages,log=ctx.log,delivery=delivery)
                     else:
-                        delivery={}
                         await _forward(event.client,target,messages,ctx.log,delivery)
-                        delivery_mode=delivery.get("mode","原样转发")
+                    delivery_mode=delivery.get("mode","未知")
                     ids = tuple(getattr(message, "id", 0) for message in messages)
                     sent.add(f"{source}:{target}:{','.join(map(str, ids))}")
                     try:
                         await persist_sent()
                     except Exception as error:
                         ctx.log.warning("[消息转发助手] 转发已完成，但去重检查点保存失败: %r", error)
-                    ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)，模式=%s",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target,delivery_mode)
+                    ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)，目标消息=%s，模式=%s",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target,",".join(map(str,delivery.get("message_ids") or [])),delivery_mode)
                 except asyncio.CancelledError:raise
                 except Exception as error:ctx.log.warning("[消息转发助手] 转发失败 %s -> %s: %r",event.chat_id,target,error)
 
@@ -522,7 +569,7 @@ async def setup(ctx):
             if interval:await asyncio.sleep(interval)
             try:
                 if mode=="copy":
-                    await _copy(event.client,event.chat_id,[source],reply_to=topic)
+                    await _copy(event.client,event.chat_id,[source],reply_to=topic,log=ctx.log)
                 else:
                     await _repeat_forward(event.client,event.chat_id,source,topic)
                 completed+=1
@@ -534,7 +581,7 @@ async def setup(ctx):
                     continue
                 ctx.log.warning("[消息转发助手] 第 %d/%d 次转发失败，尝试复制: %r",index+1,times,error)
                 try:
-                    await _copy(event.client,event.chat_id,[source],reply_to=topic)
+                    await _copy(event.client,event.chat_id,[source],reply_to=topic,log=ctx.log)
                     completed+=1
                 except Exception as copy_error:
                     ctx.log.warning("[消息转发助手] 第 %d/%d 次复制失败: %r",index+1,times,copy_error)
@@ -545,18 +592,25 @@ async def setup(ctx):
     @ctx.action("backfill")
     async def action_backfill():
         nonlocal backfill_task
+        ctx.log.info("[消息转发助手] 已收到立即检查遗漏请求")
         if not ctx.config.get("enable", False):
+            ctx.log.warning("[消息转发助手] 立即检查未启动：规则转发开关未开启")
             return {"ok": False, "message": "请先启用规则转发"}
         if backfill_task is not None and not backfill_task.done():
+            ctx.log.info("[消息转发助手] 立即检查未重复启动：已有遗漏检查正在运行")
             return {"ok": False, "message": "遗漏补全任务正在运行"}
         if backfill_lock.locked():
+            ctx.log.info("[消息转发助手] 立即检查未重复启动：已有遗漏检查正在运行")
             return {"ok": False, "message": "遗漏检查正在运行"}
         if not ctx.user:
+            ctx.log.warning("[消息转发助手] 立即检查未启动：用户客户端尚未连接")
             return {"ok": False, "message": "用户客户端尚未连接"}
         rules = [r for r in (ctx.config.get("rules") or []) if isinstance(r, dict)]
         if not rules:
+            ctx.log.warning("[消息转发助手] 立即检查未启动：尚未配置转发规则")
             return {"ok": False, "message": "尚未配置转发规则"}
         backfill_task = ctx.create_task(run_backfill("手动"), name="消息转发助手：立即检查遗漏")
+        ctx.log.info("[消息转发助手] 立即检查遗漏任务已启动")
         return {"ok": True, "message": "已开始回查历史消息并补发遗漏，详情见插件日志"}
 
     if ctx.config.get("auto_backfill",True) and ctx.config.get("enable",False) and ctx.user:
