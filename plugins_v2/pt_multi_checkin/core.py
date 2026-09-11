@@ -24,11 +24,11 @@ from bs4 import BeautifulSoup
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.9",
+    "version": "2.0.10",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
-    "changelog": "v2.0.9 修复 Audiences Docker 自动验证\n- 改用真正的 CloakBrowser 持久 profile 与固定指纹，避免 Cloudflare Cookie 和随机指纹错配\n- Audiences 只等待托管验证自动签发令牌，不再误点空的 Turnstile 外层容器\n- 控件未初始化时重新加载官方 API 并显式渲染，超时日志补充脚本、指纹和控件状态\n\nv2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
+    "changelog": "v2.0.10 修复签到参数显示不完整\n- 数字输入框保留稳定宽度，避免浏览器步进控件遮挡数值\n- 重试间隔单位改为独立布局，窄窗口自动换行且不再与数值重叠\n\nv2.0.9 修复 Audiences Docker 自动验证\n- 改用真正的 CloakBrowser 持久 profile 与固定指纹，避免 Cloudflare Cookie 和随机指纹错配\n- Audiences 只等待托管验证自动签发令牌，不再误点空的 Turnstile 外层容器\n- 控件未初始化时重新加载官方 API 并显式渲染，超时日志补充脚本、指纹和控件状态\n\nv2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -54,7 +54,6 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},

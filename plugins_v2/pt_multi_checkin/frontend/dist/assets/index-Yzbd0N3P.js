@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-bCsFa1rk.js';
+import Config from './__federation_expose_Config-6lwFeXOb.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -56,8 +56,9 @@ const demoHost = {
       { key: 'pterclub', name: 'PTerClub', domain: 'pterclub.net', group: '专用适配' },
       { key: 'zhuque', name: '朱雀', domain: 'zhuque.in', group: '专用适配' },
     ],
-  } : path === '/history' ? { items: [] } : {},
+  } : path === '/history' ? { items: [] } : path === '/logs' ? { items: [{ time: '08:10:00', level: 'info', site: '系统', message: '插件已加载，等待签到任务' }] } : {},
   saveConfig: async () => {},
   toast: { success: console.log, warning: console.warn, error: console.error },
 };
+
 createApp(Config, { pluginId: 'pt_multi_checkin', host: demoHost }).mount('#app');

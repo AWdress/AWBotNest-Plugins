@@ -62,9 +62,24 @@ const _hoisted_35 = {
   key: 1,
   class: "empty"
 };
-const _hoisted_36 = {
+const _hoisted_36 = { class: "history-panel log-panel" };
+const _hoisted_37 = { class: "section-head" };
+const _hoisted_38 = ["disabled"];
+const _hoisted_39 = {
+  key: 0,
+  class: "runtime-logs"
+};
+const _hoisted_40 = {
+  key: 1,
+  class: "empty"
+};
+const _hoisted_41 = {
   key: 1,
   class: "loading"
+};
+const _hoisted_42 = {
+  key: 2,
+  class: "load-error"
 };
 
 const {computed,onBeforeUnmount,onMounted,reactive,ref} = await importShared('vue');
@@ -78,26 +93,40 @@ const _sfc_main = {
 
 const props = __props;
 const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] });
-const sites = ref([]), history = ref([]), cookieState = reactive({});
+const sites = ref([]), history = ref([]), logs = ref([]), cookieState = reactive({});
 const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' });
-const loading = ref(true), saving = ref(false), checking = ref(false);
+const loading = ref(true), loadingError = ref(''), saving = ref(false), checking = ref(false);
 let timer;
 const groups = computed(() => Object.entries(sites.value.reduce((all, site) => ((all[site.group] ||= []).push(site), all), {})));
 const progress = computed(() => status.total ? Math.round(status.completed / status.total * 100) : 0);
 
+function withTimeout(promise, label, timeout = 12000) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${label}超时，请确认插件已启用并重新加载`)), timeout))])
+}
 async function refresh() {
-  Object.assign(status, await props.host.callApi('/status'));
-  const data = await props.host.callApi('/history'); history.value = data.items || [];
+  const [statusResult, historyResult, logsResult] = await Promise.allSettled([
+    withTimeout(props.host.callApi('/status'), '读取运行状态'),
+    withTimeout(props.host.callApi('/history'), '读取运行记录'),
+    withTimeout(props.host.callApi('/logs'), '读取运行日志'),
+  ]);
+  if (statusResult.status === 'fulfilled') Object.assign(status, statusResult.value);
+  if (historyResult.status === 'fulfilled') history.value = historyResult.value.items || [];
+  if (logsResult.status === 'fulfilled') logs.value = logsResult.value.items || [];
+  if (status.running && !timer) timer = setInterval(refresh, 2500);
   if (!status.running && timer) { clearInterval(timer); timer = null; }
 }
 async function load() {
+  loading.value = true; loadingError.value = '';
   try {
-    const [saved, meta] = await Promise.all([props.host.getConfig(), props.host.callApi('/meta')]);
+    const [saved, meta] = await Promise.all([
+      withTimeout(props.host.getConfig(), '读取插件配置'),
+      withTimeout(props.host.callApi('/meta'), '读取签到站点'),
+    ]);
     Object.assign(config, meta.defaults || {}, saved || {});
     sites.value = meta.sites || [];
     if (!Array.isArray(config.selected_sites)) config.selected_sites = sites.value.map(site => site.key);
     await refresh();
-  } catch (error) { props.host.toast.error(`读取失败：${error.message || error}`); }
+  } catch (error) { loadingError.value = error.message || String(error); props.host.toast.error(`读取失败：${loadingError.value}`); }
   finally { loading.value = false; }
 }
 async function save() {
@@ -124,12 +153,13 @@ async function checkCookies() {
 }
 function toggleGroup(items, enabled) { const keys = new Set(config.selected_sites); items.forEach(site => enabled ? keys.add(site.key) : keys.delete(site.key)); config.selected_sites = [...keys]; }
 async function clearHistory() { const result = await props.host.callApi('/history/clear', { method: 'POST' }); if (result.ok) { history.value = []; props.host.toast.success(result.message); } }
+async function clearLogs() { const result = await props.host.callApi('/logs/clear', { method: 'POST' }); if (result.ok) { props.host.toast.success(result.message); await refresh(); } }
 onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer));
 
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock(_Fragment, null, [
     _createCommentVNode(" THESIS: Fast PT operations through glanceable controls and tactile checked labels, refusing spreadsheet-like site rows. OWN-WORLD: Ink-blue surfaces, crisp blue selection outlines, compact square checks, quiet cyan status. STORY: Choose sites, confirm platform cookies, save, and run with progress always visible. FIRST VIEWPORT: Title and actions lead; schedule controls sit in one rail; site chips fill grouped fields below. FORM: Compact operator console, seed PT-CHECK-CHIPS-3. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md. "),
-    (!loading.value)
+    (!loading.value && !loadingError.value)
       ? (_openBlock(), _createElementBlock("main", _hoisted_1, [
           _createElementVNode("header", _hoisted_2, [
             _createElementVNode("div", _hoisted_3, [
@@ -422,14 +452,53 @@ return (_ctx, _cache) => {
                   _createElementVNode("b", null, "等待第一次签到", -1),
                   _createElementVNode("p", null, "运行完成后，站点结果会显示在这里。", -1)
                 ]))]))
+          ]),
+          _createElementVNode("section", _hoisted_36, [
+            _createElementVNode("div", _hoisted_37, [
+              _cache[33] || (_cache[33] = _createElementVNode("div", null, [
+                _createElementVNode("h3", null, "运行日志"),
+                _createElementVNode("p", null, "实时显示本次签到过程，最多保留 200 条。")
+              ], -1)),
+              _createElementVNode("button", {
+                class: "link-button danger",
+                disabled: !logs.value.length,
+                onClick: clearLogs
+              }, "清空日志", 8, _hoisted_38)
+            ]),
+            (logs.value.length)
+              ? (_openBlock(), _createElementBlock("div", _hoisted_39, [
+                  (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(logs.value, (item, index) => {
+                    return (_openBlock(), _createElementBlock("div", {
+                      key: `${item.time}-${index}`,
+                      class: _normalizeClass(['log-row', item.level])
+                    }, [
+                      _createElementVNode("time", null, _toDisplayString(item.time), 1),
+                      _createElementVNode("b", null, _toDisplayString(item.site || '系统'), 1),
+                      _createElementVNode("span", null, _toDisplayString(item.message), 1)
+                    ], 2))
+                  }), 128))
+                ]))
+              : (_openBlock(), _createElementBlock("div", _hoisted_40, [...(_cache[34] || (_cache[34] = [
+                  _createElementVNode("b", null, "暂无运行日志", -1),
+                  _createElementVNode("p", null, "启动签到后，执行过程会实时显示在这里。", -1)
+                ]))]))
           ])
         ]))
-      : (_openBlock(), _createElementBlock("div", _hoisted_36, "正在读取签到配置…"))
+      : (loading.value)
+        ? (_openBlock(), _createElementBlock("div", _hoisted_41, "正在读取签到配置…"))
+        : (_openBlock(), _createElementBlock("div", _hoisted_42, [
+            _cache[35] || (_cache[35] = _createElementVNode("b", null, "签到配置读取失败", -1)),
+            _createElementVNode("p", null, _toDisplayString(loadingError.value), 1),
+            _createElementVNode("button", {
+              class: "button primary",
+              onClick: load
+            }, "重新加载")
+          ]))
   ], 64))
 }
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-1890c21a"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-ee1c604d"]]);
 
 export { Config as default };
