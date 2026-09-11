@@ -605,21 +605,65 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
     except Exception:
         page.screenshot(path=str(image_path), full_page=True)
 
-    event = threading.Event()
-    pending = {"event": event, "choice": None, "created": datetime.now().timestamp()}
-    _tjupt_pending[token] = pending
-    timeout = _bounded(ctx.config.get("tjupt_confirm_timeout"), 300, 60, 600)
+    # 尝试 AI 自动识别并提交
+    choice = None
+    auto_submit_enabled = ctx.config.get("tjupt_ai_assist", True)
+    
+    if auto_submit_enabled and _ai_available(ctx, "vision"):
+        try:
+            _runtime_log(ctx, f"使用 AI 自动识别海报，候选项：{options}", level="info", site="TJUPT")
+            image_bytes = image_path.read_bytes()
+            
+            suggestion = str(asyncio.run_coroutine_threadsafe(
+                ctx.ai.vision(
+                    image=image_bytes,
+                    prompt=(
+                        "这是 TJUPT 的影视海报选择题。请观察图片，在下列候选项中给出最可能的一个。"
+                        "**只需要返回选项序号（从0开始），例如：0 或 1 或 2，不要返回任何解释**。\n候选项：\n"
+                        + "\n".join(f"{index}. {label}" for index, label in enumerate(options))
+                    ),
+                    system="你是影视海报识别助手。只返回最可能的选项序号（0-based index），例如直接返回 0 或 1 或 2，不要返回任何解释文字。",
+                ),
+                loop
+            ).result(timeout=60))
+            
+            # 解析 AI 返回的选项序号
+            match = re.search(r'\b(\d+)\b', suggestion)
+            if match:
+                choice = int(match.group(1))
+                if 0 <= choice < count:
+                    _runtime_log(ctx, f"AI 识别结果：选项 {choice} ({options[choice]})，自动提交", level="info", site="TJUPT")
+                else:
+                    _runtime_log(ctx, f"AI 返回的序号 {choice} 超出范围 [0, {count-1}]，回退到手动模式", level="warning", site="TJUPT")
+                    choice = None
+            else:
+                _runtime_log(ctx, f"AI 返回内容无法解析为选项序号：{suggestion[:200]}，回退到手动模式", level="warning", site="TJUPT")
+        except Exception as exc:
+            _runtime_log(ctx, f"AI 识图失败：{exc}，回退到手动模式", level="warning", site="TJUPT")
+            choice = None
+    
+    # 如果 AI 识别失败或未启用，回退到 Telegram 手动选择
+    if choice is None:
+        event = threading.Event()
+        pending = {"event": event, "choice": None, "created": datetime.now().timestamp()}
+        _tjupt_pending[token] = pending
+        timeout = _bounded(ctx.config.get("tjupt_confirm_timeout"), 300, 60, 600)
+        try:
+            future = asyncio.run_coroutine_threadsafe(_send_tjupt_question(ctx, token, image_path, options), loop)
+            future.result(timeout=90)
+            if not event.wait(timeout):
+                raise RuntimeError(f"等待 Telegram 选择超时（{timeout} 秒），未提交签到答案")
+            choice = pending.get("choice")
+            if not isinstance(choice, int) or choice < 0 or choice >= count:
+                raise RuntimeError("Telegram 返回的签到选项无效，未提交")
+        finally:
+            _tjupt_pending.pop(token, None)
+    
+    # 提交选择的答案
     try:
-        future = asyncio.run_coroutine_threadsafe(_send_tjupt_question(ctx, token, image_path, options), loop)
-        future.result(timeout=90)
-        if not event.wait(timeout):
-            raise RuntimeError(f"等待 Telegram 选择超时（{timeout} 秒），未提交签到答案")
-        choice = pending.get("choice")
-        if not isinstance(choice, int) or choice < 0 or choice >= count:
-            raise RuntimeError("Telegram 返回的签到选项无效，未提交")
         current = page.locator('input[type="radio"]')
         if current.count() != count or [_radio_label(current.nth(i)) or f"选项 {i + 1}" for i in range(count)] != options:
-            raise RuntimeError("TJUPT 验证题已变化，未提交旧答案")
+            raise RuntimeError("TJUPT 验证题已变化，未提交答案")
         selected = current.nth(choice)
         selected.check()
         submit = form.locator('button[type="submit"], input[type="submit"], button').first
@@ -629,7 +673,6 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
         page.wait_for_timeout(3_000)
         return _confirm_result(page)
     finally:
-        _tjupt_pending.pop(token, None)
         try:
             image_path.unlink(missing_ok=True)
         except Exception:
