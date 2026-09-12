@@ -12,18 +12,21 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.4", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.5", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
-    "changelog": "v0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
+    "changelog": "v0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
     "scope": "standalone", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "default_enabled": False, "requirements": ["requests>=2.28", "cloakbrowser>=0.5.10"],
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "发送签到通知", "section": "功能开关", "order": 2},
         "auto_save_cookie": {"type": "boolean", "default": True, "label": "自动回写新 Cookie", "help": "账密登录成功后按账号顺序更新 Cookie 配置。", "section": "功能开关", "order": 3},
-        "cookies": {"type": "text", "default": "", "label": "NodeSeek Cookie", "help": "多账号每行一个，也支持用 & 分隔；顺序必须与账号密码一致。内容直接显示，便于检查和修改。", "section": "账号", "cols": 12, "order": 10},
-        "accounts": {"type": "text", "default": "", "label": "账号密码", "help": "可选，Cookie 失效时自动登录。每行：用户名----密码。内容直接显示。", "section": "账号", "cols": 12, "order": 11},
+        "cookies": {"type": "password", "default": "", "label": "NodeSeek Cookie", "help": "多账号使用“ & ”分隔，顺序必须与账号密码一致；可用显示按钮受控查看。", "section": "账号", "cols": 12, "order": 10},
+        "accounts": {"type": "password", "default": "", "label": "账号密码", "help": "可选，Cookie 失效时自动登录。格式：用户名----密码 & 用户名----密码；可用显示按钮受控查看。", "section": "账号", "cols": 12, "order": 11},
+        "solver_type": {"type": "string", "default": "", "label": "旧验证服务", "show_if": {"legacy_solver_visible": True}, "section": "兼容迁移", "order": 90},
+        "api_base_url": {"type": "string", "default": "", "label": "旧验证地址", "show_if": {"legacy_solver_visible": True}, "section": "兼容迁移", "order": 91},
+        "client_key": {"type": "password", "default": "", "label": "旧验证密钥", "show_if": {"legacy_solver_visible": True}, "section": "兼容迁移", "order": 92},
         "browser_login": {"type": "info", "default": "Cookie 失效时自动使用 CloakBrowser 完成验证并重新登录，无需第三方验证码服务。", "label": "自动登录方式", "section": "自动登录", "cols": 12, "order": 20},
         "random_reward": {"type": "boolean", "default": True, "label": "随机鸡腿奖励", "section": "签到设置", "order": 30},
         "cron": {"type": "string", "default": "0 8 * * *", "label": "签到 Cron", "help": "五段 Cron，默认每天 08:00。", "section": "签到设置", "order": 31},
@@ -42,12 +45,12 @@ COOKIE_RE = re.compile(r"(?:^|;)\s*([^=;\s]+)=([^;]*)")
 
 
 def _cookies(raw: str) -> List[str]:
-    return [item.strip() for item in re.split(r"[&\n\r]+", str(raw or "")) if item.strip()]
+    return [item.strip() for item in re.split(r"(?:\r?\n|\s+&\s+)", str(raw or "")) if item.strip()]
 
 
 def _accounts(raw: str) -> List[Dict[str, str]]:
     result: List[Dict[str, str]] = []
-    for line in str(raw or "").splitlines():
+    for line in re.split(r"(?:\r?\n|\s+&\s+)", str(raw or "")):
         line = line.strip()
         if not line:
             continue
@@ -319,12 +322,12 @@ async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any]
 
 
 async def setup(ctx):
-    stored = ctx.settings.plugin_config.setdefault(ctx.plugin_id, {})
-    removed = [key for key in ("solver_type", "api_base_url", "client_key") if key in stored]
-    for key in removed:
-        stored.pop(key, None)
-    if removed:
-        ctx.update_config({})
+    obsolete = {
+        key: "" for key in ("solver_type", "api_base_url", "client_key")
+        if ctx.config.get(key)
+    }
+    if obsolete:
+        ctx.update_config(obsolete)
         ctx.log.info("[NodeSeek签到] 已清理停用的第三方验证码服务配置")
     defaults = {
         key: spec["default"]
@@ -334,7 +337,20 @@ async def setup(ctx):
     if defaults:
         ctx.update_config(defaults)
     state = dict(await ctx.storage.items()); active = None; scheduled = []
+    raw_cookies = str(ctx.config.get("cookies") or "").strip()
     raw_accounts = str(ctx.config.get("accounts") or "").strip()
+    migrated = {}
+    normalized_cookies = " & ".join(_cookies(raw_cookies))
+    normalized_accounts = " & ".join(
+        f"{item['user']}----{item['password']}" for item in _accounts(raw_accounts)
+    )
+    if normalized_cookies and normalized_cookies != raw_cookies:
+        migrated["cookies"] = normalized_cookies
+    if normalized_accounts and normalized_accounts != raw_accounts:
+        migrated["accounts"] = normalized_accounts
+    if migrated:
+        ctx.update_config(migrated)
+        ctx.log.info("[NodeSeek签到] 已将旧多行账号配置迁移为受控单行格式")
     raw_cron = str(ctx.config.get("cron") or "0 8 * * *").strip()
     if raw_accounts == raw_cron and len(raw_cron.split()) == 5 and not _accounts(raw_accounts):
         ctx.update_config({"accounts": ""})
@@ -368,7 +384,7 @@ async def setup(ctx):
                     (ctx.log.info if result["ok"] else ctx.log.error)(f"[NodeSeek签到] {label}: {result['message']}")
                 if changed:
                     await ctx.storage.set("refreshed_cookies", cookie_list)
-                    if config.get("auto_save_cookie", True): ctx.update_config({"cookies": "\n".join(cookie_list)}); ctx.log.info("[NodeSeek签到] 已将刷新后的 Cookie 回写到插件配置")
+                    if config.get("auto_save_cookie", True): ctx.update_config({"cookies": " & ".join(cookie_list)}); ctx.log.info("[NodeSeek签到] 已将刷新后的 Cookie 回写到插件配置")
                 success = sum(row["状态"] == "成功" for row in rows); summary = {"时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "来源": source, "成功": success, "总数": len(rows), "rows": rows}
                 state["last_result"] = summary; history = list(state.get("history", []) or []); history.insert(0, summary); state["history"] = history[:30]
                 await ctx.storage.set("last_result", summary); await ctx.storage.set("history", state["history"])

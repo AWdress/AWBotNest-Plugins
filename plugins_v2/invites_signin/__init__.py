@@ -14,11 +14,11 @@ import requests
 __plugin__ = {
     "name": "药丸签到",
     "id": "invites_signin",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "author": "AWdress",
     "description": "invites.fun 药丸论坛自动签到，支持账号密码登录、Cookie 保活、定时签到和历史记录。",
     "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/invites.png",
-    "changelog": "v0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
+    "changelog": "v0.0.4 修复令牌签到并适配敏感配置规范\n- 修复账号登录成功后被匿名首页 userId=0 覆盖、仍误报 Cookie 失效的问题\n- 访问令牌分支直接调用用户签到接口，不再混入匿名页面 CSRF\n- Cookie 和密码恢复为敏感字段，支持平台受控显示按钮\n\nv0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["药丸论坛", "自动签到", "账号登录", "Cookie保活"],
@@ -44,8 +44,8 @@ __plugin__ = {
             "section": "功能开关", "cols": 4, "order": 3,
         },
         "cookie": {
-            "type": "text", "default": "", "label": "药丸 Cookie",
-            "help": "可选；已有 Cookie 时优先使用，失效后可用下方账号密码自动恢复。内容直接显示。",
+            "type": "password", "default": "", "label": "药丸 Cookie",
+            "help": "可选；已有 Cookie 时优先使用，失效后可用下方账号密码自动恢复。可用显示按钮受控查看。",
             "section": "账号", "cols": 12, "order": 10,
         },
         "username": {
@@ -54,8 +54,8 @@ __plugin__ = {
             "section": "账号", "cols": 6, "order": 11,
         },
         "password": {
-            "type": "string", "default": "", "label": "药丸密码",
-            "help": "仅在 Cookie/登录令牌无效时用于自动重新登录；内容直接显示。",
+            "type": "password", "default": "", "label": "药丸密码",
+            "help": "仅在 Cookie/登录令牌无效时用于自动重新登录；可用显示按钮受控查看。",
             "section": "账号", "cols": 6, "order": 12,
         },
         "cron": {
@@ -165,23 +165,29 @@ def _login(username: str, password: str, timeout: int) -> Dict[str, Any]:
 def _signin(cookie: str, timeout: int, access_token: str = "", known_user_id: str = "") -> Dict[str, Any]:
     session = requests.Session()
     headers = _headers(cookie, access_token)
-    try:
-        home = session.get(BASE_URL, headers=headers, timeout=timeout)
-    except Exception as exc:
-        return {"ok": False, "message": f"访问药丸论坛失败：{exc}"}
-    if home.status_code != 200:
-        return {"ok": False, "message": f"访问药丸论坛失败：HTTP {home.status_code}"}
-
-    match = SESSION_RE.search(home.text or "")
-    if match:
-        user_id, csrf_token = match.groups()
+    if access_token and known_user_id and known_user_id != "0":
+        # Token API 登录与浏览器 Cookie 会话相互独立。匿名首页固定包含
+        # userId=0 和匿名 CSRF，不能用它覆盖登录接口返回的真实用户 ID。
+        user_id = known_user_id
+        csrf_token = ""
     else:
-        csrf = CSRF_RE.search(home.text or "")
-        user = USER_RE.search(home.text or "")
-        if not user and not known_user_id:
-            return {"ok": False, "auth_failed": True, "message": "页面中未找到已登录会话，Cookie/令牌可能已失效"}
-        user_id = user.group(1) if user else known_user_id
-        csrf_token = csrf.group(1) if csrf else ""
+        try:
+            home = session.get(BASE_URL, headers=headers, timeout=timeout)
+        except Exception as exc:
+            return {"ok": False, "message": f"访问药丸论坛失败：{exc}"}
+        if home.status_code != 200:
+            return {"ok": False, "message": f"访问药丸论坛失败：HTTP {home.status_code}"}
+
+        match = SESSION_RE.search(home.text or "")
+        if match:
+            user_id, csrf_token = match.groups()
+        else:
+            csrf = CSRF_RE.search(home.text or "")
+            user = USER_RE.search(home.text or "")
+            if not user:
+                return {"ok": False, "auth_failed": True, "message": "页面中未找到已登录会话，Cookie 可能已失效"}
+            user_id = user.group(1)
+            csrf_token = csrf.group(1) if csrf else ""
     if user_id == "0":
         return {"ok": False, "auth_failed": True, "message": "Cookie 已失效或尚未登录"}
 

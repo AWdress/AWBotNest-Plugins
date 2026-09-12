@@ -98,7 +98,7 @@ const FEATURES=[
 ];
 const DEFAULTS={emby_server:'',api_key:'',user_id:'',tmdb_key:'',library_names:'',fix_lock_data:true,max_output:50,genre_mapping_json:'{\n  "Sci-Fi & Fantasy": "科幻",\n  "War & Politics": "战争"\n}',genre_remove_list:'',add_hant_title:true,strm_delay:3,enable_episode_fix:true,enable_delete_episode_genre:false,enable_genre_mapper:false,enable_season_renamer:false,enable_country_scraper:false,enable_alt_renamer:false,enable_strm_mediainfo:false,enable_damaged_check:false,enable_auto_schedule:false,schedule_cron:'0 3 * * *',schedule_functions:[]};
 const form=reactive({...DEFAULTS}),status=reactive({running:false,task:'',scheduled:false,schedule:'',history:[]});
-const tab=ref('console'),selected=ref('episode_fix'),loading=ref(true),saving=ref(false),testing=ref(false),busy=ref(''),reveal=ref(false);
+const tab=ref('console'),selected=ref('episode_fix'),loading=ref(true),saving=ref(false),testing=ref(false),busy=ref(''),reveal=ref(false),revealTmdb=ref(false);
 let timer;
 const current=computed(()=>FEATURES.find(x=>x.key===selected.value)||FEATURES[0]);
 const enabledCount=computed(()=>FEATURES.filter(x=>form['enable_'+x.key]).length);
@@ -108,6 +108,7 @@ async function refresh(){try{Object.assign(status,await props.host.callApi('/sta
 async function load(){try{Object.assign(form,DEFAULTS,await props.host.getConfig());}catch(e){notify('error','读取配置失败：'+e.message);}await refresh();timer=setInterval(refresh,2500);}
 async function save(){saving.value=true;try{await props.host.saveConfig(JSON.parse(JSON.stringify(form)));notify('success','配置已保存并应用');}catch(e){notify('error','保存失败：'+e.message);}finally{saving.value=false;}}
 async function test(){testing.value=true;try{const r=await props.host.callApi('/test',{method:'POST'});notify(r.ok?'success':'error',r.message);}catch(e){notify('error','测试失败：'+e.message);}finally{testing.value=false;}}
+async function toggleSecret(field,state){if(state.value){state.value=false;return;}try{if(form[field]==='********')form[field]=await props.host.revealSecret(field);state.value=true;}catch(e){notify('error','读取敏感配置失败：'+e.message);}}
 async function run(action){if(status.running)return;const f=FEATURES.find(x=>x.key===action);if(f?.danger&&!confirm(`“${f.title}”会修改 Emby 数据，确定继续？`))return;busy.value=action;try{const r=await props.host.callApi('/run',{method:'POST',body:{action}});notify(r.ok?'success':'error',r.message);await refresh();}catch(e){notify('error','启动失败：'+e.message);}finally{busy.value='';}}
 function toggleSchedule(key){const i=form.schedule_functions.indexOf(key);i<0?form.schedule_functions.push(key):form.schedule_functions.splice(i,1);}
 onMounted(load);onBeforeUnmount(()=>clearInterval(timer));
@@ -336,7 +337,7 @@ return (_ctx, _cache) => {
                     [_vModelDynamic, form.api_key]
                   ]),
                   _createElementVNode("button", {
-                    onClick: _cache[12] || (_cache[12] = $event => (reveal.value=!reveal.value))
+                    onClick: _cache[12] || (_cache[12] = $event => (toggleSecret('api_key',reveal)))
                   }, _toDisplayString(reveal.value?'隐藏':'显示'), 1)
                 ])
               ]),
@@ -356,11 +357,16 @@ return (_ctx, _cache) => {
               ]),
               _createElementVNode("label", null, [
                 _cache[41] || (_cache[41] = _createTextVNode("TMDB API Key", -1)),
-                _withDirectives(_createElementVNode("input", {
-                  "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.tmdb_key) = $event)),
-                  type: "password"
-                }, null, 512), [
-                  [_vModelText, form.tmdb_key]
+                _createElementVNode("div", _hoisted_35, [
+                  _withDirectives(_createElementVNode("input", {
+                    "onUpdate:modelValue": _cache[14] || (_cache[14] = $event => ((form.tmdb_key) = $event)),
+                    type: revealTmdb.value?'text':'password'
+                  }, null, 8, _hoisted_36), [
+                    [_vModelDynamic, form.tmdb_key]
+                  ]),
+                  _createElementVNode("button", {
+                    onClick: $event => (toggleSecret('tmdb_key',revealTmdb))
+                  }, _toDisplayString(revealTmdb.value?'隐藏':'显示'), 1)
                 ])
               ]),
               _createElementVNode("label", _hoisted_37, [
