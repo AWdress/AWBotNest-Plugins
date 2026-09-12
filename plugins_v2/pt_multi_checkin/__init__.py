@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.14',
+ 'version': '2.0.15',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.14 适配平台 CloakBrowser 统一治理\n'
+ 'changelog': 'v2.0.15 等待依赖就绪后再签到\n'
+              '- 每轮签到先核对全部 Python 依赖版本，再准备所需 CloakBrowser 内核\n'
+              '- 浏览器准备完成并关闭预检会话后，才开始读取 Cookie 和访问签到站点\n'
+              '- 依赖或内核准备失败时直接停止本轮，并在插件状态和日志中显示原因\n'
+              '\n'
+              'v2.0.14 适配平台 CloakBrowser 统一治理\n'
               '- 移除插件内核预装、独立缓存和代理环境变量修改\n'
               '- 代理、License Key、内核更新及免费会话排队交由平台统一处理\n'
               '- 浏览器上下文继续在每站结束后关闭，避免占用后续插件会话\n'

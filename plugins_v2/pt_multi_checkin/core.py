@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import importlib
+import importlib.metadata
 import json
 import os
 from pathlib import Path
@@ -38,6 +40,14 @@ _CHANGELOG_V2_0_14 = (
 )
 
 
+_CHANGELOG_V2_0_15 = (
+    "v2.0.15 等待依赖就绪后再签到\n"
+    "- 每轮签到先核对全部 Python 依赖版本，再准备所需 CloakBrowser 内核\n"
+    "- 浏览器准备完成并关闭预检会话后，才开始读取 Cookie 和访问签到站点\n"
+    "- 依赖或内核准备失败时直接停止本轮，并在插件状态和日志中显示原因\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -50,7 +60,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.14",
+    "version": "2.0.15",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -80,7 +90,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -292,6 +302,49 @@ async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: 
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+def _prepare_runtime_dependencies(selected_keys: list[str]) -> list[str]:
+    """确认平台依赖已完整安装，并通过正常 launch 预备浏览器内核。
+
+    这里只使用平台已经代理和治理过的 CloakBrowser launch 接口，不直接调用
+    ensure_binary、不修改缓存目录，也不读取平台 License Key。
+    """
+    from packaging.requirements import Requirement
+
+    versions: list[str] = []
+    import_names = {"beautifulsoup4": "bs4"}
+    for raw in __plugin__["requirements"]:
+        requirement = Requirement(raw)
+        installed = importlib.metadata.version(requirement.name)
+        if requirement.specifier and not requirement.specifier.contains(installed, prereleases=True):
+            raise RuntimeError(f"依赖版本不满足：{requirement.name} {installed}，需要 {requirement.specifier}")
+        importlib.import_module(import_names.get(requirement.name.lower(), requirement.name.replace("-", "_")))
+        versions.append(f"{requirement.name} {installed}")
+
+    import cloakbrowser
+
+    channels: list[str] = []
+    if any(key in {"audiences", "ourbits"} for key in selected_keys):
+        channels.append("preview")
+    if any(key not in {"audiences", "ourbits"} for key in selected_keys):
+        channels.append("stable")
+
+    binaries: list[str] = []
+    for channel in channels:
+        browser = None
+        try:
+            # 正常 launch 会由平台选择代理、License Key、兼容内核和免费会话队列；
+            # 成功返回即表示该通道所需内核已经可以启动。
+            browser = cloakbrowser.launch(headless=True, release_channel=channel)
+            info = _cloakbrowser_binary_details(cloakbrowser, channel)
+            binaries.append(
+                f"{channel} Chromium {info.get('version') or '未知'}（{info.get('tier') or '未知'}）"
+            )
+        finally:
+            if browser is not None:
+                browser.close()
+    return versions + binaries
 
 
 def _cfg(ctx) -> dict:
@@ -1931,9 +1984,32 @@ async def _run(ctx, source: str) -> dict:
             return {"ok": False, "message": "没有启用任何签到站点"}
         _state.update({
             "running": True, "started_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "finished_at": "", "current": "", "phase": "准备", "message": "正在准备签到任务",
+            "finished_at": "", "current": "", "phase": "依赖准备", "message": "正在等待平台依赖和浏览器内核就绪",
             "completed": 0, "total": len(enabled),
         })
+        _runtime_log(ctx, "开始检查平台依赖与 CloakBrowser 内核，完成前不会启动签到")
+        try:
+            prepared = await _with_heartbeat(
+                asyncio.to_thread(_prepare_runtime_dependencies, [key for key, _ in enabled]),
+                ctx,
+                "依赖准备",
+                "平台依赖或 CloakBrowser 内核仍在准备",
+                interval=30,
+                max_wait=900,
+            )
+        except asyncio.CancelledError:
+            _state.update({"running": False, "phase": "已取消", "message": "依赖准备已取消", "current": ""})
+            raise
+        except Exception as exc:  # noqa: BLE001
+            message = f"依赖或 CloakBrowser 内核未准备完成：{exc}"
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _state.update({
+                "running": False, "finished_at": stamp, "current": "", "phase": "依赖失败", "message": message,
+            })
+            _runtime_log(ctx, message, level="error")
+            return {"ok": False, "message": message, "results": []}
+        _runtime_log(ctx, "依赖准备完成：" + "；".join(prepared), level="success")
+        _state.update({"phase": "准备", "message": "依赖已就绪，开始签到"})
         _runtime_log(ctx, f"开始{source}签到，共 {len(enabled)} 个站点")
         results = []
         retries = _bounded(cfg.get("retry_count"), 2, 0, 5)
