@@ -551,7 +551,13 @@ async def _topic_for(ctx, client, user, cfg, force=False):
         "reconciled_v4": True, "target_id": target_id,
     }
     _set_dict(ctx, "topics", topics)
-    link = f'<a href="tg://user?id={user.id}">{html.escape(base)}</a>'
+    public_username = str(user.username or "").strip().lstrip("@")
+    profile_url = (
+        f"https://t.me/{public_username}"
+        if public_username
+        else f"tg://openmessage?user_id={int(user.id)}"
+    )
+    link = f'<a href="{profile_url}">{html.escape(base)}</a>'
     username = f"  @{html.escape(user.username)}" if user.username else ""
     topic_intro = f"{link}{username}\n🆔 <code>{user.id}</code>"
     if _uses_bot_api(client, target_id):
@@ -951,7 +957,7 @@ async def setup(ctx):
         if len(kept) != len(mappings):
             _set_dict(ctx, "message_mappings", kept)
 
-    ctx.schedule(cleanup_mappings, "cron", hour=4, minute=0, id="清理旧消息映射")
+    ctx.schedule_cron("清理旧消息映射", cleanup_mappings, hour=4, minute=0)
 
 
 async def teardown(ctx):

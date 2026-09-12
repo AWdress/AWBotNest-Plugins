@@ -1,7 +1,8 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({pluginId: String, host: {type: Object, required: true}})
+const CronInput = computed(() => props.host.ui.CronInput)
 const defaults = {
   auto_checkin: true, notify: true, auto_retry: true, accounts: [],
   schedule_mode: 'daily', checkin_hour: 8, checkin_minute: 5,
@@ -125,7 +126,7 @@ onBeforeUnmount(() => clearInterval(timer))
           <label><span>签到小时</span><input v-model.number="form.checkin_hour" type="number" min="0" max="23"></label>
           <label><span>签到分钟</span><input v-model.number="form.checkin_minute" type="number" min="0" max="59"></label>
         </template>
-        <label v-else class="wide"><span>Cron 表达式</span><input v-model.trim="form.cron_expression" type="text" placeholder="5 8 * * *"></label>
+        <label v-else class="wide"><span>Cron 表达式</span><component :is="CronInput" v-model="form.cron_expression" /></label>
         <label><span>失败重试次数</span><input v-model.number="form.retry_count" type="number" min="0" max="5"></label>
         <label><span>重试间隔（秒）</span><input v-model.number="form.retry_interval" type="number" min="5" max="300" step="5"></label>
       </div>

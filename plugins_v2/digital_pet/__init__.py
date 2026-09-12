@@ -5,12 +5,12 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '电子宠物',
  'id': 'digital_pet',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'scope': 'user',
  'description': '在 Telegram 养成你的专属电子宠物！支持领养、喂食、玩耍、清洁、成长、进化、道具、随机事件和视觉表现。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/digital_pet/logo.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 适配平台正式调度接口\n- 宠物心跳统一改用 schedule_cron 注册并接受平台生命周期管理\n\nv2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

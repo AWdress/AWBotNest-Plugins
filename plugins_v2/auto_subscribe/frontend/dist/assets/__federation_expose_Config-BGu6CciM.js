@@ -8,7 +8,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,toDisplayString:_toDisplayString,vModelText:_vModelText,withDirectives:_withDirectives,vModelDynamic:_vModelDynamic,vModelCheckbox:_vModelCheckbox,vModelSelect:_vModelSelect,createTextVNode:_createTextVNode,vShow:_vShow,normalizeStyle:_normalizeStyle} = await importShared('vue');
+const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,renderList:_renderList,Fragment:_Fragment,toDisplayString:_toDisplayString,vModelText:_vModelText,withDirectives:_withDirectives,vModelDynamic:_vModelDynamic,resolveDynamicComponent:_resolveDynamicComponent,createBlock:_createBlock,vModelCheckbox:_vModelCheckbox,vModelSelect:_vModelSelect,createTextVNode:_createTextVNode,vShow:_vShow,normalizeStyle:_normalizeStyle} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "asub" };
@@ -211,6 +211,7 @@ const _sfc_main = {
 // 平台注入 props { pluginId, host }；host: getConfig/saveConfig/callApi/toast/token。
 // 三个页签：配置（左侧分组 + 右侧明细，宽屏 master-detail）/ 历史 / 订阅。
 const props = __props;
+const CronInput = computed(() => props.host.ui.CronInput);
 
 // ── 静态选项（与后端取值一一对应）──
 const DOUBAN_RANKS = [
@@ -526,14 +527,11 @@ return (_ctx, _cache) => {
                       _cache[60] || (_cache[60] = _createElementVNode("div", { class: "card-h" }, "运行", -1)),
                       _createElementVNode("div", _hoisted_20, [
                         _createElementVNode("label", _hoisted_21, [
-                          _cache[53] || (_cache[53] = _createElementVNode("span", null, "定时(cron)", -1)),
-                          _withDirectives(_createElementVNode("input", {
-                            "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.schedule) = $event)),
-                            class: "inp",
-                            placeholder: "0 8 * * *（留空=不定时）"
-                          }, null, 512), [
-                            [_vModelText, cfg.schedule]
-                          ])
+                          _cache[53] || (_cache[53] = _createElementVNode("span", null, "定时（Cron）", -1)),
+                          (_openBlock(), _createBlock(_resolveDynamicComponent(CronInput.value), {
+                            modelValue: cfg.schedule,
+                            "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.schedule) = $event))
+                          }, null, 8, ["modelValue"]))
                         ]),
                         _createElementVNode("label", _hoisted_22, [
                           _withDirectives(_createElementVNode("input", {
@@ -1417,6 +1415,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-a901cb1f"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-32459d6b"]]);
 
 export { Config as default };

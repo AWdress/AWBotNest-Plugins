@@ -394,18 +394,14 @@ def _cookie_status(ctx) -> dict:
 
 # ────────────────────────── 定时任务注册 ──────────────────────────
 def _cron_specs(cfg: dict):
-    """返回 [(CronTrigger, 中文任务名), ...]：优先 schedule_cron；否则由 schedule_times/schedule_time 合成。"""
-    from apscheduler.triggers.cron import CronTrigger
-    # CronTrigger 未指定时区时会读取进程时区；Docker 通常为 UTC，而平台固定
-    # 使用 Asia/Shanghai，导致用户配置的执行时刻整体偏移 8 小时。
-    try:
-        from zoneinfo import ZoneInfo
-        timezone = ZoneInfo("Asia/Shanghai")
-    except Exception:
-        timezone = None
+    """返回平台 ``schedule_cron`` 所需字段与中文任务名。"""
     expr = str(cfg.get("schedule_cron") or "").strip()
     if expr:
-        return [(CronTrigger.from_crontab(expr, timezone=timezone), "色花堂自动化 · Cron (%s)" % expr)]
+        parts = expr.split()
+        if len(parts) != 5:
+            raise ValueError("Cron 必须是五段表达式：分 时 日 月 星期")
+        fields = dict(zip(("minute", "hour", "day", "month", "day_of_week"), parts))
+        return [(fields, "色花堂自动化 · Cron (%s)" % expr)]
     times = cfg.get("schedule_times") or ([cfg.get("schedule_time")] if cfg.get("schedule_time") else [])
     specs = []
     seen = set()
@@ -417,7 +413,7 @@ def _cron_specs(cfg: dict):
                 continue
             seen.add((hh, mm))
             specs.append((
-                CronTrigger(hour=hh, minute=mm, timezone=timezone),
+                {"hour": hh, "minute": mm},
                 "色花堂自动化 · 每日 %02d:%02d" % (hh, mm),
             ))
         except Exception:
@@ -616,16 +612,12 @@ async def setup(ctx):
         specs = _cron_specs(cfg)
     except Exception as e:  # noqa: BLE001
         ctx.log.error("[AWPulse] 定时表达式无效：%r", e)
-    for trig, name in specs:
-        scheduled_jobs.append(ctx.schedule(_scheduled_run, trig, id=name))
+    for fields, name in specs:
+        scheduled_jobs.append(ctx.schedule_cron(name, _scheduled_run, **fields))
     if specs:
-        next_runs = [
-            job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z")
-            for job in scheduled_jobs if getattr(job, "next_run_time", None) is not None
-        ]
         ctx.log.info(
-            "[AWPulse] 已注册 %d 个定时任务：%s；下次运行：%s",
-            len(specs), "、".join(n for _, n in specs), "、".join(next_runs) or "待调度器计算",
+            "[AWPulse] 已注册 %d 个定时任务：%s",
+            len(specs), "、".join(n for _, n in specs),
         )
     else:
         ctx.log.warning("[AWPulse] 未注册定时任务：Cron 与每日时刻均为空或格式无效")

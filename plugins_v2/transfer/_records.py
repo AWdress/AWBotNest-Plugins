@@ -48,7 +48,7 @@ class RecordStore:
 
     def __init__(self, ctx):
         self._ctx = ctx
-        self._kv = ctx.kv
+        self._kv = ctx.storage
         self._log = ctx.log
         self._recent_keys: dict[tuple, float] = {}
         self._state: dict = {}

@@ -361,7 +361,7 @@ def _leaderboard_rich(ctx, account: str, chat_id: int, limit: int) -> str:
         rank = medals[index] if index < 3 else str(index + 1)
         name = html.escape(str(item.get("name") or "未知用户"))
         user_id = int(item.get("user_id", 0) or 0)
-        user = f'<a href="tg://user?id={user_id}">{name}</a>' if user_id else name
+        user = name
         if index < 3:
             user = f"<b>{user}</b>"
         table_rows.append(

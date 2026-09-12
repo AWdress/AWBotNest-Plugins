@@ -9,13 +9,14 @@ except ImportError:
 
 __plugin__ = {'name': '朱雀',
  'id': 'zhuque_lottery',
- 'version': '2.0.6',
+ 'version': '2.0.7',
  'requirements': ['httpx>=0.27', 'numpy>=1.24', 'pandas>=2.0'],
  'author': 'AWdress',
  'scope': 'user',
  'description': '朱雀PT站自动化：个人查询、大劫反击、红包雨、大转盘、转账、鳄鱼丼投注、魔法卡定时、道具卡回收、倍投计算。自带 Vue 配置界面 + 战绩/记录管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/zhuque_lottery.png',
- 'changelog': 'v2.0.6 补齐敏感字段显示按钮\n- Cookie 与 X-Csrf-Token 默认隐藏并提供独立眼睛按钮\n- X-Csrf-Token 补充敏感字段声明，点击显示时受控读取真实值\n\n'
+ 'changelog': 'v2.0.7 适配正式存储与调度接口\n- 运行数据改用平台异步 storage 接口，定时任务改用正式 schedule_interval\n- 原生富文本排行榜不再包含会被平台过滤的用户链接\n\n'
+              'v2.0.6 补齐敏感字段显示按钮\n- Cookie 与 X-Csrf-Token 默认隐藏并提供独立眼睛按钮\n- X-Csrf-Token 补充敏感字段声明，点击显示时受控读取真实值\n\n'
               'v2.0.5 修复多行通知显示\n- 转账结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.4 统一富文本表格通知\n- 道具、魔法卡、红包雨和转账通知改为结构化表格\n\n'
               'v2.0.3 修复 YDX 回复链结算\n'

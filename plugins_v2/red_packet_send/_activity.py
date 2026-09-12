@@ -59,7 +59,7 @@ async def delete_message(message) -> None:
 
 # ─── 工具函数 ────────────────────────────────────────────────────────────────
 
-def build_user_link(uid: int, name: str) -> str:
+def build_user_link(uid: int, name: str, public_username: str = "") -> str:
     """构造 Telegram 用户 Markdown 链接（名字做 markdown 转义）。
 
     替代旧项目 libs.others.build_user_markdown_link。
@@ -67,7 +67,14 @@ def build_user_link(uid: int, name: str) -> str:
     name = name or str(uid)
     for ch in ("\\", "`", "*", "_", "[", "]", "(", ")", "~", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"):
         name = name.replace(ch, f"\\{ch}")
-    return f"[{name}](tg://user?id={uid})"
+    username = str(public_username or "").strip().lstrip("@")
+    if username:
+        return f"[{name}](https://t.me/{username})"
+    try:
+        user_id = int(uid or 0)
+    except (TypeError, ValueError):
+        user_id = 0
+    return f"[{name}](tg://openmessage?user_id={user_id})" if user_id > 0 else name
 
 
 def parse_blacklist(raw) -> set:
@@ -423,8 +430,9 @@ class ActivityManager:
 
         sender = sender or getattr(message, "sender", None)
         user_id = sender.id if sender else 0
+        public_username = str(getattr(sender, "username", None) or "")
         username = (
-            (sender.username or sender.first_name) if sender else str(user_id)
+            (public_username or sender.first_name) if sender else str(user_id)
         )
         text = message.text or ""
 
@@ -459,7 +467,8 @@ class ActivityManager:
             activity["participants"].append({
                 "user_id": user_id,
                 "username": username,
-                "display_name": build_user_link(user_id, username),
+                "public_username": public_username,
+                "display_name": build_user_link(user_id, username, public_username),
                 "amount": amount,
                 "timestamp": time.time(),
             })
@@ -529,12 +538,14 @@ class ActivityManager:
             sorted_p = sorted(participants, key=lambda p: p["amount"], reverse=True)
             medals = ["🥇", "🥈", "🥉"]
             detail_lines = "\n".join(
-                f"{medals[i] if i < 3 else '　•'} {p.get('display_name') or build_user_link(p['user_id'], p['username'])}　{int(round(p['amount']))} 魔力"
+                f"{medals[i] if i < 3 else '　•'} {p.get('display_name') or build_user_link(p['user_id'], p['username'], p.get('public_username', ''))}　{int(round(p['amount']))} 魔力"
                 for i, p in enumerate(sorted_p)
             )
             if sorted_p:
                 best = sorted_p[0]
-                best_name = best.get("display_name") or build_user_link(best["user_id"], best["username"])
+                best_name = best.get("display_name") or build_user_link(
+                    best["user_id"], best["username"], best.get("public_username", "")
+                )
                 lucky_line = f"\n\n🏆 手气最佳：{best_name}（{int(round(best['amount']))} 魔力）"
             else:
                 lucky_line = ""
@@ -552,10 +563,10 @@ class ActivityManager:
             if client:
                 try:
                     end_obj = await client.send_message(
-                        chat_id, end_msg, reply_to=activity.get("message_id")
+                        chat_id, end_msg, reply_to=activity.get("message_id"), parse_mode="markdown"
                     )
                 except Exception:  # noqa: BLE001
-                    end_obj = await client.send_message(chat_id, end_msg)
+                    end_obj = await client.send_message(chat_id, end_msg, parse_mode="markdown")
                 if end_obj:
                     activity["msg_ids"].append(end_obj.id)
 

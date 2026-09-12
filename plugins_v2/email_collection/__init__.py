@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.11",
+    "version": "0.0.12",
     "author": "AWdress",
     "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
@@ -66,6 +66,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.0.12 适配平台正式 AI 能力接口\n"
+    "- 验证码识别与邮件概要直接使用平台 is_available 能力判断\n"
+    "- 不再探测旧 AI 可用状态字段\n\n"
     "v0.0.11 复核授权码独立显隐\n"
     "- 多邮箱授权码继续逐行默认隐藏，每行提供独立眼睛按钮\n"
     "- 邮箱列表由平台受控读取真实值，避免显示脱敏占位符\n\n"
@@ -245,16 +248,10 @@ def _poll(
 
 
 def _ai_available(ctx, capability: str) -> bool:
-    ai = getattr(ctx, "ai", None)
-    if not ai:
+    try:
+        return bool(ctx.ai.is_available(capability))
+    except Exception:
         return False
-    checker = getattr(ai, "is_available", None)
-    if callable(checker):
-        try:
-            return bool(checker(capability))
-        except Exception:
-            return False
-    return bool(getattr(ai, "available", False))
 
 
 async def _ai_code(ctx, msg: Dict[str, Any], images: List[bytes], cfg: Dict[str, Any]) -> str:

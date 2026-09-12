@@ -40,7 +40,7 @@ class YdxStore:
     """YDX 投注历史/流水存取（基于 ctx.kv）。"""
 
     def __init__(self, ctx):
-        self._kv = ctx.kv
+        self._kv = ctx.storage
         self._log = ctx.log
 
     def get_history(self, limit: int = 200) -> list[int]:

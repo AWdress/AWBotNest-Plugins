@@ -208,12 +208,7 @@ async def setup(ctx):
     # 同一分派逻辑再挂一份「编辑消息」监听：springsunday 大额转账需确认，确认后 bot
     # 会「编辑」之前那条提示消息来送达成功结果，ctx.on_message 收不到编辑，故补挂
     # on_edited_message（平台标准能力，见 SPEC）。去重按 message.id 防同条多次编辑重复记。
-    # hasattr 兜底：平台实例未升级到含该能力的版本时静默降级（不崩、不刷警告），
-    # 升级平台后编辑监听自动生效。
-    if hasattr(ctx, "on_edited_message"):
-        ctx.on_edited_message()(on_transfer_bot)
-    else:
-        ctx.log.debug("当前平台实例无 on_edited_message，SSD 大额确认后的编辑消息暂不记录（升级平台后自动生效）")
+    ctx.on_edited_message()(on_transfer_bot)
 
     # ── handler 3：排行榜命令（自己发出的 .<命令词>）────────────────────────────
     @ctx.on_message(incoming=False, outgoing=True)
@@ -320,7 +315,7 @@ async def setup(ctx):
     @ctx.on_api("/recent", methods=["GET"])
     async def _api_recent(req):
         import json as _json
-        raw = await ctx.kv.get("recent", None)
+        raw = await ctx.storage.get("recent", None)
         if isinstance(raw, str):
             try:
                 raw = _json.loads(raw)

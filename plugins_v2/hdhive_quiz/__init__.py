@@ -5,13 +5,14 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '影巢答题红包',
  'id': 'hdhive_quiz',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg',
- 'changelog': 'v2.0.3 修复多行通知显示\n- 答题结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+ 'changelog': 'v2.0.4 清理插件自带 AI 依赖\n- 题库外答案继续只调用 AWBotNest 平台统一 AI 接口\n- 移除未使用的 OpenAI 依赖和遗留密钥配置\n\n'
+              'v2.0.3 修复多行通知显示\n- 答题结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.2 统一富文本表格通知\n- 答题结果改为平台结构化表格\n\n'
               'v2.0.1 修复 Telethon 会话实体与媒体文本解析\n'
               '- 管理接口改用 get_entity，兼容无 caption 的消息\n'
@@ -66,18 +67,13 @@ __plugin__ = {'name': '影巢答题红包',
               '\n'
               'v1.0.2 更新插件 Logo\n'
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
- 'requirements': ['openai>=1.0'],
+ 'requirements': [],
  'resources': {'timeout_seconds': 600,
                'max_concurrency': 4,
                'max_background_tasks': 8,
                'failure_threshold': 5,
                'recovery_seconds': 60},
- 'config_schema': {'llm_api_key': {'title': 'llm api key',
-                                   'section': 'V2 配置',
-                                   'order': 6,
-                                   'type': 'password',
-                                   'secret': True,
-                                   'default': ''}},
+ 'config_schema': {},
  'tags': ['海胆答题', '题库管理', 'AI出题'],
  'render_mode': 'vue'}
 async def setup(ctx):

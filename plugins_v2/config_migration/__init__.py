@@ -10,10 +10,10 @@ from urllib.parse import urlparse
 
 __plugin__ = {'name': '平台迁移助手',
  'id': 'config_migration',
- 'version': '1.1.4',
+ 'version': '1.1.5',
  'author': 'AWdress',
  'description': '通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。',
- 'changelog': 'v1.1.4 补齐敏感字段显示按钮\n'
+ 'changelog': 'v1.1.5 适配最新平台插件规范\n- 补齐 plugin_api_version 与依赖声明\n- 配置落盘改走平台公开持久化入口，不再导入平台内部模块\n\nv1.1.4 补齐敏感字段显示按钮\n'
               '- V1 Webhook 密钥与一次性迁移码默认隐藏并提供眼睛按钮\n'
               '- 点击显示时使用平台受控接口读取真实值\n\n'
               'v1.1.3 迁移合并后的消息转发配置\n'
@@ -43,6 +43,8 @@ __plugin__ = {'name': '平台迁移助手',
               '- 执行前自动备份 V2 配置，默认保留已有有效值',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png',
  'scope': 'standalone',
+ 'plugin_api_version': 2,
+ 'requirements': [],
  'render_mode': 'vue',
  'tags': ['配置迁移', '版本升级', '安全备份'],
  'resources': {'timeout_seconds': 60, 'max_concurrency': 1, 'max_background_tasks': 1},
@@ -246,16 +248,17 @@ async def setup(ctx):
                 current=getattr(settings,key,None)
                 if overwrite or not _nonempty(current):
                     if key == "bots":
-                        from awbotnest.config import BotSettings
-                        value = [BotSettings(**item) for item in value]
+                        bot_type = type(settings.bot_specs()[0])
+                        value = [bot_type(**item) for item in value]
                     setattr(settings,key,copy.deepcopy(value)); changed[key]=1
         if options.get("plugins",True): settings.plugin_config=merge_dict(settings.plugin_config,converted["plugin_config"]); changed["plugin_config"]=len(converted["plugin_config"])
         if options.get("accounts",True): settings.plugin_accounts=merge_dict(settings.plugin_accounts,converted["plugin_accounts"]); changed["plugin_accounts"]=len(converted["plugin_accounts"])
         if options.get("routing",True): settings.bot_routing=merge_dict(settings.bot_routing,converted["bot_routing"]); changed["bot_routing"]=len(converted["bot_routing"])
         if options.get("enabled",False):
             settings.enabled_plugins=list(dict.fromkeys([*settings.enabled_plugins,*converted["enabled_plugins"]])); changed["enabled_plugins"]=len(converted["enabled_plugins"])
-        from awbotnest.config import save_settings
-        save_settings(settings)
+        # ``update_config`` 是平台公开的持久化入口；这里用空更新提交前面
+        # 已完成的原子迁移，不再导入平台内部配置模块。
+        ctx.update_config({})
         _bundle=None; _preview=None
         ctx.log.info("V1 配置迁移完成，V2 原配置已备份到 %s", backup.name)
         return {"ok":True,"message":"迁移完成。连接类系统设置需重启 V2 后生效。","backup":str(backup),"changed":changed,"restart_required":True}

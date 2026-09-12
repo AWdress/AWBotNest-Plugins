@@ -8,6 +8,7 @@ const props = defineProps({
   pluginId: { type: String, required: true },
   host: { type: Object, required: true },
 })
+const CronInput = computed(() => props.host.ui.CronInput)
 
 // ── 静态选项（与后端取值一一对应）──
 const DOUBAN_RANKS = [
@@ -270,7 +271,7 @@ function switchTab(t) {
             <section class="card">
               <div class="card-h">运行</div>
               <div class="grid">
-                <label class="row"><span>定时(cron)</span><input v-model="cfg.schedule" class="inp" placeholder="0 8 * * *（留空=不定时）" /></label>
+                <label class="row"><span>定时（Cron）</span><component :is="CronInput" v-model="cfg.schedule" /></label>
                 <label class="row switch"><input v-model="cfg.notify" type="checkbox" /><span>推送运行结果</span></label>
                 <label class="row switch"><input v-model="cfg.ai_assist_recognition" type="checkbox" /><span>平台 AI 辅助识别</span></label>
                 <label class="row switch"><input v-model="cfg.auto_fill_missing" type="checkbox" /><span>自动补缺集</span></label>

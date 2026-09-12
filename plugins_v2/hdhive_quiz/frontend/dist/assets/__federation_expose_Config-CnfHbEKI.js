@@ -66,7 +66,7 @@ const _sfc_main = {
 const props = __props;
 const cfg = ref({
   enabled: false, bot_ids: '', chat_ids: '', reply_format: 'content',
-  llm_enabled: false, llm_api_key: '', llm_base_url: '', llm_model: 'gpt-4o-mini',
+  llm_enabled: false,
   bank_repo: 'https://github.com/my-name-is-alan/hdhive-red-questions',
   bank_branch: 'main', bank_subdir: 'questions', bank_sync_hours: 12,
 });

@@ -9,11 +9,11 @@ except ImportError:
 
 __plugin__ = {'name': 'AWRelay',
  'id': 'awrelay',
- 'version': '2.0.5',
+ 'version': '2.0.6',
  'author': 'AWdress',
  'description': '轻量自托管的 Telegram 私聊消息中转机器人。访客私聊转发到群组论坛话题，管理员在对应话题内回复用户。内置人机验证、广告过滤、黑名单。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awrelay/logo.png',
- 'changelog': 'v2.0.5 修复 Bot 论坛转发受限\n'
+ 'changelog': 'v2.0.6 修复用户资料深链\n- 公开用户名优先使用通用 t.me 链接，无用户名时使用 openmessage 数字 ID 深链\n- 没有公开用户名的用户也能从话题中直接打开资料\n- 清理任务改用平台 schedule_cron 正式接口\n\nv2.0.5 修复 Bot 论坛转发受限\n'
               '- Bot 即使已取得群实体，话题查询、创建和消息复制也统一走官方 Bot API\n'
               '- 不再调用 Telegram 禁止 Bot 使用的 GetForumTopicsRequest\n'
               '- 转发日志补充失败阶段、会话、消息和类型，访客端显示真实错误摘要\n'

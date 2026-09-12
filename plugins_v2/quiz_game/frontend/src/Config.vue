@@ -108,7 +108,6 @@ const props = defineProps({
 })
 const cfg = ref({
   valid_groups: '', blacklist_users: '', source: 'ai',
-  ai_api_key: '', ai_base_url: '', ai_model: 'gpt-4o-mini',
   tianapi_key: '',
   base_reward: 500, streak_enabled: true, streak_multiplier: 1.5, max_streak: 5,
   question_count: 5, timeout: 60, auto_delete_delay: 30,

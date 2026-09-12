@@ -726,10 +726,7 @@ def _turnstile_session_retryable(key: str, exc: Exception) -> bool:
 
 
 def _ai_available(ctx, capability: str) -> bool:
-    checker = getattr(ctx.ai, "is_available", None)
-    if callable(checker):
-        return bool(checker(capability))
-    return bool(getattr(ctx.ai, "available", False))
+    return bool(ctx.ai.is_available(capability))
 
 
 def _radio_label(item) -> str:
@@ -2269,7 +2266,7 @@ async def setup(ctx):
         async def scheduled():
             await _run(ctx, "定时")
 
-        ctx.schedule(scheduled, "cron", hour=hour, minute=minute, id="PT站每日签到")
+        ctx.schedule_cron("PT站每日签到", scheduled, hour=hour, minute=minute)
 
 
 async def teardown(ctx):

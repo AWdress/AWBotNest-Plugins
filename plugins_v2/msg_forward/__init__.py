@@ -7,7 +7,7 @@ import time
 __plugin__ = {
     "id": "msg_forward",
     "name": "消息转发助手",
-    "version": "2.1.4",
+    "version": "2.1.5",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -26,7 +26,7 @@ __plugin__ = {
             "section": "功能开关", "order": 2,
         },
         "backfill_limit": {
-            "type": "number", "default": 100, "min": 1, "max": 500, "step": 1,
+            "type": "integer", "default": 100, "min": 1, "max": 500, "step": 1,
             "label": "遗漏补全回查条数",
             "help": "执行“补全遗漏”时每条规则最多回查的来源消息数。",
             "section": "功能开关", "order": 3,
@@ -97,7 +97,8 @@ __plugin__ = {
         },
     },
     "resources": {"timeout_seconds": 120, "max_concurrency": 8, "max_background_tasks": 32},
-    "changelog": "v2.1.4 恢复合并前的复制与转发语义\n- 复制搬运恢复为 Telegram 服务端无署名复制，不再下载图片后重新上传\n- 原样转发继续保留来源标记，两种模式严格按规则执行且不再相互降级\n- 复制与转发只有取得目标消息 ID 才记录成功，失败消息继续由遗漏检查重试\n- 升级后每条复制规则仅重新检查最新一条旧记录，修复 2.1.3 已误记的降级转发且避免批量重复\n\n"
+    "changelog": "v2.1.5 适配平台正式调度与整数配置规范\n- 自动遗漏检查直接使用 schedule_interval 注册\n- 遗漏补全回查条数声明为 integer，不再触发配置类型错误\n- 不再探测或静默跳过平台调度能力\n\n"
+    "v2.1.4 恢复合并前的复制与转发语义\n- 复制搬运恢复为 Telegram 服务端无署名复制，不再下载图片后重新上传\n- 原样转发继续保留来源标记，两种模式严格按规则执行且不再相互降级\n- 复制与转发只有取得目标消息 ID 才记录成功，失败消息继续由遗漏检查重试\n- 升级后每条复制规则仅重新检查最新一条旧记录，修复 2.1.3 已误记的降级转发且避免批量重复\n\n"
     "v2.1.3 修复历史媒体漏发与立即检查反馈\n- 媒体复制的下载或上传请求失败时自动降级为原样转发，不再因 Telegram 重试耗尽直接漏发\n- 原生转发返回空结果时继续尝试消息 ID 路径，所有路径均无有效结果时不再误记成功\n- 补全日志显示实际投递模式，立即检查按钮点击后马上记录受理或占用状态\n\n"
     "v2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\n"
     "v2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\n"
@@ -545,12 +546,10 @@ async def setup(ctx):
     if ctx.config.get("auto_backfill",True) and ctx.config.get("enable",False) and ctx.user:
         try:interval=max(1,min(int(ctx.config.get("backfill_interval_min",10) or 10),1440))
         except (TypeError,ValueError):interval=10
-        schedule_interval=getattr(ctx,"schedule_interval",None)
-        if callable(schedule_interval):
-            async def scheduled_backfill():
-                await run_backfill("定时",require_auto=True)
-            schedule_interval("消息转发助手：自动检查遗漏",scheduled_backfill,seconds=interval*60)
-            ctx.log.info("[消息转发助手] 已启用自动遗漏检查，间隔 %s 分钟",interval)
+        async def scheduled_backfill():
+            await run_backfill("定时",require_auto=True)
+        ctx.schedule_interval("消息转发助手：自动检查遗漏",scheduled_backfill,seconds=interval*60)
+        ctx.log.info("[消息转发助手] 已启用自动遗漏检查，间隔 %s 分钟",interval)
         if ctx.user and ctx.config.get("enable",False) and any(isinstance(rule,dict) for rule in (ctx.config.get("rules") or [])):
             backfill_task=ctx.create_task(run_backfill("启动",require_auto=True),name="消息转发助手：启动检查遗漏")
 

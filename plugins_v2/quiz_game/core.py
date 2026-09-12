@@ -4,7 +4,7 @@
 # 用你的用户账号在群里跑答题游戏：发「开启答题」出题，群友直接发答案抢答，
 # 答对自动用 reply("+魔力") 发奖（由群转账 bot 实际打款），支持连胜加成。
 #
-# 出题源：AI（OpenAI 兼容接口，本插件自带配置）或天行数据 API。
+# 出题源：AWBotNest 平台统一 AI 或天行数据 API。
 # =============================================================================
 
 import asyncio
@@ -28,7 +28,7 @@ __plugin__ = {
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
-    "requirements": ["openai>=1.0"],
+    "requirements": ["httpx>=0.27"],
 }
 
 __plugin__["changelog"] = (
@@ -71,9 +71,6 @@ DEFAULTS = {
     "valid_groups": "",
     "blacklist_users": "",
     "source": "ai",
-    "ai_api_key": "",
-    "ai_base_url": "",
-    "ai_model": "gpt-4o-mini",
     "tianapi_key": "",
     "base_reward": 500,
     "streak_enabled": True,

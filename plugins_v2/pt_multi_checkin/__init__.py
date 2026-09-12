@@ -5,11 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.16',
+ 'version': '2.0.17',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.16 修复 Docker Turnstile 会话复用\n'
+ 'changelog': 'v2.0.17 适配平台正式依赖与调度规范\n'
+              '- 补充运行时直接使用的 packaging 依赖声明\n'
+              '- 定时签到只使用平台正式 schedule_cron 接口\n'
+              '\n'
+              'v2.0.16 修复 Docker Turnstile 会话复用\n'
               '- Audiences 与 OurBits 改用全新临时 CloakBrowser 上下文，不再复用持久 profile 和旧 Cloudflare 状态\n'
               '- 原生验证长时间未响应时重置官方控件，保留真实 Managed iframe 点击支持\n'
               '- Turnstile 或页面验证超时会按重试配置关闭会话并更换新指纹，不再被误判为不可重试\n'
@@ -138,7 +142,8 @@ __plugin__ = {'name': 'PT站自动签到',
                   'beautifulsoup4>=4.12',
                   'cloakbrowser>=0.5.10',
                   'geoip2>=4.8',
-                  'socksio>=1.0'],
+                  'socksio>=1.0',
+                  'packaging>=24.0'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',

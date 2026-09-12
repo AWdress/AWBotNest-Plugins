@@ -589,12 +589,12 @@ async def setup(ctx):
         interval = 60
     interval = max(10, min(interval, 360))
     if interval < 60:
-        ctx.schedule(pet_heartbeat, "cron", minute=f"*/{interval}", id="电子宠物心跳")
+        ctx.schedule_cron("电子宠物心跳", pet_heartbeat, minute=f"*/{interval}")
     elif interval == 60:
-        ctx.schedule(pet_heartbeat, "cron", minute="0", id="电子宠物心跳")
+        ctx.schedule_cron("电子宠物心跳", pet_heartbeat, minute="0")
     else:
         hours = max(1, interval // 60)
-        ctx.schedule(pet_heartbeat, "cron", hour=f"*/{hours}", minute="0", id="电子宠物心跳")
+        ctx.schedule_cron("电子宠物心跳", pet_heartbeat, hour=f"*/{hours}", minute="0")
 
 
 async def teardown(ctx):

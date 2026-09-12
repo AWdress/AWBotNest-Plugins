@@ -8,7 +8,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle,vShow:_vShow,withDirectives:_withDirectives,renderList:_renderList,Fragment:_Fragment,vModelText:_vModelText,vModelDynamic:_vModelDynamic,vModelSelect:_vModelSelect,vModelCheckbox:_vModelCheckbox,createTextVNode:_createTextVNode,unref:_unref,isRef:_isRef} = await importShared('vue');
+const {openBlock:_openBlock,createElementBlock:_createElementBlock,createCommentVNode:_createCommentVNode,normalizeClass:_normalizeClass,createElementVNode:_createElementVNode,toDisplayString:_toDisplayString,normalizeStyle:_normalizeStyle,vShow:_vShow,withDirectives:_withDirectives,renderList:_renderList,Fragment:_Fragment,vModelText:_vModelText,vModelDynamic:_vModelDynamic,vModelSelect:_vModelSelect,vModelCheckbox:_vModelCheckbox,createTextVNode:_createTextVNode,unref:_unref,isRef:_isRef,resolveDynamicComponent:_resolveDynamicComponent,createBlock:_createBlock} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "awp" };
@@ -190,6 +190,7 @@ const _sfc_main = {
 // 平台注入 props { pluginId, host }；host: getConfig/saveConfig/callApi/toast/token。
 // 页签：运行状态 / 设置(左分组+右明细) / 记录 / Cookie / 日志。
 const props = __props;
+const CronInput = computed(() => props.host.ui.CronInput);
 
 const LEGACY_AI_KEYS = ['ai_api_type', 'ai_api_url', 'ai_api_key', 'ai_model', 'ai_temperature', 'ai_max_tokens', 'ai_timeout', 'ai_proxy'];
 
@@ -1020,13 +1021,10 @@ return (_ctx, _cache) => {
                               _createElementVNode("section", _hoisted_86, [
                                 _createElementVNode("label", _hoisted_87, [
                                   _cache[114] || (_cache[114] = _createElementVNode("span", null, "Cron", -1)),
-                                  _withDirectives(_createElementVNode("input", {
-                                    "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((cfg.schedule_cron) = $event)),
-                                    class: "inp",
-                                    placeholder: "留空则用下方每日时刻"
-                                  }, null, 512), [
-                                    [_vModelText, cfg.schedule_cron]
-                                  ])
+                                  (_openBlock(), _createBlock(_resolveDynamicComponent(CronInput.value), {
+                                    modelValue: cfg.schedule_cron,
+                                    "onUpdate:modelValue": _cache[42] || (_cache[42] = $event => ((cfg.schedule_cron) = $event))
+                                  }, null, 8, ["modelValue"]))
                                 ]),
                                 _createElementVNode("label", _hoisted_88, [
                                   _cache[115] || (_cache[115] = _createElementVNode("span", null, "每日时刻", -1)),
@@ -1350,6 +1348,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-17399c68"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-df721df8"]]);
 
 export { Config as default };

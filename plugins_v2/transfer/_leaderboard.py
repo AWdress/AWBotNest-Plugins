@@ -60,8 +60,15 @@ def _mask_uid(uid) -> str:
 def _user_link(user_id, user_name) -> str:
     """对齐原项目 others.build_user_html_link。user_id 无效时退纯文本名字。"""
     name = _html_escape(_short_name(user_name))
-    if user_id and str(user_id) != "0":
-        return f'<a href="tg://user?id={user_id}">{name}</a>'
+    username = str(user_name or "").strip()
+    if username.startswith("@") and username[1:].replace("_", "").isalnum():
+        return f'<a href="https://t.me/{username[1:]}">{name}</a>'
+    try:
+        resolved_id = int(user_id or 0)
+    except (TypeError, ValueError):
+        resolved_id = 0
+    if resolved_id > 0:
+        return f'<a href="tg://openmessage?user_id={resolved_id}">{name}</a>'
     return name
 
 
@@ -152,7 +159,7 @@ def render_rich_table(entries: list[dict], site_name: str, bonus_name: str,
     for entry in entries:
         rank = int(entry.get("rank") or len(rows))
         rank_text = medals[rank - 1] if 1 <= rank <= 3 else str(rank)
-        user = _user_link(entry.get("user_id"), entry.get("user_name"))
+        user = _html_escape(_short_name(entry.get("user_name")))
         if 1 <= rank <= 3:
             user = f"<b>{user}</b>"
         count = int(entry.get("count") or 0)

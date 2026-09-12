@@ -14,11 +14,11 @@ import requests
 __plugin__ = {
     "name": "药丸签到",
     "id": "invites_signin",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "author": "AWdress",
     "description": "invites.fun 药丸论坛自动签到，支持账号密码登录、Cookie 保活、定时签到和历史记录。",
     "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/invites.png",
-    "changelog": "v0.0.4 修复令牌签到并适配敏感配置规范\n- 修复账号登录成功后被匿名首页 userId=0 覆盖、仍误报 Cookie 失效的问题\n- 访问令牌分支直接调用用户签到接口，不再混入匿名页面 CSRF\n- Cookie 和密码恢复为敏感字段，支持平台受控显示按钮\n\nv0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
+    "changelog": "v0.0.5 适配平台正式调度规范\n- 签到与保活任务只使用平台正式 schedule_cron 和 schedule_interval 接口\n- 保持账号登录、令牌刷新和异步存储行为不变\n\nv0.0.4 修复令牌签到并适配敏感配置规范\n- 修复账号登录成功后被匿名首页 userId=0 覆盖、仍误报 Cookie 失效的问题\n- 访问令牌分支直接调用用户签到接口，不再混入匿名页面 CSRF\n- Cookie 和密码恢复为敏感字段，支持平台受控显示按钮\n\nv0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["药丸论坛", "自动签到", "账号登录", "Cookie保活"],
@@ -59,7 +59,7 @@ __plugin__ = {
             "section": "账号", "cols": 6, "order": 12,
         },
         "cron": {
-            "type": "string", "default": "0 9 * * *", "label": "签到 Cron",
+            "type": "string", "format": "cron", "default": "0 9 * * *", "label": "签到 Cron",
             "help": "标准五段 Cron，默认每天 09:00。整点失败时可换成非整点分钟。",
             "section": "定时", "cols": 6, "order": 20,
         },
@@ -411,12 +411,12 @@ async def setup(ctx):
     if ctx.config.get("enabled", False):
         try:
             fields = _cron_fields(ctx.config.get("cron") or "0 9 * * *")
-            scheduled_jobs.append(ctx.schedule(lambda: run_once("定时"), "cron", id="药丸签到·定时", **fields))
+            scheduled_jobs.append(ctx.schedule_cron("药丸签到·定时", lambda: run_once("定时"), **fields))
             ctx.log.info("[药丸签到] 定时任务已启用：%s", ctx.config.get("cron") or "0 9 * * *")
         except ValueError as exc:
             ctx.log.error("[药丸签到] Cron 配置无效：%s", exc)
         if ctx.config.get("keepalive", True):
-            scheduled_jobs.append(ctx.schedule(keepalive, "cron", minute="0", id="药丸签到·Cookie保活"))
+            scheduled_jobs.append(ctx.schedule_cron("药丸签到·Cookie保活", keepalive, minute="0"))
             ctx.log.info("[药丸签到] Cookie 保活已启用：每小时整点")
 
     async def cleanup():

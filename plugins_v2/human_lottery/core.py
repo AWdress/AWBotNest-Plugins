@@ -92,7 +92,14 @@ def _display_name(user) -> str:
 
 def _winner_label(item: dict) -> str:
     name = html.escape(str(item.get("name") or "用户"))
-    return f'<a href="tg://user?id={int(item["id"])}">{name}</a>'
+    username = str(item.get("username") or "").strip().lstrip("@")
+    if username:
+        return f'<a href="https://t.me/{html.escape(username, quote=True)}">{name}</a>'
+    try:
+        user_id = int(item.get("id") or 0)
+    except (TypeError, ValueError):
+        user_id = 0
+    return f'<a href="tg://openmessage?user_id={user_id}">{name}</a>' if user_id > 0 else name
 
 
 def _message_link(chat, message_id: int) -> str:

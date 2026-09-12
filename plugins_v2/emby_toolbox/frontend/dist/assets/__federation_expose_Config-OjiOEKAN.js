@@ -8,7 +8,7 @@ const _export_sfc = (sfc, props) => {
   return target;
 };
 
-const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,renderList:_renderList,Fragment:_Fragment,vModelCheckbox:_vModelCheckbox,withDirectives:_withDirectives,createCommentVNode:_createCommentVNode,vModelText:_vModelText,vModelDynamic:_vModelDynamic,createStaticVNode:_createStaticVNode} = await importShared('vue');
+const {createElementVNode:_createElementVNode,openBlock:_openBlock,createElementBlock:_createElementBlock,toDisplayString:_toDisplayString,createTextVNode:_createTextVNode,normalizeClass:_normalizeClass,renderList:_renderList,Fragment:_Fragment,vModelCheckbox:_vModelCheckbox,withDirectives:_withDirectives,createCommentVNode:_createCommentVNode,vModelText:_vModelText,resolveDynamicComponent:_resolveDynamicComponent,createBlock:_createBlock,vModelDynamic:_vModelDynamic,createStaticVNode:_createStaticVNode} = await importShared('vue');
 
 
 const _hoisted_1 = { class: "shell" };
@@ -90,6 +90,7 @@ const _sfc_main = {
   setup(__props) {
 
 const props=__props;
+const CronInput=computed(()=>props.host.ui.CronInput);
 const FEATURES=[
   {key:'episode_fix',title:'剧集季集',desc:'扫描 SxxExx 文件名，校正 Emby 识别错误',tone:'mint'},
   {key:'delete_episode_genre',title:'单集 Genre',desc:'清理剧集单集上冗余的 Genre',tone:'amber',danger:true},
@@ -120,7 +121,7 @@ onMounted(load);onBeforeUnmount(()=>clearInterval(timer));
 return (_ctx, _cache) => {
   return (_openBlock(), _createElementBlock("div", _hoisted_1, [
     _createElementVNode("header", _hoisted_2, [
-      _cache[21] || (_cache[21] = _createStaticVNode("<div class=\"brand\" data-v-534807f2><div class=\"mark\" data-v-534807f2><svg viewBox=\"0 0 32 32\" data-v-534807f2><path d=\"M8 5h11a6 6 0 0 1 0 12H8zM8 17h13a5 5 0 0 1 0 10H8z\" data-v-534807f2></path></svg></div><div data-v-534807f2><span class=\"eyebrow\" data-v-534807f2>MEDIA OPERATIONS</span><h1 data-v-534807f2>Emby 工具箱</h1><p data-v-534807f2>把扫描、修复和刮削收进一个可观测的维护工作台。</p></div></div>", 1)),
+      _cache[21] || (_cache[21] = _createStaticVNode("<div class=\"brand\" data-v-7c72c2fc><div class=\"mark\" data-v-7c72c2fc><svg viewBox=\"0 0 32 32\" data-v-7c72c2fc><path d=\"M8 5h11a6 6 0 0 1 0 12H8zM8 17h13a5 5 0 0 1 0 10H8z\" data-v-7c72c2fc></path></svg></div><div data-v-7c72c2fc><span class=\"eyebrow\" data-v-7c72c2fc>MEDIA OPERATIONS</span><h1 data-v-7c72c2fc>Emby 工具箱</h1><p data-v-7c72c2fc>把扫描、修复和刮削收进一个可观测的维护工作台。</p></div></div>", 1)),
       _createElementVNode("div", _hoisted_3, [
         _createElementVNode("span", {
           class: _normalizeClass(["state", {live:status.running}])
@@ -291,12 +292,10 @@ return (_ctx, _cache) => {
             ]),
             _createElementVNode("label", _hoisted_29, [
               _cache[35] || (_cache[35] = _createTextVNode("五段 Cron", -1)),
-              _withDirectives(_createElementVNode("input", {
-                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.schedule_cron) = $event)),
-                placeholder: "0 3 * * *"
-              }, null, 512), [
-                [_vModelText, form.schedule_cron]
-              ])
+              (_openBlock(), _createBlock(_resolveDynamicComponent(CronInput.value), {
+                modelValue: form.schedule_cron,
+                "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((form.schedule_cron) = $event))
+              }, null, 8, ["modelValue"]))
             ]),
             _createElementVNode("div", _hoisted_30, [
               _cache[36] || (_cache[36] = _createElementVNode("span", null, "待执行模块", -1)),
@@ -484,6 +483,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-534807f2"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-7c72c2fc"]]);
 
 export { Config as default };

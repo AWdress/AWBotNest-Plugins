@@ -5,7 +5,7 @@
 # 答对即可参与。本插件用你的【用户账号】监听，自动作答：
 #   1. 题库命中：从社区题库仓库（默认 my-name-is-alan/hdhive-red-questions）
 #      同步的题目里查到答案，回复对应答案文本。
-#   2. 题库未命中：可选调大模型（OpenAI 兼容接口）作答（用户要求的兜底方案）。
+#   2. 题库未命中：可选调用 AWBotNest 平台统一 AI 作答。
 #
 # 作答方式为「回复文字答案」（reply_to 红包消息发送答案文本）。回复内容格式可配。
 #
@@ -40,7 +40,7 @@ __plugin__ = {
     "description": "自动回答影巢机器人发的答题红包：从社区题库查答案回复，题库没有时可选大模型兜底作答。发包bot/群组可配。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/hdhive_lottery.jpg",
     "changelog": "v1.0.9 适配平台后台任务治理\n- 启动时题库同步改由 ctx.create_task 托管\n- 插件停用或重载时由平台统一取消未完成的同步任务\n\nv1.0.8 修复 Vue 配置与管理接口\n- 保存配置改用 host.saveConfig，修复 undefined.post 错误\n- 状态、题库同步、答题记录和群组名称改用 host.callApi\n- 配置页关闭时清理状态轮询定时器\n\nv1.0.6 前端移除自带 API 配置字段\n- 移除大模型兜底的 llm_api_key/llm_base_url/llm_model 配置界面\n- 移除测试大模型功能\n\nv1.0.5 改为仅使用平台统一 AI\n- 移除插件自带配置回退逻辑，仅调用平台统一 AI\n- 不再需要配置 llm_api_key/llm_base_url/llm_model\n\nv1.0.4 接入平台统一 AI 能力\n- 大模型兜底优先使用平台统一 AI（管理员在「系统设置→AI 服务」配置）\n- 平台 AI 不可用时自动回退到插件自带的 OpenAI 配置\n\nv1.0.3 修复后台任务泄漏\n- 修复初始同步任务未登记、卸载时未取消，现统一登记并在 teardown 取消\n\nv1.0.2 更新插件 Logo\n- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示",
-    "requirements": ["openai>=1.0"],
+    "requirements": [],
     "resources": {
         "timeout_seconds": 600,
         "max_concurrency": 4,
@@ -57,9 +57,6 @@ DEFAULTS = {
     "chat_ids": "",
     "reply_format": "content",
     "llm_enabled": False,
-    "llm_api_key": "",
-    "llm_base_url": "",
-    "llm_model": "gpt-4o-mini",
     "bank_repo": "https://github.com/my-name-is-alan/hdhive-red-questions",
     "bank_branch": "main",
     "bank_subdir": "questions",

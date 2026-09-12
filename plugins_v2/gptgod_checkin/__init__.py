@@ -5,11 +5,12 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '2.0.5',
+ 'version': '2.0.6',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。',
- 'changelog': 'v2.0.5 复核密码独立显隐\n- 多账号密码继续逐行默认隐藏，每行提供独立眼睛按钮\n- 账号列表由平台受控读取真实值，避免显示脱敏占位符\n\n'
+ 'changelog': 'v2.0.6 适配平台正式调度规范\n- Cron 配置声明为平台 cron 格式并复用统一 CronInput 组件\n- 定时任务只使用平台正式 schedule_cron 接口\n\n'
+              'v2.0.5 复核密码独立显隐\n- 多账号密码继续逐行默认隐藏，每行提供独立眼睛按钮\n- 账号列表由平台受控读取真实值，避免显示脱敏占位符\n\n'
               'v2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\n'
               'v2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\n'
               'v2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\n'
@@ -114,6 +115,7 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                      'cols': 12,
                                      'order': 20},
                    'cron_expression': {'type': 'string',
+                                       'format': 'cron',
                                        'default': '5 8 * * *',
                                        'label': 'Cron 表达式',
                                        'help': '依次填写：分钟 小时 日 月 星期，例如 5 8 * * * 表示每天 08:05。',

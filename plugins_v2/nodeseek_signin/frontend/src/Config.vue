@@ -1,7 +1,8 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({pluginId: String, host: {type: Object, required: true}})
+const CronInput = computed(() => props.host.ui.CronInput)
 const defaults = {
   enabled: false,
   notify: true,
@@ -195,7 +196,7 @@ onBeforeUnmount(() => clearInterval(statusTimer))
     <section aria-labelledby="schedule-title">
       <h3 id="schedule-title">签到设置</h3>
       <div class="form-grid">
-        <label class="field wide"><span>签到 Cron</span><input v-model.trim="form.cron" type="text"><small>标准五段 Cron，默认每天 08:00。</small></label>
+        <label class="field wide"><span>签到 Cron</span><component :is="CronInput" v-model="form.cron" /><small>标准五段 Cron，默认每天 08:00。</small></label>
         <label class="field"><span>请求超时（秒）</span><input v-model.number="form.timeout" type="number" min="5" max="120"></label>
         <label class="field"><span>浏览器验证超时（秒）</span><input v-model.number="form.captcha_timeout" type="number" min="30" max="300"></label>
       </div>

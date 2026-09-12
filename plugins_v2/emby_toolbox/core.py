@@ -1099,12 +1099,8 @@ async def _previous_setup(ctx):
         try:
             cron_parts = schedule_cron.split()
             if len(cron_parts) == 5:
-                ctx.schedule(scheduled_task, 'cron', id='Emby 工具箱定时维护',
-                            minute=int(cron_parts[0]) if cron_parts[0] != '*' else None,
-                            hour=int(cron_parts[1]) if cron_parts[1] != '*' else None,
-                            day=int(cron_parts[2]) if cron_parts[2] != '*' else None,
-                            month=int(cron_parts[3]) if cron_parts[3] != '*' else None,
-                            day_of_week=int(cron_parts[4]) if cron_parts[4] != '*' else None)
+                fields = dict(zip(('minute', 'hour', 'day', 'month', 'day_of_week'), cron_parts))
+                ctx.schedule_cron('Emby 工具箱定时维护', scheduled_task, **fields)
                 ctx.log.info(f'[emby_toolbox] 定时任务已启用: {schedule_cron}')
         except Exception as e:
             ctx.log.error(f'[emby_toolbox] 定时任务配置失败: {e}')
@@ -1400,12 +1396,9 @@ async def setup(ctx):
                 if keys and _dispatch(keys, '定时', '定时媒体维护'):
                     ctx.log.info('[emby_toolbox] 定时任务已投递后台执行')
             try:
-                kwargs = {}
-                for name, value in zip(('minute', 'hour', 'day', 'month', 'day_of_week'), cron):
-                    if value != '*':
-                        kwargs[name] = int(value)
-                scheduled_jobs.append(ctx.schedule(
-                    _scheduled_dispatch, 'cron', id='Emby 工具箱·媒体维护', **kwargs
+                kwargs = dict(zip(('minute', 'hour', 'day', 'month', 'day_of_week'), cron))
+                scheduled_jobs.append(ctx.schedule_cron(
+                    'Emby 工具箱·媒体维护', _scheduled_dispatch, **kwargs
                 ))
             except Exception:
                 ctx.log.exception('[emby_toolbox] 定时表达式注册失败：%s', cfg.get('schedule_cron'))

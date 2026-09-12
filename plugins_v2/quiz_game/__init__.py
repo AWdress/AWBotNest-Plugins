@@ -5,11 +5,14 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '趣味答题',
  'id': 'quiz_game',
- 'version': '2.0.1',
+ 'version': '2.0.2',
  'author': 'AWdress',
  'description': '群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png',
- 'changelog': 'v2.0.1 补齐密钥显示按钮\n'
+ 'changelog': 'v2.0.2 统一使用平台 AI 接口\n'
+              '- 移除未使用的 OpenAI 依赖和遗留 AI 密钥配置\n'
+              '- AI 出题继续由 AWBotNest 平台统一能力提供\n\n'
+              'v2.0.1 补齐密钥显示按钮\n'
               '- 天行数据 Key 默认隐藏并提供眼睛按钮\n'
               '- 点击显示时使用平台受控接口读取真实值\n\n'
               'v2.0.0 原生 AWBotNest V2 迁移\n'
@@ -65,14 +68,8 @@ __plugin__ = {'name': '趣味答题',
               'v1.0.4 更新插件 Logo\n'
               '- 增加与插件功能匹配的酷炫专属图标，并同步插件卡片与市场展示',
  'scope': 'user',
- 'requirements': ['openai>=1.0', 'httpx>=0.27'],
- 'config_schema': {'ai_api_key': {'title': 'ai api key',
-                                  'section': 'V2 配置',
-                                  'order': 4,
-                                  'type': 'password',
-                                  'secret': True,
-                                  'default': ''},
-                   'tianapi_key': {'title': 'tianapi key',
+ 'requirements': ['httpx>=0.27'],
+ 'config_schema': {'tianapi_key': {'title': 'tianapi key',
                                    'section': 'V2 配置',
                                    'order': 7,
                                    'type': 'password',

@@ -5,12 +5,12 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.0.6',
+ 'version': '2.0.7',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png',
- 'changelog': 'v2.0.6 补齐敏感字段显示按钮\n'
+ 'changelog': 'v2.0.7 适配平台统一 Cron 编辑器\n- 定时字段声明标准 cron 格式并使用宿主 CronInput\n- 保存时由平台前后端共同校验五段或六段表达式\n\nv2.0.6 补齐敏感字段显示按钮\n'
               '- API Key 默认隐藏，点击眼睛后显示平台受控读取的真实值\n'
               '- 保存时兼容平台脱敏占位值，避免覆盖已保存密钥\n\n'
               'v2.0.5 修复多行通知显示\n'
@@ -95,7 +95,13 @@ __plugin__ = {'name': 'NextFind 助手',
                                'order': 2,
                                'type': 'password',
                                'secret': True,
-                               'default': ''}},
+                               'default': ''},
+                   'schedule': {'type': 'string',
+                                'format': 'cron',
+                                'default': '0 8 * * *',
+                                'label': '定时执行',
+                                'section': '自动化',
+                                'order': 20}},
  'tags': ['自动订阅', '影视搜索', '订阅管理'],
  'render_mode': 'vue',
  'plugin_api_version': 2}

@@ -80,7 +80,6 @@ const _sfc_main = {
 const props = __props;
 const cfg = ref({
   valid_groups: '', blacklist_users: '', source: 'ai',
-  ai_api_key: '', ai_base_url: '', ai_model: 'gpt-4o-mini',
   tianapi_key: '',
   base_reward: 500, streak_enabled: true, streak_multiplier: 1.5, max_streak: 5,
   question_count: 5, timeout: 60, auto_delete_delay: 30,
@@ -149,7 +148,7 @@ return (_ctx, _cache) => {
     _createElementVNode("div", _hoisted_3, [
       (tab.value === 'settings')
         ? (_openBlock(), _createElementBlock("div", _hoisted_4, [
-            _cache[38] || (_cache[38] = _createStaticVNode("<section class=\"section command-guide\" aria-labelledby=\"command-guide-title\" data-v-c1c594e4><div class=\"guide-heading\" data-v-c1c594e4><div data-v-c1c594e4><h3 id=\"command-guide-title\" data-v-c1c594e4>命令与玩法</h3><p data-v-c1c594e4>命令仅由插件绑定的本人账号发送，群友只需直接发送答案。</p></div><span class=\"guide-badge\" data-v-c1c594e4>本人命令</span></div><div class=\"command-list\" data-v-c1c594e4><div class=\"command-item\" data-v-c1c594e4><code data-v-c1c594e4>开启答题</code><span data-v-c1c594e4>按下方设置的题目数量生成题目并开始，也支持“开始答题”。</span></div><div class=\"command-item\" data-v-c1c594e4><code data-v-c1c594e4>结束答题</code><span data-v-c1c594e4>立即结束本场，并清理题目、奖励等答题消息。</span></div></div><p class=\"guide-note\" data-v-c1c594e4>最先答对的群友获奖，答错会收到短暂提示；单题超时会公布答案并继续下一题。完成全部题目或由本人发送结束命令后，系统会清理本场消息。</p></section>", 1)),
+            _cache[38] || (_cache[38] = _createStaticVNode("<section class=\"section command-guide\" aria-labelledby=\"command-guide-title\" data-v-09023c65><div class=\"guide-heading\" data-v-09023c65><div data-v-09023c65><h3 id=\"command-guide-title\" data-v-09023c65>命令与玩法</h3><p data-v-09023c65>命令仅由插件绑定的本人账号发送，群友只需直接发送答案。</p></div><span class=\"guide-badge\" data-v-09023c65>本人命令</span></div><div class=\"command-list\" data-v-09023c65><div class=\"command-item\" data-v-09023c65><code data-v-09023c65>开启答题</code><span data-v-09023c65>按下方设置的题目数量生成题目并开始，也支持“开始答题”。</span></div><div class=\"command-item\" data-v-09023c65><code data-v-09023c65>结束答题</code><span data-v-09023c65>立即结束本场，并清理题目、奖励等答题消息。</span></div></div><p class=\"guide-note\" data-v-09023c65>最先答对的群友获奖，答错会收到短暂提示；单题超时会公布答案并继续下一题。完成全部题目或由本人发送结束命令后，系统会清理本场消息。</p></section>", 1)),
             _createElementVNode("div", _hoisted_5, [
               _cache[19] || (_cache[19] = _createElementVNode("h3", null, "群组设置", -1)),
               _createElementVNode("label", _hoisted_6, [
@@ -443,6 +442,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-c1c594e4"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-09023c65"]]);
 
 export { Config as default };

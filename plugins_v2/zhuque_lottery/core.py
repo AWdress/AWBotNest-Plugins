@@ -245,11 +245,11 @@ async def setup(ctx):
                 ctx.log.error("魔法卡定时任务出错: %s", e)
 
         interval = max(5, safe_int(cfg.get("firegenshin_interval", 20), 20))
-        ctx.schedule(fire_tick, "interval", minutes=interval, id="魔法卡释放")
+        ctx.schedule_interval("魔法卡释放", fire_tick, seconds=interval * 60)
 
     # ── 前端(Config.vue)用的后端接口 ──────────────────────────────────────────
     async def _load_list(key):
-        raw = await ctx.kv.get(key) or []
+        raw = await ctx.storage.get(key) or []
         if isinstance(raw, str):
             import json as _json
             try:
@@ -279,8 +279,8 @@ async def setup(ctx):
             else:
                 out[label] = info.get(key, "")
         return {"ok": True, "info": out,
-                "firegenshin_total": float(await ctx.kv.get("firegenshin_total", 0) or 0),
-                "firegenshin_last_date": await ctx.kv.get("firegenshin_last_date", "") or ""}
+                "firegenshin_total": float(await ctx.storage.get("firegenshin_total", 0) or 0),
+                "firegenshin_last_date": await ctx.storage.get("firegenshin_last_date", "") or ""}
 
     @ctx.on_api("/transform", methods=["GET"])
     async def _api_transform(req):
@@ -334,7 +334,7 @@ async def setup(ctx):
             return {"ok": False, "message": "未知类型"}
         for k in keys:
             try:
-                await ctx.kv.delete(k)
+                await ctx.storage.delete(k)
             except Exception:  # noqa: BLE001
                 pass
         return {"ok": True}
@@ -564,7 +564,7 @@ async def _handle_card(ctx, api_fn, message, args):
 async def _do_firegenshin(ctx, api_fn):
     """每天成功释放一次。kv 记录上次成功日期，今天已成功则跳过。"""
     today = date.today().isoformat()
-    last = await ctx.kv.get("firegenshin_last_date")
+    last = await ctx.storage.get("firegenshin_last_date")
     if last == today:
         return  # 今天已成功，等次日
 
@@ -579,9 +579,9 @@ async def _do_firegenshin(ctx, api_fn):
     success = any("SUCCESS" in (c or "") for c in (code1, code2))
 
     if success and total > 0:
-        await ctx.kv.set("firegenshin_last_date", today)
-        prev = float(await ctx.kv.get("firegenshin_total", 0) or 0)
-        await ctx.kv.set("firegenshin_total", prev + total)
+        await ctx.storage.set("firegenshin_last_date", today)
+        prev = float(await ctx.storage.get("firegenshin_total", 0) or 0)
+        await ctx.storage.set("firegenshin_total", prev + total)
         ctx.log.info("魔法卡释放成功，获得 %s 灵石", total)
         if ctx.config.get("owner_notify", True):
             await ctx.notify(
@@ -610,7 +610,7 @@ async def _handle_raiding(ctx, state, store, client, message, reply_to_me_fn):
         if gain or loss:
             bonus = gain if gain else (-loss if loss else Decimal(0))
             await _record_raid(store, "raiding", bonus, raidcount)
-            await ctx.kv.set("last_raid_ts", time.time())
+            await ctx.storage.set("last_raid_ts", time.time())
         return
 
     # B) 被打劫 / 被 info（回复链 reply.reply 是我）
@@ -679,7 +679,7 @@ async def _auto_fanda(ctx, store, client, message, raidcount, msgs):
             reply = await _safe_reply(raiding_msg, msgs["robbedByLoseCD"])
         elif amount >= 2000:
             reply = await _safe_reply(raiding_msg, f"/dajie {raidcount} {msgs[message_key]}")
-            await ctx.kv.set("last_raid_ts", time.time())
+            await ctx.storage.set("last_raid_ts", time.time())
         else:
             reply = await _safe_reply(raiding_msg, msgs["robbedBynosidepot"])
     else:
@@ -750,7 +750,7 @@ async def _record_raid(store, action: str, amount, count: int):
 
 async def _cd_ready(ctx) -> bool:
     cd_min = safe_int(ctx.config.get("raid_cd_minutes", 5), 5)
-    last = await ctx.kv.get("last_raid_ts")
+    last = await ctx.storage.get("last_raid_ts")
     if last is None:
         return True
     try:
@@ -878,7 +878,7 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
         "user_name": user_name,
         "ts": datetime.now().isoformat(timespec="seconds"),
     }
-    raw = await ctx.kv.get("transform_records") or []
+    raw = await ctx.storage.get("transform_records") or []
     if isinstance(raw, str):
         import json
         try:
@@ -889,10 +889,10 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
     if len(raw) > 300:
         raw = raw[-300:]
     try:
-        await ctx.kv.set("transform_records", raw)
+        await ctx.storage.set("transform_records", raw)
     except Exception:
         import json
-        await ctx.kv.set("transform_records", json.dumps(raw, ensure_ascii=False))
+        await ctx.storage.set("transform_records", json.dumps(raw, ensure_ascii=False))
 
     ctx.log.info("记录灵石转账 dir=%s amount=%s user=%s", direction, amount, user_name)
 
@@ -923,8 +923,7 @@ async def _handle_transform(ctx, client, message, reply_to_me_fn):
             for i, e in enumerate(entries):
                 medal = medals[i] if i < 3 else f"{i + 1}"
                 name = html.escape(str(e["name"]), quote=True)
-                uid = int(e.get("user_id", 0) or 0)
-                user = f'<a href="tg://user?id={uid}">{name}</a>' if uid else name
+                user = name
                 rows.append(
                     f'<tr><td align="center"><b>{medal}</b></td>'
                     f'<td align="left">{user}</td><td align="center">{e["count"]}</td>'

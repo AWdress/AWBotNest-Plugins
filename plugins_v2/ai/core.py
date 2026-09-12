@@ -159,10 +159,7 @@ def _hist_key(chat_id: int) -> str:
 
 def _ai_available(ctx, capability: str) -> bool:
     """按平台统一 AI 权限与模型配置判断能力是否可用。"""
-    checker = getattr(ctx.ai, "is_available", None)
-    if callable(checker):
-        return bool(checker(capability))
-    return bool(getattr(ctx.ai, "available", False))
+    return bool(ctx.ai.is_available(capability))
 
 
 async def _edit_explanation(message, content: str, response: str):
@@ -488,7 +485,7 @@ async def setup(ctx):
     # 关闭主动搭话时不要注册空跑任务，也避免系统状态页显示未启用的功能。
     # Vue 配置保存不会动态增删 scheduler；开启后重载/重新启用插件即可注册。
     if ctx.config.get("enable_proactive", False):
-        ctx.schedule(proactive_tick, "interval", minutes=1, id="AI主动搭话")
+        ctx.schedule_interval("AI主动搭话", proactive_tick, seconds=60)
 
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/test", methods=["POST"])

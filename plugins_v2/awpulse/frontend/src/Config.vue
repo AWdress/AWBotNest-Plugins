@@ -8,6 +8,7 @@ const props = defineProps({
   pluginId: { type: String, required: true },
   host: { type: Object, required: true },
 })
+const CronInput = computed(() => props.host.ui.CronInput)
 
 const LEGACY_AI_KEYS = ['ai_api_type', 'ai_api_url', 'ai_api_key', 'ai_model', 'ai_temperature', 'ai_max_tokens', 'ai_timeout', 'ai_proxy']
 
@@ -420,7 +421,7 @@ function switchTab(t) {
           <template v-else-if="group === 'schedule'">
             <h3 class="det-title">定时与通知</h3>
             <section class="card">
-              <label class="row"><span>Cron</span><input v-model="cfg.schedule_cron" class="inp" placeholder="留空则用下方每日时刻" /></label>
+              <label class="row"><span>Cron</span><component :is="CronInput" v-model="cfg.schedule_cron" /></label>
               <label class="row top"><span>每日时刻</span><textarea v-model="timesText" class="inp" rows="4" placeholder="每行一个 HH:MM，如 03:00"></textarea></label>
               <label class="row switch"><input v-model="cfg.notify" type="checkbox" /><span>运行结果推送通知</span></label>
               <p class="tip">💡 优先使用 Cron；Cron 留空时按「每日时刻」逐个定时。保存后定时任务自动更新。</p>
