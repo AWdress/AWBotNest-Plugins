@@ -2924,6 +2924,47 @@
       },
       "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 使用平台 HTTP 服务访问图片接口和下载资源\n- 使用 Telethon 原生图片、遮罩及文件发送\n- 修正插件市场功能标签并移除 V1 兼容层",
       "path": "plugins_v2/zpr/"
+    },
+    "nodeseek_signin": {
+      "name": "NodeSeek 签到",
+      "id": "nodeseek_signin",
+      "version": "2.0.0",
+      "author": "AWdress（移植自 SAGIRIxr）",
+      "scope": "user",
+      "plugin_api_version": 2,
+      "requirements": ["requests>=2.28"],
+      "description": "NodeSeek 论坛自动签到，支持多账号 Cookie、奖励解析、历史记录和定时执行。",
+      "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
+      "changelog": "v2.0.0 AWBotNest V2 原生实现\n- 使用平台异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到结果解析、历史记录和立即签到\n- 移除 MoviePilot 旧版运行层",
+      "config_schema": {
+        "enabled": {"type": "boolean", "default": false, "label": "启用自动签到", "section": "功能开关", "order": 1},
+        "notify": {"type": "boolean", "default": true, "label": "发送签到通知", "section": "功能开关", "order": 2},
+        "cookies": {"type": "textarea", "default": "", "label": "NodeSeek Cookie", "section": "账号", "order": 10, "secret": true},
+        "random_reward": {"type": "boolean", "default": true, "label": "随机鸡腿奖励", "section": "签到设置", "order": 20},
+        "cron": {"type": "string", "default": "0 8 * * *", "label": "签到 Cron", "section": "签到设置", "order": 21},
+        "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "label": "请求超时（秒）", "section": "签到设置", "order": 22}
+      },
+      "path": "plugins_v2/nodeseek_signin/"
+    },
+    "email_collection": {
+      "name": "邮件集",
+      "id": "email_collection",
+      "version": "2.0.0",
+      "author": "AWdress（移植自 EWEDL）",
+      "scope": "user",
+      "plugin_api_version": 2,
+      "requirements": [],
+      "description": "实时监控多个 IMAP 邮箱，按验证码和关键词过滤后通过平台通知。",
+      "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
+      "changelog": "v2.0.0 AWBotNest V2 原生实现\n- 使用可取消后台任务、异步存储和平台通知接口重写 IMAP 监控\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重\n- 移除 MoviePilot 旧版运行层",
+      "config_schema": {
+        "enabled": {"type": "boolean", "default": false, "label": "启用邮件监控", "section": "功能开关", "order": 1},
+        "push_all": {"type": "boolean", "default": false, "label": "全部推送", "section": "功能开关", "order": 2},
+        "mailboxes": {"type": "textarea", "default": "", "label": "邮箱配置", "section": "邮箱", "order": 10, "secret": true},
+        "keywords": {"type": "string", "default": "验证码|重要通知|账单|订单", "label": "关键词（用 | 分隔）", "section": "过滤", "order": 20},
+        "poll_seconds": {"type": "number", "default": 30, "min": 10, "max": 300, "label": "轮询间隔（秒）", "section": "运行设置", "order": 21}
+      },
+      "path": "plugins_v2/email_collection/"
     }
   }
 }
