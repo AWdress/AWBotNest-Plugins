@@ -5,11 +5,12 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。',
- 'changelog': 'v2.0.3 适配平台敏感配置规范\n- 多账号凭据改为整体受控显示的 password 字段，避免嵌套列表密码经配置接口泄露\n- 使用“邮箱----密码 & 邮箱----密码”单行格式，并自动迁移旧账号列表和单账号配置\n\n'
+ 'changelog': 'v2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\n'
+              'v2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\n'
               'v2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\n'
               'v2.0.1 统一富文本表格通知\n- 签到汇总与无账号结果统一使用结构化表格\n\n'
               'v1.1.18 适配新版异步存储接口\n'
@@ -58,13 +59,19 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                   'section': '功能开关',
                                   'cols': 4,
                                   'order': 3},
-                   'accounts': {'type': 'password',
-                                'default': '',
+                   'accounts': {'type': 'list',
+                                'default': [],
                                 'label': '签到账号',
-                                'help': '格式：邮箱----密码 & 邮箱----密码；可用显示按钮受控查看。',
+                                'item_label': '账号',
+                                'secret': True,
+                                'help': '逐个添加 GPT-GOD 账号；账号列表整体受平台保护，密码默认隐藏。',
                                 'section': '账号',
                                 'cols': 12,
-                                'order': 10},
+                                'order': 10,
+                                'fields': {'email': {'type': 'string',
+                                                     'label': '登录邮箱'},
+                                           'password': {'type': 'password',
+                                                        'label': '账户密码'}}},
                    'email': {'type': 'string',
                              'default': '',
                              'label': '旧版登录邮箱',
@@ -151,7 +158,8 @@ __plugin__ = {'name': 'GPT-GOD 自动签到',
                                        'section': '运行状态',
                                        'cols': 12,
                                        'order': 41}},
- 'tags': ['GPT-GOD签到', '多账号', '网页自动化']}
+ 'tags': ['GPT-GOD签到', '多账号', '网页自动化'],
+ 'render_mode': 'vue'}
 async def setup(ctx):
     await _native_setup(ctx)
 

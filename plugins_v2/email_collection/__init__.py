@@ -15,11 +15,11 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
-    "description": "实时监控多个 IMAP 邮箱，支持验证码识别、关键词过滤、AI 验证码提取和 AI 邮件概要。",
+    "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
-    "changelog": "v0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
+    "changelog": "v0.0.6 新增立即检查\n- 配置页新增立即检查按钮，可回查近期已读和未读邮件\n- 手动检查与后台轮询共用处理逻辑和互斥锁，避免并发重复推送\n- 使用稳定 IMAP UID 并以 PEEK 方式读取，不会把后台检查的未读邮件标为已读\n\nv0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["邮件监控", "验证码", "通知推送"],
@@ -36,6 +36,8 @@ __plugin__ = {
         "mailboxes": {"type": "password", "default": "", "label": "邮箱配置", "help": "格式：邮箱|授权码 & 邮箱|授权码；支持 QQ/163/126/Gmail/Outlook，可用显示按钮受控查看。", "section": "邮箱", "cols": 12, "order": 10},
         "keywords": {"type": "string", "default": "验证码|重要通知|账单|订单", "label": "关键词（用 | 分隔）", "section": "过滤", "order": 20},
         "poll_seconds": {"type": "number", "default": 30, "min": 10, "max": 300, "label": "轮询间隔（秒）", "section": "运行设置", "order": 21},
+        "manual_check_limit": {"type": "number", "default": 100, "min": 1, "max": 500, "step": 1, "label": "立即检查回查数量", "help": "点击立即检查时，每个邮箱回查最近多少封邮件；包含已读和未读邮件。", "section": "运行设置", "order": 22},
+        "check_now": {"type": "action", "label": "立即检查", "action": "check_now", "help": "立即回查近期已读和未读邮件，已处理邮件不会重复推送。", "section": "操作", "cols": 6, "order": 40},
     },
 }
 
@@ -87,28 +89,65 @@ def _parse_boxes(raw: str) -> List[Dict[str, str]]:
     return out
 
 
-def _poll(box: Dict[str, str], seen: set[str]) -> List[Dict[str, Any]]:
-    found=[]; mail=imaplib.IMAP4_SSL(box["host"], 993); mail.login(box["email"],box["password"]); mail.select("INBOX")
-    status,data=mail.search(None,"UNSEEN")
-    if status != "OK": mail.logout(); return found
-    for raw_id in data[0].split()[-30:]:
-        uid=raw_id.decode(); key=f"{box['email']}:{uid}"
-        if key in seen: continue
-        status,msgdata=mail.fetch(raw_id,"(RFC822)")
-        if status != "OK": continue
-        msg=email.message_from_bytes(next((x[1] for x in msgdata if isinstance(x,tuple)),b""))
-        subject=_decode(msg.get("Subject","")); sender=_decode(msg.get("From","")); body=_body(msg); otp=OTP_RE.search(body)
-        images = []
-        for part in msg.walk() if msg.is_multipart() else [msg]:
-            if part.get_content_maintype() != "image":
+def _poll(
+    box: Dict[str, str],
+    seen: set[str],
+    *,
+    include_read: bool = False,
+    limit: int = 30,
+) -> List[Dict[str, Any]]:
+    """读取一批邮件；后台只查未读，手动检查可查已读和未读。"""
+    found: List[Dict[str, Any]] = []
+    mail = imaplib.IMAP4_SSL(box["host"], 993)
+    try:
+        mail.login(box["email"], box["password"])
+        status, _ = mail.select("INBOX", readonly=True)
+        if status != "OK":
+            raise RuntimeError("无法打开收件箱")
+        criteria = "ALL" if include_read else "UNSEEN"
+        status, data = mail.uid("search", None, criteria)
+        if status != "OK":
+            raise RuntimeError(f"IMAP 搜索失败：{criteria}")
+        raw_ids = (data[0] if data else b"").split()
+        for raw_uid in raw_ids[-max(1, int(limit or 1)):]:
+            uid = raw_uid.decode(errors="replace")
+            key = f"{box['email']}:{uid}"
+            if key in seen:
                 continue
-            payload = part.get_payload(decode=True) or b""
-            if payload and len(payload) <= 5 * 1024 * 1024:
-                images.append(payload)
-                break
-        found.append({"邮箱":box["email"],"发件人":sender[:120],"标题":subject[:200],"内容":body[:3000],"验证码":otp.group(1) if otp else "", "_key":key, "_images": images})
-    try: mail.logout()
-    except Exception: pass
+            # BODY.PEEK[] 配合只读收件箱，检查不会把未读邮件改为已读。
+            status, msgdata = mail.uid("fetch", raw_uid, "(BODY.PEEK[])")
+            if status != "OK":
+                continue
+            payload = next((item[1] for item in msgdata if isinstance(item, tuple)), b"")
+            if not payload:
+                continue
+            msg = email.message_from_bytes(payload)
+            subject = _decode(msg.get("Subject", ""))
+            sender = _decode(msg.get("From", ""))
+            body = _body(msg)
+            otp = OTP_RE.search(body)
+            images = []
+            for part in msg.walk() if msg.is_multipart() else [msg]:
+                if part.get_content_maintype() != "image":
+                    continue
+                image = part.get_payload(decode=True) or b""
+                if image and len(image) <= 5 * 1024 * 1024:
+                    images.append(image)
+                    break
+            found.append({
+                "邮箱": box["email"],
+                "发件人": sender[:120],
+                "标题": subject[:200],
+                "内容": body[:3000],
+                "验证码": otp.group(1) if otp else "",
+                "_key": key,
+                "_images": images,
+            })
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
     return found
 
 
@@ -167,20 +206,77 @@ async def setup(ctx):
         if normalized:
             ctx.update_config({"mailboxes": normalized})
             ctx.log.info("[邮件集] 已将旧多行邮箱配置迁移为受控单行格式")
-    task=None; seen=set(str(x) for x in (await ctx.storage.get("seen", []) or []))
+    task = None
+    seen = set(str(x) for x in (await ctx.storage.get("seen", []) or []))
+    check_lock = asyncio.Lock()
 
-    async def monitor():
+    async def check_once(source: str, *, include_read: bool, limit: int) -> Dict[str, Any]:
         nonlocal seen
-        while True:
-            cfg=dict(ctx.config or {}); boxes=_parse_boxes(cfg.get("mailboxes", "")); keywords=[x.strip().lower() for x in str(cfg.get("keywords", "") or "").split("|") if x.strip()]
+        if check_lock.locked():
+            return {"ok": False, "busy": True, "message": "邮件检查正在运行，请稍后再试。"}
+
+        async with check_lock:
+            cfg = dict(ctx.config or {})
+            boxes = _parse_boxes(cfg.get("mailboxes", ""))
+            if not boxes:
+                return {"ok": False, "message": "请先填写有效的邮箱和授权码。"}
+            keywords = [
+                item.strip().lower()
+                for item in str(cfg.get("keywords", "") or "").split("|")
+                if item.strip()
+            ]
+            stats = {
+                "mailboxes": len(boxes),
+                "checked": 0,
+                "messages": 0,
+                "pushed": 0,
+                "skipped": 0,
+                "failed": 0,
+            }
+            ctx.log.info(
+                "[邮件集] 开始%s：%d 个邮箱，范围=%s，每箱最多 %d 封",
+                source,
+                len(boxes),
+                "已读和未读" if include_read else "未读",
+                limit,
+            )
             for box in boxes:
-                try: messages=await asyncio.to_thread(_poll, box, seen)
+                try:
+                    messages = await asyncio.to_thread(
+                        _poll,
+                        box,
+                        seen,
+                        include_read=include_read,
+                        limit=limit,
+                    )
+                    stats["checked"] += 1
+                    stats["messages"] += len(messages)
                 except Exception as exc:
-                    ctx.log.error(f"[邮件集] {box['email']} 轮询失败：{exc}"); continue
-                for msg in messages:
-                    seen.add(msg.pop("_key")); images = msg.pop("_images", []); subject=msg["标题"]; body=msg["内容"]
-                    is_verification=bool(msg.get("验证码")) or any(k in (subject+" "+body).lower() for k in ("验证码","verification","otp","verify"))
-                    if not cfg.get("push_all", False) and not is_verification and not any(k in (subject+" "+body).lower() for k in keywords): continue
+                    stats["failed"] += 1
+                    ctx.log.error(f"[邮件集] {box['email']} {source}失败：{exc}")
+                    continue
+
+                for raw_msg in messages:
+                    msg = dict(raw_msg)
+                    key = str(msg.pop("_key"))
+                    images = msg.pop("_images", [])
+                    subject = str(msg.get("标题") or "")
+                    body = str(msg.get("内容") or "")
+                    searchable = (subject + " " + body).lower()
+                    is_verification = bool(msg.get("验证码")) or any(
+                        marker in searchable
+                        for marker in ("验证码", "verification", "otp", "verify")
+                    )
+                    should_push = (
+                        bool(cfg.get("push_all", False))
+                        or is_verification
+                        or any(keyword in searchable for keyword in keywords)
+                    )
+                    if not should_push:
+                        seen.add(key)
+                        stats["skipped"] += 1
+                        continue
+
                     if cfg.get("ai_verification", False) and is_verification:
                         try:
                             code = await _ai_code(ctx, msg, images, cfg)
@@ -201,10 +297,43 @@ async def setup(ctx):
                                 ctx.log.info(f"[邮件集] AI 概要生成成功：{box['email']} / {subject}")
                         except Exception as exc:
                             ctx.log.warning(f"[邮件集] AI 概要生成失败，推送原邮件：{exc}")
-                    rows=[{"项目":k,"内容":str(v)} for k,v in msg.items() if v]
-                    await ctx.notify(rows, category="邮件集"); ctx.log.info(f"[邮件集] 已推送 {box['email']}：{subject}")
-            if len(seen)>2000: seen=set(list(seen)[-1000:])
-            await ctx.storage.set("seen", list(seen)[-2000:]); await asyncio.sleep(max(10,int(cfg.get("poll_seconds",30) or 30)))
+                    rows = [{"项目": key_name, "内容": str(value)} for key_name, value in msg.items() if value]
+                    try:
+                        await ctx.notify(rows, category="邮件集")
+                    except Exception as exc:
+                        stats["failed"] += 1
+                        ctx.log.error(f"[邮件集] 推送失败 {box['email']} / {subject}：{exc}")
+                        continue
+                    seen.add(key)
+                    stats["pushed"] += 1
+                    ctx.log.info(f"[邮件集] 已推送 {box['email']}：{subject}")
+
+            if len(seen) > 2000:
+                seen = set(list(seen)[-1000:])
+            await ctx.storage.set("seen", list(seen)[-2000:])
+            stats["ok"] = stats["failed"] == 0
+            stats["message"] = (
+                f"{source}完成：邮箱 {stats['checked']}/{stats['mailboxes']}，"
+                f"发现 {stats['messages']} 封，推送 {stats['pushed']} 封，"
+                f"过滤 {stats['skipped']} 封，失败 {stats['failed']} 项。"
+            )
+            ctx.log.info("[邮件集] %s", stats["message"])
+            return stats
+
+    async def monitor():
+        while True:
+            cfg = dict(ctx.config or {})
+            await check_once("自动轮询", include_read=False, limit=30)
+            await asyncio.sleep(max(10, int(cfg.get("poll_seconds", 30) or 30)))
+
+    @ctx.action("check_now")
+    async def check_now():
+        cfg = dict(ctx.config or {})
+        try:
+            limit = max(1, min(500, int(cfg.get("manual_check_limit", 100) or 100)))
+        except (TypeError, ValueError):
+            limit = 100
+        return await check_once("立即检查", include_read=True, limit=limit)
 
     if (ctx.config or {}).get("enabled"):
         task=ctx.create_task(monitor(), name="邮件集·IMAP监控"); ctx.log.info("[邮件集] IMAP 监控已启动")

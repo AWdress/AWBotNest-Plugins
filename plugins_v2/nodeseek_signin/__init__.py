@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import re
 import time
 from datetime import datetime
@@ -12,10 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.5", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.6", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
-    "changelog": "v0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
+    "changelog": "v0.0.6 修复 Docker Turnstile 超时\n- 使用登录页原生 Turnstile 控件及站点参数，不再额外创建缺少 action/cData 的验证控件\n- 原生令牌未签发时受控重置并刷新页面重试一次\n- Docker 检测到 Xvfb 显示器时自动改用虚拟有头 CloakBrowser，并固定持久指纹\n\nv0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
     "scope": "standalone", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "default_enabled": False, "requirements": ["requests>=2.28", "cloakbrowser>=0.5.10"],
     "config_schema": {
@@ -40,7 +41,6 @@ __plugin__ = {
 
 SIGNIN_PAGE = "https://www.nodeseek.com/signIn.html"
 ATTENDANCE_API = "https://www.nodeseek.com/api/attendance"
-SITEKEY = "0x4AAAAAAAaNy7leGjewpVyR"
 COOKIE_RE = re.compile(r"(?:^|;)\s*([^=;\s]+)=([^;]*)")
 
 
@@ -91,25 +91,25 @@ def _signin_one(cookie: str, reward: bool, timeout: int) -> Dict[str, Any]:
 
 def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int):
     def action(page):
+        def wait_app_ready(limit: int = 40) -> bool:
+            deadline = time.monotonic() + limit
+            while time.monotonic() < deadline:
+                try:
+                    if page.evaluate("()=>performance.getEntriesByType('resource').some(e=>/\\/assets\\/preLogin-[^/]*\\.js/.test(e.name))"):
+                        return True
+                except Exception:
+                    pass
+                time.sleep(1)
+            return False
+
         try:
-            page.wait_for_load_state("networkidle", timeout=60_000)
+            page.wait_for_load_state("networkidle", timeout=30_000)
         except Exception:
             pass
-        deadline = time.monotonic() + 40
-        app_ready = False
-        while time.monotonic() < deadline:
-            try:
-                ready = page.evaluate("()=>performance.getEntriesByType('resource').some(e=>/\\/assets\\/preLogin-[^/]*\\.js/.test(e.name))")
-                if ready:
-                    app_ready = True
-                    break
-            except Exception:
-                pass
-            time.sleep(2)
-        if not app_ready:
+        if not wait_app_ready():
             return {"phase": "cf-fail", "captchaError": "Cloudflare 页面验证未完成，NodeSeek 登录页面尚未加载"}
         script = r"""
-        async ({sitekey, username, password, reward, captchaTimeout}) => {
+        async ({username, password, reward, captchaTimeout}) => {
           const out = {phase: 'start'}; let preMod = null;
           async function turnstileToken() {
             const readToken = () => {
@@ -117,44 +117,16 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
               if (field && field.value) return field.value;
               try { return window.turnstile && window.turnstile.getResponse ? window.turnstile.getResponse() : ''; } catch (_) { return ''; }
             };
-            let current = readToken(); if (current) return current;
-            if (!window.turnstile) {
-              await new Promise((resolve, reject) => {
-                const existing = document.querySelector('script[src*="challenges.cloudflare.com/turnstile"]');
-                if (existing) {
-                  const started = Date.now();
-                  const timer = setInterval(() => {
-                    if (window.turnstile) { clearInterval(timer); resolve(); }
-                    else if (Date.now() - started > 15000) { clearInterval(timer); reject(new Error('Turnstile 脚本加载超时')); }
-                  }, 250);
-                  return;
-                }
-                const script = document.createElement('script');
-                script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
-                script.async = true; script.defer = true;
-                script.onload = resolve; script.onerror = () => reject(new Error('Turnstile 脚本加载失败'));
-                document.head.appendChild(script);
-              });
+            const started = Date.now(); let reset = false;
+            while (Date.now() - started < captchaTimeout * 1000) {
+              const current = readToken();
+              if (current) return current;
+              if (!reset && Date.now() - started > 12000 && window.turnstile?.reset) {
+                try { window.turnstile.reset(); reset = true; out.nativeReset = true; } catch (_) {}
+              }
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
-            current = readToken(); if (current) return current;
-            return await new Promise((resolve, reject) => {
-              const host = document.createElement('div');
-              host.id = 'awbotnest-turnstile-' + Date.now();
-              host.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483647';
-              document.body.appendChild(host);
-              let done = false;
-              const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); fn(value); };
-              const timer = setTimeout(() => finish(reject, new Error('Turnstile 未在限定时间内签发令牌')), captchaTimeout * 1000);
-              try {
-                window.turnstile.render(host, {
-                  sitekey,
-                  callback: token => finish(resolve, token),
-                  'error-callback': code => finish(reject, new Error('Turnstile 验证失败：' + code)),
-                  'expired-callback': () => finish(reject, new Error('Turnstile 令牌已过期')),
-                  'timeout-callback': () => finish(reject, new Error('Turnstile 验证超时'))
-                });
-              } catch (e) { finish(reject, e); }
-            });
+            throw new Error('登录页原生 Turnstile 未在限定时间内签发令牌');
           }
           async function authHeaders() {
             try {
@@ -181,7 +153,21 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
           out.phase='done'; return out;
         }
         """
-        result = page.evaluate(script, {"sitekey": SITEKEY, "username": user, "password": password, "reward": reward, "captchaTimeout": captcha_timeout}) or {}
+        first_timeout = min(30, captcha_timeout)
+        result = page.evaluate(script, {"username": user, "password": password, "reward": reward, "captchaTimeout": first_timeout}) or {}
+        if result.get("phase") == "captcha-fail" and captcha_timeout > first_timeout:
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=60_000)
+                if wait_app_ready(30):
+                    result = page.evaluate(script, {
+                        "username": user,
+                        "password": password,
+                        "reward": reward,
+                        "captchaTimeout": captcha_timeout - first_timeout,
+                    }) or {}
+                    result["pageReloaded"] = True
+            except Exception as exc:
+                result = {"phase": "captcha-fail", "captchaError": f"原生 Turnstile 页面刷新失败：{exc}"}
         try:
             cookies = page.context.cookies()
         except Exception:
@@ -205,13 +191,23 @@ def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str 
     profile_dir = Path(ctx.data_dir) / "cloakbrowser_profiles" / profile_name
     profile_dir.parent.mkdir(parents=True, exist_ok=True)
     proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
+    display = str(os.environ.get("DISPLAY") or "").strip()
+    if not display and os.path.exists("/.dockerenv"):
+        socket_dir = Path("/tmp/.X11-unix")
+        if socket_dir.is_dir():
+            socket = next((item for item in sorted(socket_dir.glob("X*")) if item.name[1:].isdigit()), None)
+            if socket is not None:
+                display = f":{socket.name[1:]}"
+                os.environ["DISPLAY"] = display
+    fingerprint_seed = int(hashlib.sha256(str(profile_dir).encode("utf-8")).hexdigest()[:8], 16)
     options: Dict[str, Any] = {
-        "headless": True,
+        "headless": not bool(display and os.path.exists("/.dockerenv")),
         "locale": "zh-CN",
         "timezone": "Asia/Shanghai",
         "humanize": True,
         "human_preset": "careful",
         "release_channel": "preview",
+        "args": [f"--fingerprint={fingerprint_seed}"],
     }
     if proxy_url:
         options.update({"proxy": proxy_url, "geoip": True})

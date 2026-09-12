@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .venv/
+node_modules/
+.tmp-plugin-test/
 data/
 .DS_Store
 

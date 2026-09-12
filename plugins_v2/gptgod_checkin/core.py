@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。",
-    "changelog": "v2.0.3 适配平台敏感配置规范\n- 多账号凭据改为整体受控显示的 password 字段，避免嵌套列表密码经配置接口泄露\n- 使用“邮箱----密码 & 邮箱----密码”单行格式，并自动迁移旧账号列表和单账号配置\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
+    "changelog": "v2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\nv2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -42,9 +42,14 @@ __plugin__ = {
             "section": "功能开关", "cols": 4, "order": 3,
         },
         "accounts": {
-            "type": "password", "default": "", "label": "签到账号",
-            "help": "格式：邮箱----密码 & 邮箱----密码；可用显示按钮受控查看。",
+            "type": "list", "default": [], "label": "签到账号", "item_label": "账号",
+            "secret": True,
+            "help": "逐个添加 GPT-GOD 账号；账号列表整体受平台保护，密码默认隐藏。",
             "section": "账号", "cols": 12, "order": 10,
+            "fields": {
+                "email": {"type": "string", "label": "登录邮箱"},
+                "password": {"type": "password", "label": "账户密码"},
+            },
         },
         "email": {
             "type": "string", "default": "", "label": "旧版登录邮箱",
@@ -885,19 +890,16 @@ async def setup(ctx):
     configured = _configured_accounts(config)
     raw_accounts = config.get("accounts")
     if configured and (
-        isinstance(raw_accounts, list)
+        isinstance(raw_accounts, str)
         or bool(config.get("email"))
         or bool(config.get("password"))
-        or (isinstance(raw_accounts, str) and ("\n" in raw_accounts or "\r" in raw_accounts))
     ):
         ctx.update_config({
-            "accounts": " & ".join(
-                f"{item['email']}----{item['password']}" for item in configured
-            ),
+            "accounts": configured,
             "email": "",
             "password": "",
         })
-        ctx.log.info("已将旧账号配置迁移为受控单行格式")
+        ctx.log.info("已将旧账号配置迁移为受控账号列表")
 
     @ctx.action("run_now")
     async def _run_now():
@@ -909,6 +911,18 @@ async def setup(ctx):
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
         return {"ok": True, "message": "多账号签到已在后台开始，请查看运行日志"}
+
+    @ctx.on_api("/run", methods=["POST"])
+    async def _api_run(request):
+        return await _run_now()
+
+    @ctx.on_api("/status", methods=["GET"])
+    async def _api_status(request):
+        return {
+            "running": bool(_run_lock and _run_lock.locked()),
+            "last_result": await ctx.storage.get("last_result", None),
+            "history": (await ctx.storage.get(HISTORY_KEY, []) or [])[-10:],
+        }
 
     if ctx.config.get("auto_checkin", True):
         hour = _bounded_int(ctx.config.get("checkin_hour"), 8, 0, 23)
