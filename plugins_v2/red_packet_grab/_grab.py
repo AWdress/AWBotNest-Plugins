@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import random
 import re
 import time as _time
@@ -277,7 +278,8 @@ class Grabber:
                     await self._safe_notify(
                         f"自动抢红包-抢到了 🧧\n发包人: {pkt.sender_name}\n"
                         f"口令: {pkt.our_code}（{pkt.mode}）",
-                        level="success", account=client)
+                        level="success", account=client,
+                        message_link=self._message_link(pkt.group_id, pkt.packet_id))
                 self._active.pop(key, None)
                 return
 
@@ -334,7 +336,8 @@ class Grabber:
             await self._safe_notify(
                 f"自动抢红包-已发口令\n发包人: {pkt.sender_name}\n"
                 f"口令: {code}（{pkt.mode}）",
-                level="info", account=client)
+                level="info", account=client,
+                message_link=self._message_link(pkt.group_id, pkt.packet_id))
 
     # —— 工具 ——
     def _is_success(self, text: str, markers: list[str], transfer_prefix: str) -> bool:
@@ -441,15 +444,55 @@ class Grabber:
             self._log.debug("[自动抢红包] 图片下载失败: %r", e)
         return b""
 
-    async def _safe_notify(self, text, level="info", account=None) -> None:
+    @staticmethod
+    def _message_link(group_id: int, message_id: int) -> str:
+        raw = str(group_id or "")
+        if raw.startswith("-100") and raw[4:].isdigit() and message_id:
+            return f"https://t.me/c/{raw[4:]}/{message_id}"
+        return ""
+
+    @staticmethod
+    def _rich_notice(rows, message_link: str) -> str:
+        parts = [
+            '<table bordered striped><caption>通知明细</caption>',
+            '<tr><th align="left">项目</th><th align="left">内容</th></tr>',
+        ]
+        for row in rows:
+            parts.append(
+                '<tr><td align="left">'
+                + html.escape(str(row["项目"]))
+                + '</td><td align="left">'
+                + html.escape(str(row["内容"]))
+                + '</td></tr>'
+            )
+        parts.extend([
+            "</table><br><br><b>查看红包消息</b><br>",
+            html.escape(message_link),
+        ])
+        return "".join(parts)
+
+    async def _safe_notify(
+        self, text, level="info", account=None, message_link: str = "",
+    ) -> None:
         try:
             lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
             rows = [{"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
                     for index, line in enumerate(lines)]
-            await self._ctx.notify(rows or [{"项目": "详情", "内容": "暂无内容"}],
-                                   level=level, category="自动抢红包", account=account)
-        except Exception:  # noqa: BLE001
-            pass
+            rows = rows or [{"项目": "详情", "内容": "暂无内容"}]
+            if message_link:
+                await self._ctx.notify(
+                    self._rich_notice(rows, message_link),
+                    level=level,
+                    category="自动抢红包",
+                    account=account,
+                    format="rich",
+                )
+            else:
+                await self._ctx.notify(
+                    rows, level=level, category="自动抢红包", account=account,
+                )
+        except Exception as exc:  # noqa: BLE001
+            self._log.warning("[自动抢红包] 通知发送失败：%r", exc)
 
     def clear(self) -> None:
         self._active.clear()

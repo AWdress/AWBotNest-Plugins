@@ -13,10 +13,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.6", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.7", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
-    "changelog": "v0.0.6 修复 Docker Turnstile 超时\n- 使用登录页原生 Turnstile 控件及站点参数，不再额外创建缺少 action/cData 的验证控件\n- 原生令牌未签发时受控重置并刷新页面重试一次\n- Docker 检测到 Xvfb 显示器时自动改用虚拟有头 CloakBrowser，并固定持久指纹\n\nv0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
+    "changelog": "v0.0.7 修复重复签到识别与通知\n- HTTP 400 但提示今天已签到或请勿重复操作时按成功处理\n- 通知发送增加开始、完成、跳过与失败日志，避免通知异常静默\n- 立即签到和后台任务异常均输出明确日志\n\nv0.0.6 修复 Docker Turnstile 超时\n- 使用登录页原生 Turnstile 控件及站点参数，不再额外创建缺少 action/cData 的验证控件\n- 原生令牌未签发时受控重置并刷新页面重试一次\n- Docker 检测到 Xvfb 显示器时自动改用虚拟有头 CloakBrowser，并固定持久指纹\n\nv0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
     "scope": "standalone", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "default_enabled": False, "requirements": ["requests>=2.28", "cloakbrowser>=0.5.10"],
     "config_schema": {
@@ -69,6 +69,19 @@ def _is_challenge(response: requests.Response) -> bool:
     return bool(response.headers.get("cf-mitigated")) or response.status_code in (401, 403) or "just a moment" in text or "cf-chl" in text
 
 
+def _signin_status(data: Dict[str, Any], message: str) -> Tuple[bool, bool]:
+    """返回 ``(签到有效, 已经签到)``，不受响应 HTTP 状态码误导。"""
+    lower = str(message or "").lower()
+    already = any(
+        marker in lower
+        for marker in (
+            "已完成签到", "已经完成签到", "今日已签到", "今天已签到",
+            "已签到", "请勿重复操作", "already",
+        )
+    )
+    return bool(data.get("success")) or already or "鸡腿" in lower, already
+
+
 def _signin_one(cookie: str, reward: bool, timeout: int) -> Dict[str, Any]:
     session = requests.Session()
     session.cookies.update(dict(COOKIE_RE.findall(cookie)))
@@ -82,9 +95,8 @@ def _signin_one(cookie: str, reward: bool, timeout: int) -> Dict[str, Any]:
         except ValueError:
             data = {}
         message = str(data.get("message") or data.get("msg") or (response.text or "")[:160]).strip()
-        lower = message.lower()
-        ok = response.status_code < 400 and (bool(data.get("success")) or any(word in lower for word in ("鸡腿", "已完成签到", "已签到", "already")))
-        return {"ok": ok, "refresh": response.status_code in (401, 403) or data.get("status") == 404, "message": message or f"HTTP {response.status_code}", "status": response.status_code}
+        ok, already = _signin_status(data, message)
+        return {"ok": ok, "already": already, "refresh": not ok and (response.status_code in (401, 403) or data.get("status") == 404), "message": message or f"HTTP {response.status_code}", "status": response.status_code}
     except Exception as exc:
         return {"ok": False, "refresh": False, "message": f"请求失败：{exc}"}
 
@@ -279,11 +291,11 @@ async def _signin_with_browser_cookie(ctx, cookie: str, reward: bool, index: int
         return {"ok": False, "refresh": False, "message": f"CloakBrowser Cookie 签到失败：{exc}"}
     data = raw.get("body") or {}
     message = str(data.get("message") or raw.get("error") or f"HTTP {raw.get('status')}")
-    ok = bool(data.get("success")) or any(word in message.lower() for word in ("鸡腿", "已完成签到", "已签到", "already"))
+    ok, already = _signin_status(data, message)
     # 浏览器 Cookie 路径未成功时继续走账密自动登录；不能因为页面脚本
     # 没有返回 HTTP 状态而提前终止刷新流程。
     refresh = not ok
-    return {"ok": ok, "refresh": refresh, "message": message}
+    return {"ok": ok, "already": already, "refresh": refresh, "message": message}
 
 
 async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any], reward: bool, index: int) -> Dict[str, Any]:
@@ -313,8 +325,8 @@ async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any]
         return {"ok": False, "message": f"自动登录失败：{message}", "cookie": ""}
     attendance = raw.get("attendanceBody") or {}
     message = str(attendance.get("message") or f"HTTP {raw.get('attendanceStatus')}")
-    ok = bool(attendance.get("success")) or any(word in message.lower() for word in ("鸡腿", "已完成签到", "已签到", "already"))
-    return {"ok": ok, "message": message, "cookie": str(raw.get("cookie") or "")}
+    ok, already = _signin_status(attendance, message)
+    return {"ok": ok, "already": already, "message": message, "cookie": str(raw.get("cookie") or "")}
 
 
 async def setup(ctx):
@@ -354,9 +366,13 @@ async def setup(ctx):
 
     async def run_once(source: str = "手动"):
         nonlocal active
-        if active and not active.done(): return {"ok": False, "message": "签到任务正在运行"}
+        if active and not active.done():
+            ctx.log.warning("[NodeSeek签到] %s请求被忽略：签到任务正在运行", source)
+            return {"ok": False, "message": "签到任务正在运行"}
         config = dict(ctx.config or {}); cookie_list = _cookies(config.get("cookies", "")); account_list = _accounts(config.get("accounts", "")); count = max(len(cookie_list), len(account_list))
-        if not count: return {"ok": False, "message": "请先配置 NodeSeek Cookie 或账号密码"}
+        if not count:
+            ctx.log.warning("[NodeSeek签到] %s请求无法执行：未配置 Cookie 或账号密码", source)
+            return {"ok": False, "message": "请先配置 NodeSeek Cookie 或账号密码"}
         cookie_list.extend([""] * (count - len(cookie_list))); account_list.extend([{"user": "", "password": ""}] * (count - len(account_list)))
         timeout = max(5, min(120, int(config.get("timeout", 30) or 30))); reward = bool(config.get("random_reward", True))
 
@@ -364,6 +380,7 @@ async def setup(ctx):
             nonlocal active
             rows = []; changed = False
             try:
+                ctx.log.info("[NodeSeek签到] 开始执行，来源=%s，账号=%d", source, count)
                 for index in range(count):
                     cookie = cookie_list[index]; account = account_list[index]; label = account.get("user") or f"账号 {index + 1}"
                     result = await asyncio.to_thread(_signin_one, cookie, reward, timeout) if cookie else {"ok": False, "refresh": True, "message": "未配置 Cookie"}
@@ -376,12 +393,13 @@ async def setup(ctx):
                             if new_cookie:
                                 cookie_list[index] = new_cookie; changed = True; ctx.log.info(f"[NodeSeek签到] {label} 登录成功，已获取新会话 Cookie")
                         else: result["message"] += "；未配置对应账号密码，无法自动刷新"
-                    rows.append({"账号": label, "状态": "成功" if result["ok"] else "失败", "详情": result["message"]})
+                    status = "已签到" if result.get("already") else ("成功" if result["ok"] else "失败")
+                    rows.append({"账号": label, "状态": status, "详情": result["message"]})
                     (ctx.log.info if result["ok"] else ctx.log.error)(f"[NodeSeek签到] {label}: {result['message']}")
                 if changed:
                     await ctx.storage.set("refreshed_cookies", cookie_list)
                     if config.get("auto_save_cookie", True): ctx.update_config({"cookies": " & ".join(cookie_list)}); ctx.log.info("[NodeSeek签到] 已将刷新后的 Cookie 回写到插件配置")
-                success = sum(row["状态"] == "成功" for row in rows); summary = {"时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "来源": source, "成功": success, "总数": len(rows), "rows": rows}
+                success = sum(row["状态"] in {"成功", "已签到"} for row in rows); summary = {"时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "来源": source, "成功": success, "总数": len(rows), "rows": rows}
                 state["last_result"] = summary; history = list(state.get("history", []) or []); history.insert(0, summary); state["history"] = history[:30]
                 await ctx.storage.set("last_result", summary); await ctx.storage.set("history", state["history"])
                 history_text = "\n".join(
@@ -392,7 +410,21 @@ async def setup(ctx):
                     "last_result": f"{summary['时间']} · 成功 {success}/{len(rows)}",
                     "history": history_text or "暂无记录",
                 })
-                if config.get("notify", True): await ctx.notify(rows, category="NodeSeek签到")
+                if config.get("notify", True):
+                    ctx.log.info("[NodeSeek签到] 正在发送签到通知：成功 %d/%d", success, len(rows))
+                    try:
+                        await ctx.notify(rows, category="NodeSeek签到")
+                        ctx.log.info("[NodeSeek签到] 签到通知发送完成")
+                    except Exception as exc:
+                        ctx.log.error("[NodeSeek签到] 签到通知发送失败：%r", exc)
+                else:
+                    ctx.log.info("[NodeSeek签到] 通知开关已关闭，跳过签到通知")
+                ctx.log.info("[NodeSeek签到] %s完成：成功 %d/%d", source, success, len(rows))
+            except asyncio.CancelledError:
+                ctx.log.info("[NodeSeek签到] 签到任务已取消")
+                raise
+            except Exception:
+                ctx.log.exception("[NodeSeek签到] 签到后台任务异常")
             finally:
                 active = None
 

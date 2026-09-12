@@ -15,15 +15,16 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.6",
+    "version": "0.0.8",
     "author": "AWdress",
     "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
-    "changelog": "v0.0.6 新增立即检查\n- 配置页新增立即检查按钮，可回查近期已读和未读邮件\n- 手动检查与后台轮询共用处理逻辑和互斥锁，避免并发重复推送\n- 使用稳定 IMAP UID 并以 PEEK 方式读取，不会把后台检查的未读邮件标为已读\n\nv0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
+    "changelog": "v0.0.8 修复立即检查无响应\n- 立即检查不再先保存并触发插件重载，避免旧配置页请求被中断\n- 收到检查请求、任务占用、配置缺失和扫描完成均输出明确日志\n- 配置有未保存修改时明确提示先保存，避免误用旧配置\n\nv0.0.7 改进多邮箱配置\n- 邮箱改为逐个添加和删除，每行可选择 QQ、163、126、Gmail、Outlook 或新浪邮箱\n- 每个授权码默认隐藏并可独立显示，旧单行和多行配置自动迁移且不丢失账号\n- 自定义配置页保留立即检查，可回查近期已读和未读邮件\n\nv0.0.6 新增立即检查\n- 配置页新增立即检查按钮，可回查近期已读和未读邮件\n- 手动检查与后台轮询共用处理逻辑和互斥锁，避免并发重复推送\n- 使用稳定 IMAP UID 并以 PEEK 方式读取，不会把后台检查的未读邮件标为已读\n\nv0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["邮件监控", "验证码", "通知推送"],
     "default_enabled": False,
+    "render_mode": "vue",
     "requirements": [],
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用邮件监控", "section": "功能开关", "order": 1},
@@ -33,7 +34,26 @@ __plugin__ = {
         "verification_prompt": {"type": "text", "default": "", "label": "验证码提示词", "help": "留空使用内置提示词。", "section": "AI 功能", "cols": 12, "order": 32},
         "summary_prompt": {"type": "text", "default": "", "label": "概要提示词", "help": "留空使用内置提示词。", "section": "AI 功能", "cols": 12, "order": 33},
         "ai_timeout": {"type": "number", "default": 60, "min": 10, "max": 180, "step": 1, "label": "AI 超时（秒）", "section": "AI 功能", "order": 34},
-        "mailboxes": {"type": "password", "default": "", "label": "邮箱配置", "help": "格式：邮箱|授权码 & 邮箱|授权码；支持 QQ/163/126/Gmail/Outlook，可用显示按钮受控查看。", "section": "邮箱", "cols": 12, "order": 10},
+        "mailboxes": {
+            "type": "list", "default": [], "label": "邮箱账号", "item_label": "邮箱",
+            "secret": True, "help": "逐个添加邮箱，授权码默认隐藏并由平台受控保存。",
+            "section": "邮箱", "cols": 12, "order": 10,
+            "fields": {
+                "provider": {
+                    "type": "select", "label": "邮箱类型",
+                    "options": [
+                        {"value": "qq", "label": "QQ 邮箱"},
+                        {"value": "163", "label": "163 邮箱"},
+                        {"value": "126", "label": "126 邮箱"},
+                        {"value": "gmail", "label": "Gmail"},
+                        {"value": "outlook", "label": "Outlook"},
+                        {"value": "sina", "label": "新浪邮箱"},
+                    ],
+                },
+                "email": {"type": "string", "label": "邮箱地址"},
+                "password": {"type": "password", "label": "授权码或应用密码"},
+            },
+        },
         "keywords": {"type": "string", "default": "验证码|重要通知|账单|订单", "label": "关键词（用 | 分隔）", "section": "过滤", "order": 20},
         "poll_seconds": {"type": "number", "default": 30, "min": 10, "max": 300, "label": "轮询间隔（秒）", "section": "运行设置", "order": 21},
         "manual_check_limit": {"type": "number", "default": 100, "min": 1, "max": 500, "step": 1, "label": "立即检查回查数量", "help": "点击立即检查时，每个邮箱回查最近多少封邮件；包含已读和未读邮件。", "section": "运行设置", "order": 22},
@@ -41,7 +61,25 @@ __plugin__ = {
     },
 }
 
-IMAP_HOSTS = {"qq.com": "imap.qq.com", "163.com": "imap.163.com", "126.com": "imap.126.com", "gmail.com": "imap.gmail.com", "outlook.com": "outlook.office365.com", "sina.com": "imap.sina.com"}
+PROVIDER_HOSTS = {
+    "qq": "imap.qq.com",
+    "163": "imap.163.com",
+    "126": "imap.126.com",
+    "gmail": "imap.gmail.com",
+    "outlook": "outlook.office365.com",
+    "sina": "imap.sina.com",
+}
+DOMAIN_PROVIDERS = {
+    "qq.com": "qq",
+    "163.com": "163",
+    "126.com": "126",
+    "gmail.com": "gmail",
+    "outlook.com": "outlook",
+    "hotmail.com": "outlook",
+    "live.com": "outlook",
+    "sina.com": "sina",
+    "sina.cn": "sina",
+}
 OTP_RE = re.compile(r"(?<!\d)(\d{4,8})(?!\d)")
 
 
@@ -79,13 +117,33 @@ def _body(msg: email.message.Message) -> str:
     parser=_Text(); parser.feed("\n".join(html_parts)); return html.unescape("".join(parser.parts)).strip()
 
 
-def _parse_boxes(raw: str) -> List[Dict[str, str]]:
-    out=[]
+def _parse_boxes(raw: Any) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            addr = str(item.get("email") or "").strip()
+            password = str(item.get("password") or "").strip()
+            provider = str(item.get("provider") or "").strip().lower()
+            if not provider and "@" in addr:
+                provider = DOMAIN_PROVIDERS.get(addr.rsplit("@", 1)[-1].lower(), "")
+            host = PROVIDER_HOSTS.get(provider)
+            if addr and password and host:
+                out.append({
+                    "provider": provider,
+                    "email": addr,
+                    "password": password,
+                    "host": host,
+                })
+        return out
     for line in re.split(r"(?:\r?\n|\s+&\s+)", str(raw or "")):
         if "|" not in line: continue
         addr, password = line.split("|", 1); addr=addr.strip(); password=password.strip()
-        host=IMAP_HOSTS.get(addr.rsplit("@",1)[-1].lower())
-        if addr and password and host: out.append({"email":addr,"password":password,"host":host})
+        provider = DOMAIN_PROVIDERS.get(addr.rsplit("@", 1)[-1].lower()) if "@" in addr else None
+        host = PROVIDER_HOSTS.get(provider or "")
+        if addr and password and host:
+            out.append({"provider": provider or "", "email": addr, "password": password, "host": host})
     return out
 
 
@@ -198,27 +256,45 @@ async def setup(ctx):
     }
     if defaults:
         ctx.update_config(defaults)
-    raw_mailboxes = str(ctx.config.get("mailboxes") or "").strip()
-    if "\n" in raw_mailboxes or "\r" in raw_mailboxes:
-        normalized = " & ".join(
-            f"{item['email']}|{item['password']}" for item in _parse_boxes(raw_mailboxes)
-        )
+    raw_mailboxes = ctx.config.get("mailboxes")
+    if isinstance(raw_mailboxes, str) and raw_mailboxes.strip() and raw_mailboxes != "********":
+        normalized = [
+            {
+                "provider": item["provider"],
+                "email": item["email"],
+                "password": item["password"],
+            }
+            for item in _parse_boxes(raw_mailboxes)
+        ]
         if normalized:
             ctx.update_config({"mailboxes": normalized})
-            ctx.log.info("[邮件集] 已将旧多行邮箱配置迁移为受控单行格式")
+            ctx.log.info("[邮件集] 已将旧邮箱配置迁移为逐账号列表")
     task = None
     seen = set(str(x) for x in (await ctx.storage.get("seen", []) or []))
     check_lock = asyncio.Lock()
+    ctx.log.info(
+        "[邮件集] 插件已加载：已配置 %d 个邮箱，后台监控=%s",
+        len(_parse_boxes(ctx.config.get("mailboxes", ""))),
+        "开启" if (ctx.config or {}).get("enabled") else "关闭",
+    )
 
     async def check_once(source: str, *, include_read: bool, limit: int) -> Dict[str, Any]:
         nonlocal seen
+        ctx.log.info(
+            "[邮件集] 收到%s请求：范围=%s，每箱最多 %d 封",
+            source,
+            "已读和未读" if include_read else "未读",
+            limit,
+        )
         if check_lock.locked():
+            ctx.log.warning("[邮件集] %s请求被忽略：另一项邮件检查仍在运行", source)
             return {"ok": False, "busy": True, "message": "邮件检查正在运行，请稍后再试。"}
 
         async with check_lock:
             cfg = dict(ctx.config or {})
             boxes = _parse_boxes(cfg.get("mailboxes", ""))
             if not boxes:
+                ctx.log.warning("[邮件集] %s无法执行：没有可用的邮箱配置", source)
                 return {"ok": False, "message": "请先填写有效的邮箱和授权码。"}
             keywords = [
                 item.strip().lower()
@@ -334,6 +410,15 @@ async def setup(ctx):
         except (TypeError, ValueError):
             limit = 100
         return await check_once("立即检查", include_read=True, limit=limit)
+
+    @ctx.on_api("/check", methods=["POST"])
+    async def api_check(request):
+        ctx.log.info("[邮件集] 配置页已触发立即检查")
+        return await check_now()
+
+    @ctx.on_api("/status", methods=["GET"])
+    async def api_status(request):
+        return {"running": check_lock.locked()}
 
     if (ctx.config or {}).get("enabled"):
         task=ctx.create_task(monitor(), name="邮件集·IMAP监控"); ctx.log.info("[邮件集] IMAP 监控已启动")
