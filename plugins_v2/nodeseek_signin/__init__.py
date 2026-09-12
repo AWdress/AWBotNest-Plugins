@@ -16,13 +16,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.11", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.12", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
     "changelog": "v0.0.8 改进多账号账密配置\n- 账号密码改为逐账号添加和删除，不再填写整段分隔文本\n- 每个密码独立隐藏并可按需显示，旧格式启动时自动迁移且不丢失账号\n- 保留多 Cookie 按账号顺序对应和失效后自动登录逻辑\n\nv0.0.7 修复重复签到识别与通知\n- HTTP 400 但提示今天已签到或请勿重复操作时按成功处理\n- 通知发送增加开始、完成、跳过与失败日志，避免通知异常静默\n- 立即签到和后台任务异常均输出明确日志\n\nv0.0.6 修复 Docker Turnstile 超时\n- 使用登录页原生 Turnstile 控件及站点参数，不再额外创建缺少 action/cData 的验证控件\n- 原生令牌未签发时受控重置并刷新页面重试一次\n- Docker 检测到 Xvfb 显示器时自动改用虚拟有头 CloakBrowser，并固定持久指纹\n\nv0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
     "scope": "standalone", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "render_mode": "vue",
-    "default_enabled": False, "requirements": ["requests>=2.28", "cloakbrowser>=0.5.10"],
+    "default_enabled": False,
+    "requirements": ["requests>=2.28", "cloakbrowser>=0.5.10", "geoip2>=4.8", "socksio>=1.0"],
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "发送签到通知", "section": "功能开关", "order": 2},
@@ -71,6 +72,14 @@ __plugin__["changelog"] = (
     "- 代理、License Key、内核选择和免费会话排队改由平台统一处理\n"
     "- GeoIP 指纹跟随平台最终选择的网络出口，不再读取平台内部代理配置\n"
     "- 持久浏览器上下文在登录或签到结束后始终关闭并释放会话\n\n"
+    + __plugin__["changelog"]
+)
+
+__plugin__["changelog"] = (
+    "v0.0.12 修复 Docker 账密登录 Turnstile 超时\n"
+    "- 账密登录改用全新临时 CloakBrowser 上下文，不再复用持久 profile 和旧 Cloudflare 状态\n"
+    "- 首次验证未签发令牌时，关闭会话并使用全新指纹受控重试一次\n"
+    "- 等待期内会重置原生控件，失败日志补充页面、脚本、控件和 iframe 诊断\n\n"
     + __plugin__["changelog"]
 )
 
@@ -266,17 +275,74 @@ def _click_managed_turnstile(page) -> str:
     return ""
 
 
+def _reset_turnstile(page) -> str:
+    """请求 NodeSeek 页面重置原生控件。
+
+    NodeSeek 当前使用 1x1 的自动 Turnstile，不应对它进行坐标点击；
+    reset 会让官方控件自行重新发起验证。
+    """
+    try:
+        return str(page.evaluate("""() => {
+          if (!window.turnstile || typeof window.turnstile.reset !== 'function') return '';
+          try {
+            window.turnstile.reset();
+            return 'Turnstile 原生 reset';
+          } catch (error) {
+            return 'Turnstile reset 失败: ' + String(error);
+          }
+        }""") or "")
+    except Exception:
+        return ""
+
+
+def _turnstile_diagnostics(page) -> Dict[str, Any]:
+    """返回不包账号、密码、Cookie 或令牌的安全诊断。"""
+    try:
+        return dict(page.evaluate("""() => ({
+          url: location.href,
+          title: document.title,
+          appReady: performance.getEntriesByType('resource').some(
+            entry => /\\/assets\\/preLogin-[^/]*\\.js/.test(entry.name)
+          ),
+          apiLoaded: Boolean(window.turnstile && typeof window.turnstile.getResponse === 'function'),
+          responseFields: document.querySelectorAll(
+            'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+          ).length,
+          turnstileScripts: [...document.scripts].filter(
+            node => String(node.src || '').includes('challenges.cloudflare.com/turnstile')
+          ).length,
+          challengeFrames: [...document.querySelectorAll('iframe')].map(node => ({
+            title: String(node.title || '').slice(0, 80),
+            srcHost: (() => { try { return new URL(node.src || '', location.href).host; } catch (_) { return ''; } })(),
+            width: node.offsetWidth,
+            height: node.offsetHeight
+          }))
+        })""") or {})
+    except Exception as exc:
+        return {"error": type(exc).__name__}
+
+
 def _wait_turnstile_token(page, timeout_seconds: int) -> Dict[str, Any]:
     deadline = time.monotonic() + max(1, int(timeout_seconds))
     started = time.monotonic()
     click_detail = ""
+    reset_detail = ""
+    reset_after = min(15.0, max(8.0, float(timeout_seconds) / 3.0))
     while time.monotonic() < deadline:
         try:
             token = _read_turnstile_token(page)
         except Exception:
             token = ""
         if token:
-            return {"token": token, "managedClicked": bool(click_detail), "clickDetail": click_detail}
+            return {
+                "token": token,
+                "managedClicked": bool(click_detail),
+                "clickDetail": click_detail,
+                "resetDetail": reset_detail,
+            }
+        elapsed = time.monotonic() - started
+        if not reset_detail and elapsed >= reset_after:
+            reset_detail = _reset_turnstile(page)
         if not click_detail and time.monotonic() - started >= _TURNSTILE_AUTO_GRACE_SECONDS:
             click_detail = _click_managed_turnstile(page)
         time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
@@ -284,7 +350,9 @@ def _wait_turnstile_token(page, timeout_seconds: int) -> Dict[str, Any]:
         "token": "",
         "managedClicked": bool(click_detail),
         "clickDetail": click_detail,
+        "resetDetail": reset_detail,
         "error": f"登录页原生 Turnstile 未在 {timeout_seconds} 秒内签发令牌",
+        "diagnostics": _turnstile_diagnostics(page),
     }
 
 
@@ -325,6 +393,7 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
                 "captchaError": str(app_state.get("error") or "Cloudflare 页面验证未完成"),
                 "managedClicked": bool(app_state.get("managedClicked")),
                 "turnstileClickDetail": str(app_state.get("clickDetail") or ""),
+                "turnstileDiagnostics": _turnstile_diagnostics(page),
             }
         script = r"""
         async ({username, password, reward, token}) => {
@@ -406,6 +475,7 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
             result = {
                 "phase": "captcha-fail",
                 "captchaError": str(challenge.get("error") or "Turnstile 返回空令牌"),
+                "turnstileDiagnostics": dict(challenge.get("diagnostics") or _turnstile_diagnostics(page)),
             }
         all_click_details = [
             detail for detail in (
@@ -417,6 +487,8 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
         result["turnstileClickDetail"] = "；".join(dict.fromkeys(all_click_details))
         if challenge.get("pageReloaded"):
             result["pageReloaded"] = True
+        if challenge.get("resetDetail"):
+            result["turnstileResetDetail"] = str(challenge.get("resetDetail"))
         try:
             cookies = page.context.cookies()
         except Exception:
@@ -444,11 +516,8 @@ def _cookie_items(raw: str) -> List[Dict[str, str]]:
 def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str = "", clean_login: bool = False):
     import cloakbrowser
 
-    profile_dir = Path(ctx.data_dir) / "cloakbrowser_profiles" / profile_name
-    profile_dir.parent.mkdir(parents=True, exist_ok=True)
     in_docker = os.path.exists("/.dockerenv")
     display = _ensure_docker_display(ctx) if in_docker else str(os.environ.get("DISPLAY") or "").strip()
-    fingerprint_seed = int(hashlib.sha256(str(profile_dir).encode("utf-8")).hexdigest()[:8], 16)
     options: Dict[str, Any] = {
         "headless": bool(in_docker and not display),
         "humanize": True,
@@ -457,15 +526,24 @@ def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str 
         # 不传 proxy/license_key：由 AWBotNest 按系统设置统一注入并治理；
         # GeoIP 使浏览器指纹与平台最终选择的出口保持一致。
         "geoip": True,
-        "args": [
-            f"--fingerprint={fingerprint_seed}",
-            "--fingerprint-allow-3p-cookies",
-            "--fingerprint-storage-quota=5000",
-        ],
     }
     context = None
     try:
-        context = cloakbrowser.launch_persistent_context(str(profile_dir), **options)
+        if clean_login:
+            # Docker 中持久 context 可能保留已失效的 Cloudflare 状态，
+            # 并在某些风控上下文中产生持久 profile 特征。账密登录
+            # 使用全新 context，成功后的业务 Cookie 仍会回写配置。
+            context = cloakbrowser.launch_context(**options)
+        else:
+            profile_dir = Path(ctx.data_dir) / "cloakbrowser_profiles" / profile_name
+            profile_dir.parent.mkdir(parents=True, exist_ok=True)
+            fingerprint_seed = int(hashlib.sha256(str(profile_dir).encode("utf-8")).hexdigest()[:8], 16)
+            options["args"] = [
+                f"--fingerprint={fingerprint_seed}",
+                "--fingerprint-allow-3p-cookies",
+                "--fingerprint-storage-quota=5000",
+            ]
+            context = cloakbrowser.launch_persistent_context(str(profile_dir), **options)
         binary = _cloakbrowser_binary_details(cloakbrowser)
         version = str(binary.get("version") or "未知")
         tier = str(binary.get("tier") or "未知")
@@ -483,15 +561,6 @@ def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str 
             ctx.log.warning(
                 "[NodeSeek签到] 当前为旧版 keyless 内核；请在平台系统设置中启用 CloakBrowser 免费 Key 并填写 Key"
             )
-        if clean_login:
-            cloudflare_state = [
-                item for item in (context.cookies() or [])
-                if _is_cloudflare_session_cookie(item.get("name"))
-                and "nodeseek.com" in str(item.get("domain") or "")
-            ]
-            context.clear_cookies()
-            if cloudflare_state:
-                context.add_cookies(cloudflare_state)
         if cookie:
             context.add_cookies(_cookie_items(cookie))
         pages = list(getattr(context, "pages", []) or [])
@@ -564,25 +633,42 @@ async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any]
     captcha_timeout = max(30, min(300, int(config.get("captcha_timeout", 90) or 90)))
     browser_timeout = max(90, min(360, captcha_timeout + 90))
     ctx.log.info("[NodeSeek签到] Cookie 失效，正在使用 CloakBrowser 完成 Cloudflare 验证并登录")
-    try:
-        digest = hashlib.sha256(account["user"].encode("utf-8")).hexdigest()[:16]
-        raw = await asyncio.to_thread(
-            _cloakbrowser_run,
-            ctx,
-            _browser_action(account["user"], account["password"], reward, captcha_timeout),
-            f"login_{index + 1}_{digest}",
-            browser_timeout,
-            "",
-            True,
-        ) or {}
-    except Exception as exc:
-        return {"ok": False, "message": f"自动登录失败：{exc}", "cookie": ""}
+    digest = hashlib.sha256(account["user"].encode("utf-8")).hexdigest()[:16]
+    raw: Dict[str, Any] = {}
+    for attempt in range(1, 3):
+        try:
+            raw = await asyncio.to_thread(
+                _cloakbrowser_run,
+                ctx,
+                _browser_action(account["user"], account["password"], reward, captcha_timeout),
+                f"login_{index + 1}_{digest}_{attempt}",
+                browser_timeout,
+                "",
+                True,
+            ) or {}
+        except Exception as exc:
+            if attempt == 1:
+                ctx.log.warning(
+                    "[NodeSeek签到] 首次干净浏览器会话异常（%s），关闭后使用新指纹重试",
+                    type(exc).__name__,
+                )
+                continue
+            return {"ok": False, "message": f"自动登录失败：{exc}", "cookie": ""}
+        if raw.get("phase") not in {"cf-fail", "captcha-fail"}:
+            break
+        if attempt == 1:
+            ctx.log.warning(
+                "[NodeSeek签到] 首次原生 Turnstile 未完成，已关闭会话，正在使用全新指纹重试"
+            )
     if raw.get("managedClicked"):
         ctx.log.info(
             "[NodeSeek签到] 已对 Managed Turnstile 单击一次（%s）",
             raw.get("turnstileClickDetail") or "真实 Cloudflare iframe",
         )
     if raw.get("phase") in {"cf-fail", "captcha-fail"}:
+        diagnostics = dict(raw.get("turnstileDiagnostics") or {})
+        if diagnostics:
+            ctx.log.warning("[NodeSeek签到] Turnstile 失败诊断：%s", diagnostics)
         return {"ok": False, "message": f"自动登录失败：{raw.get('captchaError') or '页面未签发 Turnstile 令牌'}", "cookie": ""}
     login_body = raw.get("loginBody") or {}
     if raw.get("phase") == "login-fail" or not login_body.get("success"):
