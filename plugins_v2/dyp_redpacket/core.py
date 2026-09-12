@@ -28,6 +28,8 @@ from ._snatch import (
     is_snatch_success,
     is_thunder_hit,
     parse_packet_meta,
+    parse_registration_challenge,
+    registration_target_matches,
 )
 
 __plugin__ = {
@@ -68,6 +70,7 @@ __plugin__ = {
 
 # 按钮点击去重（进程内，TTL 清理）：key = "acct:chat:msg" → 时间戳
 _clicked: dict[str, float] = {}
+_answered_verifications: dict[str, float] = {}
 _CLICKED_TTL = 3600
 
 # 发包机器人 / 癫影群（原项目写死，非可配）
@@ -79,6 +82,8 @@ def _prune_clicked() -> None:
     now = _time.time()
     for k in [k for k, ts in _clicked.items() if now - ts > _CLICKED_TTL]:
         _clicked.pop(k, None)
+    for k in [k for k, ts in _answered_verifications.items() if now - ts > _CLICKED_TTL]:
+        _answered_verifications.pop(k, None)
 
 
 def _click_once(client, message) -> bool:
@@ -110,7 +115,7 @@ def _meta_brief(meta: dict) -> str:
 async def setup(ctx):
     records = Records(ctx.storage, ctx.log)
 
-    # ───────── 逐格点击 ─────────
+    # ───────── 报名验证 / 逐格点击 ─────────
     @ctx.on_message()
     async def on_dyp_packet(event):
         client, message = event.client, event.message
@@ -123,10 +128,45 @@ async def setup(ctx):
             return
         if event.chat_id != _DYP_GROUP_ID:
             return
+        caption = extract_text(message)
+
+        challenge = parse_registration_challenge(caption)
+        if challenge:
+            target, answer = challenge
+            me = getattr(client, "me", None)
+            if me is None:
+                try:
+                    me = await client.get_me()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    ctx.log.warning("[癫影积分红包] 读取当前账号失败，无法判断报名验证归属: %r", exc)
+                    return
+            if not registration_target_matches(target, me):
+                ctx.log.debug("[癫影积分红包] 报名验证点名他人，已忽略：%s", target)
+                return
+            verify_key = f"{getattr(me, 'id', id(client))}:{event.chat_id}:{message.id}"
+            _prune_clicked()
+            if verify_key in _answered_verifications:
+                return
+            _answered_verifications[verify_key] = _time.time()
+            try:
+                await message.reply(answer)
+                ctx.log.info(
+                    "[癫影积分红包] 已回复本账号报名验证：%s，消息=%s，答案=%s",
+                    target, message.id, answer,
+                )
+            except asyncio.CancelledError:
+                _answered_verifications.pop(verify_key, None)
+                raise
+            except Exception as exc:  # noqa: BLE001
+                _answered_verifications.pop(verify_key, None)
+                ctx.log.warning("[癫影积分红包] 回复报名验证失败 msg=%s: %r", message.id, exc)
+            return
+
         chat = await event.get_chat()
         # 该 bot 在该群只发红包，匹配「红包」即可。混合红包文案含「红包」（也含「雷包」，
         # 但已不再据此整包跳过）。
-        caption = extract_text(message)
         if "红包" not in caption:
             return
         if not _click_once(client, message):
@@ -211,3 +251,4 @@ async def _notify(ctx, client, text, level="info"):
 
 async def teardown(ctx):
     _clicked.clear()
+    _answered_verifications.clear()

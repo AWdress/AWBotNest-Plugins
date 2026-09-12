@@ -11,6 +11,15 @@ import re
 import unicodedata
 
 
+_REGISTRATION_CHALLENGE_RE = re.compile(
+    r"(?:^|\n)\s*(?:🔐\s*)?抽奖报名验证\s*\n+"
+    r"\s*(?P<target>[^\n，,]+?)\s*[，,]\s*请在\s*\d+\s*分钟内回复本消息\s*[:：]\s*\n+"
+    r"\s*(?P<left>-?\d{1,9})\s*(?P<operator>[+＋\-−×xX*÷/])\s*"
+    r"(?P<right>-?\d{1,9})\s*=\s*[?？]",
+    re.IGNORECASE,
+)
+
+
 def sanitize(text: str) -> str:
     """清除零宽/不可见格式字符。
 
@@ -31,6 +40,46 @@ def extract_text(message) -> str:
         or ""
     )
     return sanitize(raw).strip()
+
+
+def parse_registration_challenge(text: str) -> tuple[str, str] | None:
+    """解析癫影报名验证，返回（被点名对象，答案）。
+
+    只接受固定的“抽奖报名验证 + 回复本消息 + 简单算式”结构，避免把普通聊天
+    或其他机器人的算术题当作验证。除法仅在能够整除时作答。
+    """
+    matched = _REGISTRATION_CHALLENGE_RE.search(sanitize(text or ""))
+    if not matched:
+        return None
+    left, right = int(matched["left"]), int(matched["right"])
+    operator = matched["operator"]
+    if operator in {"+", "＋"}:
+        answer = left + right
+    elif operator in {"-", "−"}:
+        answer = left - right
+    elif operator in {"×", "x", "X", "*"}:
+        answer = left * right
+    else:
+        if right == 0 or left % right:
+            return None
+        answer = left // right
+    return matched["target"].strip(), str(answer)
+
+
+def registration_target_matches(target: str, me) -> bool:
+    """验证文案点名对象是否为当前 Telegram 账号。"""
+    def normalize(value: object) -> str:
+        text = unicodedata.normalize("NFKC", sanitize(str(value or ""))).strip()
+        return re.sub(r"\s+", " ", text).removeprefix("@").casefold()
+
+    first_name = str(getattr(me, "first_name", "") or "").strip()
+    last_name = str(getattr(me, "last_name", "") or "").strip()
+    username = str(getattr(me, "username", "") or "").strip()
+    aliases = {normalize(first_name), normalize(username)}
+    if first_name and last_name:
+        aliases.add(normalize(f"{first_name} {last_name}"))
+    aliases.discard("")
+    return normalize(target) in aliases
 
 
 def parse_packet_meta(caption: str) -> dict:

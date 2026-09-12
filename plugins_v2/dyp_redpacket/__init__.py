@@ -5,13 +5,17 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '癫影积分红包',
  'id': 'dyp_redpacket',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
- 'description': '监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。',
+ 'description': '监控癫影小助手发的混合积分红包，逐个点击未抢数字按钮；抽奖报名遇到限时算式验证时，仅在消息明确点名当前账号后自动回复。发包bot/群组内置写死。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg',
- 'changelog': 'v2.0.3 修复多行通知显示\n'
+ 'changelog': 'v2.0.4 支持抽奖报名验证\n'
+              '- 识别癫影小助手发出的限时报名算式并回复验证消息\n'
+              '- 仅在验证消息明确点名当前 Telegram 账号时作答，点名他人时忽略\n'
+              '- 支持账号姓名、完整姓名和用户名匹配，并避免重复作答\n\n'
+              'v2.0.3 修复多行通知显示\n'
               '- 抢包结果按状态、详情拆分为独立表格行\n'
               '- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.2 修复原生 Telethon 抢包链路\n'
