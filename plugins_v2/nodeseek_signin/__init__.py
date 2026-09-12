@@ -10,25 +10,28 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.2", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.3", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
-    "changelog": "v0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 支持 YesCaptcha 和 2Captcha Turnstile 验证码服务\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
-    "scope": "user", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
+    "changelog": "v0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 支持 YesCaptcha 和 2Captcha Turnstile 验证码服务\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
+    "scope": "standalone", "plugin_api_version": 2, "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "default_enabled": False, "requirements": ["requests>=2.28"],
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "发送签到通知", "section": "功能开关", "order": 2},
         "auto_save_cookie": {"type": "boolean", "default": True, "label": "自动回写新 Cookie", "help": "账密登录成功后按账号顺序更新 Cookie 配置。", "section": "功能开关", "order": 3},
-        "cookies": {"type": "textarea", "default": "", "label": "NodeSeek Cookie", "help": "多账号每行一个，也支持用 & 分隔；顺序必须与账号密码一致。", "section": "账号", "order": 10, "secret": True},
-        "accounts": {"type": "textarea", "default": "", "label": "账号密码", "help": "可选，Cookie 失效时自动登录。每行：用户名----密码。", "section": "账号", "order": 11, "secret": True},
+        "cookies": {"type": "text", "default": "", "label": "NodeSeek Cookie", "help": "多账号每行一个，也支持用 & 分隔；顺序必须与账号密码一致。", "section": "账号", "cols": 12, "order": 10, "secret": True},
+        "accounts": {"type": "text", "default": "", "label": "账号密码", "help": "可选，Cookie 失效时自动登录。每行：用户名----密码。", "section": "账号", "cols": 12, "order": 11, "secret": True},
         "solver_type": {"type": "select", "default": "yescaptcha", "label": "验证码服务", "options": [{"label": "YesCaptcha", "value": "yescaptcha"}, {"label": "2Captcha", "value": "2captcha"}], "section": "自动登录", "order": 20},
         "api_base_url": {"type": "string", "default": "", "label": "验证码 API 地址", "help": "留空使用所选服务的官方地址。", "section": "自动登录", "order": 21},
         "client_key": {"type": "password", "default": "", "label": "验证码 Client Key", "help": "账密登录需要 YesCaptcha 或 2Captcha Client Key。", "section": "自动登录", "order": 22, "secret": True},
         "random_reward": {"type": "boolean", "default": True, "label": "随机鸡腿奖励", "section": "签到设置", "order": 30},
         "cron": {"type": "string", "default": "0 8 * * *", "label": "签到 Cron", "help": "五段 Cron，默认每天 08:00。", "section": "签到设置", "order": 31},
-        "timeout": {"type": "integer", "default": 30, "min": 5, "max": 120, "label": "请求超时（秒）", "section": "签到设置", "order": 32},
-        "captcha_timeout": {"type": "integer", "default": 90, "min": 30, "max": 300, "label": "验证码超时（秒）", "section": "签到设置", "order": 33},
+        "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 32},
+        "captcha_timeout": {"type": "number", "default": 90, "min": 30, "max": 300, "step": 1, "label": "验证码超时（秒）", "section": "签到设置", "order": 33},
+        "run_now": {"type": "action", "label": "立即签到", "action": "run_now", "section": "操作", "cols": 6, "order": 40},
+        "last_result": {"type": "info", "default": "尚未运行", "label": "最近结果", "section": "运行状态", "cols": 12, "order": 50},
+        "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "cols": 12, "order": 51},
     },
 }
 
@@ -234,6 +237,11 @@ async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any]
 
 async def setup(ctx):
     state = dict(await ctx.storage.items()); active = None; scheduled = []
+    raw_accounts = str(ctx.config.get("accounts") or "").strip()
+    raw_cron = str(ctx.config.get("cron") or "0 8 * * *").strip()
+    if raw_accounts == raw_cron and len(raw_cron.split()) == 5 and not _accounts(raw_accounts):
+        ctx.update_config({"accounts": ""})
+        ctx.log.warning("[NodeSeek签到] 已清理旧表单错误填入账密字段的 Cron 值")
 
     async def run_once(source: str = "手动"):
         nonlocal active
@@ -267,6 +275,14 @@ async def setup(ctx):
                 success = sum(row["状态"] == "成功" for row in rows); summary = {"时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "来源": source, "成功": success, "总数": len(rows), "rows": rows}
                 state["last_result"] = summary; history = list(state.get("history", []) or []); history.insert(0, summary); state["history"] = history[:30]
                 await ctx.storage.set("last_result", summary); await ctx.storage.set("history", state["history"])
+                history_text = "\n".join(
+                    f"{item.get('时间', '')} · 成功 {item.get('成功', 0)}/{item.get('总数', 0)}"
+                    for item in state["history"][:10]
+                )
+                ctx.update_config({
+                    "last_result": f"{summary['时间']} · 成功 {success}/{len(rows)}",
+                    "history": history_text or "暂无记录",
+                })
                 if config.get("notify", True): await ctx.notify(rows, category="NodeSeek签到")
             finally:
                 active = None
