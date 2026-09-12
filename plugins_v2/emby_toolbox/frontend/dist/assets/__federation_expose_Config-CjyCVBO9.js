@@ -299,9 +299,9 @@ return (_ctx, _cache) => {
             ]),
             _createElementVNode("button", {
               class: "wide",
-              disabled: status.running||!form.schedule_functions.length,
-              onClick: _cache[9] || (_cache[9] = $event => (run('scheduled')))
-            }, "立即运行当前计划", 8, _hoisted_31)
+              disabled: status.running,
+              onClick: _cache[9] || (_cache[9] = $event => (run('all')))
+            }, "立即执行全部已启用", 8, _hoisted_31)
           ])
         ]))
       : (tab.value==='connection')

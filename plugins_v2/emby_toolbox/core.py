@@ -31,11 +31,11 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.0.3",
+    "version": "2.0.4",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
-    "changelog": "v2.0.3 增强别名缓存与 Genre 中文化\n- 别名写入成功后持久化记录，后续扫描命中缓存直接跳过，避免重复请求和更新\n- Genre 映射内置常见英文到中文映射，同时保留自定义 JSON 覆盖\n- 增加 Genre 中文化命中、跳过和更新日志，更新 GenreItems 名称并保留已有 ID\n\nv2.0.2 统一富文本表格通知\n- 定时维护和任务结果改为平台结构化表格\n\nv2.0.1 修复 Emby API 客户端逻辑\n- 使用 VirtualFolders 正确解析媒体库 ID，并兼容旧版 Views 接口\n- 递归展开媒体库文件夹，补齐维护功能所需的元数据字段\n- 统一更新与 PlaybackInfo 请求路径，修复多项功能失败\n- 图标替换为 Emby Logo\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生事件、调度、存储与生命周期接口\n- 保留原有功能、配置项和运行数据\n- 移除 V1 兼容运行层",
+    "changelog": "v2.0.4 优化 Genre 扫描速度与进度日志\n- 先使用媒体库批量结果筛选候选条目，仅对确需修改的条目读取完整详情\n- 增加扫描数量、更新数量和每 50 条进度日志，避免长时间无反馈\n\nv2.0.3 增强别名缓存与 Genre 中文化\n- 别名写入成功后持久化记录，后续扫描命中缓存直接跳过，避免重复请求和更新\n- Genre 映射内置常见英文到中文映射，同时保留自定义 JSON 覆盖\n- 增加 Genre 中文化命中、跳过和更新日志，更新 GenreItems 名称并保留已有 ID\n\nv2.0.2 统一富文本表格通知\n- 定时维护和任务结果改为平台结构化表格\n\nv2.0.1 修复 Emby API 客户端逻辑\n- 使用 VirtualFolders 正确解析媒体库 ID，并兼容旧版 Views 接口\n- 递归展开媒体库文件夹，补齐维护功能所需的元数据字段\n- 统一更新与 PlaybackInfo 请求路径，修复多项功能失败\n- 图标替换为 Emby Logo\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生事件、调度、存储与生命周期接口\n- 保留原有功能、配置项和运行数据\n- 移除 V1 兼容运行层",
     "scope": "standalone",
     "render_mode": "vue",
     "min_platform_version": "1.1.4.0",
@@ -335,7 +335,8 @@ def _get_lib_items(cfg: Dict[str, Any], parent_id: str) -> List[Dict[str, Any]]:
     url = f"{_base_url(cfg['emby_server'])}/emby/Items"
     fields = (
         'ProviderIds,SortName,Tags,TagItems,Genres,GenreItems,LockedFields,'
-        'Name,Type,Path,ParentIndexNumber,IndexNumber,SeriesName,SeasonName'
+        'Name,Type,Path,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,'
+        'Overview,ProductionYear,PremiereDate,MediaStreams,LocationType'
     )
     pending = [str(parent_id)]
     result: List[Dict[str, Any]] = []
@@ -555,6 +556,7 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
     mapped_count = 0
     removed_count = 0
     chinese_skip = 0
+    scanned_count = 0
     user_id = _resolve_user_id(cfg)
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始 Genre 映射，媒体库: {libs}')
@@ -566,13 +568,23 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
         if ctx:
             ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(items)} 个条目')
         for item0 in items:
-            item = _get_user_item(cfg, user_id, str(item0['Id']))
-            raw_genres = item.get('Genres', [])
+            scanned_count += 1
+            # _get_lib_items 已请求 Genre/GenreItems；先在批量结果中筛选，
+            # 只有命中映射或删除规则的条目才读取完整详情，避免每个条目
+            # 都额外发起一次 GET。
+            raw_genres = item0.get('Genres', [])
             genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
-            genre_items = [g for g in (item.get('GenreItems', []) or []) if isinstance(g, dict)]
+            genre_items = [g for g in (item0.get('GenreItems', []) or []) if isinstance(g, dict)]
             need = any(g.casefold() in mapping or g.casefold() in remove_keys for g in genres) or any((g.get('Name') or '').strip().casefold() in mapping for g in genre_items)
             if not need:
+                if ctx and scanned_count % 50 == 0:
+                    ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
                 continue
+            item = item0
+            # 详情接口可能返回比批量接口更完整的 GenreItems。
+            raw_genres = item.get('Genres', raw_genres)
+            genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
+            genre_items = [g for g in (item.get('GenreItems', genre_items) or []) if isinstance(g, dict)]
             new_genres = []
             item_changed = False
             for genre in genres:
@@ -620,7 +632,9 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
             count += 1
             if ctx:
                 ctx.log.info(f'[emby_toolbox] Genre 中文化更新: {item0.get("Name", "未知")} -> {", ".join(new_genres) or "（已清空）"}')
-    result = f'Genre 中文化/映射完成，共更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
+            if ctx and scanned_count % 50 == 0:
+                ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
+    result = f'Genre 中文化/映射完成，共扫描 {scanned_count} 条，更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
     if chinese_skip:
         result += f' 已是中文跳过 {chinese_skip} 项。'
     if ctx:
@@ -635,6 +649,7 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     count = 0
     skip_tmdb = 0
+    scanned = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始季名刮削，媒体库: {libs}')
     for lib in libs:
@@ -709,6 +724,7 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             continue
         items = _get_lib_items(cfg, parent_id)
         for item0 in items:
+            scanned += 1
             provider = (item0.get('ProviderIds') or {}).get('Tmdb')
             if not provider:
                 continue
@@ -723,7 +739,7 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             langs = tmdb.get('spoken_languages', []) or []
             if not prod and not langs:
                 continue
-            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            item = item0
             old_tags = [t['Name'].strip() for t in item.get('TagItems', []) if isinstance(t, dict) and t.get('Name') and t.get('Name').strip()]
             if not old_tags and item.get('Tags'):
                 old_tags = [t.strip() for t in item.get('Tags') if isinstance(t, str) and t.strip()]
@@ -764,7 +780,9 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             count += 1
             if ctx:
                 ctx.log.info(f'[emby_toolbox] 国家/语言标签更新: {item0.get("Name", "未知")} +{len(new_tags)} 标签')
-    result = f'国家/语言 Tag 更新完成，共更新 {count} 条。'
+            if ctx and scanned % 50 == 0:
+                ctx.log.info(f'[emby_toolbox] 国家/语言扫描进度: {scanned}/{len(items)}（已更新 {count}）')
+    result = f'国家/语言 Tag 更新完成，共扫描 {scanned} 条，更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if ctx:
@@ -781,6 +799,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     skip_tmdb = 0
     skip_unchanged = 0
     skip_cached = 0
+    scanned = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
     
@@ -795,6 +814,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             continue
         items = _get_lib_items(cfg, parent_id)
         for item0 in items:
+            scanned += 1
             provider = (item0.get('ProviderIds') or {}).get('Tmdb')
             if not provider:
                 continue
@@ -823,7 +843,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 alt_names.extend(tmdb['hant_trans'])
             if not alt_names:
                 continue
-            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            item = item0
             splitr = ' / '
             old_sort = item.get('SortName', '') or ''
             old_names = [n.strip() for n in old_sort.split(splitr) if n and n.strip()] if old_sort else []
@@ -870,7 +890,9 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                     except Exception as exc:
                         if ctx:
                             ctx.log.warning(f'[emby_toolbox] 别名缓存写入失败: {exc}')
-    result = f'别名写入完成，共更新 {count} 条。'
+            if ctx and scanned % 50 == 0:
+                ctx.log.info(f'[emby_toolbox] 别名扫描进度: {scanned}/{len(items)}（已更新 {count}，缓存跳过 {skip_cached}）')
+    result = f'别名写入完成，共扫描 {scanned} 条，更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if skip_unchanged > 0:
@@ -889,6 +911,7 @@ def _strm_mediainfo(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     count = 0
     delay = cfg['strm_delay']
+    scanned = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始 STRM MediaInfo 刷新，媒体库: {libs}')
     for lib in libs:
@@ -897,20 +920,23 @@ def _strm_mediainfo(cfg: Dict[str, Any], ctx=None) -> str:
             continue
         items = _get_lib_items(cfg, parent_id)
         for item0 in items:
+            scanned += 1
             item_type = item0.get('Type')
             targets = []
             if item_type == 'Movie':
-                targets = [item0['Id']]
+                targets = [item0]
             elif item_type == 'Series':
                 url = f"{_base_url(cfg['emby_server'])}/emby/Items"
-                seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': item0['Id']}, timeout=60).json().get('Items', [])
+                seasons_response = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': item0['Id'], 'api_key': cfg['api_key']}, timeout=60)
+                seasons = _items_from_response(seasons_response, endpoint=f'{lib}/{item0.get("Name", item0["Id"])} 季列表', ctx=ctx)
                 for season in seasons:
-                    eps = requests.get(url, headers=_headers(cfg['api_key']), params={
-                        'ParentId': season.get('Id'), 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
-                    }, timeout=60).json().get('Items', [])
-                    targets.extend([ep['Id'] for ep in eps])
-            for item_id in targets:
-                item = _get_user_item(cfg, user_id, str(item_id))
+                    eps_response = requests.get(url, headers=_headers(cfg['api_key']), params={
+                        'ParentId': season.get('Id'), 'api_key': cfg['api_key'], 'Fields': 'MediaStreams,LocationType', 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
+                    }, timeout=60)
+                    targets.extend(_items_from_response(eps_response, endpoint=f'{lib}/{item0.get("Name", item0["Id"])} 单集列表', ctx=ctx))
+            for target in targets:
+                item_id = target.get('Id') if isinstance(target, dict) else target
+                item = target if isinstance(target, dict) else _get_user_item(cfg, user_id, str(item_id))
                 if item.get('LocationType') == 'Virtual':
                     continue
                 media_streams = item.get('MediaStreams') or []
@@ -934,8 +960,9 @@ def _strm_mediainfo(cfg: Dict[str, Any], ctx=None) -> str:
                 except requests.RequestException as exc:
                     if ctx:
                         ctx.log.warning(f'[emby_toolbox] STRM 刷新异常 {item_id}: {exc}')
-                time.sleep(delay)
-    result = f'STRM MediaInfo 刷新完成，共更新 {count} 条。'
+                if delay > 0:
+                    time.sleep(delay)
+    result = f'STRM MediaInfo 刷新完成，共扫描 {scanned} 个媒体条目，更新 {count} 条。'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
@@ -957,12 +984,14 @@ def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
         items = _get_lib_items(cfg, parent_id)
         for item0 in items:
             total += 1
-            item = _get_user_item(cfg, user_id, str(item0['Id']))
+            item = item0
             has_overview = bool(item.get('Overview'))
             has_year = bool(item.get('ProductionYear'))
             has_premiere = bool(item.get('PremiereDate'))
             if not has_overview and not has_year and not has_premiere:
                 damaged.append({'lib': lib, 'id': item0['Id'], 'name': item0.get('Name', '未知名称'), 'type': item.get('Type', 'Unknown')})
+            if ctx and total % 100 == 0:
+                ctx.log.info(f'[emby_toolbox] 元数据检查进度: {total} 条')
     lines = [f'总计扫描条目: {total} 个', f'受影响/缺少关键元数据条目: {len(damaged)} 个']
     if damaged:
         lines.append('前几条如下：')
@@ -1266,9 +1295,11 @@ async def setup(ctx):
                               'ok': success, 'summary': summary})
             if source == '定时':
                 try:
-                    await asyncio.wait_for(ctx.notify(
-                        {'任务': label, '状态': '完成', '结果': summary}, category='Emby工具箱'
-                    ), timeout=30)
+                    rows = [{'项目': '任务', '内容': label}, {'项目': '状态', '内容': '完成'}]
+                    for block in results:
+                        parts = block.split('\n', 1)
+                        rows.append({'项目': parts[0], '内容': parts[1] if len(parts) > 1 else ''})
+                    await asyncio.wait_for(ctx.notify(rows, category='Emby工具箱'), timeout=30)
                 except Exception:
                     ctx.log.warning('[emby_toolbox] 结果通知发送失败', exc_info=True)
         except asyncio.CancelledError:
@@ -1294,6 +1325,10 @@ async def setup(ctx):
             name=f'Emby 工具箱：{label}',
         )
         return True
+
+    def _enabled_feature_keys(cfg: Dict[str, Any]) -> List[str]:
+        """返回配置中已启用的全部维护模块，供“立即执行全部”使用。"""
+        return [key for key in FEATURES if cfg.get(f'enable_{key}', False)]
 
     def _cleanup():
         if active_task is not None and not active_task.done():
@@ -1333,9 +1368,10 @@ async def setup(ctx):
     async def api_run(req):
         data = req.json or {}
         key = str(data.get('action') or '').strip()
-        if key == 'scheduled':
-            keys = list(_cfg(ctx).get('schedule_functions') or [])
-            label = '手动执行计划'
+        if key in ('scheduled', 'all'):
+            cfg = _cfg(ctx)
+            keys = _enabled_feature_keys(cfg) if key == 'all' else list(cfg.get('schedule_functions') or [])
+            label = '立即执行全部已启用模块' if key == 'all' else '手动执行计划'
         else:
             keys = [key]
             label = FEATURES.get(key, ('扫描剧集季集', '', False))[0]
