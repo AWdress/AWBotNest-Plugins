@@ -156,6 +156,40 @@ def _rich_notice(rows, message_link: str) -> str:
     return "".join(parts)
 
 
+def _is_forward_restricted(exc: Exception) -> bool:
+    """判断 Telegram 是否因来源群内容保护而拒绝转发。"""
+    error_name = type(exc).__name__
+    if error_name in {"ChatForwardsRestrictedError", "ChatForwardsRestricted"}:
+        return True
+    message = str(exc).lower()
+    return "protected chat" in message or "can't forward messages from a protected chat" in message
+
+
+def _plain_participation_keyword(keyword: str) -> str:
+    """移除解析抽奖消息时为保留实体而补入的 Markdown 标记。"""
+    return str(keyword or "").replace("**", "").replace("__", "").replace("`", "")
+
+
+async def _forward_or_send_keyword(
+    client, target_chat_id, source, keyword, lottery_id, log=None,
+):
+    """优先原样转发；来源开启保护时直接发送纯文本参与关键词。"""
+    if source:
+        try:
+            return await source.forward_to(target_chat_id)
+        except Exception as exc:  # noqa: BLE001
+            if not _is_forward_restricted(exc):
+                raise
+            if log is not None:
+                log.warning(
+                    "[小菜抽奖] 抽奖 %s 来源消息受内容保护，无法转发；改为直接发送参与关键词",
+                    lottery_id,
+                )
+    return await client.send_message(
+        target_chat_id, _plain_participation_keyword(keyword), parse_mode=None,
+    )
+
+
 async def setup(ctx):
     global _store, _runtime_ctx
     _runtime_ctx = ctx
@@ -334,17 +368,15 @@ async def setup(ctx):
         # 决定参与方式（优先级：特殊格式 > 转发第一参与者 > 转发原消息 > 直接发文本）
         try:
             if has_markdown_format(keyword):
-                if original_message:
-                    await original_message.forward_to(message.chat_id)
-                else:
-                    await client.send_message(message.chat_id, keyword, parse_mode=None)
+                await _forward_or_send_keyword(
+                    client, message.chat_id, original_message, keyword, lottery_id, ctx.log,
+                )
             elif forward_first:
                 await _participate_via_first(client, message, lottery_id, keyword, original_message)
             elif forward_original:
-                if original_message:
-                    await original_message.forward_to(message.chat_id)
-                else:
-                    await client.send_message(message.chat_id, keyword, parse_mode=None)
+                await _forward_or_send_keyword(
+                    client, message.chat_id, original_message, keyword, lottery_id, ctx.log,
+                )
             else:
                 await client.send_message(message.chat_id, keyword, parse_mode=None)
 
@@ -370,7 +402,9 @@ async def setup(ctx):
             return
         existing = entry.get('first_participant_message')
         if existing:
-            await existing.forward_to(message.chat_id)
+            await _forward_or_send_keyword(
+                client, message.chat_id, existing, keyword, lottery_id, ctx.log,
+            )
             return
         entry['waiting_for_first_participant'] = True
         entry['target_chat_id'] = message.chat_id
@@ -382,14 +416,18 @@ async def setup(ctx):
                 return
             fpm = _state.lottery_list[lottery_id].get('first_participant_message')
             if fpm:
-                await fpm.forward_to(message.chat_id)
+                await _forward_or_send_keyword(
+                    client, message.chat_id, fpm, keyword, lottery_id, ctx.log,
+                )
                 _state.lottery_list[lottery_id]['waiting_for_first_participant'] = False
                 return
         # 超时降级
         if lottery_id in _state.lottery_list:
             _state.lottery_list[lottery_id]['waiting_for_first_participant'] = False
         if has_markdown_format(keyword) and original_message:
-            await original_message.forward_to(message.chat_id)
+            await _forward_or_send_keyword(
+                client, message.chat_id, original_message, keyword, lottery_id, ctx.log,
+            )
         else:
             await client.send_message(message.chat_id, keyword, parse_mode=None)
 
