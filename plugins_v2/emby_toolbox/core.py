@@ -31,11 +31,11 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "1.4.2",
+    "version": "2.0.3",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
-    "changelog": "v1.4.2 修复 Emby API 客户端逻辑\n- 使用 VirtualFolders 正确解析媒体库 ID，兼容反代与管理员用户\n- 递归展开媒体库文件夹并补齐 Genre、Tag、ProviderIds 等字段\n- 统一更新与 PlaybackInfo 请求路径，修复多项功能同时失败\n- 图标替换为 Emby Logo\n\nv1.4.1 重做 Vue 界面配色\n- 去除大面积墨绿色背景，改为与平台一致的深海军蓝中性层次\n- Emby 青蓝仅用于开关、主按钮和选中状态\n- 重新校正卡片、输入框、次要文字与边框对比度\n\nv1.4.0 迁移 Vue 媒体维护控制台\n- 新增实时任务状态、历史记录和后台 API",
+    "changelog": "v2.0.3 增强别名缓存与 Genre 中文化\n- 别名写入成功后持久化记录，后续扫描命中缓存直接跳过，避免重复请求和更新\n- Genre 映射内置常见英文到中文映射，同时保留自定义 JSON 覆盖\n- 增加 Genre 中文化命中、跳过和更新日志，更新 GenreItems 名称并保留已有 ID\n\nv2.0.2 统一富文本表格通知\n- 定时维护和任务结果改为平台结构化表格\n\nv2.0.1 修复 Emby API 客户端逻辑\n- 使用 VirtualFolders 正确解析媒体库 ID，并兼容旧版 Views 接口\n- 递归展开媒体库文件夹，补齐维护功能所需的元数据字段\n- 统一更新与 PlaybackInfo 请求路径，修复多项功能失败\n- 图标替换为 Emby Logo\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生事件、调度、存储与生命周期接口\n- 保留原有功能、配置项和运行数据\n- 移除 V1 兼容运行层",
     "scope": "standalone",
     "render_mode": "vue",
     "min_platform_version": "1.1.4.0",
@@ -80,10 +80,23 @@ DEFAULTS: Dict[str, Any] = {
     'schedule_functions': [],
 }
 
+# Emby 的 Genre 通常来自 TMDB，返回值以英文为主。原项目提供了显式
+# Genre 映射，这里保留自定义 JSON 的覆盖能力，并内置常用英文 Genre，
+# 使开启“Genre 映射”后无需再手工填写每一项。
+DEFAULT_GENRE_MAPPING: Dict[str, str] = {
+    'Action': '动作', 'Adventure': '冒险', 'Animation': '动画',
+    'Comedy': '喜剧', 'Crime': '犯罪', 'Documentary': '纪录',
+    'Drama': '剧情', 'Family': '家庭', 'Fantasy': '奇幻',
+    'History': '历史', 'Horror': '恐怖', 'Music': '音乐',
+    'Mystery': '悬疑', 'Romance': '爱情', 'Science Fiction': '科幻',
+    'Sci-Fi & Fantasy': '科幻', 'Thriller': '惊悚', 'War': '战争',
+    'War & Politics': '战争', 'Western': '西部',
+}
+
 FEATURES = {
     'episode_fix': ('剧集季集修复', '_episode_fix', False),
     'delete_episode_genre': ('删除单集 Genre', '_delete_episode_genre', False),
-    'genre_mapper': ('Genre 映射', '_genre_mapper', False),
+    'genre_mapper': ('Genre 中文化/映射', '_genre_mapper', False),
     'season_renamer': ('季名刮削', '_season_renamer', True),
     'country_scraper': ('国家/语言标签', '_country_scraper', True),
     'alt_renamer': ('别名写入', '_alt_renamer', True),
@@ -96,6 +109,13 @@ _RUNTIME: Dict[str, Any] = {
     'finished_at': '', 'last_result': '', 'last_ok': None,
 }
 _RECENT = deque(maxlen=30)
+
+# setup() 将平台异步存储的快照和线程安全写入函数注入这里。维护 worker
+# 在 asyncio.to_thread 中运行，不能直接 await ctx.storage，因此通过
+# setup 提供的 persist 回调把别名缓存写回平台存储。
+_EMBY_STATE: Dict[str, Any] = {}
+_EMBY_PERSIST = None
+_ALT_CACHE_KEY = 'emby_toolbox.alt_renamer_cache.v1'
 
 
 def _now() -> str:
@@ -179,6 +199,24 @@ def _parse_genre_mapping(raw: str) -> Dict[str, Dict[str, Any]]:
 
 def _parse_remove_list(raw: str) -> List[str]:
     return [x.strip() for x in str(raw or '').splitlines() if x.strip()]
+
+
+def _items_from_response(response, *, endpoint: str, ctx=None) -> List[Dict[str, Any]]:
+    """读取 Emby 列表响应，兼容空正文/反代错误页。"""
+    try:
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        if ctx:
+            status = getattr(response, 'status_code', '?')
+            body = str(getattr(response, 'text', '') or '')[:160].replace('\n', ' ')
+            ctx.log.warning(f'[emby_toolbox] {endpoint} 响应不是 JSON（HTTP {status}）：{exc}；{body}')
+        return []
+    if isinstance(payload, dict) and isinstance(payload.get('Items'), list):
+        return [x for x in payload['Items'] if isinstance(x, dict)]
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    return []
 
 
 def _get_first_user_id(cfg: Dict[str, Any]) -> str:
@@ -477,13 +515,15 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
         for serie in series_list:
             serie_id = serie['Id']
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
-            params = {'ParentId': serie_id}
-            seasons = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60).json().get('Items', [])
+            params = {'ParentId': serie_id, 'api_key': cfg['api_key'], 'Recursive': 'false'}
+            seasons_response = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60)
+            seasons = _items_from_response(seasons_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 季列表', ctx=ctx)
             for season in seasons:
                 season_id = season.get('Id')
-                eps = requests.get(url, headers=_headers(cfg['api_key']), params={
-                    'ParentId': season_id, 'Fields': 'Genres,Overview', 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
-                }, timeout=60).json().get('Items', [])
+                eps_response = requests.get(url, headers=_headers(cfg['api_key']), params={
+                    'ParentId': season_id, 'api_key': cfg['api_key'], 'Fields': 'Genres,Overview', 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
+                }, timeout=60)
+                eps = _items_from_response(eps_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 单集列表', ctx=ctx)
                 for ep in eps:
                     item = _get_user_item(cfg, _resolve_user_id(cfg), str(ep['Id']))
                     if item.get('Genres'):
@@ -503,9 +543,18 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
-    mapping = _parse_genre_mapping(cfg['genre_mapping_json'])
+    # 内置常见英文 Genre 映射；用户 JSON 优先覆盖同名项。
+    mapping: Dict[str, Dict[str, Any]] = {
+        key.casefold(): {'Name': value} for key, value in DEFAULT_GENRE_MAPPING.items()
+    }
+    custom_mapping = _parse_genre_mapping(cfg['genre_mapping_json'])
+    mapping.update({str(key).strip().casefold(): value for key, value in custom_mapping.items()})
     remove_list = _parse_remove_list(cfg['genre_remove_list'])
+    remove_keys = {x.casefold() for x in remove_list}
     count = 0
+    mapped_count = 0
+    removed_count = 0
+    chinese_skip = 0
     user_id = _resolve_user_id(cfg)
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始 Genre 映射，媒体库: {libs}')
@@ -520,28 +569,60 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
             item = _get_user_item(cfg, user_id, str(item0['Id']))
             raw_genres = item.get('Genres', [])
             genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
-            genre_items = item.get('GenreItems', [])
-            need = any(g in mapping or g in remove_list for g in genres) or any((g.get('Name') or '').strip() in mapping for g in genre_items)
+            genre_items = [g for g in (item.get('GenreItems', []) or []) if isinstance(g, dict)]
+            need = any(g.casefold() in mapping or g.casefold() in remove_keys for g in genres) or any((g.get('Name') or '').strip().casefold() in mapping for g in genre_items)
             if not need:
                 continue
-            new_genres = [mapping[g]['Name'] if g in mapping else g for g in genres]
-            new_genres = [g for g in new_genres if g not in remove_list and g != '']
-            if new_genres == genres:
-                continue
-            item['Genres'] = new_genres
+            new_genres = []
+            item_changed = False
+            for genre in genres:
+                key = genre.casefold()
+                if key in remove_keys:
+                    removed_count += 1
+                    item_changed = True
+                    continue
+                target = mapping.get(key)
+                if target and target.get('Name') and target['Name'] != genre:
+                    new_name = str(target['Name']).strip()
+                    if new_name and new_name != genre:
+                        if any('\u4e00' <= ch <= '\u9fff' for ch in genre):
+                            chinese_skip += 1
+                        else:
+                            genre = new_name
+                            mapped_count += 1
+                            item_changed = True
+                if genre and genre not in new_genres:
+                    new_genres.append(genre)
             new_genre_items = []
             for gi in genre_items:
-                gname = (gi.get('Name') or '').strip()
-                if gname in mapping:
-                    new_genre_items.append(mapping[gname])
-                elif gname not in remove_list and gname != '':
-                    new_genre_items.append(gi)
+                gname = str(gi.get('Name') or '').strip()
+                key = gname.casefold()
+                if key in remove_keys:
+                    item_changed = True
+                    continue
+                updated = dict(gi)
+                target = mapping.get(key)
+                if target and target.get('Name') and target['Name'] != gname and not any('\u4e00' <= ch <= '\u9fff' for ch in gname):
+                    updated['Name'] = str(target['Name']).strip()
+                    # 自定义映射可提供 Emby Genre Id；未提供时保留原 ID。
+                    if target.get('Id') is not None:
+                        updated['Id'] = target['Id']
+                    item_changed = True
+                if updated.get('Name'):
+                    new_genre_items.append(updated)
+            if not item_changed and new_genres == genres and new_genre_items == genre_items:
+                continue
+            item['Genres'] = new_genres
             item['GenreItems'] = new_genre_items
             if cfg['fix_lock_data']:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
-    result = f'Genre 映射完成，共更新 {count} 条。'
+            if ctx:
+                ctx.log.info(f'[emby_toolbox] Genre 中文化更新: {item0.get("Name", "未知")} -> {", ".join(new_genres) or "（已清空）"}')
+    result = f'Genre 中文化/映射完成，共更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
+    if chinese_skip:
+        result += f' 已是中文跳过 {chinese_skip} 项。'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
@@ -699,12 +780,15 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     count = 0
     skip_tmdb = 0
     skip_unchanged = 0
+    skip_cached = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
     
     # 批量获取条目以减少 API 调用
-    import time
-    request_count = 0
+    cache = _EMBY_STATE.setdefault(_ALT_CACHE_KEY, {})
+    if not isinstance(cache, dict):
+        cache = {}
+        _EMBY_STATE[_ALT_CACHE_KEY] = cache
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
@@ -715,6 +799,17 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             if not provider:
                 continue
             is_movie = item0.get('Type') == 'Movie'
+            item_key = str(item0.get('Id') or '')
+            current_sort = str(item0.get('SortName') or '')
+            cached = cache.get(item_key) if item_key else None
+            if (isinstance(cached, dict)
+                    and str(cached.get('provider')) == str(provider)
+                    and bool(cached.get('add_hant_title')) == bool(cfg['add_hant_title'])
+                    and str(cached.get('sort_name') or '') == current_sort):
+                skip_cached += 1
+                if ctx:
+                    ctx.log.info(f'[emby_toolbox] 别名写入缓存命中，跳过: {item0.get("Name", item_key)}')
+                continue
             tmdb = _tmdb_fetch(cfg, str(provider), is_movie=is_movie)
             if not tmdb:
                 skip_tmdb += 1
@@ -762,11 +857,26 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 item['LockData'] = True
             _update_item(cfg, item)
             count += 1
+            if item_key:
+                cache[item_key] = {
+                    'provider': str(provider),
+                    'sort_name': sort_all,
+                    'add_hant_title': bool(cfg['add_hant_title']),
+                    'updated_at': time.time(),
+                }
+                if _EMBY_PERSIST:
+                    try:
+                        _EMBY_PERSIST(_ALT_CACHE_KEY, cache)
+                    except Exception as exc:
+                        if ctx:
+                            ctx.log.warning(f'[emby_toolbox] 别名缓存写入失败: {exc}')
     result = f'别名写入完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
     if skip_unchanged > 0:
         result += f'（跳过 {skip_unchanged} 条已是最新）'
+    if skip_cached > 0:
+        result += f'（缓存命中跳过 {skip_cached} 条）'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
@@ -1093,17 +1203,30 @@ def _worker_for(key: str, cfg: Dict[str, Any], ctx):
 
 async def setup(ctx):
     """Vue 模式：配置交给前端，所有长任务由平台后台托管。"""
+    global _EMBY_STATE, _EMBY_PERSIST
     active_task = None
     scheduled_jobs = []
     state = dict(await ctx.storage.items())
+    _EMBY_STATE = state
+    event_loop = asyncio.get_running_loop()
     pending_writes = set()
     def persist(key, value):
         state[key] = value
-        task = ctx.create_task(ctx.storage.set(key, value), name=f"emby-toolbox-storage:{key}")
+        # 别名 worker 在 asyncio.to_thread 中执行，跨线程写入必须提交回
+        # 插件事件循环，不能直接调用 ctx.create_task。
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is event_loop:
+            task = ctx.create_task(ctx.storage.set(key, value), name=f"emby-toolbox-storage:{key}")
+        else:
+            task = asyncio.run_coroutine_threadsafe(ctx.storage.set(key, value), event_loop)
         pending_writes.add(task); task.add_done_callback(pending_writes.discard)
+    _EMBY_PERSIST = persist
     async def flush_state():
         if pending_writes:
-            await asyncio.gather(*list(pending_writes), return_exceptions=True)
+            await asyncio.gather(*(asyncio.wrap_future(x) if not isinstance(x, asyncio.Future) else x for x in list(pending_writes)), return_exceptions=True)
     ctx.add_cleanup(flush_state)
 
     def _persist_history(row: Dict[str, Any]):
@@ -1253,7 +1376,9 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _EMBY_PERSIST
     _RUNTIME.update(running=False, task='', source='', finished_at=_now())
+    _EMBY_PERSIST = None
     ctx.log.info('[emby_toolbox] 插件已停用')
 
 
