@@ -47,8 +47,9 @@ class BrowserMixin:
             self.browser = cloakbrowser.launch(
                 headless=headless,
                 args=browser_args,
-                locale='zh-CN',
-                timezone='Asia/Shanghai',
+                # 代理、License Key 与内核由 AWBotNest 平台统一注入和管理；
+                # GeoIP 让浏览器时区等指纹与实际出口保持一致。
+                geoip=True,
             )
             
             # 创建上下文
@@ -58,7 +59,6 @@ class BrowserMixin:
                 'user_agent': user_agent,
                 'viewport': {'width': 1920, 'height': 1080},
                 'locale': 'zh-CN',
-                'timezone_id': 'Asia/Shanghai',
                 'extra_http_headers': {
                     'Accept-Language': self.browser_headers.get('accept_language', 'zh-CN,zh;q=0.9'),
                 }
@@ -90,6 +90,9 @@ class BrowserMixin:
             logging.error(f"浏览器启动失败: {e}")
             import traceback
             logging.debug(traceback.format_exc())
+            # launch() 成功而创建 Context/Page 失败时也必须释放 Browser，
+            # 否则会占住平台治理的 CloakBrowser 免费会话席位。
+            self.cleanup()
             return False
     
     def is_cookie_valid(self):
@@ -146,16 +149,22 @@ class BrowserMixin:
 
     def cleanup(self):
         """清理资源"""
-        try:
-            if self.page:
-                self.page.close()
-            if self.context:
-                self.context.close()
-            if self.browser:
-                self.browser.close()
-            if self.playwright:
-                self.playwright.stop()
-            logging.info("浏览器已关闭")
-        except Exception as e:
-            logging.debug(f"清理资源时出错: {e}")
+        # 每项独立清理，确保 Page/Context 的异常不会阻止 Browser.close()。
+        # 平台以 Browser/Context 的正常关闭作为免费会话队列放行条件。
+        for attr, method in (
+            ('page', 'close'),
+            ('context', 'close'),
+            ('browser', 'close'),
+            ('playwright', 'stop'),
+        ):
+            resource = getattr(self, attr, None)
+            if resource is None:
+                continue
+            try:
+                getattr(resource, method)()
+            except Exception as e:
+                logging.debug(f"清理 {attr} 时出错: {e}")
+            finally:
+                setattr(self, attr, None)
+        logging.info("浏览器已关闭")
     

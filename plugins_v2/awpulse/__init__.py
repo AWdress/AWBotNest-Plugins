@@ -5,10 +5,11 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AWPulse 色花堂助手',
  'id': 'awpulse',
- 'version': '2.0.6',
+ 'version': '2.0.7',
  'author': 'AWdress',
  'description': '色花堂论坛自动化：登录/每日签到/智能回复/平台AI回复与帖子过滤/自动发帖/消息统计。基于平台内置浏览器(headless)，定时运行+结果推送，自带 Vue 管理界面。',
- 'changelog': 'v2.0.6 补齐密码显示按钮\n- 登录密码默认隐藏，点击眼睛后显示平台受控读取的真实值\n- 保存时兼容平台脱敏占位值，避免覆盖已保存密码\n\n'
+ 'changelog': 'v2.0.7 适配平台 CloakBrowser 统一治理\n- 浏览器代理、License Key 和内核选择改由平台统一管理\n- 浏览器指纹通过 GeoIP 跟随实际网络出口\n- 启动中途失败或部分资源关闭异常时仍确保释放浏览器会话\n\n'
+              'v2.0.6 补齐密码显示按钮\n- 登录密码默认隐藏，点击眼睛后显示平台受控读取的真实值\n- 保存时兼容平台脱敏占位值，避免覆盖已保存密码\n\n'
               'v2.0.5 修复多行通知显示\n- 运行摘要按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.4 补齐高级配置显示\n- 配置页面新增智能回复模板、自定义特征规则和日志级别\n- JSON 规则保存前执行格式校验，避免无效配置进入运行流程\n\n'
               'v2.0.3 统一富文本表格通知\n- 运行结果、跳过和异常通知改为平台结构化表格\n\n'
@@ -76,7 +77,7 @@ __plugin__ = {'name': 'AWPulse 色花堂助手',
               '- 修复签到失败调试文件目录未定义的问题',
  'scope': 'standalone',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/awpulse/logo.png',
- 'requirements': ['cloakbrowser>=0.4.9',
+ 'requirements': ['cloakbrowser>=0.5.10',
                   'requests>=2.32.0',
                   'opencv-python-headless>=4.8',
                   'numpy>=1.24',

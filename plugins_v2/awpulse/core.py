@@ -7,8 +7,8 @@
 # 组件渲染（frontend/src/Config.vue，模块联邦）。
 #
 # 平台落地要点：
-# - 浏览器复用平台已装的 Playwright + Chromium（cloakbrowser 走同一内核缓存）；容器无
-#   显示器，强制 headless=True。整轮运行（分钟级、同步阻塞）跑在 asyncio.to_thread，
+# - CloakBrowser 依赖、内核、License Key、代理和免费会话队列由平台统一治理；容器无
+#   显示器时使用 headless。整轮运行（分钟级、同步阻塞）跑在 asyncio.to_thread，
 #   绝不阻塞平台事件循环。
 # - 砍掉原项目的 License 授权、Flask/PWA/登录、容器自更新（平台负责鉴权与热重载）。
 # - 所有可写文件（storage_state / stats / 缓存 / 日志 / 发帖文件夹）落在 ctx.data_dir，
@@ -39,7 +39,7 @@ __plugin__ = {
     # 平台自带 playwright/ddddocr/opencv/numpy/pillow/bs4/lxml/httpx/apscheduler；
     # 这里只补声明浏览器指纹内核与解析/验证码所需的额外库。
     "requirements": [
-        "cloakbrowser>=0.4.9",
+        "cloakbrowser>=0.5.10",
         "requests>=2.32.0",
     ],
     "resources": {
