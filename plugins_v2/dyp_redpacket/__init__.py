@@ -5,13 +5,18 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': '癫影积分红包',
  'id': 'dyp_redpacket',
- 'version': '2.0.4',
+ 'version': '2.0.5',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'scope': 'user',
  'description': '监控癫影小助手发的混合积分红包，逐个点击未抢数字按钮；抽奖报名遇到限时算式验证时，仅在消息明确点名当前账号后自动回复。发包bot/群组内置写死。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg',
- 'changelog': 'v2.0.4 支持抽奖报名验证\n'
+ 'changelog': 'v2.0.5 补全验证日志与红包链接\n'
+              '- 报名验证的候选、账号匹配、点名他人、重复跳过、格式失败和回复结果均输出可见日志\n'
+              '- 抢到或踩雷通知增加 Telegram 原消息链接，并放在富文本表格外方便手机点击\n'
+              '- 通知发送失败和无法生成链接不再静默，日志会显示具体消息编号\n'
+              '\n'
+              'v2.0.4 支持抽奖报名验证\n'
               '- 识别癫影小助手发出的限时报名算式并回复验证消息\n'
               '- 仅在验证消息明确点名当前 Telegram 账号时作答，点名他人时忽略\n'
               '- 支持账号姓名、完整姓名和用户名匹配，并避免重复作答\n\n'

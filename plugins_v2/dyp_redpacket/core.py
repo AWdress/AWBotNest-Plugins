@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import random
 import time as _time
 
@@ -35,11 +36,11 @@ from ._snatch import (
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "1.2.2",
+    "version": "2.0.5",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
-    "description": "监控癫影小助手发的混合积分红包（暗含 N 个雷包），逐个点击未抢数字按钮，落地一格即停：抢到分或踩雷都算用掉唯一机会停手，只有「手慢了/已被抢」才试下一格。发包bot/群组内置写死。",
+    "description": "监控癫影小助手发的混合积分红包并逐格抢取；支持点名本账号的限时算式报名验证。发包bot/群组内置写死。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/dyp_redpacket.jpg",
     "changelog": "v1.2.2 优化配置界面布局\n- 开关字段统一置顶，采用推荐的栅格布局\n- 参数字段添加 order 排序，提升扫描性\n- 符合 AWBotNest 插件开发规范\nv1.2.1 更新插件 Logo\n- 使用癫影专属图片作为插件卡片与市场图标",
     "config_schema": {
@@ -67,6 +68,12 @@ __plugin__ = {
         },
     },
 }
+__plugin__["changelog"] = (
+    "v2.0.5 补全验证日志与红包链接\n"
+    "- 报名验证全部处理分支输出可见日志\n"
+    "- 红包原消息链接放在富文本表格外，方便手机点击\n\n"
+    + __plugin__["changelog"]
+)
 
 # 按钮点击去重（进程内，TTL 清理）：key = "acct:chat:msg" → 时间戳
 _clicked: dict[str, float] = {}
@@ -112,6 +119,43 @@ def _meta_brief(meta: dict) -> str:
     return " · ".join(parts)
 
 
+def _message_link(message, chat=None) -> str:
+    """生成可在手机端直接打开的 Telegram 原消息链接。"""
+    direct = str(getattr(message, "link", "") or "").strip()
+    if direct.startswith(("https://", "http://")):
+        return direct
+    message_id = getattr(message, "id", None)
+    if not message_id:
+        return ""
+    username = str(getattr(chat, "username", "") or "").strip().lstrip("@")
+    if username:
+        return f"https://t.me/{username}/{message_id}"
+    chat_id = str(getattr(message, "chat_id", "") or "")
+    if chat_id.startswith("-100") and chat_id[4:].isdigit():
+        return f"https://t.me/c/{chat_id[4:]}/{message_id}"
+    return ""
+
+
+def _rich_notice(rows: list[dict[str, str]], message_link: str) -> str:
+    """表格只放结果字段，原消息链接位于表格外便于手机点击。"""
+    parts = [
+        '<table bordered striped><caption>红包明细</caption>',
+        '<tr><th align="left">项目</th><th align="left">内容</th></tr>',
+    ]
+    for row in rows:
+        parts.append(
+            '<tr><td align="left">'
+            + html.escape(str(row["项目"]))
+            + '</td><td align="left">'
+            + html.escape(str(row["内容"]))
+            + '</td></tr>'
+        )
+    parts.append("</table>")
+    if message_link:
+        parts.extend(["<br><br><b>查看红包</b><br>", html.escape(message_link)])
+    return "".join(parts)
+
+
 async def setup(ctx):
     records = Records(ctx.storage, ctx.log)
 
@@ -122,17 +166,32 @@ async def setup(ctx):
         cfg = ctx.config
         if not cfg.get("dyp_enabled", False):
             return
+        caption = extract_text(message)
+        challenge_candidate = "抽奖报名验证" in caption
         fu = await event.get_sender()
         sender_id = getattr(event, "sender_id", None) or getattr(fu, "id", None)
         if sender_id != _DYP_BOT_ID:
+            if challenge_candidate:
+                ctx.log.warning(
+                    "[癫影积分红包] 收到报名验证候选消息，但发送者不匹配：sender=%s，预期=%s，消息=%s",
+                    sender_id, _DYP_BOT_ID, message.id,
+                )
             return
         if event.chat_id != _DYP_GROUP_ID:
+            if challenge_candidate:
+                ctx.log.warning(
+                    "[癫影积分红包] 收到报名验证候选消息，但群组不匹配：chat=%s，预期=%s，消息=%s",
+                    event.chat_id, _DYP_GROUP_ID, message.id,
+                )
             return
-        caption = extract_text(message)
 
         challenge = parse_registration_challenge(caption)
         if challenge:
             target, answer = challenge
+            ctx.log.info(
+                "[癫影积分红包] 检测到报名验证：点名=%s，消息=%s",
+                target, message.id,
+            )
             me = getattr(client, "me", None)
             if me is None:
                 try:
@@ -143,14 +202,24 @@ async def setup(ctx):
                     ctx.log.warning("[癫影积分红包] 读取当前账号失败，无法判断报名验证归属: %r", exc)
                     return
             if not registration_target_matches(target, me):
-                ctx.log.debug("[癫影积分红包] 报名验证点名他人，已忽略：%s", target)
+                ctx.log.info(
+                    "[癫影积分红包] 报名验证点名他人，已忽略：点名=%s，当前账号=%s，消息=%s",
+                    target,
+                    getattr(me, "username", None) or getattr(me, "first_name", None) or getattr(me, "id", "未知"),
+                    message.id,
+                )
                 return
             verify_key = f"{getattr(me, 'id', id(client))}:{event.chat_id}:{message.id}"
             _prune_clicked()
             if verify_key in _answered_verifications:
+                ctx.log.info("[癫影积分红包] 本账号已回复过该报名验证，跳过重复消息=%s", message.id)
                 return
             _answered_verifications[verify_key] = _time.time()
             try:
+                ctx.log.info(
+                    "[癫影积分红包] 报名验证已匹配本账号，正在回复：点名=%s，消息=%s",
+                    target, message.id,
+                )
                 await message.reply(answer)
                 ctx.log.info(
                     "[癫影积分红包] 已回复本账号报名验证：%s，消息=%s，答案=%s",
@@ -162,6 +231,12 @@ async def setup(ctx):
             except Exception as exc:  # noqa: BLE001
                 _answered_verifications.pop(verify_key, None)
                 ctx.log.warning("[癫影积分红包] 回复报名验证失败 msg=%s: %r", message.id, exc)
+            return
+        if challenge_candidate:
+            ctx.log.warning(
+                "[癫影积分红包] 已收到报名验证消息，但文案或算式格式未识别，消息=%s",
+                message.id,
+            )
             return
 
         chat = await event.get_chat()
@@ -205,7 +280,7 @@ async def setup(ctx):
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
                             f"癫影积分红包-已抢\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{brief}\n\n{rstr}",
-                            level="success")
+                            level="success", message=message, chat=chat)
                     return
 
                 if is_thunder_hit(rstr):
@@ -216,7 +291,7 @@ async def setup(ctx):
                     if cfg.get("notify_owner", True):
                         await _notify(ctx, client,
                             f"癫影积分红包-踩雷\n\n{getattr(chat,'title','')} ({event.chat_id})\n\n{brief}\n\n{rstr}",
-                            level="warning")
+                            level="warning", message=message, chat=chat)
                     return
 
                 # 其余（手慢了/已被抢/无内容）→ 该格已被他人抢走，试下一格。
@@ -230,23 +305,40 @@ async def setup(ctx):
                              "meta": brief, "result": "未抢到", "ok": False})
 
     ctx.log.info(
-        "[癫影积分红包] 已加载：自动抢包=%s，固定群=%s，延迟=%s~%s 秒",
+        "[癫影积分红包] 已加载：自动抢包=%s，报名验证=%s，固定机器人=%s，固定群=%s，延迟=%s~%s 秒",
         "开启" if ctx.config.get("dyp_enabled", False) else "关闭",
+        "开启" if ctx.config.get("dyp_enabled", False) else "关闭",
+        _DYP_BOT_ID,
         _DYP_GROUP_ID,
         ctx.config.get("dyp_delay", 0),
         ctx.config.get("dyp_delay_max", 0),
     )
 
 
-async def _notify(ctx, client, text, level="info"):
+async def _notify(ctx, client, text, level="info", *, message=None, chat=None):
     try:
         lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
         rows = [{"项目": "状态" if index == 0 else f"详情 {index}", "内容": line}
                 for index, line in enumerate(lines)]
-        await ctx.notify(rows or [{"项目": "详情", "内容": "暂无内容"}],
-                         level=level, category="癫影积分红包", account=client)
-    except Exception:  # noqa: BLE001
-        pass
+        rows = rows or [{"项目": "详情", "内容": "暂无内容"}]
+        message_link = _message_link(message, chat) if message is not None else ""
+        if message_link:
+            await ctx.notify(
+                _rich_notice(rows, message_link),
+                level=level,
+                category="癫影积分红包",
+                account=client,
+                format="rich",
+            )
+        else:
+            await ctx.notify(rows, level=level, category="癫影积分红包", account=client)
+            if message is not None:
+                ctx.log.warning(
+                    "[癫影积分红包] 无法生成红包消息链接：chat=%s，消息=%s",
+                    getattr(message, "chat_id", None), getattr(message, "id", None),
+                )
+    except Exception as exc:  # noqa: BLE001
+        ctx.log.warning("[癫影积分红包] 通知发送失败：%r", exc)
 
 
 async def teardown(ctx):
