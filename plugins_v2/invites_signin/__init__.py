@@ -14,14 +14,14 @@ import requests
 __plugin__ = {
     "name": "药丸签到",
     "id": "invites_signin",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "AWdress",
-    "description": "invites.fun 药丸论坛自动签到，支持 Cookie 保活、立即执行、定时签到和历史记录。",
+    "description": "invites.fun 药丸论坛自动签到，支持账号密码登录、Cookie 保活、定时签到和历史记录。",
     "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/invites.png",
-    "changelog": "v0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
+    "changelog": "v0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
     "scope": "standalone",
     "plugin_api_version": 2,
-    "tags": ["药丸论坛", "自动签到", "Cookie保活"],
+    "tags": ["药丸论坛", "自动签到", "账号登录", "Cookie保活"],
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
     "resources": {
@@ -45,8 +45,18 @@ __plugin__ = {
         },
         "cookie": {
             "type": "password", "default": "", "label": "药丸 Cookie",
-            "help": "登录 https://invites.fun 后复制完整 Cookie。",
+            "help": "可选；已有 Cookie 时优先使用，失效后可用下方账号密码自动恢复。",
             "section": "账号", "cols": 12, "order": 10, "secret": True,
+        },
+        "username": {
+            "type": "string", "default": "", "label": "药丸账号",
+            "help": "invites.fun 用户名或登录邮箱。",
+            "section": "账号", "cols": 6, "order": 11,
+        },
+        "password": {
+            "type": "password", "default": "", "label": "药丸密码",
+            "help": "仅在 Cookie/登录令牌无效时用于自动重新登录。",
+            "section": "账号", "cols": 6, "order": 12, "secret": True,
         },
         "cron": {
             "type": "string", "default": "0 9 * * *", "label": "签到 Cron",
@@ -79,6 +89,7 @@ __plugin__ = {
 
 BASE_URL = "https://invites.fun"
 USER_API = f"{BASE_URL}/api/users"
+TOKEN_API = f"{BASE_URL}/api/token"
 SESSION_RE = re.compile(r'"session"\s*:\s*\{[^{}]*?"userId"\s*:\s*(\d+)[^{}]*?"csrfToken"\s*:\s*"([^"]+)"', re.S)
 CSRF_RE = re.compile(r'"csrfToken"\s*:\s*"([^"]+)"')
 USER_RE = re.compile(r'"userId"\s*:\s*(\d+)')
@@ -99,13 +110,17 @@ def _cron_fields(expression: str) -> Dict[str, str]:
     return dict(zip(("minute", "hour", "day", "month", "day_of_week"), parts))
 
 
-def _headers(cookie: str) -> Dict[str, str]:
-    return {
+def _headers(cookie: str = "", access_token: str = "") -> Dict[str, str]:
+    headers = {
         "Accept": "application/json, text/plain, */*",
-        "Cookie": cookie,
         "Referer": f"{BASE_URL}/",
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
     }
+    if cookie:
+        headers["Cookie"] = cookie
+    if access_token:
+        headers["Authorization"] = f"Token {access_token}"
+    return headers
 
 
 def _message_from_response(response: requests.Response) -> str:
@@ -123,9 +138,33 @@ def _message_from_response(response: requests.Response) -> str:
     return ""
 
 
-def _signin(cookie: str, timeout: int) -> Dict[str, Any]:
+def _login(username: str, password: str, timeout: int) -> Dict[str, Any]:
+    try:
+        response = requests.post(
+            TOKEN_API,
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"identification": username, "password": password, "remember": True},
+            timeout=timeout,
+        )
+    except Exception as exc:
+        return {"ok": False, "message": f"账号登录请求失败：{exc}"}
+    if response.status_code not in {200, 201}:
+        detail = _message_from_response(response)
+        return {"ok": False, "message": detail or f"账号登录失败：HTTP {response.status_code}"}
+    try:
+        body = response.json()
+    except ValueError:
+        return {"ok": False, "message": "账号登录响应不是有效 JSON"}
+    token = str(body.get("token") or "").strip() if isinstance(body, dict) else ""
+    user_id = str(body.get("userId") or "").strip() if isinstance(body, dict) else ""
+    if not token or not user_id or user_id == "0":
+        return {"ok": False, "message": "账号登录成功但未返回有效会话令牌"}
+    return {"ok": True, "message": "账号登录成功", "access_token": token, "user_id": user_id}
+
+
+def _signin(cookie: str, timeout: int, access_token: str = "", known_user_id: str = "") -> Dict[str, Any]:
     session = requests.Session()
-    headers = _headers(cookie)
+    headers = _headers(cookie, access_token)
     try:
         home = session.get(BASE_URL, headers=headers, timeout=timeout)
     except Exception as exc:
@@ -139,11 +178,12 @@ def _signin(cookie: str, timeout: int) -> Dict[str, Any]:
     else:
         csrf = CSRF_RE.search(home.text or "")
         user = USER_RE.search(home.text or "")
-        if not csrf or not user:
-            return {"ok": False, "message": "页面中未找到会话信息，站点页面可能已更新"}
-        user_id, csrf_token = user.group(1), csrf.group(1)
+        if not user and not known_user_id:
+            return {"ok": False, "auth_failed": True, "message": "页面中未找到已登录会话，Cookie/令牌可能已失效"}
+        user_id = user.group(1) if user else known_user_id
+        csrf_token = csrf.group(1) if csrf else ""
     if user_id == "0":
-        return {"ok": False, "message": "Cookie 已失效或尚未登录"}
+        return {"ok": False, "auth_failed": True, "message": "Cookie 已失效或尚未登录"}
 
     payload = {
         "data": {
@@ -152,12 +192,9 @@ def _signin(cookie: str, timeout: int) -> Dict[str, Any]:
             "id": user_id,
         }
     }
-    request_headers = {
-        **headers,
-        "Content-Type": "application/json",
-        "X-Csrf-Token": csrf_token,
-        "X-Http-Method-Override": "PATCH",
-    }
+    request_headers = {**headers, "Content-Type": "application/json", "X-Http-Method-Override": "PATCH"}
+    if csrf_token:
+        request_headers["X-Csrf-Token"] = csrf_token
     try:
         response = session.post(f"{USER_API}/{user_id}", headers=request_headers, json=payload, timeout=timeout)
     except Exception as exc:
@@ -169,6 +206,7 @@ def _signin(cookie: str, timeout: int) -> Dict[str, Any]:
         return {
             "ok": already,
             "already": already,
+            "auth_failed": response.status_code in {401, 403},
             "message": detail or f"签到失败：HTTP {response.status_code}",
         }
     try:
@@ -187,13 +225,17 @@ def _signin(cookie: str, timeout: int) -> Dict[str, Any]:
     }
 
 
-def _keepalive(cookie: str, timeout: int) -> Dict[str, Any]:
+def _keepalive(cookie: str, timeout: int, access_token: str = "", user_id: str = "") -> Dict[str, Any]:
     try:
-        response = requests.get(BASE_URL, headers=_headers(cookie), timeout=timeout)
+        headers = _headers(cookie, access_token)
+        response = requests.get(BASE_URL, headers=headers, timeout=timeout)
         if response.status_code != 200:
             return {"ok": False, "message": f"HTTP {response.status_code}"}
         match = SESSION_RE.search(response.text or "")
         valid = bool(match and match.group(1) != "0")
+        if not valid and access_token and user_id:
+            probe = requests.get(f"{USER_API}/{user_id}", headers=headers, timeout=timeout)
+            valid = probe.status_code == 200
         return {"ok": valid, "message": "Cookie 有效" if valid else "Cookie 已失效"}
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
@@ -203,6 +245,45 @@ async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
     scheduled_jobs = []
+
+    async def login_with_password(timeout: int) -> Dict[str, Any]:
+        username = str(ctx.config.get("username") or "").strip()
+        password = str(ctx.config.get("password") or "")
+        if not username or not password:
+            return {"ok": False, "message": "请配置药丸 Cookie，或同时填写药丸账号和密码"}
+        ctx.log.info("[药丸签到] Cookie/令牌无效，正在使用账号密码重新登录")
+        result = await asyncio.to_thread(_login, username, password, timeout)
+        if result.get("ok"):
+            await ctx.storage.set("access_token", result["access_token"])
+            await ctx.storage.set("user_id", result["user_id"])
+            ctx.log.info("[药丸签到] 账号登录成功，新令牌已保存")
+        return result
+
+    async def signin_with_reauth(timeout: int) -> Dict[str, Any]:
+        cookie = str(ctx.config.get("cookie") or "").strip()
+        token = str(await ctx.storage.get("access_token", "") or "").strip()
+        user_id = str(await ctx.storage.get("user_id", "") or "").strip()
+        result: Dict[str, Any] | None = None
+        if token and user_id:
+            result = await asyncio.to_thread(_signin, "", timeout, token, user_id)
+            if result.get("ok") or not result.get("auth_failed"):
+                return result
+            await ctx.storage.set("access_token", "")
+            await ctx.storage.set("user_id", "")
+        if cookie:
+            result = await asyncio.to_thread(_signin, cookie, timeout)
+            if result.get("ok") or not result.get("auth_failed"):
+                return result
+        login = await login_with_password(timeout)
+        if not login.get("ok"):
+            return result if result is not None and not ctx.config.get("username") else login
+        return await asyncio.to_thread(
+            _signin,
+            "",
+            timeout,
+            str(login["access_token"]),
+            str(login["user_id"]),
+        )
 
     async def save_result(result: Dict[str, Any], source: str) -> None:
         now = datetime.now()
@@ -245,13 +326,9 @@ async def setup(ctx):
         if _run_lock.locked():
             return {"ok": False, "message": "药丸签到任务正在运行"}
         async with _run_lock:
-            cookie = str(ctx.config.get("cookie") or "").strip()
-            if not cookie:
-                result = {"ok": False, "message": "请先配置药丸 Cookie"}
-            else:
-                timeout = _bounded_int(ctx.config.get("timeout"), 30, 5, 120)
-                ctx.log.info("[药丸签到] 开始执行，来源=%s", source)
-                result = await asyncio.to_thread(_signin, cookie, timeout)
+            timeout = _bounded_int(ctx.config.get("timeout"), 30, 5, 120)
+            ctx.log.info("[药丸签到] 开始执行，来源=%s", source)
+            result = await signin_with_reauth(timeout)
             await save_result(result, source)
             if ctx.config.get("notify", False):
                 rows = [{
@@ -270,13 +347,28 @@ async def setup(ctx):
 
     async def keepalive() -> Dict[str, Any]:
         cookie = str(ctx.config.get("cookie") or "").strip()
-        if not cookie:
-            return {"ok": False, "message": "未配置 Cookie"}
+        token = str(await ctx.storage.get("access_token", "") or "").strip()
+        user_id = str(await ctx.storage.get("user_id", "") or "").strip()
+        if not cookie and not token:
+            login = await login_with_password(_bounded_int(ctx.config.get("timeout"), 30, 5, 120))
+            if not login.get("ok"):
+                return login
+            token = str(login["access_token"])
+            user_id = str(login["user_id"])
         result = await asyncio.to_thread(
             _keepalive,
             cookie,
             _bounded_int(ctx.config.get("timeout"), 30, 5, 120),
+            token,
+            user_id,
         )
+        if not result.get("ok") and ctx.config.get("username") and ctx.config.get("password"):
+            login = await login_with_password(_bounded_int(ctx.config.get("timeout"), 30, 5, 120))
+            if login.get("ok"):
+                result = await asyncio.to_thread(
+                    _keepalive, "", _bounded_int(ctx.config.get("timeout"), 30, 5, 120),
+                    str(login["access_token"]), str(login["user_id"]),
+                )
         if result.get("ok"):
             ctx.log.info("[药丸签到] Cookie 保活成功")
         else:

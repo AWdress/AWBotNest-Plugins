@@ -21,18 +21,27 @@ import httpx
 from bs4 import BeautifulSoup
 
 
+_CHANGELOG_V2_0_12 = (
+    "v2.0.12 修复 CloakBrowser 首次安装超时\n"
+    "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
+    "- 内核下载自动使用平台代理，放宽连接与大文件读取超时并对短暂网络错误重试\n"
+    "- 内核缓存改存插件持久数据目录，Docker 更新或重启后无需重新下载\n"
+    "- 下载失败改为可操作的站点级提示，不再由子任务输出整段后台异常堆栈\n\n"
+)
+
+
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.11",
+    "version": "2.0.12",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
     "changelog": "v2.0.11 对齐 CloakBrowser 官方 Turnstile 流程\n- Audiences 与 OurBits 使用 Preview 持久会话、代理 GeoIP 和原生验证流程\n- 移除固定语言与代理出口不一致、显式重建控件和高频 CDP 等待\n- 清理 V2 前端隐藏文件，修复插件路径安全检查失败\n\nv2.0.10 修复签到参数显示不完整\n- 数字输入框保留稳定宽度，避免浏览器步进控件遮挡数值\n- 重试间隔单位改为独立布局，窄窗口自动换行且不再与数值重叠\n\nv2.0.9 修复 Audiences Docker 自动验证\n- 改用真正的 CloakBrowser 持久 profile 与固定指纹，避免 Cloudflare Cookie 和随机指纹错配\n- Audiences 只等待托管验证自动签发令牌，不再误点空的 Turnstile 外层容器\n- 控件未初始化时重新加载官方 API 并显式渲染，超时日志补充脚本、指纹和控件状态\n\nv2.0.8 修复 OurBits 与 TJUPT CloakBrowser 签到\n- OurBits 适配新的 form#attendance Turnstile，并只接受真实提交回执\n- TJUPT 保留 CloakBrowser 会话，改由已解析 DOM 元素提交表单，避免拟人层重复解析链式选择器\n\nv2.0.7 修复 OurBits、U2 与 Audiences 实际签到\n- OurBits 删除普通首页导航的成功推断，只接受站点明确签到状态或回执\n- U2 不再调用 AI 识图，直接任选一项提交；答错获得 1 UCoin 仍计为签到成功\n- Audiences 浏览器整轮限制为 30 秒，无结果立即跳过并关闭当前上下文\n\nv2.0.6 修复 Audiences 与 U2 签到\n- Audiences 改用真实 CloakBrowser 指纹与持久 storage_state，复用 Cloudflare 验证会话\n- CookieCloud 最新 Cookie 覆盖同名旧值，未同步的 Cloudflare 通行状态由持久上下文保留\n- U2 正确识别“回答错误但获得 1 UCoin”为已完成签到，不再误报失败\n\nv2.0.5 恢复 OurBits 首页签到确认\n- 将 V1 已验证的首页回执判定迁入原生 V2 核心\n- 签到后跳回站点根页且签到入口消失时确认已完成\n- HTTP、CloakBrowser 和结果回查使用同一严格条件，不把登录页或未签到首页误报成功\n\nv2.0.4 TJUPT AI 完全自动化\n- 启用 tjupt_ai_assist 时，AI 识别后直接自动提交答案\n- AI 识别失败时自动回退到 Telegram 手动选择模式\n- 优化 AI prompt，要求直接返回选项序号\n- 增强日志输出，记录 AI 识别过程和结果\n\nv2.0.3 修复 U2 签到提交\n- U2 跳过会被安全策略拒绝的轻量 HTTP 提交，直接使用 CloakBrowser\n- 改用真实浏览器表单按钮提交验证答案，并绕过缓存回查首页状态\n- 补充错误答案与过期验证识别，避免未确认状态重复误报",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
-    "plugin_api_version": 1,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10", "geoip2>=4.8"],
+    "plugin_api_version": 2,
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10", "geoip2>=4.8", "socksio>=1.0"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -54,6 +63,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
+__plugin__["changelog"] = _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -99,6 +109,8 @@ _tjupt_pending: dict[str, dict] = {}
 _browser_cookie_cache: dict[str, str] = {}
 _xvfb_lock = threading.Lock()
 _xvfb_process: subprocess.Popen | None = None
+_cloak_binary_lock = threading.Lock()
+_cloak_binary_paths: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
@@ -202,7 +214,10 @@ def _ensure_docker_display(ctx) -> str:
 
 async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: int = 10, max_wait: int = 600):
     """等待长浏览器任务时持续写入插件页与平台日志。"""
-    task = ctx.create_task(awaitable, name=f"pt-checkin-{site}")
+    # 这是已由平台托管的签到任务的内部子任务。若再使用
+    # ctx.create_task，平台 done callback 会在上层尚未处理异常时
+    # 先记录“后台任务执行失败”整段堆栈。
+    task = asyncio.create_task(awaitable, name=f"pt-checkin-{site}")
     elapsed = 0
     try:
         while elapsed < max_wait:
@@ -220,6 +235,97 @@ async def _with_heartbeat(awaitable, ctx, site: str, message: str, *, interval: 
         if not task.done():
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+
+
+def _cloak_download_is_transient(exc: BaseException) -> bool:
+    """识别 CloakBrowser 内核下载的短暂网络故障。"""
+    current: BaseException | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, (httpx.RequestError, TimeoutError, ConnectionError)):
+            return True
+        if isinstance(current, httpx.HTTPStatusError):
+            status = int(getattr(getattr(current, "response", None), "status_code", 0) or 0)
+            return status == 429 or status >= 500
+        text = str(current).lower()
+        if any(marker in text for marker in (
+            "timed out", "timeout", "connection reset", "connection refused",
+            "temporary failure", "name or service not known", "network is unreachable",
+        )):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _configure_cloakbrowser_cache(ctx) -> str:
+    """将浏览器内核放入插件持久数据目录，避免容器更新后重下。"""
+    configured = str(os.environ.get("CLOAKBROWSER_CACHE_DIR") or "").strip()
+    if configured:
+        return configured
+    cache_dir = Path(ctx.data_dir) / "cloakbrowser_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["CLOAKBROWSER_CACHE_DIR"] = str(cache_dir)
+    return str(cache_dir)
+
+
+def _prepare_cloakbrowser_binary(ctx, channel: str = "stable") -> str:
+    """串行准备 CloakBrowser 内核，并为 Docker 首次大文件下载放宽超时。"""
+    _configure_cloakbrowser_cache(ctx)
+    normalized_channel = "preview" if str(channel).lower() == "preview" else "stable"
+    cached = _cloak_binary_paths.get(normalized_channel)
+    if cached and Path(cached).exists():
+        return cached
+
+    with _cloak_binary_lock:
+        cached = _cloak_binary_paths.get(normalized_channel)
+        if cached and Path(cached).exists():
+            return cached
+
+        import cloakbrowser.download as cloak_download
+
+        previous_timeout = getattr(cloak_download, "DOWNLOAD_TIMEOUT", None)
+        # 官方 0.5.10 默认连接仅 10 秒、流式读取仅 60 秒，
+        # Docker 首次下载上百 MB 内核时容易误判为断线。
+        cloak_download.DOWNLOAD_TIMEOUT = httpx.Timeout(
+            connect=60.0, read=600.0, write=60.0, pool=60.0,
+        )
+
+        proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
+        proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+        previous_proxy = {key: os.environ.get(key) for key in proxy_keys}
+        if proxy_url:
+            for key in proxy_keys:
+                os.environ[key] = proxy_url
+
+        try:
+            last_error: BaseException | None = None
+            for attempt in range(2):
+                try:
+                    path = str(cloak_download.ensure_binary(release_channel=normalized_channel))
+                    _cloak_binary_paths[normalized_channel] = path
+                    return path
+                except Exception as exc:  # noqa: BLE001
+                    last_error = exc
+                    if attempt == 0 and _cloak_download_is_transient(exc):
+                        _runtime_log(ctx, "CloakBrowser 内核下载遇到短暂网络异常，3 秒后重试", level="warning")
+                        time.sleep(3)
+                        continue
+                    break
+            detail = type(last_error).__name__ if last_error is not None else "UnknownError"
+            proxy_hint = "已使用平台代理，" if proxy_url else ""
+            raise RuntimeError(
+                f"CloakBrowser 内核下载失败（{detail}），{proxy_hint}"
+                "已尝试官方源和 GitHub 备用源；请检查 Docker 网络后重试，本轮跳过"
+            ) from None
+        finally:
+            if previous_timeout is not None:
+                cloak_download.DOWNLOAD_TIMEOUT = previous_timeout
+            for key, value in previous_proxy.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def _cfg(ctx) -> dict:
@@ -1906,6 +2012,23 @@ async def _run(ctx, source: str) -> dict:
                                 "使用真实 CloakBrowser 浏览器会话",
                                 site=site["name"],
                             )
+                            channel = "preview" if key in {"audiences", "ourbits"} else "stable"
+                            _state.update({
+                                "phase": "准备浏览器",
+                                "message": f"{site['name']}：正在检查 CloakBrowser 内核",
+                            })
+                            await _with_heartbeat(
+                                asyncio.to_thread(_prepare_cloakbrowser_binary, ctx, channel),
+                                ctx,
+                                site["name"],
+                                "CloakBrowser 内核正在首次安装或更新",
+                                interval=30,
+                                max_wait=900,
+                            )
+                            _state.update({
+                                "phase": "浏览器签到",
+                                "message": f"{site['name']}：CloakBrowser 正在处理签到",
+                            })
                             outcome = await _with_heartbeat(
                                 asyncio.to_thread(
                                     _site_cloak_checkin,
@@ -1984,7 +2107,35 @@ async def setup(ctx):
     _runtime_logs.clear()
     _storage_state.clear()
     _storage_state.update(dict(await ctx.storage.items()))
+    cache_dir = _configure_cloakbrowser_cache(ctx)
     _runtime_log(ctx, "插件已加载，等待签到任务")
+    _runtime_log(ctx, f"CloakBrowser 内核持久目录：{cache_dir}")
+
+    async def preload_browser() -> None:
+        """插件启用后后台预装必需内核，不阻塞配置页加载。"""
+        selected = _cfg(ctx).get("selected_sites", list(SITES))
+        if not isinstance(selected, list):
+            selected = list(SITES)
+        channels = []
+        if any(key in {"audiences", "ourbits"} for key in selected):
+            channels.append("preview")
+        if any(key not in {"audiences", "ourbits"} for key in selected):
+            channels.append("stable")
+        if not channels:
+            return
+        try:
+            for channel in channels:
+                label = "Preview" if channel == "preview" else "Stable"
+                _runtime_log(ctx, f"正在后台检查 CloakBrowser {label} 内核")
+                await asyncio.to_thread(_prepare_cloakbrowser_binary, ctx, channel)
+            _runtime_log(ctx, "CloakBrowser 内核已就绪")
+        except Exception as exc:  # noqa: BLE001
+            # 启动预装失败不禁用插件；手动/定时签到会再次尝试。
+            _runtime_log(ctx, str(exc), level="warning")
+
+    preload_task = ctx.create_task(preload_browser(), name="PT签到·CloakBrowser内核预装")
+    _tasks.add(preload_task)
+    preload_task.add_done_callback(_tasks.discard)
 
     @ctx.on_api("/meta", methods=["GET"])
     async def api_meta(req):

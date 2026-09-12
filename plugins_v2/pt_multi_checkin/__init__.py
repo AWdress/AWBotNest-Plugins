@@ -5,11 +5,17 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.11',
+ 'version': '2.0.12',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.11 对齐 CloakBrowser 官方 Turnstile 流程\n'
+ 'changelog': 'v2.0.12 修复 CloakBrowser 首次安装超时\n'
+              '- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n'
+              '- 内核下载自动使用平台代理，放宽连接与大文件读取超时并对短暂网络错误重试\n'
+              '- 内核缓存改存插件持久数据目录，Docker 更新或重启后无需重新下载\n'
+              '- 下载失败改为可操作的站点级提示，不再由子任务输出整段后台异常堆栈\n'
+              '\n'
+              'v2.0.11 对齐 CloakBrowser 官方 Turnstile 流程\n'
               '- Audiences 与 OurBits 使用 Preview 持久会话、代理 GeoIP 和原生验证流程\n'
               '- 移除固定语言与代理出口不一致、显式重建控件和高频 CDP 等待\n'
               '- 清理 V2 前端隐藏文件，修复插件路径安全检查失败\n'
@@ -110,7 +116,8 @@ __plugin__ = {'name': 'PT站自动签到',
  'requirements': ['httpx>=0.27',
                   'beautifulsoup4>=4.12',
                   'cloakbrowser>=0.5.10',
-                  'geoip2>=4.8'],
+                  'geoip2>=4.8',
+                  'socksio>=1.0'],
  'cookie_domains': ['audiences.me',
                     '*.audiences.me',
                     'ourbits.club',
