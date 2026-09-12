@@ -48,6 +48,14 @@ _CHANGELOG_V2_0_15 = (
 )
 
 
+_CHANGELOG_V2_0_16 = (
+    "v2.0.16 修复 Docker Turnstile 会话复用\n"
+    "- Audiences 与 OurBits 改用全新临时 CloakBrowser 上下文，不再复用持久 profile 和旧 Cloudflare 状态\n"
+    "- 原生验证长时间未响应时重置官方控件，保留真实 Managed iframe 点击支持\n"
+    "- Turnstile 或页面验证超时会按重试配置关闭会话并更换新指纹，不再被误判为不可重试\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -60,7 +68,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.15",
+    "version": "2.0.16",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -90,7 +98,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -704,6 +712,19 @@ def _retryable_error(exc: Exception) -> bool:
     return not any(marker in text for marker in permanent)
 
 
+def _turnstile_session_retryable(key: str, exc: Exception) -> bool:
+    """Turnstile 站点可通过关闭当前会话并更换全新指纹恢复的错误。"""
+    if key not in {"audiences", "ourbits"}:
+        return False
+    text = str(exc).lower()
+    return any(marker in text for marker in (
+        "turnstile",
+        "cloakbrowser 60 秒内没有取得页面结果",
+        "cloakbrowser 90 秒内没有取得页面结果",
+        "cloudflare/雷池验证等待超时",
+    ))
+
+
 def _ai_available(ctx, capability: str) -> bool:
     checker = getattr(ctx.ai, "is_available", None)
     if callable(checker):
@@ -1199,6 +1220,22 @@ def _click_managed_turnstile(page) -> str:
     return ""
 
 
+def _reset_turnstile(page) -> str:
+    """重置页面原生 Turnstile；不创建站外控件，也不注入站点参数。"""
+    try:
+        return str(page.evaluate("""() => {
+            if (!window.turnstile || typeof window.turnstile.reset !== 'function') return '';
+            try {
+                window.turnstile.reset();
+                return 'Turnstile 原生 reset';
+            } catch (error) {
+                return 'Turnstile reset 失败: ' + String(error);
+            }
+        }""") or "")
+    except Exception:
+        return ""
+
+
 def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds: int = 30) -> dict:
     """等待 NexusPHP Turnstile 回调提交，只接受明确的服务端结果。"""
     is_audiences = expected_domain.lower() == "audiences.me"
@@ -1210,6 +1247,7 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
     click_count = 0
     token_logged = False
     empty_widget_logged = False
+    reset_detail = ""
     # 非交互式验证先获得一个完整的自动签发窗口。只有 Cloudflare 真正生成
     # Managed iframe 后才点击一次，避免误点空的站点外层容器。
     while time.monotonic() < deadline:
@@ -1259,6 +1297,15 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
             continue
         now = time.monotonic()
         elapsed = now - started_at
+        if not reset_detail and elapsed >= min(30.0, max(10.0, timeout_seconds / 3.0)):
+            reset_detail = _reset_turnstile(page)
+            if reset_detail and ctx is not None:
+                _runtime_log(
+                    ctx,
+                    f"原生 Turnstile 长时间未响应，已请求控件重新验证（{reset_detail}）",
+                    level="warning",
+                    site=site_name,
+                )
         challenge_frames = [
             frame for frame in page.frames
             if "challenges.cloudflare.com" in str(getattr(frame, "url", "") or "")
@@ -1330,55 +1377,15 @@ def _audiences_turnstile_checkin(page, ctx=None, *, timeout_seconds: int = 30) -
     )
 
 
-def _turnstile_fingerprint_seed(data_dir: str | os.PathLike, key: str) -> int:
-    """为 Turnstile 站点 profile 保存稳定指纹，避免 Cookie 与指纹错配。"""
-    seed_path = Path(data_dir) / f"{key}_fingerprint_seed.txt"
-    try:
-        saved = int(seed_path.read_text(encoding="utf-8").strip())
-        if 10_000 <= saved <= 99_999:
-            return saved
-    except (OSError, TypeError, ValueError):
-        pass
-    seed = 10_000 + secrets.randbelow(90_000)
-    seed_path.parent.mkdir(parents=True, exist_ok=True)
-    seed_path.write_text(str(seed), encoding="utf-8")
-    return seed
-
-
-def _legacy_storage_cookies(state_path: Path) -> list[dict]:
-    """迁移站点会话，但不复制与旧浏览器指纹绑定的 Cloudflare Cookie。"""
-    try:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, TypeError, ValueError):
-        return []
-    cookies = payload.get("cookies", []) if isinstance(payload, dict) else []
-    return [
-        item for item in cookies
-        if isinstance(item, dict)
-        and item.get("name")
-        and not _is_cloudflare_session_cookie(item.get("name"))
-    ]
-
-
 def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headless: bool) -> dict:
     """使用 CloakBrowser 官方推荐参数处理 NexusPHP Turnstile。"""
     import cloakbrowser
 
-    data_dir = Path(ctx.data_dir)
     site_name = str(site["name"])
     site_domain = str(site["domain"])
     site_url = str(site["url"])
-    profile_dir = data_dir / f"{key}_browser_profile"
-    state_path = data_dir / f"{key}_storage_state.json"
-    migration_marker = profile_dir / ".storage_state_migrated"
-    fingerprint_seed = _turnstile_fingerprint_seed(data_dir, key)
     launch_options = {
         "headless": headless,
-        "args": [
-            f"--fingerprint={fingerprint_seed}",
-            "--fingerprint-allow-3p-cookies",
-            "--fingerprint-storage-quota=5000",
-        ],
         "release_channel": "preview",
         "humanize": True,
         "human_preset": "careful",
@@ -1391,36 +1398,21 @@ def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headle
     running_mode = "无头" if headless else ("虚拟有头" if os.path.exists("/.dockerenv") else "有头")
     _runtime_log(
         ctx,
-        f"启动 CloakBrowser {version} Preview 持久 profile（指纹 {fingerprint_seed}，"
-        f"{running_mode}模式，网络与 GeoIP 跟随平台设置）",
+        f"启动 CloakBrowser {version} Preview 全新临时上下文（"
+        f"{running_mode}模式，新指纹，网络与 GeoIP 跟随平台设置）",
         site=site_name,
     )
     context = page = None
     try:
-        context = cloakbrowser.launch_persistent_context(
-            str(profile_dir),
-            **launch_options,
-        )
+        context = cloakbrowser.launch_context(**launch_options)
         # launch 完成后再读取，确保报告的是平台本次实际选择并准备的内核。
         _log_cloakbrowser_binary(ctx, cloakbrowser, site_name, "preview")
         pages = list(getattr(context, "pages", []) or [])
         page = pages[0] if pages else context.new_page()
         page.set_default_timeout(20_000)
 
-        if state_path.exists() and not migration_marker.exists():
-            legacy_cookies = _legacy_storage_cookies(state_path)
-            if legacy_cookies:
-                context.add_cookies(legacy_cookies)
-                _runtime_log(
-                    ctx,
-                    f"已迁移旧浏览器会话中的 {len(legacy_cookies)} 个 Cookie",
-                    site=site_name,
-                )
-            migration_marker.parent.mkdir(parents=True, exist_ok=True)
-            migration_marker.write_text("1", encoding="utf-8")
-
-        # 普通站点 Cookie 由 CookieCloud 更新；Cloudflare 通行状态与浏览器
-        # 指纹、出口 IP 绑定，只能保留当前 CloakBrowser profile 自己签发的值。
+        # 只注入平台同步的站点业务 Cookie。与旧浏览器指纹和出口绑定的
+        # Cloudflare Cookie 不跨会话复制，由全新上下文自行完成验证。
         items = []
         for part in str(cookie or "").split(";"):
             name, separator, value = part.strip().partition("=")
@@ -2124,6 +2116,14 @@ async def _run(ctx, source: str) -> dict:
                             item = {"key": key, "site": site["name"], "ok": False, "status": "failed", "engine": "http/browser", "message": refresh_error}
                             _runtime_log(ctx, refresh_error, level="error", site=site["name"])
                             break
+                        await asyncio.sleep(min(interval, 5))
+                    elif attempt < retries and _turnstile_session_retryable(key, exc):
+                        _runtime_log(
+                            ctx,
+                            "当前 Turnstile/Cloudflare 会话未完成，已关闭并将在新指纹上下文中重试",
+                            level="warning",
+                            site=site["name"],
+                        )
                         await asyncio.sleep(min(interval, 5))
                     elif attempt < retries and _retryable_error(exc):
                         await asyncio.sleep(interval)

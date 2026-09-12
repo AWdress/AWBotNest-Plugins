@@ -5,11 +5,16 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.15',
+ 'version': '2.0.16',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.15 等待依赖就绪后再签到\n'
+ 'changelog': 'v2.0.16 修复 Docker Turnstile 会话复用\n'
+              '- Audiences 与 OurBits 改用全新临时 CloakBrowser 上下文，不再复用持久 profile 和旧 Cloudflare 状态\n'
+              '- 原生验证长时间未响应时重置官方控件，保留真实 Managed iframe 点击支持\n'
+              '- Turnstile 或页面验证超时会按重试配置关闭会话并更换新指纹，不再被误判为不可重试\n'
+              '\n'
+              'v2.0.15 等待依赖就绪后再签到\n'
               '- 每轮签到先核对全部 Python 依赖版本，再准备所需 CloakBrowser 内核\n'
               '- 浏览器准备完成并关闭预检会话后，才开始读取 Cookie 和访问签到站点\n'
               '- 依赖或内核准备失败时直接停止本轮，并在插件状态和日志中显示原因\n'
