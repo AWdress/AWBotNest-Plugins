@@ -206,11 +206,20 @@ def _items_from_response(response, *, endpoint: str, ctx=None) -> List[Dict[str,
     try:
         response.raise_for_status()
         payload = response.json()
-    except Exception as exc:
+    except Exception:
         if ctx:
             status = getattr(response, 'status_code', '?')
-            body = str(getattr(response, 'text', '') or '')[:160].replace('\n', ' ')
-            ctx.log.warning(f'[emby_toolbox] {endpoint} 响应不是 JSON（HTTP {status}）：{exc}；{body}')
+            body = ''
+            content = getattr(response, 'content', b'') or b''
+            if isinstance(content, bytes):
+                body = content.decode('utf-8', errors='replace')
+            if not body:
+                body = str(getattr(response, 'text', '') or '')
+            body = re.sub(r'\s+', ' ', body).strip()[:160]
+            detail = f'：{body}' if body else ''
+            ctx.log.warning(
+                f'[emby_toolbox] {endpoint} 请求失败（HTTP {status}），已跳过{detail}'
+            )
         return []
     if isinstance(payload, dict) and isinstance(payload.get('Items'), list):
         return [x for x in payload['Items'] if isinstance(x, dict)]
@@ -506,17 +515,29 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
     count = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始删除单集 Genre，媒体库: {libs}')
+    user_id = _resolve_user_id(cfg)
     for lib in libs:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
-        series_list = _get_lib_items(cfg, parent_id)
+        media_items = _get_lib_items(cfg, parent_id)
+        series_list = [item for item in media_items if item.get('Type') == 'Series']
+        skipped_non_series = len(media_items) - len(series_list)
         if ctx:
-            ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集')
+            ctx.log.info(
+                f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集'
+                f'（忽略电影/非剧集 {skipped_non_series} 个）'
+            )
         for serie in series_list:
             serie_id = serie['Id']
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
-            params = {'ParentId': serie_id, 'api_key': cfg['api_key'], 'Recursive': 'false'}
+            params = {
+                'ParentId': serie_id,
+                'api_key': cfg['api_key'],
+                'Recursive': 'false',
+                'IncludeItemTypes': 'Season',
+                'Fields': 'Name,IndexNumber',
+            }
             seasons_response = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60)
             seasons = _items_from_response(seasons_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 季列表', ctx=ctx)
             for season in seasons:
@@ -526,7 +547,7 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
                 }, timeout=60)
                 eps = _items_from_response(eps_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 单集列表', ctx=ctx)
                 for ep in eps:
-                    item = _get_user_item(cfg, _resolve_user_id(cfg), str(ep['Id']))
+                    item = _get_user_item(cfg, user_id, str(ep['Id']))
                     if item.get('Genres'):
                         item['Genres'] = []
                         item['GenreItems'] = []
@@ -656,12 +677,15 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
-        series_list = _get_lib_items(cfg, parent_id)
+        media_items = _get_lib_items(cfg, parent_id)
+        series_list = [item for item in media_items if item.get('Type') == 'Series']
+        skipped_non_series = len(media_items) - len(series_list)
         if ctx:
-            ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集')
+            ctx.log.info(
+                f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集'
+                f'（忽略电影/非剧集 {skipped_non_series} 个）'
+            )
         for serie in series_list:
-            if serie.get('Type') == 'Movie':
-                continue
             provider = (serie.get('ProviderIds') or {}).get('Tmdb')
             if not provider:
                 continue
@@ -673,7 +697,23 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                         ctx.log.warning(f'[emby_toolbox] 季名刮削跳过 {serie.get("Name", "未知")}: TMDB 不可达')
                 continue
             url = f"{_base_url(cfg['emby_server'])}/emby/Items"
-            seasons = requests.get(url, headers=_headers(cfg['api_key']), params={'ParentId': serie['Id'], 'fields': 'Name,IndexNumber,LockedFields'}, timeout=60).json().get('Items', [])
+            seasons_response = requests.get(
+                url,
+                headers=_headers(cfg['api_key']),
+                params={
+                    'ParentId': serie['Id'],
+                    'api_key': cfg['api_key'],
+                    'Recursive': 'false',
+                    'IncludeItemTypes': 'Season',
+                    'Fields': 'Name,IndexNumber,LockedFields',
+                },
+                timeout=60,
+            )
+            seasons = _items_from_response(
+                seasons_response,
+                endpoint=f'{lib}/{serie.get("Name", serie["Id"])} 季列表',
+                ctx=ctx,
+            )
             # 提前过滤：只处理未锁定的季
             unlocked_seasons = [s for s in seasons if 'Name' not in (s.get('LockedFields') or [])]
             if not unlocked_seasons:
@@ -716,6 +756,7 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     count = 0
     skip_tmdb = 0
+    scanned = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始国家/语言 Tag 刮削，媒体库: {libs}')
     for lib in libs:
@@ -797,9 +838,9 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     user_id = _resolve_user_id(cfg)
     count = 0
     skip_tmdb = 0
+    scanned = 0
     skip_unchanged = 0
     skip_cached = 0
-    scanned = 0
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始别名写入，媒体库: {libs}')
     
