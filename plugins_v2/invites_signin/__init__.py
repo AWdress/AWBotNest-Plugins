@@ -14,11 +14,11 @@ import requests
 __plugin__ = {
     "name": "药丸签到",
     "id": "invites_signin",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "AWdress",
     "description": "invites.fun 药丸论坛自动签到，支持账号密码登录、Cookie 保活、定时签到和历史记录。",
     "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/invites.png",
-    "changelog": "v0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
+    "changelog": "v0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["药丸论坛", "自动签到", "账号登录", "Cookie保活"],
@@ -44,9 +44,9 @@ __plugin__ = {
             "section": "功能开关", "cols": 4, "order": 3,
         },
         "cookie": {
-            "type": "password", "default": "", "label": "药丸 Cookie",
-            "help": "可选；已有 Cookie 时优先使用，失效后可用下方账号密码自动恢复。",
-            "section": "账号", "cols": 12, "order": 10, "secret": True,
+            "type": "text", "default": "", "label": "药丸 Cookie",
+            "help": "可选；已有 Cookie 时优先使用，失效后可用下方账号密码自动恢复。内容直接显示。",
+            "section": "账号", "cols": 12, "order": 10,
         },
         "username": {
             "type": "string", "default": "", "label": "药丸账号",
@@ -54,9 +54,9 @@ __plugin__ = {
             "section": "账号", "cols": 6, "order": 11,
         },
         "password": {
-            "type": "password", "default": "", "label": "药丸密码",
-            "help": "仅在 Cookie/登录令牌无效时用于自动重新登录。",
-            "section": "账号", "cols": 6, "order": 12, "secret": True,
+            "type": "string", "default": "", "label": "药丸密码",
+            "help": "仅在 Cookie/登录令牌无效时用于自动重新登录；内容直接显示。",
+            "section": "账号", "cols": 6, "order": 12,
         },
         "cron": {
             "type": "string", "default": "0 9 * * *", "label": "签到 Cron",
@@ -243,6 +243,13 @@ def _keepalive(cookie: str, timeout: int, access_token: str = "", user_id: str =
 
 async def setup(ctx):
     global _run_lock
+    defaults = {
+        key: spec["default"]
+        for key, spec in __plugin__["config_schema"].items()
+        if "default" in spec and spec.get("type") != "action" and key not in ctx.config
+    }
+    if defaults:
+        ctx.update_config(defaults)
     _run_lock = asyncio.Lock()
     scheduled_jobs = []
 
@@ -250,7 +257,7 @@ async def setup(ctx):
         username = str(ctx.config.get("username") or "").strip()
         password = str(ctx.config.get("password") or "")
         if not username or not password:
-            return {"ok": False, "message": "请配置药丸 Cookie，或同时填写药丸账号和密码"}
+            return {"ok": False, "auth_failed": True, "message": "Cookie 已失效；请同时填写药丸账号和密码，才能自动登录"}
         ctx.log.info("[药丸签到] Cookie/令牌无效，正在使用账号密码重新登录")
         result = await asyncio.to_thread(_login, username, password, timeout)
         if result.get("ok"):
@@ -276,14 +283,18 @@ async def setup(ctx):
                 return result
         login = await login_with_password(timeout)
         if not login.get("ok"):
-            return result if result is not None and not ctx.config.get("username") else login
-        return await asyncio.to_thread(
+            return login
+        ctx.log.info("[药丸签到] 新令牌已生效，正在重新执行签到")
+        signed = await asyncio.to_thread(
             _signin,
             "",
             timeout,
             str(login["access_token"]),
             str(login["user_id"]),
         )
+        if signed.get("ok"):
+            signed["message"] = f"账号自动登录成功；{signed.get('message') or '签到成功'}"
+        return signed
 
     async def save_result(result: Dict[str, Any], source: str) -> None:
         now = datetime.now()

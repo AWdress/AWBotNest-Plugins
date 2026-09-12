@@ -15,11 +15,11 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "author": "AWdress",
     "description": "实时监控多个 IMAP 邮箱，支持验证码识别、关键词过滤、AI 验证码提取和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
-    "changelog": "v0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
+    "changelog": "v0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["邮件监控", "验证码", "通知推送"],
@@ -33,7 +33,7 @@ __plugin__ = {
         "verification_prompt": {"type": "text", "default": "", "label": "验证码提示词", "help": "留空使用内置提示词。", "section": "AI 功能", "cols": 12, "order": 32},
         "summary_prompt": {"type": "text", "default": "", "label": "概要提示词", "help": "留空使用内置提示词。", "section": "AI 功能", "cols": 12, "order": 33},
         "ai_timeout": {"type": "number", "default": 60, "min": 10, "max": 180, "step": 1, "label": "AI 超时（秒）", "section": "AI 功能", "order": 34},
-        "mailboxes": {"type": "text", "default": "", "label": "邮箱配置", "help": "每行：邮箱地址|授权码；支持 QQ/163/126/Gmail/Outlook。", "section": "邮箱", "cols": 12, "order": 10, "secret": True},
+        "mailboxes": {"type": "text", "default": "", "label": "邮箱配置", "help": "每行：邮箱地址|授权码；支持 QQ/163/126/Gmail/Outlook。内容直接显示。", "section": "邮箱", "cols": 12, "order": 10},
         "keywords": {"type": "string", "default": "验证码|重要通知|账单|订单", "label": "关键词（用 | 分隔）", "section": "过滤", "order": 20},
         "poll_seconds": {"type": "number", "default": 30, "min": 10, "max": 300, "label": "轮询间隔（秒）", "section": "运行设置", "order": 21},
     },
@@ -130,7 +130,7 @@ async def _ai_code(ctx, msg: Dict[str, Any], images: List[bytes], cfg: Dict[str,
     prompt = custom or "请找出这封邮件中的一次性验证码。只输出 4至8 位验证码；若没有，只输出“无验证码”。"
     context = f"\n\n邮件标题：{msg.get('标题', '')}\n发件人：{msg.get('发件人', '')}\n邮件内容：\n{str(msg.get('内容', ''))[:8000]}"
     timeout = max(10, min(180, int(cfg.get("ai_timeout", 60) or 60)))
-    if images and _ai_available(ctx, "image"):
+    if images and _ai_available(ctx, "vision"):
         response = await asyncio.wait_for(ctx.ai.vision(image=images[0], prompt=prompt + context), timeout=timeout)
     elif _ai_available(ctx, "text"):
         response = await asyncio.wait_for(ctx.ai.chat(prompt=prompt + context, temperature=0), timeout=timeout)
@@ -152,6 +152,13 @@ async def _ai_summary(ctx, msg: Dict[str, Any], cfg: Dict[str, Any]) -> str:
 
 
 async def setup(ctx):
+    defaults = {
+        key: spec["default"]
+        for key, spec in __plugin__["config_schema"].items()
+        if "default" in spec and spec.get("type") != "action" and key not in ctx.config
+    }
+    if defaults:
+        ctx.update_config(defaults)
     task=None; seen=set(str(x) for x in (await ctx.storage.get("seen", []) or []))
 
     async def monitor():
