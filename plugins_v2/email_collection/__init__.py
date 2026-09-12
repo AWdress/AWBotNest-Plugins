@@ -15,11 +15,11 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "author": "AWdress",
     "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
-    "changelog": "v0.0.8 修复立即检查无响应\n- 立即检查不再先保存并触发插件重载，避免旧配置页请求被中断\n- 收到检查请求、任务占用、配置缺失和扫描完成均输出明确日志\n- 配置有未保存修改时明确提示先保存，避免误用旧配置\n\nv0.0.7 改进多邮箱配置\n- 邮箱改为逐个添加和删除，每行可选择 QQ、163、126、Gmail、Outlook 或新浪邮箱\n- 每个授权码默认隐藏并可独立显示，旧单行和多行配置自动迁移且不丢失账号\n- 自定义配置页保留立即检查，可回查近期已读和未读邮件\n\nv0.0.6 新增立即检查\n- 配置页新增立即检查按钮，可回查近期已读和未读邮件\n- 手动检查与后台轮询共用处理逻辑和互斥锁，避免并发重复推送\n- 使用稳定 IMAP UID 并以 PEEK 方式读取，不会把后台检查的未读邮件标为已读\n\nv0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
+    "changelog": "v0.0.9 修复通知投递与轮询日志\n- 统一使用平台富文本通知，并兼容新旧平台的投递返回值\n- Bot 通知不可用时明确记录已回退到主账号收藏夹，不再误报已通知\n- 自动轮询在无新邮件且无错误时保持静默，手动检查仍保留完整日志\n- 清理重复的插件名日志前缀\n\nv0.0.8 修复立即检查无响应\n- 立即检查不再先保存并触发插件重载，避免旧配置页请求被中断\n- 收到检查请求、任务占用、配置缺失和扫描完成均输出明确日志\n- 配置有未保存修改时明确提示先保存，避免误用旧配置\n\nv0.0.7 改进多邮箱配置\n- 邮箱改为逐个添加和删除，每行可选择 QQ、163、126、Gmail、Outlook 或新浪邮箱\n- 每个授权码默认隐藏并可独立显示，旧单行和多行配置自动迁移且不丢失账号\n- 自定义配置页保留立即检查，可回查近期已读和未读邮件\n\nv0.0.6 新增立即检查\n- 配置页新增立即检查按钮，可回查近期已读和未读邮件\n- 手动检查与后台轮询共用处理逻辑和互斥锁，避免并发重复推送\n- 使用稳定 IMAP UID 并以 PEEK 方式读取，不会把后台检查的未读邮件标为已读\n\nv0.0.5 适配平台敏感配置规范\n- 邮箱授权码改为受控显示的 password 字段，公开配置接口不再泄露\n- 多邮箱改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n\nv0.0.4 修复配置显示与 AI 识图\n- 邮箱地址和授权码配置改为直接显示，避免整段掩码后无法检查\n- 首次启用自动写入 schema 默认值\n- 图片验证码正确检查平台视觉能力，不再误用生图能力状态\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，IMAP 监控只运行一份，避免重复连接和重复通知\n- 按平台 schema 规范修正邮箱配置、AI 提示词与超时字段，解决保存失败\n\nv0.0.2 接入平台统一 AI\n- 新增 AI 验证码识别，支持邮件正文和首张图片附件\n- 新增 AI 邮件概要和自定义提示词\n- AI 不可用或调用失败时自动使用原邮件，不中断监控与通知\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["邮件监控", "验证码", "通知推送"],
@@ -268,33 +268,36 @@ async def setup(ctx):
         ]
         if normalized:
             ctx.update_config({"mailboxes": normalized})
-            ctx.log.info("[邮件集] 已将旧邮箱配置迁移为逐账号列表")
+            ctx.log.info("已将旧邮箱配置迁移为逐账号列表")
     task = None
     seen = set(str(x) for x in (await ctx.storage.get("seen", []) or []))
     check_lock = asyncio.Lock()
     ctx.log.info(
-        "[邮件集] 插件已加载：已配置 %d 个邮箱，后台监控=%s",
+        "插件已加载：已配置 %d 个邮箱，后台监控=%s，通知渠道由配置页底部的平台通知选择决定",
         len(_parse_boxes(ctx.config.get("mailboxes", ""))),
         "开启" if (ctx.config or {}).get("enabled") else "关闭",
     )
 
     async def check_once(source: str, *, include_read: bool, limit: int) -> Dict[str, Any]:
         nonlocal seen
-        ctx.log.info(
-            "[邮件集] 收到%s请求：范围=%s，每箱最多 %d 封",
-            source,
-            "已读和未读" if include_read else "未读",
-            limit,
-        )
+        automatic = source == "自动轮询"
+        if not automatic:
+            ctx.log.info(
+                "收到%s请求：范围=%s，每箱最多 %d 封",
+                source,
+                "已读和未读" if include_read else "未读",
+                limit,
+            )
         if check_lock.locked():
-            ctx.log.warning("[邮件集] %s请求被忽略：另一项邮件检查仍在运行", source)
+            if not automatic:
+                ctx.log.warning("%s请求被忽略：另一项邮件检查仍在运行", source)
             return {"ok": False, "busy": True, "message": "邮件检查正在运行，请稍后再试。"}
 
         async with check_lock:
             cfg = dict(ctx.config or {})
             boxes = _parse_boxes(cfg.get("mailboxes", ""))
             if not boxes:
-                ctx.log.warning("[邮件集] %s无法执行：没有可用的邮箱配置", source)
+                ctx.log.warning("%s无法执行：没有可用的邮箱配置", source)
                 return {"ok": False, "message": "请先填写有效的邮箱和授权码。"}
             keywords = [
                 item.strip().lower()
@@ -308,14 +311,16 @@ async def setup(ctx):
                 "pushed": 0,
                 "skipped": 0,
                 "failed": 0,
+                "fallback": 0,
             }
-            ctx.log.info(
-                "[邮件集] 开始%s：%d 个邮箱，范围=%s，每箱最多 %d 封",
-                source,
-                len(boxes),
-                "已读和未读" if include_read else "未读",
-                limit,
-            )
+            if not automatic:
+                ctx.log.info(
+                    "开始%s：%d 个邮箱，范围=%s，每箱最多 %d 封",
+                    source,
+                    len(boxes),
+                    "已读和未读" if include_read else "未读",
+                    limit,
+                )
             for box in boxes:
                 try:
                     messages = await asyncio.to_thread(
@@ -329,7 +334,7 @@ async def setup(ctx):
                     stats["messages"] += len(messages)
                 except Exception as exc:
                     stats["failed"] += 1
-                    ctx.log.error(f"[邮件集] {box['email']} {source}失败：{exc}")
+                    ctx.log.error(f"{box['email']} {source}失败：{exc}")
                     continue
 
                 for raw_msg in messages:
@@ -359,30 +364,44 @@ async def setup(ctx):
                             if code:
                                 msg["验证码"] = code
                                 msg["AI 识别"] = "已确认验证码"
-                                ctx.log.info(f"[邮件集] AI 验证码识别成功：{box['email']} / {subject}")
+                                ctx.log.info(f"AI 验证码识别成功：{box['email']} / {subject}")
                             else:
                                 msg["AI 识别"] = "未识别到验证码"
                         except Exception as exc:
-                            ctx.log.warning(f"[邮件集] AI 验证码识别失败，使用本地结果：{exc}")
+                            ctx.log.warning(f"AI 验证码识别失败，使用本地结果：{exc}")
                     if cfg.get("ai_summary_enabled", False):
                         try:
                             summary = await _ai_summary(ctx, msg, cfg)
                             if summary:
                                 msg["AI 概要"] = summary
                                 msg.pop("内容", None)
-                                ctx.log.info(f"[邮件集] AI 概要生成成功：{box['email']} / {subject}")
+                                ctx.log.info(f"AI 概要生成成功：{box['email']} / {subject}")
                         except Exception as exc:
-                            ctx.log.warning(f"[邮件集] AI 概要生成失败，推送原邮件：{exc}")
+                            ctx.log.warning(f"AI 概要生成失败，推送原邮件：{exc}")
                     rows = [{"项目": key_name, "内容": str(value)} for key_name, value in msg.items() if value]
                     try:
-                        await ctx.notify(rows, category="邮件集")
+                        delivery = await ctx.notify(rows, category="邮件集", format="rich")
+                        if delivery is None or delivery is False or (
+                            isinstance(delivery, list) and not delivery
+                        ):
+                            raise RuntimeError("平台通知渠道未返回投递结果")
                     except Exception as exc:
                         stats["failed"] += 1
-                        ctx.log.error(f"[邮件集] 推送失败 {box['email']} / {subject}：{exc}")
+                        ctx.log.error(f"通知失败 {box['email']} / {subject}：{exc}")
                         continue
                     seen.add(key)
                     stats["pushed"] += 1
-                    ctx.log.info(f"[邮件集] 已推送 {box['email']}：{subject}")
+                    # 新平台 Bot 投递返回 True，旧平台返回非空结果列表。
+                    # 两代平台回退到主账号收藏夹时都直接返回 Telegram Message。
+                    if delivery is True or (isinstance(delivery, list) and delivery):
+                        ctx.log.info(f"通知渠道已投递 {box['email']}：{subject}")
+                    else:
+                        stats["fallback"] += 1
+                        ctx.log.warning(
+                            "Bot 通知渠道未成功投递，平台已回退到主账号收藏夹：%s / %s；"
+                            "请在插件配置窗口底部选择可用的通知 Bot",
+                            box["email"], subject,
+                        )
 
             if len(seen) > 2000:
                 seen = set(list(seen)[-1000:])
@@ -393,7 +412,10 @@ async def setup(ctx):
                 f"发现 {stats['messages']} 封，推送 {stats['pushed']} 封，"
                 f"过滤 {stats['skipped']} 封，失败 {stats['failed']} 项。"
             )
-            ctx.log.info("[邮件集] %s", stats["message"])
+            if stats["fallback"]:
+                stats["message"] += f"其中 {stats['fallback']} 封回退到主账号收藏夹。"
+            if not automatic or stats["messages"] or stats["failed"]:
+                ctx.log.info("%s", stats["message"])
             return stats
 
     async def monitor():
@@ -413,7 +435,7 @@ async def setup(ctx):
 
     @ctx.on_api("/check", methods=["POST"])
     async def api_check(request):
-        ctx.log.info("[邮件集] 配置页已触发立即检查")
+        ctx.log.info("配置页已触发立即检查")
         return await check_now()
 
     @ctx.on_api("/status", methods=["GET"])
@@ -421,11 +443,11 @@ async def setup(ctx):
         return {"running": check_lock.locked()}
 
     if (ctx.config or {}).get("enabled"):
-        task=ctx.create_task(monitor(), name="邮件集·IMAP监控"); ctx.log.info("[邮件集] IMAP 监控已启动")
+        task=ctx.create_task(monitor(), name="邮件集·IMAP监控"); ctx.log.info("IMAP 监控已启动")
     async def cleanup():
         if task and not task.done(): task.cancel(); await asyncio.gather(task, return_exceptions=True)
     ctx.add_cleanup(cleanup)
 
 
 async def teardown(ctx):
-    ctx.log.info("[邮件集] 插件已停用")
+    ctx.log.info("插件已停用")
