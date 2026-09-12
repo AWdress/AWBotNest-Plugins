@@ -22,6 +22,7 @@ __plugin__ = {
     "changelog": "v0.0.1 首次发布\n- 使用 AWBotNest V2 原生可取消后台任务、异步存储和平台通知接口\n- 支持多邮箱、验证码提取、关键词过滤、全部推送和历史去重",
     "scope": "user",
     "plugin_api_version": 2,
+    "tags": ["邮件监控", "验证码", "通知推送"],
     "default_enabled": False,
     "requirements": [],
     "config_schema": {

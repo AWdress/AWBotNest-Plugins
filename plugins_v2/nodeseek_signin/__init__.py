@@ -20,6 +20,7 @@ __plugin__ = {
     "changelog": "v0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
     "scope": "user",
     "plugin_api_version": 2,
+    "tags": ["NodeSeek", "自动签到", "论坛工具"],
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
     "config_schema": {
