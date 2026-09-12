@@ -10,10 +10,13 @@ from urllib.parse import urlparse
 
 __plugin__ = {'name': '平台迁移助手',
  'id': 'config_migration',
- 'version': '1.1.3',
+ 'version': '1.1.4',
  'author': 'AWdress',
  'description': '通过 V1 配置迁移源，将系统设置和插件配置安全迁移到 AWBotNest 2。',
- 'changelog': 'v1.1.3 迁移合并后的消息转发配置\n'
+ 'changelog': 'v1.1.4 补齐敏感字段显示按钮\n'
+              '- V1 Webhook 密钥与一次性迁移码默认隐藏并提供眼睛按钮\n'
+              '- 点击显示时使用平台受控接口读取真实值\n\n'
+              'v1.1.3 迁移合并后的消息转发配置\n'
               '- V1 转发复读配置、账号范围、启用状态和 Bot 路由直接改写到消息转发助手\n'
               '- 同时存在消息转发配置时只补齐复读字段，不覆盖现有规则\n'
               '\n'

@@ -5,11 +5,17 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.12',
+ 'version': '2.0.13',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.12 修复 CloakBrowser 首次安装超时\n'
+ 'changelog': 'v2.0.13 修复 Cloudflare Turnstile 完整流程\n'
+              '- 区分自动验证与 Managed 验证，Audiences、OurBits 均可对真实 iframe 执行一次拟人点击\n'
+              '- Turnstile 使用有头浏览器、独立 90 秒验证窗口和第三方挑战 Cookie 支持\n'
+              '- 记录实际 Chromium 内核版本与授权层级，旧版内核给出明确升级提示\n'
+              '- 代理模式完全交给 GeoIP，同步 Cookie 不再覆盖持久 profile 的 Cloudflare 通行状态\n'
+              '\n'
+              'v2.0.12 修复 CloakBrowser 首次安装超时\n'
               '- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n'
               '- 内核下载自动使用平台代理，放宽连接与大文件读取超时并对短暂网络错误重试\n'
               '- 内核缓存改存插件持久数据目录，Docker 更新或重启后无需重新下载\n'

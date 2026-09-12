@@ -5,6 +5,9 @@ import asyncio
 import hashlib
 import os
 import re
+import shutil
+import subprocess
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 __plugin__ = {
-    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.8", "author": "AWdress",
+    "name": "NodeSeek 签到", "id": "nodeseek_signin", "version": "0.0.10", "author": "AWdress",
     "description": "NodeSeek 论坛自动签到，支持多 Cookie、账密自动登录、Cookie 刷新和定时执行。",
     "icon": "https://raw.githubusercontent.com/SAGIRIxr/MoviePilot-Plugins/main/icons/Nodeseek_A.png",
     "changelog": "v0.0.8 改进多账号账密配置\n- 账号密码改为逐账号添加和删除，不再填写整段分隔文本\n- 每个密码独立隐藏并可按需显示，旧格式启动时自动迁移且不丢失账号\n- 保留多 Cookie 按账号顺序对应和失效后自动登录逻辑\n\nv0.0.7 修复重复签到识别与通知\n- HTTP 400 但提示今天已签到或请勿重复操作时按成功处理\n- 通知发送增加开始、完成、跳过与失败日志，避免通知异常静默\n- 立即签到和后台任务异常均输出明确日志\n\nv0.0.6 修复 Docker Turnstile 超时\n- 使用登录页原生 Turnstile 控件及站点参数，不再额外创建缺少 action/cData 的验证控件\n- 原生令牌未签发时受控重置并刷新页面重试一次\n- Docker 检测到 Xvfb 显示器时自动改用虚拟有头 CloakBrowser，并固定持久指纹\n\nv0.0.5 适配平台敏感配置规范\n- Cookie 与账号密码改为受控显示的 password 字段，避免公开接口泄露\n- 多账号改用“ & ”分隔的单行格式，并自动迁移旧换行配置\n- 移除对平台 Settings 的直接修改，停用的打码配置通过隐藏兼容字段安全清空\n\nv0.0.4 改用浏览器原生验证\n- 移除 YesCaptcha、2Captcha、验证码 API 地址和 Client Key 配置\n- 使用真实 CloakBrowser 持久会话完成 Cloudflare 页面验证并获取 NodeSeek Turnstile 登录令牌\n- Cookie 失效后直接通过账密自动登录，不再依赖第三方打码服务\n- Cookie 与账号密码改为直接显示，首次启用自动补齐默认配置\n\nv0.0.3 修正独立运行与配置保存\n- 调整为独立插件，不再为每个 Telegram 用户重复创建签到实例\n- 按平台 schema 规范修正多行密钥和数值字段，解决账密被错误填充及保存失败\n\nv0.0.2 新增账密自动登录\n- Cookie 失效时通过 CloakBrowser 重新登录并完成签到\n- 登录成功后自动回写新 Cookie，多账号严格按顺序对应\n- 修正 NodeSeek 签到 API 地址和 Cloudflare 拦截识别\n\nv0.0.1 首次发布\n- 使用 AWBotNest V2 原生异步存储、生命周期、定时任务和动作接口\n- 支持多账号 Cookie、签到奖励解析、历史记录和立即签到",
@@ -48,9 +51,29 @@ __plugin__ = {
     },
 }
 
+__plugin__["changelog"] = (
+    "v0.0.9 修复 Cloudflare Turnstile 完整流程\n"
+    "- 自动验证超时后识别真实 Managed iframe 并执行一次拟人点击\n"
+    "- Docker 自动启动 Xvfb，非 Docker 使用有头模式，代理 GeoIP 不再被固定中国时区覆盖\n"
+    "- 不再导入跨指纹 cf_clearance，补充实际 Chromium 版本和旧内核诊断\n\n"
+    + __plugin__["changelog"]
+)
+
+__plugin__["changelog"] = (
+    "v0.0.10 复核 Cookie 与密码独立显隐\n"
+    "- NodeSeek Cookie 默认隐藏并提供独立眼睛按钮\n"
+    "- 多账号密码逐行默认隐藏，每行可单独显示平台受控读取的真实值\n\n"
+    + __plugin__["changelog"]
+)
+
 SIGNIN_PAGE = "https://www.nodeseek.com/signIn.html"
 ATTENDANCE_API = "https://www.nodeseek.com/api/attendance"
 COOKIE_RE = re.compile(r"(?:^|;)\s*([^=;\s]+)=([^;]*)")
+_TURNSTILE_AUTO_GRACE_SECONDS = 8
+_CLOUDFLARE_SESSION_COOKIES = {"cf_clearance", "__cf_bm"}
+_xvfb_lock = threading.Lock()
+_xvfb_process: subprocess.Popen | None = None
+_xvfb_display = ""
 
 
 def _cookies(raw: str) -> List[str]:
@@ -119,45 +142,185 @@ def _signin_one(cookie: str, reward: bool, timeout: int) -> Dict[str, Any]:
         return {"ok": False, "refresh": False, "message": f"请求失败：{exc}"}
 
 
+def _is_cloudflare_session_cookie(name: object) -> bool:
+    normalized = str(name or "").strip().lower()
+    return normalized in _CLOUDFLARE_SESSION_COOKIES or normalized.startswith("cf_chl_")
+
+
+def _ensure_docker_display(ctx) -> str:
+    """Start or reuse an Xvfb display so Turnstile gets a real headed browser."""
+    global _xvfb_display, _xvfb_process
+    current = str(os.environ.get("DISPLAY") or "").strip()
+    if current or not os.path.exists("/.dockerenv"):
+        return current
+    with _xvfb_lock:
+        current = str(os.environ.get("DISPLAY") or "").strip()
+        if current:
+            return current
+        socket_dir = Path("/tmp/.X11-unix")
+        if socket_dir.is_dir():
+            socket = next(
+                (item for item in sorted(socket_dir.glob("X*")) if item.name[1:].isdigit()),
+                None,
+            )
+            if socket is not None:
+                current = f":{socket.name[1:]}"
+                os.environ["DISPLAY"] = current
+                return current
+        executable = shutil.which("Xvfb")
+        if not executable:
+            ctx.log.warning("[NodeSeek签到] 容器未安装 Xvfb，只能回退无头模式")
+            return ""
+        display_number = next(
+            (number for number in range(90, 111) if not (socket_dir / f"X{number}").exists()),
+            None,
+        )
+        if display_number is None:
+            ctx.log.warning("[NodeSeek签到] 没有可用的 Xvfb 显示器编号，只能回退无头模式")
+            return ""
+        current = f":{display_number}"
+        try:
+            process = subprocess.Popen(
+                [executable, current, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            ctx.log.warning("[NodeSeek签到] Xvfb 启动异常（%s），只能回退无头模式", type(exc).__name__)
+            return ""
+        socket_path = socket_dir / f"X{display_number}"
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and process.poll() is None and not socket_path.exists():
+            time.sleep(0.1)
+        if process.poll() is not None or not socket_path.exists():
+            if process.poll() is None:
+                process.terminate()
+            ctx.log.warning("[NodeSeek签到] Xvfb 启动失败，只能回退无头模式")
+            return ""
+        _xvfb_process = process
+        _xvfb_display = current
+        os.environ["DISPLAY"] = current
+        ctx.log.info("[NodeSeek签到] 已启动 Xvfb %s，使用虚拟有头 CloakBrowser", current)
+        return current
+
+
+def _cloakbrowser_binary_details(cloakbrowser) -> Dict[str, Any]:
+    try:
+        return dict(cloakbrowser.binary_info(release_channel="preview") or {})
+    except TypeError:
+        return dict(cloakbrowser.binary_info() or {})
+    except Exception as exc:
+        return {"version": "未知", "tier": "未知", "error": type(exc).__name__}
+
+
+def _read_turnstile_token(page) -> str:
+    return str(page.evaluate("""() => {
+      const field = document.querySelector(
+        'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]'
+      );
+      if (field && String(field.value || '').trim()) return String(field.value).trim();
+      try {
+        return window.turnstile?.getResponse ? String(window.turnstile.getResponse() || '').trim() : '';
+      } catch (_) { return ''; }
+    }""") or "").strip()
+
+
+def _click_managed_turnstile(page) -> str:
+    """Click the real Managed widget once; never click an empty outer container."""
+    frames = [
+        frame for frame in page.frames
+        if "challenges.cloudflare.com" in str(getattr(frame, "url", "") or "")
+    ]
+    for frame in frames:
+        try:
+            checkbox = frame.locator('input[type="checkbox"]').first
+            if checkbox.count() and checkbox.is_visible() and checkbox.is_enabled():
+                checkbox.click(timeout=3_000)
+                return "iframe 内原生 checkbox"
+        except Exception:
+            continue
+    try:
+        iframe = page.locator(
+            'iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]'
+        ).first
+        if iframe.count() and iframe.is_visible():
+            box = iframe.bounding_box()
+            if box and box["width"] >= 80 and box["height"] >= 40:
+                page.mouse.click(
+                    box["x"] + min(32, box["width"] / 4),
+                    box["y"] + box["height"] / 2,
+                )
+                return f"Cloudflare iframe 坐标 {round(box['width'])}x{round(box['height'])}"
+    except Exception:
+        pass
+    return ""
+
+
+def _wait_turnstile_token(page, timeout_seconds: int) -> Dict[str, Any]:
+    deadline = time.monotonic() + max(1, int(timeout_seconds))
+    started = time.monotonic()
+    click_detail = ""
+    while time.monotonic() < deadline:
+        try:
+            token = _read_turnstile_token(page)
+        except Exception:
+            token = ""
+        if token:
+            return {"token": token, "managedClicked": bool(click_detail), "clickDetail": click_detail}
+        if not click_detail and time.monotonic() - started >= _TURNSTILE_AUTO_GRACE_SECONDS:
+            click_detail = _click_managed_turnstile(page)
+        time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
+    return {
+        "token": "",
+        "managedClicked": bool(click_detail),
+        "clickDetail": click_detail,
+        "error": f"登录页原生 Turnstile 未在 {timeout_seconds} 秒内签发令牌",
+    }
+
+
+def _wait_nodeseek_app(page, timeout_seconds: int) -> Dict[str, Any]:
+    """Wait for NodeSeek's app bundle while handling a full-page Managed challenge."""
+    deadline = time.monotonic() + max(1, int(timeout_seconds))
+    started = time.monotonic()
+    click_detail = ""
+    while time.monotonic() < deadline:
+        try:
+            ready = bool(page.evaluate(
+                "()=>performance.getEntriesByType('resource').some("
+                "e=>/\\/assets\\/preLogin-[^/]*\\.js/.test(e.name))"
+            ))
+        except Exception:
+            ready = False
+        if ready:
+            return {"ready": True, "managedClicked": bool(click_detail), "clickDetail": click_detail}
+        if not click_detail and time.monotonic() - started >= _TURNSTILE_AUTO_GRACE_SECONDS:
+            click_detail = _click_managed_turnstile(page)
+        time.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
+    return {
+        "ready": False,
+        "managedClicked": bool(click_detail),
+        "clickDetail": click_detail,
+        "error": "Cloudflare 页面验证未完成，NodeSeek 登录页面尚未加载",
+    }
+
+
 def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int):
     def action(page):
-        def wait_app_ready(limit: int = 40) -> bool:
-            deadline = time.monotonic() + limit
-            while time.monotonic() < deadline:
-                try:
-                    if page.evaluate("()=>performance.getEntriesByType('resource').some(e=>/\\/assets\\/preLogin-[^/]*\\.js/.test(e.name))"):
-                        return True
-                except Exception:
-                    pass
-                time.sleep(1)
-            return False
-
-        try:
-            page.wait_for_load_state("networkidle", timeout=30_000)
-        except Exception:
-            pass
-        if not wait_app_ready():
-            return {"phase": "cf-fail", "captchaError": "Cloudflare 页面验证未完成，NodeSeek 登录页面尚未加载"}
-        script = r"""
-        async ({username, password, reward, captchaTimeout}) => {
-          const out = {phase: 'start'}; let preMod = null;
-          async function turnstileToken() {
-            const readToken = () => {
-              const field = document.querySelector('input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]');
-              if (field && field.value) return field.value;
-              try { return window.turnstile && window.turnstile.getResponse ? window.turnstile.getResponse() : ''; } catch (_) { return ''; }
-            };
-            const started = Date.now(); let reset = false;
-            while (Date.now() - started < captchaTimeout * 1000) {
-              const current = readToken();
-              if (current) return current;
-              if (!reset && Date.now() - started > 12000 && window.turnstile?.reset) {
-                try { window.turnstile.reset(); reset = true; out.nativeReset = true; } catch (_) {}
-              }
-              await new Promise(resolve => setTimeout(resolve, 500));
+        # page.goto() has already reached DOMContentLoaded. Waiting for networkidle
+        # here can postpone a Managed click by 30 seconds on challenge pages.
+        app_state = _wait_nodeseek_app(page, 40)
+        if not app_state.get("ready"):
+            return {
+                "phase": "cf-fail",
+                "captchaError": str(app_state.get("error") or "Cloudflare 页面验证未完成"),
+                "managedClicked": bool(app_state.get("managedClicked")),
+                "turnstileClickDetail": str(app_state.get("clickDetail") or ""),
             }
-            throw new Error('登录页原生 Turnstile 未在限定时间内签发令牌');
-          }
+        script = r"""
+        async ({username, password, reward, token}) => {
+          const out = {phase: 'start'}; let preMod = null;
           async function authHeaders() {
             try {
               const urls = performance.getEntriesByType('resource').map(e => e.name);
@@ -167,8 +330,6 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
             } catch (e) { out.authError = String(e); return {}; }
           }
           try { localStorage.removeItem('security_token'); localStorage.removeItem('csrf_token'); } catch (_) {}
-          let token = '';
-          try { token = await turnstileToken(); } catch (e) { out.phase='captcha-fail'; out.captchaError=String(e); return out; }
           if (!token) { out.phase='captcha-fail'; out.captchaError='Turnstile 返回空令牌'; return out; }
           out.hasCaptchaToken = true;
           let headers = await authHeaders();
@@ -183,26 +344,82 @@ def _browser_action(user: str, password: str, reward: bool, captcha_timeout: int
           out.phase='done'; return out;
         }
         """
-        first_timeout = min(30, captcha_timeout)
-        result = page.evaluate(script, {"username": user, "password": password, "reward": reward, "captchaTimeout": first_timeout}) or {}
-        if result.get("phase") == "captcha-fail" and captcha_timeout > first_timeout:
+        first_timeout = min(60, captcha_timeout)
+        challenge = _wait_turnstile_token(page, first_timeout)
+        if not challenge.get("token") and captcha_timeout > first_timeout:
+            first_click_detail = str(challenge.get("clickDetail") or "")
             try:
                 page.reload(wait_until="domcontentloaded", timeout=60_000)
-                if wait_app_ready(30):
-                    result = page.evaluate(script, {
-                        "username": user,
-                        "password": password,
-                        "reward": reward,
-                        "captchaTimeout": captcha_timeout - first_timeout,
-                    }) or {}
-                    result["pageReloaded"] = True
+                reload_state = _wait_nodeseek_app(page, 30)
+                if reload_state.get("ready"):
+                    retried = _wait_turnstile_token(page, captcha_timeout - first_timeout)
+                    click_details = [
+                        detail for detail in (
+                            first_click_detail,
+                            str(reload_state.get("clickDetail") or ""),
+                            str(retried.get("clickDetail") or ""),
+                        ) if detail
+                    ]
+                    retried["managedClicked"] = bool(click_details)
+                    retried["clickDetail"] = "；".join(dict.fromkeys(click_details))
+                    retried["pageReloaded"] = True
+                    challenge = retried
+                else:
+                    click_details = [
+                        detail for detail in (
+                            first_click_detail,
+                            str(reload_state.get("clickDetail") or ""),
+                        ) if detail
+                    ]
+                    challenge = {
+                        "token": "",
+                        "error": str(reload_state.get("error") or "刷新后 NodeSeek 登录页面仍未加载"),
+                        "managedClicked": bool(click_details),
+                        "clickDetail": "；".join(dict.fromkeys(click_details)),
+                        "pageReloaded": True,
+                    }
             except Exception as exc:
-                result = {"phase": "captcha-fail", "captchaError": f"原生 Turnstile 页面刷新失败：{exc}"}
+                challenge = {
+                    "token": "",
+                    "error": f"原生 Turnstile 页面刷新失败：{exc}",
+                    "managedClicked": bool(first_click_detail),
+                    "clickDetail": first_click_detail,
+                    "pageReloaded": True,
+                }
+        token = str(challenge.get("token") or "")
+        if token:
+            result = page.evaluate(script, {
+                "username": user,
+                "password": password,
+                "reward": reward,
+                "token": token,
+            }) or {}
+        else:
+            result = {
+                "phase": "captcha-fail",
+                "captchaError": str(challenge.get("error") or "Turnstile 返回空令牌"),
+            }
+        all_click_details = [
+            detail for detail in (
+                str(app_state.get("clickDetail") or ""),
+                str(challenge.get("clickDetail") or ""),
+            ) if detail
+        ]
+        result["managedClicked"] = bool(all_click_details)
+        result["turnstileClickDetail"] = "；".join(dict.fromkeys(all_click_details))
+        if challenge.get("pageReloaded"):
+            result["pageReloaded"] = True
         try:
             cookies = page.context.cookies()
         except Exception:
             cookies = []
-        pairs = {item.get("name"): item.get("value") for item in cookies if item.get("name") and "nodeseek.com" in str(item.get("domain") or "") and item.get("name") != "cf_clearance"}
+        pairs = {
+            item.get("name"): item.get("value")
+            for item in cookies
+            if item.get("name")
+            and "nodeseek.com" in str(item.get("domain") or "")
+            and not _is_cloudflare_session_cookie(item.get("name"))
+        }
         result["cookie"] = "; ".join(f"{key}={value}" for key, value in pairs.items())
         return result
     return action
@@ -212,6 +429,7 @@ def _cookie_items(raw: str) -> List[Dict[str, str]]:
     return [
         {"name": name, "value": value, "url": "https://www.nodeseek.com"}
         for name, value in COOKIE_RE.findall(str(raw or ""))
+        if not _is_cloudflare_session_cookie(name)
     ]
 
 
@@ -221,37 +439,54 @@ def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str 
     profile_dir = Path(ctx.data_dir) / "cloakbrowser_profiles" / profile_name
     profile_dir.parent.mkdir(parents=True, exist_ok=True)
     proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
-    display = str(os.environ.get("DISPLAY") or "").strip()
-    if not display and os.path.exists("/.dockerenv"):
-        socket_dir = Path("/tmp/.X11-unix")
-        if socket_dir.is_dir():
-            socket = next((item for item in sorted(socket_dir.glob("X*")) if item.name[1:].isdigit()), None)
-            if socket is not None:
-                display = f":{socket.name[1:]}"
-                os.environ["DISPLAY"] = display
+    in_docker = os.path.exists("/.dockerenv")
+    display = _ensure_docker_display(ctx) if in_docker else str(os.environ.get("DISPLAY") or "").strip()
     fingerprint_seed = int(hashlib.sha256(str(profile_dir).encode("utf-8")).hexdigest()[:8], 16)
     options: Dict[str, Any] = {
-        "headless": not bool(display and os.path.exists("/.dockerenv")),
-        "locale": "zh-CN",
-        "timezone": "Asia/Shanghai",
+        "headless": bool(in_docker and not display),
         "humanize": True,
         "human_preset": "careful",
         "release_channel": "preview",
-        "args": [f"--fingerprint={fingerprint_seed}"],
+        "args": [
+            f"--fingerprint={fingerprint_seed}",
+            "--fingerprint-allow-3p-cookies",
+            "--fingerprint-storage-quota=5000",
+        ],
     }
     if proxy_url:
         options.update({"proxy": proxy_url, "geoip": True})
+    else:
+        options.update({"locale": "zh-CN", "timezone": "Asia/Shanghai"})
+        ctx.log.warning("[NodeSeek签到] 未配置代理；数据中心出口可能触发 Managed Turnstile")
     context = None
     try:
         context = cloakbrowser.launch_persistent_context(str(profile_dir), **options)
+        binary = _cloakbrowser_binary_details(cloakbrowser)
+        version = str(binary.get("version") or "未知")
+        tier = str(binary.get("tier") or "未知")
+        ctx.log.info(
+            "[NodeSeek签到] 实际 CloakBrowser Chromium %s（%s，%s）",
+            version,
+            tier,
+            "虚拟有头" if in_docker and display else ("无头" if options["headless"] else "有头"),
+        )
+        try:
+            major = int(version.split(".", 1)[0])
+        except (TypeError, ValueError):
+            major = 0
+        if major and major < 151:
+            ctx.log.warning(
+                "[NodeSeek签到] 当前为旧版 keyless 内核；请配置 CLOAKBROWSER_LICENSE_KEY（GitHub 免费 key 也可）使用 Chromium 151"
+            )
         if clean_login:
-            clearance = [
+            cloudflare_state = [
                 item for item in (context.cookies() or [])
-                if item.get("name") == "cf_clearance" and "nodeseek.com" in str(item.get("domain") or "")
+                if _is_cloudflare_session_cookie(item.get("name"))
+                and "nodeseek.com" in str(item.get("domain") or "")
             ]
             context.clear_cookies()
-            if clearance:
-                context.add_cookies(clearance)
+            if cloudflare_state:
+                context.add_cookies(cloudflare_state)
         if cookie:
             context.add_cookies(_cookie_items(cookie))
         pages = list(getattr(context, "pages", []) or [])
@@ -269,19 +504,15 @@ def _cloakbrowser_run(ctx, action, profile_name: str, timeout: int, cookie: str 
 
 def _browser_cookie_action(reward: bool):
     def action(page):
-        try:
-            page.wait_for_load_state("networkidle", timeout=60_000)
-        except Exception:
-            pass
-        deadline = time.monotonic() + 40
-        while time.monotonic() < deadline:
-            try:
-                ready = page.evaluate("()=>performance.getEntriesByType('resource').some(e=>/\\/assets\\/preLogin-[^/]*\\.js/.test(e.name))")
-                if ready:
-                    break
-            except Exception:
-                pass
-            time.sleep(2)
+        # The app-ready loop below covers normal resource loading and Cloudflare
+        # transitions without delaying Managed interaction behind networkidle.
+        app_state = _wait_nodeseek_app(page, 60)
+        if not app_state.get("ready"):
+            return {
+                "error": str(app_state.get("error") or "NodeSeek 页面未加载"),
+                "managedClicked": bool(app_state.get("managedClicked")),
+                "turnstileClickDetail": str(app_state.get("clickDetail") or ""),
+            }
         script = r"""
         async ({reward}) => {
           const out = {};
@@ -296,7 +527,10 @@ def _browser_cookie_action(reward: bool):
           return out;
         }
         """
-        return page.evaluate(script, {"reward": reward}) or {}
+        result = page.evaluate(script, {"reward": reward}) or {}
+        result["managedClicked"] = bool(app_state.get("managedClicked"))
+        result["turnstileClickDetail"] = str(app_state.get("clickDetail") or "")
+        return result
     return action
 
 
@@ -307,6 +541,11 @@ async def _signin_with_browser_cookie(ctx, cookie: str, reward: bool, index: int
         ) or {}
     except Exception as exc:
         return {"ok": False, "refresh": False, "message": f"CloakBrowser Cookie 签到失败：{exc}"}
+    if raw.get("managedClicked"):
+        ctx.log.info(
+            "[NodeSeek签到] Cookie 会话已对 Cloudflare Managed 验证单击一次（%s）",
+            raw.get("turnstileClickDetail") or "真实 Cloudflare iframe",
+        )
     data = raw.get("body") or {}
     message = str(data.get("message") or raw.get("error") or f"HTTP {raw.get('status')}")
     ok, already = _signin_status(data, message)
@@ -333,6 +572,11 @@ async def _login_and_signin(ctx, account: Dict[str, str], config: Dict[str, Any]
         ) or {}
     except Exception as exc:
         return {"ok": False, "message": f"自动登录失败：{exc}", "cookie": ""}
+    if raw.get("managedClicked"):
+        ctx.log.info(
+            "[NodeSeek签到] 已对 Managed Turnstile 单击一次（%s）",
+            raw.get("turnstileClickDetail") or "真实 Cloudflare iframe",
+        )
     if raw.get("phase") in {"cf-fail", "captcha-fail"}:
         return {"ok": False, "message": f"自动登录失败：{raw.get('captchaError') or '页面未签发 Turnstile 令牌'}", "cookie": ""}
     login_body = raw.get("loginBody") or {}
@@ -463,11 +707,22 @@ async def setup(ctx):
         else: ctx.log.error(f"[NodeSeek签到] Cron 必须是五段表达式：{config.get('cron')}")
 
     async def cleanup():
+        global _xvfb_display, _xvfb_process
         nonlocal active
         for job in scheduled:
             try: job.cancel() if hasattr(job, "cancel") else None
             except Exception: pass
         if active and not active.done(): active.cancel(); await asyncio.gather(active, return_exceptions=True)
+        if _xvfb_process is not None and _xvfb_process.poll() is None:
+            _xvfb_process.terminate()
+            try:
+                _xvfb_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                _xvfb_process.kill()
+        if _xvfb_display and os.environ.get("DISPLAY") == _xvfb_display:
+            os.environ.pop("DISPLAY", None)
+        _xvfb_process = None
+        _xvfb_display = ""
     ctx.add_cleanup(cleanup)
 
 

@@ -5,12 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'AWEmbyPush',
  'id': 'awembypush',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'scope': 'standalone',
  'author': 'AWdress',
  'description': '监听 Emby/Jellyfin 入库 Webhook，经 TMDB 增强/剧集合并/去重后，通过 Telegram/企业微信/Bark 推送精美媒体通知。（自 MoviePilot 插件移植）自带 '
                 'Vue 配置界面 + 最近推送/测试推送。',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 补齐敏感字段显示按钮\n'
+              '- TMDB API Key、Telegram Bot Token 与企业微信 Secret 默认隐藏\n'
+              '- 点击眼睛后显示平台受控读取的真实值，不再停留在脱敏占位符\n\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

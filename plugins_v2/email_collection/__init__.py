@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.10",
+    "version": "0.0.11",
     "author": "AWdress",
     "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
@@ -64,6 +64,13 @@ __plugin__ = {
         "check_now": {"type": "action", "label": "立即检查", "action": "check_now", "help": "立即回查近期已读和未读邮件，已处理邮件不会重复推送。", "section": "操作", "cols": 6, "order": 40},
     },
 }
+
+__plugin__["changelog"] = (
+    "v0.0.11 复核授权码独立显隐\n"
+    "- 多邮箱授权码继续逐行默认隐藏，每行提供独立眼睛按钮\n"
+    "- 邮箱列表由平台受控读取真实值，避免显示脱敏占位符\n\n"
+    + __plugin__["changelog"]
+)
 
 PROVIDER_HOSTS = {
     "qq": "imap.qq.com",

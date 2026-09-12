@@ -5,11 +5,14 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': '趣味答题',
  'id': 'quiz_game',
- 'version': '2.0.0',
+ 'version': '2.0.1',
  'author': 'AWdress',
  'description': '群内答题游戏：发「开启答题」出题，群友抢答，答对自动发魔力奖励，支持连胜加成。AI或天行出题。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/quiz_game.png',
- 'changelog': 'v2.0.0 原生 AWBotNest V2 迁移\n'
+ 'changelog': 'v2.0.1 补齐密钥显示按钮\n'
+              '- 天行数据 Key 默认隐藏并提供眼睛按钮\n'
+              '- 点击显示时使用平台受控接口读取真实值\n\n'
+              'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'
               '- 保留原有功能、配置项和运行数据\n'
               '- 移除 V1 兼容运行层\n'

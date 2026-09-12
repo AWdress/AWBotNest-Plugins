@@ -82,6 +82,7 @@ const loading = ref(true)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
+const secretVisible = reactive({ api_key: false })
 const cfg = reactive({ ...DEFAULTS })
 const countries = ref([])
 const runOutput = ref('')
@@ -100,6 +101,7 @@ const enabledCount = computed(() => SOURCE_ENABLE_KEYS.filter(k => cfg[k]).lengt
 onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
+    if (saved?.api_key === '********') saved.api_key = await props.host.revealSecret('api_key')
     Object.assign(cfg, DEFAULTS, saved || {})
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
@@ -257,8 +259,11 @@ function switchTab(t) {
               <div class="grid">
                 <label class="row"><span>地址</span>
                   <input v-model="cfg.api_url" class="inp" placeholder="https://你的域名/api/openapi" /></label>
-                <label class="row"><span>密钥</span>
-                  <input v-model="cfg.api_key" class="inp" type="password" placeholder="X-API-Key" /></label>
+                <label class="row"><span>密钥</span><div class="secret-field">
+                  <input v-model="cfg.api_key" class="inp" :type="secretVisible.api_key ? 'text' : 'password'" placeholder="X-API-Key" />
+                  <button type="button" :aria-label="secretVisible.api_key ? '隐藏密钥' : '显示密钥'" @click="secretVisible.api_key = !secretVisible.api_key">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button></div></label>
               </div>
               <div class="row"><button class="btn" :disabled="testing" @click="testConn">{{ testing ? '测试中…' : '测试连接' }}</button></div>
             </section>
@@ -514,6 +519,11 @@ function switchTab(t) {
 .row.switch { justify-content: flex-start; }
 .row.switch span { min-width: 0; }
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
+.secret-field { position: relative; flex: 1; min-width: 0; }
+.secret-field .inp { width: 100%; padding-right: 44px; }
+.secret-field button { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted, #7a8291); cursor: pointer; }
+.secret-field button:hover { color: var(--accent, #6ea8fe); background: var(--accent-dim, #1e3a5f); }
+.secret-field svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
 .inp {
   flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px;
   background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0);

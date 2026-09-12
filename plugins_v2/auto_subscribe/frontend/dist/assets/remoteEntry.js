@@ -2,8 +2,8 @@ const currentImports = {};
       const exportSet = new Set(['Module', '__esModule', 'default', '_export_sfc']);
       let moduleMap = {
 "./Config":()=>{
-      dynamicLoadingCss(["__federation_expose_Config-DS066BSg.css"], false, './Config');
-      return __federation_import('/api/plugins/auto_subscribe/fe/assets/__federation_expose_Config-ctRcFp_N.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
+      dynamicLoadingCss(["__federation_expose_Config-BTMiDj7N.css"], false, './Config');
+      return __federation_import('/api/plugins/auto_subscribe/fe/assets/__federation_expose_Config-CBvPiSHh.js').then(module =>Object.keys(module).every(item => exportSet.has(item)) ? () => module.default : () => module)},};
       const seen = {};
       const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName) => {
         const metaUrl = import.meta.url;

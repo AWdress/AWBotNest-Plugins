@@ -5,11 +5,12 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '2.0.5',
+ 'version': '2.0.6',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://cdn.simpleicons.org/emby',
- 'changelog': 'v2.0.5 适配平台敏感配置读取规范\n- Emby 与 TMDB API Key 均声明为敏感字段，配置接口统一返回掩码\n- 配置页显示按钮改用平台 revealSecret 接口，管理员确认后才读取真实密钥\n\nv2.0.4 优化 Genre 扫描速度与进度日志\n- 先使用媒体库批量结果筛选候选条目，仅对确需修改的条目读取完整详情\n- 增加扫描数量、更新数量和每 50 条进度日志，避免长时间无反馈\n\nv2.0.3 增强别名缓存与 Genre 中文化\n- 别名写入成功后持久化记录，后续扫描命中缓存直接跳过，避免重复请求和更新\n- Genre 映射内置常见英文到中文映射，同时保留自定义 JSON 覆盖\n- 增加 Genre 中文化命中、跳过和更新日志，更新 GenreItems 名称并保留已有 ID\n\n'
+ 'changelog': 'v2.0.6 补齐密钥显示按钮\n- Emby 与 TMDB API Key 默认隐藏并提供独立眼睛按钮\n- 配置页读取脱敏值时通过平台受控接口取得真实密钥\n\n'
+              'v2.0.5 适配平台敏感配置读取规范\n- Emby 与 TMDB API Key 均声明为敏感字段，配置接口统一返回掩码\n- 配置页显示按钮改用平台 revealSecret 接口，管理员确认后才读取真实密钥\n\nv2.0.4 优化 Genre 扫描速度与进度日志\n- 先使用媒体库批量结果筛选候选条目，仅对确需修改的条目读取完整详情\n- 增加扫描数量、更新数量和每 50 条进度日志，避免长时间无反馈\n\nv2.0.3 增强别名缓存与 Genre 中文化\n- 别名写入成功后持久化记录，后续扫描命中缓存直接跳过，避免重复请求和更新\n- Genre 映射内置常见英文到中文映射，同时保留自定义 JSON 覆盖\n- 增加 Genre 中文化命中、跳过和更新日志，更新 GenreItems 名称并保留已有 ID\n\n'
               'v2.0.2 统一富文本表格通知\n- 定时维护和任务结果改为平台结构化表格\n\n'
               'v2.0.1 修复 Emby API 客户端逻辑\n'
               '- 使用 VirtualFolders 正确解析媒体库 ID，并兼容旧版 Views 接口\n'

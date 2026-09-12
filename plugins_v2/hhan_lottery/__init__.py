@@ -9,11 +9,12 @@ except ImportError:
 
 __plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'author': 'AWdress',
  'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
- 'changelog': 'v2.0.2 修复多行通知显示\n- 转盘运行摘要按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+ 'changelog': 'v2.0.3 补齐 Cookie 显示按钮\n- 手动 Cookie 默认隐藏，点击眼睛后显示平台受控读取的真实值\n- 保存时兼容平台脱敏占位值，避免覆盖已有 Cookie\n\n'
+              'v2.0.2 修复多行通知显示\n- 转盘运行摘要按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.1 统一富文本表格通知\n- 转盘、赠豆和消息管理通知统一使用结构化表格\n\n'
               'v2.0.0 原生 AWBotNest V2 迁移\n'
               '- 使用 Telethon 原生事件、调度、存储与生命周期接口\n'

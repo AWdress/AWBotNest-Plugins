@@ -1,3 +1,11 @@
-import { createApp } from 'vue'
+import { createApp, h } from 'vue'
 import Config from './Config.vue'
-createApp(Config,{host:{getConfig:async()=>({}),saveConfig:async()=>{},callApi:async()=>({ok:true})}}).mount('#app')
+
+const host = {
+  async getConfig() { return {} },
+  async revealSecret() { return '' },
+  async saveConfig() {},
+  async callApi() { return {ok: true} },
+  toast: {success: console.log, error: console.error},
+}
+createApp({render: () => h(Config, {pluginId: 'config_migration', host})}).mount('#app')

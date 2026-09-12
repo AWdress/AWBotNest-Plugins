@@ -21,6 +21,15 @@ import httpx
 from bs4 import BeautifulSoup
 
 
+_CHANGELOG_V2_0_13 = (
+    "v2.0.13 修复 Cloudflare Turnstile 完整流程\n"
+    "- 区分自动验证与 Managed 验证，Audiences、OurBits 均可对真实 iframe 执行一次拟人点击\n"
+    "- Turnstile 使用有头浏览器、独立 90 秒验证窗口和第三方挑战 Cookie 支持\n"
+    "- 记录实际 Chromium 内核版本与授权层级，旧版内核给出明确升级提示\n"
+    "- 代理模式完全交给 GeoIP，同步 Cookie 不再覆盖持久 profile 的 Cloudflare 通行状态\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -33,7 +42,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.12",
+    "version": "2.0.13",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -63,7 +72,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -109,13 +118,53 @@ _tjupt_pending: dict[str, dict] = {}
 _browser_cookie_cache: dict[str, str] = {}
 _xvfb_lock = threading.Lock()
 _xvfb_process: subprocess.Popen | None = None
+_xvfb_display = ""
 _cloak_binary_lock = threading.Lock()
-_cloak_binary_paths: dict[str, str] = {}
 _state = {"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0}
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
 _runtime_logs: list[dict[str, str]] = []
 _storage_state: dict = {}
 _storage_tasks: set[asyncio.Task] = set()
+
+_TURNSTILE_TIMEOUT_SECONDS = 90
+_TURNSTILE_AUTO_GRACE_SECONDS = 8
+_CLOUDFLARE_SESSION_COOKIES = {"cf_clearance", "__cf_bm"}
+
+
+def _is_cloudflare_session_cookie(name: object) -> bool:
+    """Return whether a cookie is bound to Cloudflare's browser challenge session."""
+    normalized = str(name or "").strip().lower()
+    return normalized in _CLOUDFLARE_SESSION_COOKIES or normalized.startswith("cf_chl_")
+
+
+def _cloakbrowser_binary_details(cloakbrowser, release_channel: str = "preview") -> dict:
+    """Read the binary that will actually launch; wrapper version alone is misleading."""
+    try:
+        info = cloakbrowser.binary_info(release_channel=release_channel)
+    except TypeError:
+        info = cloakbrowser.binary_info()
+    except Exception as exc:  # noqa: BLE001
+        return {"version": "未知", "tier": "未知", "error": type(exc).__name__}
+    return dict(info or {})
+
+
+def _log_cloakbrowser_binary(ctx, cloakbrowser, site_name: str, release_channel: str = "preview") -> None:
+    info = _cloakbrowser_binary_details(cloakbrowser, release_channel)
+    version = str(info.get("version") or "未知")
+    tier = str(info.get("tier") or "未知")
+    _runtime_log(ctx, f"实际 CloakBrowser Chromium {version}（{tier}）", site=site_name)
+    try:
+        major = int(version.split(".", 1)[0])
+    except (TypeError, ValueError):
+        major = 0
+    if major and major < 151:
+        _runtime_log(
+            ctx,
+            "当前为旧版 keyless 内核；官方当前 Turnstile 结果基于 Chromium 151。"
+            "请配置 CLOAKBROWSER_LICENSE_KEY（GitHub 免费 key 也可）后重试",
+            level="warning",
+            site=site_name,
+        )
 
 
 def _stored(key, default=None):
@@ -148,7 +197,7 @@ def _runtime_log(ctx, message: str, *, level: str = "info", site: str = "") -> N
 
 def _ensure_docker_display(ctx) -> str:
     """确保 Docker 内存在仅供浏览器使用的本地 Xvfb 显示器。"""
-    global _xvfb_process
+    global _xvfb_display, _xvfb_process
     current = str(os.environ.get("DISPLAY") or "").strip()
     if current or not os.path.exists("/.dockerenv"):
         return current
@@ -204,6 +253,7 @@ def _ensure_docker_display(ctx) -> str:
                 _runtime_log(ctx, "Xvfb 启动失败，未创建显示器 socket", level="error", site="Audiences")
                 return ""
             _xvfb_process = process
+            _xvfb_display = current
             os.environ["DISPLAY"] = current
             _runtime_log(ctx, f"插件已启动 Xvfb 虚拟显示器 {current}", site="Audiences")
             return current
@@ -273,15 +323,7 @@ def _prepare_cloakbrowser_binary(ctx, channel: str = "stable") -> str:
     """串行准备 CloakBrowser 内核，并为 Docker 首次大文件下载放宽超时。"""
     _configure_cloakbrowser_cache(ctx)
     normalized_channel = "preview" if str(channel).lower() == "preview" else "stable"
-    cached = _cloak_binary_paths.get(normalized_channel)
-    if cached and Path(cached).exists():
-        return cached
-
     with _cloak_binary_lock:
-        cached = _cloak_binary_paths.get(normalized_channel)
-        if cached and Path(cached).exists():
-            return cached
-
         import cloakbrowser.download as cloak_download
 
         previous_timeout = getattr(cloak_download, "DOWNLOAD_TIMEOUT", None)
@@ -303,7 +345,6 @@ def _prepare_cloakbrowser_binary(ctx, channel: str = "stable") -> str:
             for attempt in range(2):
                 try:
                     path = str(cloak_download.ensure_binary(release_channel=normalized_channel))
-                    _cloak_binary_paths[normalized_channel] = path
                     return path
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
@@ -1149,23 +1190,52 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
     return _browser_checkin(page, site["domain"], ctx, loop)
 
 
+def _click_managed_turnstile(page) -> str:
+    """Click a real Cloudflare Managed iframe once; never click the empty host widget."""
+    frames = [
+        frame for frame in page.frames
+        if "challenges.cloudflare.com" in str(getattr(frame, "url", "") or "")
+    ]
+    for frame in frames:
+        try:
+            checkbox = frame.locator('input[type="checkbox"]').first
+            if checkbox.count() and checkbox.is_visible() and checkbox.is_enabled():
+                checkbox.click(timeout=3_000)
+                return "iframe 内原生 checkbox"
+        except Exception:
+            continue
+    try:
+        iframe = page.locator(
+            'iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]'
+        ).first
+        if iframe.count() and iframe.is_visible():
+            box = iframe.bounding_box()
+            if box and box["width"] >= 80 and box["height"] >= 40:
+                page.mouse.click(
+                    box["x"] + min(32, box["width"] / 4),
+                    box["y"] + box["height"] / 2,
+                )
+                return f"Cloudflare iframe 坐标，尺寸 {round(box['width'])}x{round(box['height'])}"
+    except Exception:
+        pass
+    return ""
+
+
 def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds: int = 30) -> dict:
     """等待 NexusPHP Turnstile 回调提交，只接受明确的服务端结果。"""
     is_audiences = expected_domain.lower() == "audiences.me"
     site_name = "Audiences" if is_audiences else "OurBits"
     form_selector = "#attendance-form" if is_audiences else "#attendance"
-    timeout_seconds = max(1, min(30, int(timeout_seconds)))
+    timeout_seconds = max(1, min(120, int(timeout_seconds)))
     deadline = time.monotonic() + timeout_seconds
     started_at = time.monotonic()
     click_count = 0
     token_logged = False
     empty_widget_logged = False
-    # Docker 中 Turnstile 的验证时间明显长于本地。短间隔反复点击会干扰甚至
-    # 重置正在执行的 challenge，因此只在首次及长时间无结果时有限重试。
-    retry_after = (0,)
+    # 非交互式验证先获得一个完整的自动签发窗口。只有 Cloudflare 真正生成
+    # Managed iframe 后才点击一次，避免误点空的站点外层容器。
     while time.monotonic() < deadline:
         text = _page_text(page)
-        html = page.content()
         state = _nexus_result_state(text)
         if state:
             if state[0] == "failed":
@@ -1215,44 +1285,22 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
             frame for frame in page.frames
             if "challenges.cloudflare.com" in str(getattr(frame, "url", "") or "")
         ]
-        # Managed Turnstile 在 Docker 指纹下可能显示可交互复选框。
-        # 先访问 frame 内的原生复选框，再以 iframe 可视坐标作为兜底。
-        # Audiences 在正常浏览器中会自动验证，不应主动点击；OurBits 保留交互路径。
+        # Managed Turnstile 在 Docker/低信誉出口下可能显示可交互复选框。
+        # Audiences 与 OurBits 都可能动态切换到 Managed，不能按站点永久禁用点击。
         should_click = (
-            not is_audiences
-            and click_count < len(retry_after)
-            and elapsed >= retry_after[click_count]
+            click_count == 0
+            and elapsed >= _TURNSTILE_AUTO_GRACE_SECONDS
         )
         if should_click:
-            clicked = False
-            click_detail = ""
-            for frame in challenge_frames:
-                try:
-                    checkbox = frame.locator('input[type="checkbox"]')
-                    if checkbox.count() and checkbox.first.is_visible() and checkbox.first.is_enabled():
-                        checkbox.first.click(timeout=3_000)
-                        clicked = True
-                        click_detail = "iframe 内原生 checkbox"
-                        break
-                except Exception:
-                    continue
-            if not clicked:
-                try:
-                    iframe = page.locator('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare" i]').first
-                    if iframe.count() and iframe.is_visible():
-                        box = iframe.bounding_box()
-                        if box and box["width"] >= 80 and box["height"] >= 40:
-                            # Managed Turnstile 复选框位于 iframe 左侧约 30px 处。
-                            page.mouse.click(box["x"] + min(32, box["width"] / 4), box["y"] + box["height"] / 2)
-                            clicked = True
-                            click_detail = f"Cloudflare iframe 坐标，尺寸 {round(box['width'])}x{round(box['height'])}"
-                except Exception:
-                    pass
-            if clicked:
+            click_detail = _click_managed_turnstile(page)
+            if click_detail:
                 click_count += 1
                 if ctx is not None:
-                    suffix = "，等待验证完成" if click_count == 1 else "，此前验证长时间无结果"
-                    _runtime_log(ctx, f"已点击 Turnstile 验证框（第 {click_count} 次；{click_detail}{suffix}）", site=site_name)
+                    _runtime_log(
+                        ctx,
+                        f"已对 Managed Turnstile 单击一次（{click_detail}），等待验证完成",
+                        site=site_name,
+                    )
             elif ctx is not None and not challenge_frames and not empty_widget_logged:
                 _runtime_log(
                     ctx,
@@ -1261,7 +1309,7 @@ def _turnstile_checkin(page, expected_domain: str, ctx=None, *, timeout_seconds:
                     site=site_name,
                 )
                 empty_widget_logged = True
-        wait_seconds = 2.0 if "cf-turnstile-response" in html or page.locator('input[name="cf-token"]').count() > 0 else 1.0
+        wait_seconds = 2.0
         wait_seconds = min(wait_seconds, max(0.0, deadline - time.monotonic()))
         time.sleep(wait_seconds)
     try:
@@ -1320,20 +1368,24 @@ def _turnstile_fingerprint_seed(data_dir: str | os.PathLike, key: str) -> int:
 
 
 def _legacy_storage_cookies(state_path: Path) -> list[dict]:
-    """首次改用真实 profile 时迁移旧 storage_state 中的 Cloudflare Cookie。"""
+    """迁移站点会话，但不复制与旧浏览器指纹绑定的 Cloudflare Cookie。"""
     try:
         payload = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, TypeError, ValueError):
         return []
     cookies = payload.get("cookies", []) if isinstance(payload, dict) else []
-    return [item for item in cookies if isinstance(item, dict) and item.get("name")]
+    return [
+        item for item in cookies
+        if isinstance(item, dict)
+        and item.get("name")
+        and not _is_cloudflare_session_cookie(item.get("name"))
+    ]
 
 
 def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headless: bool) -> dict:
     """使用 CloakBrowser 官方推荐参数处理 NexusPHP Turnstile。"""
     import cloakbrowser
 
-    deadline = time.monotonic() + 30
     data_dir = Path(ctx.data_dir)
     site_name = str(site["name"])
     site_domain = str(site["domain"])
@@ -1345,7 +1397,11 @@ def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headle
     proxy_url = str(getattr(getattr(ctx, "settings", None), "proxy_url", "") or "").strip()
     launch_options = {
         "headless": headless,
-        "args": [f"--fingerprint={fingerprint_seed}"],
+        "args": [
+            f"--fingerprint={fingerprint_seed}",
+            "--fingerprint-allow-3p-cookies",
+            "--fingerprint-storage-quota=5000",
+        ],
         "release_channel": "preview",
         "humanize": True,
         "human_preset": "careful",
@@ -1367,6 +1423,14 @@ def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headle
         f"{'GeoIP 跟随代理' if proxy_url else '直连中国时区'}）",
         site=site_name,
     )
+    _log_cloakbrowser_binary(ctx, cloakbrowser, site_name, "preview")
+    if not proxy_url:
+        _runtime_log(
+            ctx,
+            "未配置代理；数据中心出口 IP 可能被 Cloudflare 直接升级为 Managed 验证",
+            level="warning",
+            site=site_name,
+        )
 
     context = page = None
     try:
@@ -1390,33 +1454,32 @@ def _turnstile_site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headle
             migration_marker.parent.mkdir(parents=True, exist_ok=True)
             migration_marker.write_text("1", encoding="utf-8")
 
-        # CookieCloud 的最新站点 Cookie 覆盖 profile 中的同名值；未同步的
-        # Cloudflare 通行状态、缓存和站点存储由真实 profile 持续保留。
+        # 普通站点 Cookie 由 CookieCloud 更新；Cloudflare 通行状态与浏览器
+        # 指纹、出口 IP 绑定，只能保留当前 CloakBrowser profile 自己签发的值。
         items = []
         for part in str(cookie or "").split(";"):
             name, separator, value = part.strip().partition("=")
-            if separator and name:
+            if separator and name and not _is_cloudflare_session_cookie(name):
                 items.append({"name": name, "value": value, "url": site_url})
         if items:
             context.add_cookies(items)
 
-        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
-        if remaining_ms <= 1:
-            raise RuntimeError(f"{site_name} CloakBrowser 30 秒内未完成启动，本轮已跳过")
         try:
             page.goto(
                 site_url,
                 wait_until="domcontentloaded",
-                timeout=remaining_ms,
+                timeout=60_000,
             )
         except Exception as exc:
-            if time.monotonic() >= deadline or "timeout" in str(exc).lower():
-                raise RuntimeError(f"{site_name} CloakBrowser 30 秒内没有取得页面结果，本轮已跳过") from exc
+            if "timeout" in str(exc).lower():
+                raise RuntimeError(f"{site_name} CloakBrowser 60 秒内没有取得页面结果，本轮已跳过") from exc
             raise
+        # 浏览器启动和页面导航不再挤占验证时间。
+        deadline = time.monotonic() + _TURNSTILE_TIMEOUT_SECONDS
         if key == "audiences":
             _runtime_log(
                 ctx,
-                "按 CloakBrowser 原生流程静默等待 Turnstile 自动验证，不点击或重建控件",
+                "先等待 Turnstile 自动验证；如出现 Managed 复选框，将对真实 iframe 单击一次",
                 site=site_name,
             )
             # 原生 sleep 不产生 Playwright waitForTimeout CDP 指令。
@@ -1516,9 +1579,13 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *,
     page.set_default_timeout(20_000)
     challenge_reload_done = False
     piggo_reentries = 0
+    challenge_started_at = time.monotonic()
+    challenge_click_detail = ""
     for challenge_round in range(100):
         if deadline is not None and time.monotonic() >= deadline:
-            raise RuntimeError("Audiences CloakBrowser 30 秒内没有取得页面结果，本轮已跳过")
+            raise RuntimeError(
+                f"{expected_domain} CloakBrowser {_TURNSTILE_TIMEOUT_SECONDS} 秒内没有取得页面结果，本轮已跳过"
+            )
         title = (page.title() or "").lower()
         text = _page_text(page).lower()
         path = urlparse(page.url).path or "/"
@@ -1537,6 +1604,18 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *,
         )) or piggo_security_shell
         if not challenged:
             break
+        if (
+            expected_domain.lower() in {"audiences.me", "ourbits.club"}
+            and not challenge_click_detail
+            and time.monotonic() - challenge_started_at >= _TURNSTILE_AUTO_GRACE_SECONDS
+        ):
+            challenge_click_detail = _click_managed_turnstile(page)
+            if challenge_click_detail and ctx is not None:
+                _runtime_log(
+                    ctx,
+                    f"已对 Cloudflare 页面 Managed 验证单击一次（{challenge_click_detail}）",
+                    site="Audiences" if expected_domain.lower() == "audiences.me" else "OurBits",
+                )
         # PigGo 雷池完成验证时可能停在只含 Cloudflare / Privacy 的空壳根页。
         # 给脚本时间写入通行 Cookie，再受控重进签到页，避免把空壳当业务页面。
         if piggo_security_shell and challenge_round in {3, 10, 25}:
@@ -1575,7 +1654,7 @@ def _browser_checkin(page, expected_domain: str, ctx=None, loop=None, *,
         raise RuntimeError("签到页面不可用或当前账号没有访问权限")
     if expected_domain.lower() in {"audiences.me", "ourbits.club"} \
             and page.locator("form .cf-turnstile").count() > 0:
-        remaining = 30 if deadline is None else max(1, int(deadline - time.monotonic()))
+        remaining = _TURNSTILE_TIMEOUT_SECONDS if deadline is None else max(1, int(deadline - time.monotonic()))
         return _turnstile_checkin(page, expected_domain, ctx, timeout_seconds=remaining)
     captcha = _captcha_error(text)
     if captcha:
@@ -1986,25 +2065,33 @@ async def _run(ctx, source: str) -> dict:
                         _runtime_log(ctx, browser_reason, level="warning", site=site["name"])
 
                         if outcome is None:
-                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"piggo", "hhan"} else (30 if key in {"audiences", "ourbits"} else 150))
+                            browser_timeout = 720 if key == "tjupt" else (300 if key in {"piggo", "hhan"} else (150 if key in {"audiences", "ourbits"} else 150))
                             browser_headless = bool(cfg.get("headless", True))
-                            if key in {"audiences", "ourbits"} and os.path.exists("/.dockerenv"):
-                                display = _ensure_docker_display(ctx)
-                                if display:
-                                    # Docker 镜像由 xvfb-run 提供不可见的虚拟显示器。Turnstile 对
-                                    # Linux 无头指纹更敏感，因此 Turnstile 站点在容器内自动使用虚拟
-                                    # 有头模式；窗口仅存在于 Xvfb，不会显示到用户桌面。
+                            if key in {"audiences", "ourbits"}:
+                                if os.path.exists("/.dockerenv"):
+                                    display = _ensure_docker_display(ctx)
+                                    if display:
+                                        # Docker 中由 Xvfb 承载真实有头窗口，不会显示到用户桌面。
+                                        browser_headless = False
+                                        _runtime_log(
+                                            ctx,
+                                            f"Docker 虚拟显示器 {display} 已就绪，使用虚拟有头 CloakBrowser",
+                                            site=site["name"],
+                                        )
+                                    else:
+                                        _runtime_log(
+                                            ctx,
+                                            f"Docker 无可用 DISPLAY，{site['name']} 只能回退无头模式",
+                                            level="warning",
+                                            site=site["name"],
+                                        )
+                                else:
+                                    # 官方针对激进 Turnstile 的推荐配置要求 headed；仅两站覆盖
+                                    # 通用“静默运行”开关，避免降低其余站点的后台体验。
                                     browser_headless = False
                                     _runtime_log(
                                         ctx,
-                                        f"Docker 虚拟显示器 {display} 已就绪，使用虚拟有头 CloakBrowser",
-                                        site=site["name"],
-                                    )
-                                else:
-                                    _runtime_log(
-                                        ctx,
-                                        f"Docker 无可用 DISPLAY，{site['name']} 只能回退无头模式",
-                                        level="warning",
+                                        "Turnstile 站点强制使用有头 CloakBrowser",
                                         site=site["name"],
                                     )
                             _runtime_log(
@@ -2042,7 +2129,7 @@ async def _run(ctx, source: str) -> dict:
                                 ctx,
                                 site["name"],
                                 "CloakBrowser 正在等待安全验证或页面结果",
-                                max_wait=40 if key == "audiences" else browser_timeout + 30,
+                                max_wait=browser_timeout + 30,
                             )
                     status = str((outcome or {}).get("status") or "success")
                     if status == "failed":
@@ -2242,6 +2329,7 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    global _xvfb_display, _xvfb_process
     _state.update({"running": False, "current": "", "phase": "", "message": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
@@ -2259,3 +2347,13 @@ async def teardown(ctx):
         await asyncio.gather(*list(_storage_tasks), return_exceptions=True)
     _storage_tasks.clear()
     _storage_state.clear()
+    if _xvfb_process is not None and _xvfb_process.poll() is None:
+        _xvfb_process.terminate()
+        try:
+            _xvfb_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            _xvfb_process.kill()
+    if _xvfb_display and os.environ.get("DISPLAY") == _xvfb_display:
+        os.environ.pop("DISPLAY", None)
+    _xvfb_process = None
+    _xvfb_display = ""
