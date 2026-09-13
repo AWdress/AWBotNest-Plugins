@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -32,13 +32,13 @@ __plugin__ = {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "推送签到结果", "section": "功能开关", "order": 2},
         "accounts": {
-            "type": "list", "default": [], "secret": True,
+            "type": "list", "default": [],
             "label": "贴吧账号", "item_label": "账号",
             "help": "逐个添加账号；Cookie 默认隐藏，可按行点击眼睛查看。",
             "section": "账号", "cols": 12, "order": 10,
             "fields": {
                 "name": {"type": "string", "label": "账号名称"},
-                "cookie": {"type": "password", "label": "Cookie"},
+                "cookie": {"type": "password", "label": "Cookie", "secret": True},
             },
         },
         # 旧版本/误填配置可能残留顶层 cookie；隐藏声明仅用于一次性清理，界面不展示。
@@ -53,6 +53,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.0.9 修复保存后账号列表恢复\n"
+    "- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n"
+    "- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\n"
     "v0.0.8 修复残留 Cookie 导致保存失败\n"
     "- 兼容清理旧配置中的顶层 Cookie 键，避免平台提示包含未声明配置项\n"
     "- 旧 Cookie 启动时自动转入首个账号并清空隐藏旧字段，界面仍保持逐账号配置\n\n"

@@ -3301,7 +3301,7 @@
     "bilibili_signin": {
       "name": "B站每日综合签到",
       "id": "bilibili_signin",
-      "version": "0.0.8",
+      "version": "0.0.9",
       "author": "AWdress",
       "scope": "standalone",
       "plugin_api_version": 2,
@@ -3312,7 +3312,7 @@
       "config_schema": {
         "enabled": {"type": "boolean", "default": false, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": true, "label": "推送签到结果", "section": "功能开关", "order": 2},
-        "accounts": {"type": "list", "default": [], "secret": true, "label": "B站账号", "item_label": "账号", "help": "逐个添加账号；建议使用浏览器无痕窗口登录 B 站后复制 Cookie，避免顶掉日常登录会话。Cookie 默认隐藏，可按行点击眼睛查看。", "section": "账号", "cols": 12, "order": 10, "fields": {"name": {"type": "string", "label": "账号名称"}, "cookie": {"type": "password", "label": "Cookie"}}},
+        "accounts": {"type": "list", "default": [], "label": "B站账号", "item_label": "账号", "help": "逐个添加账号；建议使用浏览器无痕窗口登录 B 站后复制 Cookie，避免顶掉日常登录会话。Cookie 默认隐藏，可按行点击眼睛查看。", "section": "账号", "cols": 12, "order": 10, "fields": {"name": {"type": "string", "label": "账号名称"}, "cookie": {"type": "password", "label": "Cookie", "secret": true}}},
         "cookie": {"type": "password", "default": "", "secret": true, "show_if": {"_legacy_cookie_visible": true}, "label": ""},
         "share": {"type": "boolean", "default": true, "label": "每日分享签到", "section": "签到项目", "order": 20},
         "heartbeat": {"type": "boolean", "default": true, "label": "每日观看签到", "section": "签到项目", "order": 21},
@@ -3332,7 +3332,7 @@
     "tieba_signin": {
       "name": "百度贴吧签到",
       "id": "tieba_signin",
-      "version": "0.0.8",
+      "version": "0.0.9",
       "author": "AWdress",
       "scope": "standalone",
       "plugin_api_version": 2,
@@ -3343,7 +3343,7 @@
       "config_schema": {
         "enabled": {"type": "boolean", "default": false, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": true, "label": "推送签到结果", "section": "功能开关", "order": 2},
-        "accounts": {"type": "list", "default": [], "secret": true, "label": "贴吧账号", "item_label": "账号", "help": "逐个添加账号；Cookie 默认隐藏，可按行点击眼睛查看。", "section": "账号", "cols": 12, "order": 10, "fields": {"name": {"type": "string", "label": "账号名称"}, "cookie": {"type": "password", "label": "Cookie"}}},
+        "accounts": {"type": "list", "default": [], "label": "贴吧账号", "item_label": "账号", "help": "逐个添加账号；Cookie 默认隐藏，可按行点击眼睛查看。", "section": "账号", "cols": 12, "order": 10, "fields": {"name": {"type": "string", "label": "账号名称"}, "cookie": {"type": "password", "label": "Cookie", "secret": true}}},
         "cookie": {"type": "password", "default": "", "secret": true, "show_if": {"_legacy_cookie_visible": true}, "label": ""},
         "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "section": "签到设置", "order": 20},
         "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
