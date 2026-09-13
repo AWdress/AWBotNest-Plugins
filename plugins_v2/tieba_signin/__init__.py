@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -53,6 +53,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.1.1 修复已签到识别\n"
+    "- 识别贴吧接口返回的已签到、签过到和重复签到提示\n"
+    "- 通知状态显示为“已签到”，不再把重复签到报成失败\n\n"
     "v0.1.0 修复贴吧签到结果判定\n"
     "- 不再把 HTTP 200 或接口返回空值误判为成功，失败数量大于零时明确标记失败\n\n"
     "v0.0.9 修复保存后账号列表恢复\n"
@@ -174,6 +177,11 @@ def _message(body: dict, text: str = "") -> str:
     return str(text or "").strip()[:180]
 
 
+def _already_signed(text: str) -> bool:
+    value = str(text or "").lower()
+    return any(marker in value for marker in ("已签到", "已经签到", "签过到", "重复签到", "already signed", "already"))
+
+
 def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> Dict[str, Any]:
     name = account.get("name") or "默认账号"
     session = requests.Session()
@@ -204,10 +212,14 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
             log.info("[百度贴吧签到] [%s] 获取关注贴吧 %d 个，共 %d 页", name, len(bars), pages)
 
         individual_failed = 0
+        individual_already = 0
         for bar in bars:
             response = session.post(SIGN_API, data={"ie": "utf-8", "kw": bar, "tbs": tbs}, timeout=timeout)
             body = _json(response)
-            if response.status_code not in (200, 201) or (body and body.get("no") not in (None, 0, "0")):
+            message = _message(body, response.text)
+            if _already_signed(message):
+                individual_already += 1
+            elif response.status_code not in (200, 201) or (body and body.get("no") not in (None, 0, "0")):
                 individual_failed += 1
             if delay:
                 time.sleep(delay)
@@ -219,12 +231,16 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
         failed = int(body.get("signedForumAmountFail") or individual_failed or 0)
         unsigned = int(body.get("unsignedForumAmount") or 0)
         success_marker = any(marker in text.lower() for marker in ("success", "forums is signed", "there is no forum"))
+        already = _already_signed(text) or individual_already >= len(bars) > 0
+        if already and individual_failed == 0:
+            # 部分版本的一键接口会把“今日已签到”计入失败字段，不能因此误报失败。
+            failed = 0
         # 一键接口 HTTP 200 不等于签到成功；例如 signed=0、fail=72 表示全部失败。
         # 只有明确签到数量、明确无关注贴吧，或接口返回无失败的成功标记时才算成功。
-        completed = signed > 0 or (not bars and failed == 0 and unsigned == 0) or (success_marker and failed == 0)
-        if summary.status_code != 200 or (not body and not success_marker) or not completed or failed > 0:
+        completed = signed > 0 or already or (not bars and failed == 0 and unsigned == 0) or (success_marker and failed == 0)
+        if summary.status_code != 200 or (not body and not success_marker and not already) or not completed or failed > 0:
             return {"ok": False, "name": name, "message": _message(body, text) or f"一键签到失败：HTTP {summary.status_code}", "signed": signed, "failed": failed, "unsigned": unsigned}
-        return {"ok": True, "name": name, "message": "贴吧签到完成", "signed": signed, "failed": failed, "unsigned": unsigned, "bars": len(bars)}
+        return {"ok": True, "already": already and signed == 0, "name": name, "message": "今天已经签到" if already and signed == 0 else "贴吧签到完成", "signed": signed, "failed": failed, "unsigned": unsigned, "bars": len(bars)}
     except requests.RequestException as exc:
         return {"ok": False, "name": name, "message": f"网络请求失败：{exc}"}
     except Exception as exc:  # noqa: BLE001
@@ -294,7 +310,7 @@ async def setup(ctx):
             await save_results(results, source)
             rows = []
             for item in results:
-                rows.append({"账号": item.get("name", "-"), "状态": "成功" if item.get("ok") else "失败", "已签到": item.get("signed", "-"), "失败": item.get("failed", "-"), "未签到": item.get("unsigned", "-"), "详情": item.get("message", "")})
+                rows.append({"账号": item.get("name", "-"), "状态": "已签到" if item.get("already") else ("成功" if item.get("ok") else "失败"), "已签到": item.get("signed", "-"), "失败": item.get("failed", "-"), "未签到": item.get("unsigned", "-"), "详情": item.get("message", "")})
             if ctx.config.get("notify", True):
                 try:
                     await asyncio.wait_for(ctx.notify(rows, category="百度贴吧签到"), timeout=30)
