@@ -47,7 +47,8 @@ DEFAULTS = {
     "api_url": "", "api_key": "",
     "schedule": "0 8 * * *", "notify": True, "ai_assist_recognition": False,
     "auto_fill_missing": False, "auto_fill_missing_limit": 20,
-    "auto_subscribe_missing": False, "auto_subscribe_missing_limit": 20,
+    # 缺集自动订阅不设每轮上限；保留旧字段仅为兼容历史配置。
+    "auto_subscribe_missing": False, "auto_subscribe_missing_limit": 0,
     "min_year": 0, "min_vote": 0, "min_popularity": 0, "media_type": "all",
     # 豆瓣
     "douban_enabled": False, "douban_ranks": ["movie-hot-gaia", "tv-hot"],
@@ -302,7 +303,6 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
     else:
         items = []
 
-    limit = max(1, min(int(cfg.get("auto_subscribe_missing_limit", 20) or 20), 100))
     stats = {"checked": len(items), "added": 0, "skipped": 0, "failed": 0}
     added_titles: list[str] = []
 
@@ -342,11 +342,12 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
 
     if log:
         log.info(
-            "[自动订阅] 缺集订阅：检索到 %d 条，已订阅跳过 %d 条，待新增 %d 条，本轮新增上限 %d",
-            len(items), stats["skipped"], len(pending), limit,
+            "[自动订阅] 缺集订阅：检索到 %d 条，已订阅跳过 %d 条，待新增 %d 条，本轮将全部处理",
+            len(items), stats["skipped"], len(pending),
         )
 
-    for item, tmdb_id, title, media_type in pending[:limit]:
+    # 缺集补订不再按每轮上限截断；开启该功能即一次处理当前返回的全部未订阅项目。
+    for item, tmdb_id, title, media_type in pending:
         try:
             ok, message = client.add(tmdb_id, media_type, item.get("season"))
             if ok:

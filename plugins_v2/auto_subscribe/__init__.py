@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.0.7',
+ 'version': '2.0.8',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -113,3 +113,9 @@ async def teardown(ctx):
     await _core_teardown(ctx)
 
 __plugin__["name"] = 'NextFind 助手'
+__plugin__["changelog"] = (
+    'v2.0.8 缺集订阅一次处理全部未订阅项目\n'
+    '- 移除每轮 100 条截断，开启缺集自动订阅后一次处理当前返回的全部未订阅项目\n'
+    '- 活跃订阅仍先交叉去重，已订阅项目不会重复调用或占用处理量\n\n'
+    + __plugin__["changelog"]
+)
