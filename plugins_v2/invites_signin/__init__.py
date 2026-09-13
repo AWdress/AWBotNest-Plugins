@@ -14,11 +14,11 @@ import requests
 __plugin__ = {
     "name": "药丸签到",
     "id": "invites_signin",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "description": "invites.fun 药丸论坛自动签到，支持账号密码登录、Cookie 保活、定时签到和历史记录。",
     "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/invites.png",
-    "changelog": "v0.0.5 适配平台正式调度规范\n- 签到与保活任务只使用平台正式 schedule_cron 和 schedule_interval 接口\n- 保持账号登录、令牌刷新和异步存储行为不变\n\nv0.0.4 修复令牌签到并适配敏感配置规范\n- 修复账号登录成功后被匿名首页 userId=0 覆盖、仍误报 Cookie 失效的问题\n- 访问令牌分支直接调用用户签到接口，不再混入匿名页面 CSRF\n- Cookie 和密码恢复为敏感字段，支持平台受控显示按钮\n\nv0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
+    "changelog": "v0.0.6 修复真实签到接口与 Cookie 回写\n- 改用药丸站官方 POST /api/checkin，禁止将用户资料更新响应误判为签到成功\n- 登录/保活建立新会话后自动合并并回写 Cookie 配置\n\nv0.0.5 适配平台正式调度规范\n- 签到与保活任务只使用平台正式 schedule_cron 和 schedule_interval 接口\n- 保持账号登录、令牌刷新和异步存储行为不变\n\nv0.0.4 修复令牌签到并适配敏感配置规范\n- 修复账号登录成功后被匿名首页 userId=0 覆盖、仍误报 Cookie 失效的问题\n- 访问令牌分支直接调用用户签到接口，不再混入匿名页面 CSRF\n- Cookie 和密码恢复为敏感字段，支持平台受控显示按钮\n\nv0.0.3 修复配置显示与自动登录反馈\n- Cookie、账号密码配置改为直接显示，避免平台掩码影响检查和保存\n- 首次启用自动写入 schema 默认值，配置页不再出现应有内容为空\n- Cookie 失效时明确记录账号登录、令牌保存和重新签到结果\n- 未填写完整账密时给出可操作提示，不再只显示 Cookie 已失效\n\nv0.0.2 新增账号密码自动登录\n- Cookie 未配置或已失效时，使用账号密码调用论坛原生登录接口\n- 登录令牌保存在插件专用 KV，后续签到和保活自动复用\n- 令牌失效时自动重新登录，不再要求手动更新 Cookie\n\nv0.0.1 首次发布\n- 移植药丸论坛签到、连续签到天数与药丸余额记录\n- 使用 AWBotNest V2 原生定时、异步存储、动作和生命周期接口\n- 保留每小时 Cookie 保活，并提供可见的最近运行状态\n- 签到结果统一使用平台富文本表格通知",
     "scope": "standalone",
     "plugin_api_version": 2,
     "tags": ["药丸论坛", "自动签到", "账号登录", "Cookie保活"],
@@ -90,6 +90,7 @@ __plugin__ = {
 BASE_URL = "https://invites.fun"
 USER_API = f"{BASE_URL}/api/users"
 TOKEN_API = f"{BASE_URL}/api/token"
+CHECKIN_API = f"{BASE_URL}/api/checkin"
 SESSION_RE = re.compile(r'"session"\s*:\s*\{[^{}]*?"userId"\s*:\s*(\d+)[^{}]*?"csrfToken"\s*:\s*"([^"]+)"', re.S)
 CSRF_RE = re.compile(r'"csrfToken"\s*:\s*"([^"]+)"')
 USER_RE = re.compile(r'"userId"\s*:\s*(\d+)')
@@ -123,6 +124,22 @@ def _headers(cookie: str = "", access_token: str = "") -> Dict[str, str]:
     return headers
 
 
+def _cookie_header(cookie_jar, base: str = "") -> str:
+    """将 requests 会话 CookieJar 与原 Cookie 合并为可回写配置的字符串。"""
+    try:
+        values = {}
+        for part in str(base or "").split(";"):
+            if "=" in part:
+                name, value = part.strip().split("=", 1)
+                if name:
+                    values[name] = value
+        for item in cookie_jar:
+            values[item.name] = item.value
+        return "; ".join(f"{name}={value}" for name, value in values.items())
+    except Exception:
+        return ""
+
+
 def _message_from_response(response: requests.Response) -> str:
     try:
         body = response.json()
@@ -139,8 +156,9 @@ def _message_from_response(response: requests.Response) -> str:
 
 
 def _login(username: str, password: str, timeout: int) -> Dict[str, Any]:
+    session = requests.Session()
     try:
-        response = requests.post(
+        response = session.post(
             TOKEN_API,
             headers={**_headers(), "Content-Type": "application/json"},
             json={"identification": username, "password": password, "remember": True},
@@ -159,50 +177,46 @@ def _login(username: str, password: str, timeout: int) -> Dict[str, Any]:
     user_id = str(body.get("userId") or "").strip() if isinstance(body, dict) else ""
     if not token or not user_id or user_id == "0":
         return {"ok": False, "message": "账号登录成功但未返回有效会话令牌"}
-    return {"ok": True, "message": "账号登录成功", "access_token": token, "user_id": user_id}
+    return {
+        "ok": True,
+        "message": "账号登录成功",
+        "access_token": token,
+        "user_id": user_id,
+        "cookie": _cookie_header(session.cookies),
+    }
 
 
 def _signin(cookie: str, timeout: int, access_token: str = "", known_user_id: str = "") -> Dict[str, Any]:
     session = requests.Session()
     headers = _headers(cookie, access_token)
-    if access_token and known_user_id and known_user_id != "0":
-        # Token API 登录与浏览器 Cookie 会话相互独立。匿名首页固定包含
-        # userId=0 和匿名 CSRF，不能用它覆盖登录接口返回的真实用户 ID。
-        user_id = known_user_id
-        csrf_token = ""
-    else:
-        try:
-            home = session.get(BASE_URL, headers=headers, timeout=timeout)
-        except Exception as exc:
-            return {"ok": False, "message": f"访问药丸论坛失败：{exc}"}
-        if home.status_code != 200:
-            return {"ok": False, "message": f"访问药丸论坛失败：HTTP {home.status_code}"}
+    # Flarum 签到扩展要求先访问首页建立会话并取得 CSRF，再调用
+    # POST /api/checkin。即使使用 Token 登录，也不能跳过这一步，否则会
+    # 收到 csrf_token_mismatch；known_user_id 仅用于保留登录接口返回的用户 ID。
+    try:
+        home = session.get(BASE_URL, headers=headers, timeout=timeout)
+    except Exception as exc:
+        return {"ok": False, "message": f"访问药丸论坛失败：{exc}"}
+    if home.status_code != 200:
+        return {"ok": False, "message": f"访问药丸论坛失败：HTTP {home.status_code}"}
 
-        match = SESSION_RE.search(home.text or "")
-        if match:
-            user_id, csrf_token = match.groups()
-        else:
-            csrf = CSRF_RE.search(home.text or "")
-            user = USER_RE.search(home.text or "")
-            if not user:
-                return {"ok": False, "auth_failed": True, "message": "页面中未找到已登录会话，Cookie 可能已失效"}
-            user_id = user.group(1)
-            csrf_token = csrf.group(1) if csrf else ""
+    match = SESSION_RE.search(home.text or "")
+    parsed_user_id = match.group(1) if match else ""
+    csrf_token = match.group(2) if match else ""
+    if not csrf_token:
+        csrf = CSRF_RE.search(home.text or "")
+        csrf_token = csrf.group(1) if csrf else home.headers.get("X-CSRF-Token", "")
+    user = USER_RE.search(home.text or "")
+    user_id = str(known_user_id or parsed_user_id or (user.group(1) if user else "")).strip()
+    if not user_id:
+        return {"ok": False, "auth_failed": True, "message": "页面中未找到已登录会话，Cookie/令牌可能已失效"}
     if user_id == "0":
         return {"ok": False, "auth_failed": True, "message": "Cookie 已失效或尚未登录"}
 
-    payload = {
-        "data": {
-            "type": "users",
-            "attributes": {"canCheckin": False, "totalContinuousCheckIn": 2},
-            "id": user_id,
-        }
-    }
-    request_headers = {**headers, "Content-Type": "application/json", "X-Http-Method-Override": "PATCH"}
+    request_headers = {**headers, "Content-Type": "application/json"}
     if csrf_token:
         request_headers["X-Csrf-Token"] = csrf_token
     try:
-        response = session.post(f"{USER_API}/{user_id}", headers=request_headers, json=payload, timeout=timeout)
+        response = session.post(CHECKIN_API, headers=request_headers, timeout=timeout)
     except Exception as exc:
         return {"ok": False, "message": f"签到请求失败：{exc}"}
 
@@ -218,6 +232,8 @@ def _signin(cookie: str, timeout: int, access_token: str = "", known_user_id: st
     try:
         body = response.json()
         attributes = body["data"]["attributes"]
+        if not isinstance(attributes, dict):
+            raise TypeError("data.attributes 不是对象")
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         return {"ok": False, "message": f"签到响应结构异常：{exc}"}
     days = attributes.get("totalContinuousCheckIn")
@@ -228,21 +244,27 @@ def _signin(cookie: str, timeout: int, access_token: str = "", known_user_id: st
         "message": "签到成功",
         "days": days,
         "money": money,
+        "cookie": _cookie_header(session.cookies, cookie),
     }
 
 
 def _keepalive(cookie: str, timeout: int, access_token: str = "", user_id: str = "") -> Dict[str, Any]:
+    session = requests.Session()
     try:
         headers = _headers(cookie, access_token)
-        response = requests.get(BASE_URL, headers=headers, timeout=timeout)
+        response = session.get(BASE_URL, headers=headers, timeout=timeout)
         if response.status_code != 200:
             return {"ok": False, "message": f"HTTP {response.status_code}"}
         match = SESSION_RE.search(response.text or "")
         valid = bool(match and match.group(1) != "0")
         if not valid and access_token and user_id:
-            probe = requests.get(f"{USER_API}/{user_id}", headers=headers, timeout=timeout)
+            probe = session.get(f"{USER_API}/{user_id}", headers=headers, timeout=timeout)
             valid = probe.status_code == 200
-        return {"ok": valid, "message": "Cookie 有效" if valid else "Cookie 已失效"}
+        return {
+            "ok": valid,
+            "message": "Cookie 有效" if valid else "Cookie 已失效",
+            "cookie": _cookie_header(session.cookies, cookie),
+        }
     except Exception as exc:
         return {"ok": False, "message": str(exc)}
 
@@ -272,6 +294,17 @@ async def setup(ctx):
             ctx.log.info("[药丸签到] 账号登录成功，新令牌已保存")
         return result
 
+    async def persist_cookie(cookie: str) -> None:
+        """登录/保活建立新会话后，将 Cookie 持久化回敏感配置。"""
+        value = str(cookie or "").strip()
+        if not value or value == str(ctx.config.get("cookie") or "").strip():
+            return
+        try:
+            ctx.update_config({"cookie": value})
+            ctx.log.info("[药丸签到] 登录会话 Cookie 已回写配置")
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("[药丸签到] Cookie 回写配置失败：%r", exc)
+
     async def signin_with_reauth(timeout: int) -> Dict[str, Any]:
         cookie = str(ctx.config.get("cookie") or "").strip()
         token = str(await ctx.storage.get("access_token", "") or "").strip()
@@ -280,24 +313,28 @@ async def setup(ctx):
         if token and user_id:
             result = await asyncio.to_thread(_signin, "", timeout, token, user_id)
             if result.get("ok") or not result.get("auth_failed"):
+                await persist_cookie(result.get("cookie"))
                 return result
             await ctx.storage.set("access_token", "")
             await ctx.storage.set("user_id", "")
         if cookie:
             result = await asyncio.to_thread(_signin, cookie, timeout)
             if result.get("ok") or not result.get("auth_failed"):
+                await persist_cookie(result.get("cookie"))
                 return result
         login = await login_with_password(timeout)
         if not login.get("ok"):
             return login
+        await persist_cookie(login.get("cookie"))
         ctx.log.info("[药丸签到] 新令牌已生效，正在重新执行签到")
         signed = await asyncio.to_thread(
             _signin,
-            "",
+            str(login.get("cookie") or ""),
             timeout,
             str(login["access_token"]),
             str(login["user_id"]),
         )
+        await persist_cookie(signed.get("cookie"))
         if signed.get("ok"):
             signed["message"] = f"账号自动登录成功；{signed.get('message') or '签到成功'}"
         return signed
@@ -387,6 +424,7 @@ async def setup(ctx):
                     str(login["access_token"]), str(login["user_id"]),
                 )
         if result.get("ok"):
+            await persist_cookie(result.get("cookie"))
             ctx.log.info("[药丸签到] Cookie 保活成功")
         else:
             ctx.log.warning("[药丸签到] Cookie 保活失败：%s", result.get("message"))
