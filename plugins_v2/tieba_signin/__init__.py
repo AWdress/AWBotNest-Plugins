@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -53,6 +53,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.1.2 增加浏览器网络回退\n"
+    "- Python HTTP 连接超时时自动切换平台浏览器，携带当前账号 Cookie 重试完整签到流程\n"
+    "- 浏览器回退同样执行关注贴吧扫描、逐吧签到和一键签到结果确认\n"
+    "- 日志明确记录切换原因，避免仅显示 0/1 而无法定位网络问题\n\n"
     "v0.1.1 修复已签到识别\n"
     "- 识别贴吧接口返回的已签到、签过到和重复签到提示\n"
     "- 通知状态显示为“已签到”，不再把重复签到报成失败\n\n"
@@ -242,9 +246,132 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
             return {"ok": False, "name": name, "message": _message(body, text) or f"一键签到失败：HTTP {summary.status_code}", "signed": signed, "failed": failed, "unsigned": unsigned}
         return {"ok": True, "already": already and signed == 0, "name": name, "message": "今天已经签到" if already and signed == 0 else "贴吧签到完成", "signed": signed, "failed": failed, "unsigned": unsigned, "bars": len(bars)}
     except requests.RequestException as exc:
-        return {"ok": False, "name": name, "message": f"网络请求失败：{exc}"}
+        # 某些运行环境的 Python TLS 出站链路不可达，但同机 Chromium 可正常访问贴吧。
+        # 标记网络错误，调用方随后使用平台浏览器携带同一 Cookie 重试完整流程。
+        return {"ok": False, "network_error": True, "name": name, "message": f"网络请求失败：{exc}"}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "name": name, "message": f"签到处理失败：{exc}"}
+
+
+async def _browser_signin_one(account: Dict[str, str], delay: int, timeout: int, browser, log=None) -> Dict[str, Any]:
+    """用平台浏览器重试贴吧签到，解决 Python TLS/出口不可达但 Chromium 可访问的环境。"""
+    name = account.get("name") or "默认账号"
+
+    def action(page):
+        script = r"""
+        async ({delayMs}) => {
+          const out = {user: null, tbs: null, likes: [], signs: [], summary: null, error: ''};
+          const request = async (url, options = {}) => {
+            const response = await fetch(url, Object.assign({credentials: 'include'}, options));
+            return {status: response.status, text: await response.text()};
+          };
+          try {
+            out.user = await request('/f/user/json_userinfo?_=' + Date.now());
+            out.tbs = await request('/dc/common/tbs?_=' + Date.now());
+            const first = await request('/f/like/mylike');
+            out.likes.push(first);
+            let pageCount = 1;
+            const m = (first.text || '').match(/(?:[?&]pn=|pn%3D)(\d+)[^>]{0,80}>\s*尾页/i);
+            if (m) pageCount = Math.max(1, Number(m[1]));
+            else {
+              const all = [...(first.text || '').matchAll(/[?&]pn=(\d+)/gi)].map(x => Number(x[1]));
+              if (all.length) pageCount = Math.max(1, ...all);
+            }
+            for (let pageNo = 2; pageNo <= pageCount; pageNo++) {
+              out.likes.push(await request('/f/like/mylike?pn=' + pageNo));
+            }
+            let tbs = '';
+            try {
+              const obj = JSON.parse(out.tbs.text || '{}');
+              tbs = String(obj.tbs || (obj.data && obj.data.tbs) || '');
+            } catch (_) {}
+            if (!tbs) {
+              const match = (out.tbs.text || '').match(/"tbs"\s*:\s*"([^"]+)"/);
+              tbs = match ? match[1] : '';
+            }
+            const bars = [];
+            for (const like of out.likes) {
+              const re = /href=["']\/f\?kw=([^"']+)["'][^>]*\btitle=["']([^"']+)/gi;
+              let match;
+              while ((match = re.exec(like.text || ''))) {
+                const value = (match[2] || match[1] || '').trim();
+                if (value && !bars.includes(value)) bars.push(value);
+              }
+            }
+            for (const bar of bars) {
+              const body = new URLSearchParams({ie: 'utf-8', kw: bar, tbs});
+              out.signs.push(await request('/sign/add', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body}));
+              if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            out.summary = await request('/tbmall/onekeySignin1', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({ie: 'utf-8', tbs})});
+            out.barCount = bars.length;
+            return out;
+          } catch (error) {
+            out.error = String(error);
+            return out;
+          }
+        }
+        """
+        return page.evaluate(script, {"delayMs": int(delay) * 1000})
+
+    try:
+        # BrowserService 会把字符串 Cookie 注入为上下文级请求头，HttpOnly Cookie 也能携带。
+        payload = await browser.run(
+            USERINFO_API,
+            action,
+            headless=True,
+            timeout=max(120, min(600, int(timeout) * 10)),
+            cookies=account["cookie"],
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "name": name, "message": f"浏览器签到失败：{exc}"}
+    if not isinstance(payload, dict):
+        return {"ok": False, "name": name, "message": "浏览器签到未返回有效结果"}
+
+    user = payload.get("user") or {}
+    user_text = str(user.get("text") or "")
+    if int(user.get("status") or 0) != 200 or "session_id" not in user_text:
+        return {"ok": False, "name": name, "message": "Cookie 已失效或未登录贴吧"}
+    tbs = payload.get("tbs") or {}
+    tbs_text = str(tbs.get("text") or "")
+    tbs_body: dict = {}
+    try:
+        value = json.loads(tbs_text)
+        if isinstance(value, dict):
+            tbs_body = value
+    except (TypeError, ValueError):
+        pass
+    sign_results = payload.get("signs") or []
+    individual_failed = 0
+    individual_already = 0
+    for item in sign_results:
+        text = str((item or {}).get("text") or "")
+        if _already_signed(text):
+            individual_already += 1
+        elif int((item or {}).get("status") or 0) not in (200, 201):
+            individual_failed += 1
+    summary = payload.get("summary") or {}
+    summary_status = int(summary.get("status") or 0)
+    summary_text = str(summary.get("text") or "")
+    try:
+        body = json.loads(summary_text)
+        if not isinstance(body, dict):
+            body = {}
+    except (TypeError, ValueError):
+        body = {}
+    signed = int(body.get("signedForumAmount") or 0)
+    failed = int(body.get("signedForumAmountFail") or individual_failed or 0)
+    unsigned = int(body.get("unsignedForumAmount") or 0)
+    bar_count = int(payload.get("barCount") or 0)
+    success_marker = any(marker in summary_text.lower() for marker in ("success", "forums is signed", "there is no forum"))
+    already = _already_signed(summary_text) or individual_already >= bar_count > 0
+    if already and individual_failed == 0:
+        failed = 0
+    completed = signed > 0 or already or (not bar_count and failed == 0 and unsigned == 0) or (success_marker and failed == 0)
+    if summary_status != 200 or (not body and not success_marker and not already) or not completed or failed > 0:
+        return {"ok": False, "name": name, "message": _message(body, summary_text) or f"一键签到失败：HTTP {summary_status}", "signed": signed, "failed": failed, "unsigned": unsigned}
+    return {"ok": True, "already": already and signed == 0, "name": name, "message": "今天已经签到" if already and signed == 0 else "贴吧签到完成", "signed": signed, "failed": failed, "unsigned": unsigned, "bars": bar_count, "browser_fallback": True}
 
 
 async def setup(ctx):
@@ -307,6 +434,13 @@ async def setup(ctx):
             results = await asyncio.gather(*(
                 asyncio.to_thread(_signin_one, account, delay, timeout, ctx.log) for account in accounts
             ))
+            # Python requests 在部分 Windows/Docker 出口上会被 Baidu TLS 握手阻断，
+            # 而平台 Chromium 可以正常访问；对这类网络错误逐账号切换浏览器完整重试。
+            for index, result in enumerate(results):
+                if not result.get("network_error") or not getattr(ctx, "browser", None):
+                    continue
+                ctx.log.warning("[百度贴吧签到] [%s] Python HTTP 不可达，切换平台浏览器重试", accounts[index].get("name") or f"账号 {index + 1}")
+                results[index] = await _browser_signin_one(accounts[index], delay, timeout, ctx.browser, ctx.log)
             await save_results(results, source)
             rows = []
             for item in results:
