@@ -14,7 +14,7 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
@@ -28,7 +28,16 @@ __plugin__ = {
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "推送签到结果", "section": "功能开关", "order": 2},
-        "accounts": {"type": "password", "default": "", "secret": True, "label": "B站账号 Cookie", "help": "每行一个账号，格式：账号名称----Cookie；建议使用浏览器无痕窗口登录 B 站后复制 Cookie，避免顶掉日常登录会话。", "section": "账号", "cols": 12, "order": 10},
+        "accounts": {
+            "type": "list", "default": [], "secret": True,
+            "label": "B站账号", "item_label": "账号",
+            "help": "逐个添加账号；建议使用浏览器无痕窗口登录 B 站后复制 Cookie，避免顶掉日常登录会话。Cookie 默认隐藏，可按行点击眼睛查看。",
+            "section": "账号", "cols": 12, "order": 10,
+            "fields": {
+                "name": {"type": "string", "label": "账号名称"},
+                "cookie": {"type": "password", "label": "Cookie"},
+            },
+        },
         "share": {"type": "boolean", "default": True, "label": "每日分享签到", "section": "签到项目", "order": 20},
         "heartbeat": {"type": "boolean", "default": True, "label": "每日观看签到", "section": "签到项目", "order": 21},
         "live": {"type": "boolean", "default": True, "label": "直播签到", "section": "签到项目", "order": 22},
@@ -42,7 +51,12 @@ __plugin__ = {
     },
 }
 
-__plugin__["changelog"] = "v0.0.5 改回平台原生 schema 配置\n- 移除 Vue 配置页，账号 Cookie 改为可保存的敏感多行文本\n- 每行使用“账号名称----Cookie”格式，保留平台眼睛显示\n\n" + __plugin__["changelog"]
+__plugin__["changelog"] = (
+    "v0.0.6 修复账号配置界面\n"
+    "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
+    "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"
+    + __plugin__["changelog"]
+)
 
 API = "https://api.bilibili.com"
 LIVE_SIGN = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
@@ -205,6 +219,11 @@ async def setup(ctx):
             defaults[key] = spec["default"]
     if defaults:
         ctx.update_config(defaults)
+    raw_accounts = ctx.config.get("accounts")
+    normalized_accounts = _accounts(raw_accounts)
+    if isinstance(raw_accounts, str) and normalized_accounts:
+        ctx.update_config({"accounts": normalized_accounts})
+        ctx.log.info("[B站每日综合签到] 已将旧账号 Cookie 文本转换为逐账号列表")
     _run_lock = asyncio.Lock()
     jobs = []
 

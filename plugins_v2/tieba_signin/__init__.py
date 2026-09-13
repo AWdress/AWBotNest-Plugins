@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -30,7 +30,16 @@ __plugin__ = {
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "推送签到结果", "section": "功能开关", "order": 2},
-        "accounts": {"type": "password", "default": "", "secret": True, "label": "贴吧账号 Cookie", "help": "每行一个账号，格式：账号名称----Cookie；Cookie 默认隐藏，可点击平台眼睛查看。", "section": "账号", "cols": 12, "order": 10},
+        "accounts": {
+            "type": "list", "default": [], "secret": True,
+            "label": "贴吧账号", "item_label": "账号",
+            "help": "逐个添加账号；Cookie 默认隐藏，可按行点击眼睛查看。",
+            "section": "账号", "cols": 12, "order": 10,
+            "fields": {
+                "name": {"type": "string", "label": "账号名称"},
+                "cookie": {"type": "password", "label": "Cookie"},
+            },
+        },
         "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "help": "每个贴吧签到请求之间的间隔，避免触发频率限制。", "section": "签到设置", "order": 20},
         "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
         "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 22},
@@ -40,7 +49,12 @@ __plugin__ = {
     },
 }
 
-__plugin__["changelog"] = "v0.0.5 改回平台原生 schema 配置\n- 移除 Vue 配置页，账号 Cookie 改为可保存的敏感多行文本\n- 每行使用“账号名称----Cookie”格式，保留平台眼睛显示\n\n" + __plugin__["changelog"]
+__plugin__["changelog"] = (
+    "v0.0.6 修复账号配置界面\n"
+    "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
+    "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"
+    + __plugin__["changelog"]
+)
 
 
 BASE_URL = "https://tieba.baidu.com"
@@ -211,6 +225,11 @@ async def setup(ctx):
             defaults[key] = spec["default"]
     if defaults:
         ctx.update_config(defaults)
+    raw_accounts = ctx.config.get("accounts")
+    normalized_accounts = _accounts(raw_accounts)
+    if isinstance(raw_accounts, str) and normalized_accounts:
+        ctx.update_config({"accounts": normalized_accounts})
+        ctx.log.info("[百度贴吧签到] 已将旧账号 Cookie 文本转换为逐账号列表")
     _run_lock = asyncio.Lock()
     scheduled_jobs = []
 
