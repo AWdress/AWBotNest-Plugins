@@ -36,7 +36,7 @@ from ._snatch import (
 __plugin__ = {
     "name": "癫影积分红包",
     "id": "dyp_redpacket",
-    "version": "2.0.5",
+    "version": "2.0.6",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
@@ -69,6 +69,9 @@ __plugin__ = {
     },
 }
 __plugin__["changelog"] = (
+    "v2.0.6 修复红包按钮状态竞态\n"
+    "- 处理红包消息被他人抢走或机器人编辑后产生的 DataInvalidError\n"
+    "- 自动刷新按钮状态并继续尝试剩余格子，避免无意义的异常告警\n\n"
     "v2.0.5 补全验证日志与红包链接\n"
     "- 报名验证全部处理分支输出可见日志\n"
     "- 红包原消息链接放在富文本表格外，方便手机点击\n\n"
@@ -103,6 +106,34 @@ def _click_once(client, message) -> bool:
         return False
     _clicked[key] = _time.time()
     return True
+
+
+def _is_stale_callback_error(exc: BaseException) -> bool:
+    """判断按钮回调是否因消息状态变化而失效。
+
+    癫影红包在有人抢走某一格后会立即编辑原消息。此时仍使用旧消息对象
+    点击会触发 Telethon 的 ``DataInvalidError (Encrypted data invalid)``，
+    这属于正常竞态，不应当按插件故障记录。
+    """
+    name = type(exc).__name__
+    text = str(exc)
+    return name in {"DataInvalidError", "MessageNotModifiedError"} or "Encrypted data invalid" in text
+
+
+async def _refresh_message(client, chat_id, message_id, fallback):
+    """尽量读取红包最新按钮状态；客户端不支持读取时返回原对象。"""
+    getter = getattr(client, "get_messages", None)
+    if not callable(getter):
+        return fallback
+    try:
+        refreshed = await getter(chat_id, ids=message_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        return fallback
+    if isinstance(refreshed, (list, tuple)):
+        refreshed = refreshed[0] if refreshed else None
+    return refreshed or fallback
 
 
 def _meta_brief(meta: dict) -> str:
@@ -265,11 +296,21 @@ async def setup(ctx):
         ctx.log.info("[癫影积分红包] %s，找到 %d 个未抢按钮，逐格尝试（落地即停）",
                      brief or "红包", len(positions))
 
-        for idx, (row, col) in enumerate(positions, start=1):
+        current_message = message
+        attempted: set[tuple[int, int]] = set()
+        stale_retries: dict[tuple[int, int], int] = {}
+        pending = list(positions)
+        idx = 0
+        while pending:
+            row, col = pending.pop(0)
+            if (row, col) in attempted:
+                continue
+            attempted.add((row, col))
+            idx += 1
             try:
                 # Telethon 使用 i/j，而非 Pyrogram 的 x/y；Message.click 本身
                 # 没有 timeout 参数，超时由 asyncio 托管。
-                result = await asyncio.wait_for(message.click(i=row, j=col), timeout=10)
+                result = await asyncio.wait_for(current_message.click(i=row, j=col), timeout=10)
                 rtext = getattr(result, "text", None) or getattr(result, "message", None) or ""
                 rstr = rtext or str(result)
                 ctx.log.info("[癫影积分红包] 第%d格(行%d列%d) 结果=%r", idx, row, col, rstr)
@@ -295,9 +336,37 @@ async def setup(ctx):
                     return
 
                 # 其余（手慢了/已被抢/无内容）→ 该格已被他人抢走，试下一格。
+                refreshed = await _refresh_message(client, event.chat_id, message.id, current_message)
+                if refreshed is not current_message:
+                    current_message = refreshed
+                    fresh_positions = find_numbered_buttons(current_message)
+                    pending.extend(
+                        p for p in fresh_positions
+                        if p not in attempted and p not in pending
+                    )
                 await asyncio.sleep(0.3)
             except Exception as e:  # noqa: BLE001
-                ctx.log.warning("[癫影积分红包] 第%d格点击异常: %r", idx, e)
+                if _is_stale_callback_error(e):
+                    # 其他人刚抢走/机器人刚编辑了该格，刷新后继续抢剩余格子。
+                    refreshed = await _refresh_message(client, event.chat_id, message.id, current_message)
+                    if refreshed is not current_message:
+                        current_message = refreshed
+                        fresh_positions = find_numbered_buttons(current_message)
+                        retry_count = stale_retries.get((row, col), 0)
+                        if (row, col) in fresh_positions and retry_count < 1:
+                            stale_retries[(row, col)] = retry_count + 1
+                            attempted.discard((row, col))
+                            pending.insert(0, (row, col))
+                        pending.extend(
+                            p for p in fresh_positions
+                            if p not in attempted and p not in pending
+                        )
+                    ctx.log.info(
+                        "[癫影积分红包] 第%d格回调已失效（红包状态已更新），刷新后继续",
+                        idx,
+                    )
+                else:
+                    ctx.log.warning("[癫影积分红包] 第%d格点击异常: %r", idx, e)
                 await asyncio.sleep(0.3)
         # 全部试完，落地格全被别人抢走，自己没抢到
         ctx.log.info("[癫影积分红包] 所有格子均已被抢完，未抢到 msg=%s", message.id)
