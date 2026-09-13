@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -30,15 +30,7 @@ __plugin__ = {
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": True, "label": "推送签到结果", "section": "功能开关", "order": 2},
-        "accounts": {
-            "type": "list", "default": [], "label": "贴吧账号", "item_label": "账号", "secret": True,
-            "help": "逐个添加账号；Cookie 可从浏览器开发者工具复制，平台默认隐藏并可按需显示。",
-            "section": "账号", "cols": 12, "order": 10,
-            "fields": {
-                "name": {"type": "string", "label": "账号名称", "default": "百度账号"},
-                "cookie": {"type": "password", "label": "Cookie"},
-            },
-        },
+        "accounts": {"type": "password", "default": "", "secret": True, "label": "贴吧账号 Cookie", "help": "每行一个账号，格式：账号名称----Cookie；Cookie 默认隐藏，可点击平台眼睛查看。", "section": "账号", "cols": 12, "order": 10},
         "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "help": "每个贴吧签到请求之间的间隔，避免触发频率限制。", "section": "签到设置", "order": 20},
         "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
         "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 22},
@@ -48,7 +40,7 @@ __plugin__ = {
     },
 }
 
-__plugin__["changelog"] = "v0.0.4 修复默认配置回填\n- 平台保存空字符串时自动恢复默认 Cron、间隔和请求超时\n- 不覆盖用户明确设置的 false、0 或空账号列表\n\n" + __plugin__["changelog"]
+__plugin__["changelog"] = "v0.0.5 改回平台原生 schema 配置\n- 移除 Vue 配置页，账号 Cookie 改为可保存的敏感多行文本\n- 每行使用“账号名称----Cookie”格式，保留平台眼睛显示\n\n" + __plugin__["changelog"]
 
 
 BASE_URL = "https://tieba.baidu.com"
@@ -85,7 +77,18 @@ def _accounts(raw: Any) -> List[Dict[str, str]]:
                 result.append({"name": str(item.get("name") or f"账号 {index}").strip(), "cookie": cookie})
     if result:
         return result
-    return []
+    result = []
+    for index, line in enumerate(re.split(r"(?:\r?\n|\s+&\s+)", str(raw or "")), 1):
+        line = line.strip()
+        if not line or line == "********":
+            continue
+        if "----" in line:
+            name, cookie = line.split("----", 1)
+        else:
+            name, cookie = f"账号 {index}", line
+        if cookie.strip():
+            result.append({"name": name.strip() or f"账号 {index}", "cookie": cookie.strip()})
+    return result
 
 
 def _headers(session: requests.Session, referer: str = BASE_URL) -> Dict[str, str]:
