@@ -3298,6 +3298,33 @@
       "plugin_api_version": 2,
       "path": "plugins_v2/zhuque_lottery/"
     },
+    "tieba_signin": {
+      "name": "百度贴吧签到",
+      "id": "tieba_signin",
+      "version": "0.0.1",
+      "author": "AWdress",
+      "scope": "standalone",
+      "plugin_api_version": 2,
+      "requirements": ["requests>=2.28"],
+      "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
+      "icon": "https://tieba.baidu.com/favicon.ico",
+      "changelog": "v0.0.1 首次发布\n- 根据百度贴吧签到流程接入 Cookie 校验、TBS 获取、关注贴吧扫描和一键签到\n- 支持逐账号配置、定时签到、立即执行、签到统计与历史记录\n- 仅依据贴吧接口返回的签到数量生成结果，不把 HTTP 成功误判为签到成功",
+      "config_schema": {
+        "enabled": {"type": "boolean", "default": false, "label": "启用自动签到", "section": "功能开关", "order": 1},
+        "notify": {"type": "boolean", "default": true, "label": "推送签到结果", "section": "功能开关", "order": 2},
+        "accounts": {"type": "list", "default": [], "label": "贴吧账号", "item_label": "账号", "secret": true, "help": "逐个添加账号；Cookie 可从浏览器开发者工具复制。", "section": "账号", "order": 10, "fields": {"name": {"type": "string", "label": "账号名称", "default": "百度账号"}, "cookie": {"type": "password", "label": "Cookie"}}},
+        "cookie": {"type": "password", "default": "", "label": "旧版单账号 Cookie", "help": "兼容旧版单 Cookie 配置；新配置请使用逐账号列表。", "section": "兼容配置", "order": 90},
+        "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "section": "签到设置", "order": 20},
+        "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
+        "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 22},
+        "run_now": {"type": "action", "label": "立即签到", "action": "run_now", "section": "操作", "order": 30},
+        "last_result": {"type": "info", "default": "尚未运行", "label": "最近结果", "section": "运行状态", "order": 40},
+        "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "order": 41}
+      },
+      "tags": ["百度贴吧", "自动签到", "Cookie"],
+      "render_mode": "schema",
+      "path": "plugins_v2/tieba_signin/"
+    },
     "zpr": {
       "id": "zpr",
       "name": "P站图片",
