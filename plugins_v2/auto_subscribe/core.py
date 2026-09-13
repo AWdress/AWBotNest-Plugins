@@ -21,7 +21,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.4.4",
+    "version": "1.4.5",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -141,6 +141,7 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
 _run_lock = None
 _state: dict = {}
 _storage_tasks: set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task] = set()
 
 
 def _state_get(key, default=None):
@@ -516,6 +517,23 @@ async def setup(ctx):
     _run_lock = asyncio.Lock()
     _state.clear()
     _state.update(dict(await ctx.storage.items()))
+
+    # 调度器回调受平台治理超时约束，不能直接等待抓榜/逐条订阅这种分钟级流水线。
+    # 所有手动和定时运行统一交给平台托管的后台任务，回调本身立即返回。
+    def _spawn_run(label: str) -> asyncio.Task:
+        async def _bg():
+            try:
+                await _run(ctx, label)
+            except asyncio.CancelledError:
+                # 停用/重载时平台会取消后台任务；这是正常生命周期事件，不输出异常堆栈。
+                ctx.log.warning("[自动订阅] %s任务已取消（插件停用、重载或治理超时）", label)
+            except Exception as exc:  # noqa: BLE001
+                ctx.log.error("[自动订阅] %s运行后台异常：%s\n%s", label, exc, traceback.format_exc())
+
+        task = ctx.create_task(_bg(), name=f"自动订阅{label}运行")
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        return task
     # 旧版曾把只读运行统计写进可编辑配置；迁入 KV 后从配置中清理，避免“后端使用但页面不显示”。
     runtime_keys=("last_run","last_stats","last_missing_subscription_stats","last_fill_missing_stats")
     legacy=ctx.config
@@ -550,12 +568,7 @@ async def setup(ctx):
         # 整轮可能跑几分钟（抓榜 + 逐条搜索/订阅），同步等会让 HTTP 请求超时，
         # 前端就只看到无内容的 "Error"（而服务端其实还在跑）。故改为**后台任务**：
         # 立即返回，运行结果通过通知 + 写入「订阅历史」落地，异常记完整堆栈到日志。
-        async def _bg():
-            try:
-                await _run(ctx, "手动")
-            except Exception as e:  # noqa: BLE001
-                ctx.log.error("[自动订阅] 手动运行后台异常：%s\n%s", e, traceback.format_exc())
-        ctx.create_task(_bg(), name="自动订阅手动运行")
+        _spawn_run("手动")
         return {"ok": True, "started": True,
                 "message": "已在后台开始运行。完成后结果会推送通知并写入「订阅历史」，"
                            "稍后刷新「订阅历史 / 订阅管理」查看；失败原因见平台「运行日志」（来源：自动订阅）。"}
@@ -609,11 +622,13 @@ async def setup(ctx):
             return {"ok": False, "message": str(e)}
 
     # ── 定时任务（cron 无效时仅告警，手动运行仍可用）──
-    # 必须把「协程函数」交给 ctx.schedule（AsyncIOScheduler 在事件循环里 await 它）；用
-    # lambda: asyncio.create_task(...) 会在线程池里跑、无运行中的事件循环，create_task 抛
-    # "no running event loop"，任务看似注册却永不触发。
+    # 回调只负责投递后台任务并立即返回，避免平台 scheduler 对长流水线触发 TimeoutError。
     async def _scheduled_run():
-        await _run(ctx, "定时")
+        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+            ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次定时触发")
+            return
+        _spawn_run("定时")
+        ctx.log.info("[自动订阅] 定时任务已投递后台执行")
 
     expr = str(_effective_cfg(ctx).get("schedule") or "").strip()
     if expr:
@@ -637,6 +652,12 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    for task in list(_background_tasks):
+        if not task.done():
+            task.cancel()
+    if _background_tasks:
+        await asyncio.gather(*list(_background_tasks), return_exceptions=True)
+    _background_tasks.clear()
     if _storage_tasks:
         await asyncio.gather(*list(_storage_tasks), return_exceptions=True)
     _storage_tasks.clear()
