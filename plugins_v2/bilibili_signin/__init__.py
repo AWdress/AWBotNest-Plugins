@@ -14,13 +14,14 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
     "changelog": "v0.0.1 首次发布\n- 接入分享、观看心跳、直播签到和漫画签到接口\n- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n- 仅依据 B 站接口 code 与明确重复签到提示判断结果",
     "scope": "standalone",
     "plugin_api_version": 2,
+    "render_mode": "schema",
     "tags": ["B站", "每日签到", "Cookie"],
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
@@ -52,6 +53,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.0.7 修复原生配置保存\n"
+    "- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n"
+    "- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\n"
     "v0.0.6 修复账号配置界面\n"
     "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
     "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"

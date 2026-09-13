@@ -16,13 +16,14 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.6",
+    "version": "0.0.7",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
     "changelog": "v0.0.1 首次发布\n- 根据百度贴吧签到流程接入 Cookie 校验、TBS 获取、关注贴吧扫描和一键签到\n- 支持逐账号配置、定时签到、立即执行、签到统计与历史记录\n- 仅依据贴吧接口返回的签到数量生成结果，不把 HTTP 成功误判为签到成功",
     "scope": "standalone",
     "plugin_api_version": 2,
+    "render_mode": "schema",
     "tags": ["百度贴吧", "自动签到", "Cookie"],
     "default_enabled": False,
     "requirements": ["requests>=2.28"],
@@ -50,6 +51,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.0.7 修复原生配置保存\n"
+    "- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n"
+    "- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\n"
     "v0.0.6 修复账号配置界面\n"
     "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
     "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"
