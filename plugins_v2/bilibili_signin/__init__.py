@@ -23,7 +23,6 @@ __plugin__ = {
     "plugin_api_version": 2,
     "tags": ["B站", "每日签到", "Cookie"],
     "default_enabled": False,
-    "render_mode": "vue",
     "requirements": ["requests>=2.28"],
     "resources": {"timeout_seconds": 600, "max_concurrency": 1, "max_background_tasks": 2},
     "config_schema": {
