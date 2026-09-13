@@ -8,7 +8,7 @@ import re
 import time
 from datetime import datetime
 from typing import Any, Dict, List
-from urllib.parse import unquote
+from urllib.parse import unquote, unquote_to_bytes
 
 import requests
 
@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -53,6 +53,11 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.1.3 修复浏览器回退签到请求\n"
+    "- CloakBrowser/Chromium 统一使用异步 API，避免同步 Playwright 在事件循环中报错\n"
+    "- 贴吧接口 POST 改用 application/x-www-form-urlencoded，修复未知错误和目录问题\n"
+    "- 兼容关注列表 GB18030 编码及 no=1101 已签到回执，准确识别成功/已签到状态\n"
+    "- 为浏览器请求增加 30 秒单请求超时，避免异常网络导致任务长期挂起\n\n"
     "v0.1.2 增加浏览器网络回退\n"
     "- Python HTTP 连接超时时自动切换平台浏览器，携带当前账号 Cookie 重试完整签到流程\n"
     "- 浏览器回退同样执行关注贴吧扫描、逐吧签到和一键签到结果确认\n"
@@ -166,9 +171,16 @@ def _page_count(content: str) -> int:
 def _bars(content: str) -> List[str]:
     names = []
     for match in re.finditer(r'href=["\']/f\?kw=([^"\']+)["\'][^>]*\btitle=["\']([^"\']+)', content or "", re.I):
-        name = html.unescape(match.group(2)).strip()
-        if not name:
-            name = html.unescape(unquote(match.group(1))).strip()
+        title = html.unescape(match.group(2)).strip()
+        # 贴吧关注页声明 charset=GBK，标题偶尔会被浏览器按 UTF-8 替换成“�”；
+        # kw 参数本身是 GBK 百分号编码，优先从 URL 还原真实吧名。
+        try:
+            encoded_name = unquote_to_bytes(match.group(1)).decode("gb18030")
+        except (UnicodeDecodeError, ValueError):
+            encoded_name = html.unescape(unquote(match.group(1))).strip()
+        name = encoded_name.strip() or title
+        if "�" in name:
+            name = title
         if name and name not in names:
             names.append(name)
     return names
@@ -183,7 +195,7 @@ def _message(body: dict, text: str = "") -> str:
 
 def _already_signed(text: str) -> bool:
     value = str(text or "").lower()
-    return any(marker in value for marker in ("已签到", "已经签到", "签过到", "重复签到", "already signed", "already"))
+    return any(marker in value for marker in ("已签到", "已经签到", "签过到", "已经签过", "之前已经", "重复签到", "already signed", "already"))
 
 
 def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> Dict[str, Any]:
@@ -221,7 +233,7 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
             response = session.post(SIGN_API, data={"ie": "utf-8", "kw": bar, "tbs": tbs}, timeout=timeout)
             body = _json(response)
             message = _message(body, response.text)
-            if _already_signed(message):
+            if _already_signed(message) or body.get("no") in (1101, "1101"):
                 individual_already += 1
             elif response.status_code not in (200, 201) or (body and body.get("no") not in (None, 0, "0")):
                 individual_failed += 1
@@ -257,62 +269,79 @@ async def _browser_signin_one(account: Dict[str, str], delay: int, timeout: int,
     """用平台浏览器重试贴吧签到，解决 Python TLS/出口不可达但 Chromium 可访问的环境。"""
     name = account.get("name") or "默认账号"
 
-    def action(page):
-        script = r"""
-        async ({delayMs}) => {
-          const out = {user: null, tbs: null, likes: [], signs: [], summary: null, error: ''};
-          const request = async (url, options = {}) => {
-            const response = await fetch(url, Object.assign({credentials: 'include'}, options));
-            return {status: response.status, text: await response.text()};
-          };
-          try {
-            out.user = await request('/f/user/json_userinfo?_=' + Date.now());
-            out.tbs = await request('/dc/common/tbs?_=' + Date.now());
-            const first = await request('/f/like/mylike');
-            out.likes.push(first);
-            let pageCount = 1;
-            const m = (first.text || '').match(/(?:[?&]pn=|pn%3D)(\d+)[^>]{0,80}>\s*尾页/i);
-            if (m) pageCount = Math.max(1, Number(m[1]));
-            else {
-              const all = [...(first.text || '').matchAll(/[?&]pn=(\d+)/gi)].map(x => Number(x[1]));
-              if (all.length) pageCount = Math.max(1, ...all);
-            }
-            for (let pageNo = 2; pageNo <= pageCount; pageNo++) {
-              out.likes.push(await request('/f/like/mylike?pn=' + pageNo));
-            }
-            let tbs = '';
-            try {
-              const obj = JSON.parse(out.tbs.text || '{}');
-              tbs = String(obj.tbs || (obj.data && obj.data.tbs) || '');
-            } catch (_) {}
-            if (!tbs) {
-              const match = (out.tbs.text || '').match(/"tbs"\s*:\s*"([^"]+)"/);
-              tbs = match ? match[1] : '';
-            }
-            const bars = [];
-            for (const like of out.likes) {
-              const re = /href=["']\/f\?kw=([^"']+)["'][^>]*\btitle=["']([^"']+)/gi;
-              let match;
-              while ((match = re.exec(like.text || ''))) {
-                const value = (match[2] || match[1] || '').trim();
-                if (value && !bars.includes(value)) bars.push(value);
-              }
-            }
-            for (const bar of bars) {
-              const body = new URLSearchParams({ie: 'utf-8', kw: bar, tbs});
-              out.signs.push(await request('/sign/add', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body}));
-              if (delayMs > 0) await new Promise(resolve => setTimeout(resolve, delayMs));
-            }
-            out.summary = await request('/tbmall/onekeySignin1', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({ie: 'utf-8', tbs})});
-            out.barCount = bars.length;
-            return out;
-          } catch (error) {
-            out.error = String(error);
-            return out;
-          }
-        }
+    async def action(page):
+        """通过浏览器上下文的 APIRequestContext 发起同源请求。
+
+        页面内 fetch 在部分 CF/贴吧响应重定向时会被 CORS 拦截；
+        APIRequestContext 仍使用同一浏览器 Cookie，但不受页面 CORS 限制。
         """
-        return page.evaluate(script, {"delayMs": int(delay) * 1000})
+        base = "https://tieba.baidu.com"
+        out: Dict[str, Any] = {"user": None, "tbs": None, "likes": [], "signs": [], "summary": None, "error": ""}
+        request_ctx = getattr(page, "request", None)
+        if request_ctx is None:
+            request_ctx = page.context.request
+
+        async def request(path: str, *, method: str = "GET", data: Dict[str, str] | None = None) -> Dict[str, Any]:
+            url = f"{base}{path}"
+            request_args = {"timeout": 30_000}
+            response = await (
+                # Playwright 的 ``data`` 会按 JSON/原始载荷处理；贴吧接口要求
+                # application/x-www-form-urlencoded，必须使用 ``form``。
+                request_ctx.post(url, form=data or {}, **request_args)
+                if method == "POST"
+                else request_ctx.get(url, **request_args)
+            )
+            try:
+                text = await response.text()
+            except UnicodeDecodeError:
+                # 贴吧关注列表仍可能返回 GBK/GB18030，Playwright 的 response.text
+                # 默认严格按 UTF-8 解码会直接抛异常，导致整轮签到中断。
+                raw = await response.body()
+                text = raw.decode("gb18030", errors="replace")
+            return {"status": response.status, "text": text}
+
+        try:
+            out["user"] = await request("/f/user/json_userinfo?_=" + str(int(time.time() * 1000)))
+            out["tbs"] = await request("/dc/common/tbs?_=" + str(int(time.time() * 1000)))
+            first = await request("/f/like/mylike")
+            out["likes"].append(first)
+            page_count = 1
+            match = re.search(r"(?:[?&]pn=|pn%3D)(\d+)[^>]{0,80}>\s*尾页", first.get("text", ""), re.I)
+            if match:
+                page_count = max(1, int(match.group(1)))
+            else:
+                pages = [int(value) for value in re.findall(r"[?&]pn=(\d+)", first.get("text", ""), re.I)]
+                if pages:
+                    page_count = max(1, *pages)
+            for page_no in range(2, page_count + 1):
+                out["likes"].append(await request(f"/f/like/mylike?pn={page_no}"))
+
+            tbs_text = str((out["tbs"] or {}).get("text") or "")
+            tbs = ""
+            try:
+                tbs_body = json.loads(tbs_text)
+                if isinstance(tbs_body, dict):
+                    tbs = str(tbs_body.get("tbs") or (tbs_body.get("data") or {}).get("tbs") or "")
+            except (TypeError, ValueError):
+                pass
+            if not tbs:
+                tbs_match = re.search(r'"tbs"\s*:\s*"([^"]+)"', tbs_text)
+                tbs = tbs_match.group(1) if tbs_match else ""
+
+            bars: List[str] = []
+            for like in out["likes"]:
+                for value in _bars(like.get("text", "")):
+                    if value not in bars:
+                        bars.append(value)
+            for bar in bars:
+                out["signs"].append(await request("/sign/add", method="POST", data={"ie": "utf-8", "kw": bar, "tbs": tbs}))
+                if delay > 0:
+                    await asyncio.sleep(int(delay))
+            out["summary"] = await request("/tbmall/onekeySignin1", method="POST", data={"ie": "utf-8", "tbs": tbs})
+            out["barCount"] = len(bars)
+        except Exception as error:  # noqa: BLE001
+            out["error"] = f"{type(error).__name__}: {error}"
+        return out
 
     try:
         # BrowserService 会把字符串 Cookie 注入为上下文级请求头，HttpOnly Cookie 也能携带。
@@ -328,6 +357,8 @@ async def _browser_signin_one(account: Dict[str, str], delay: int, timeout: int,
         return {"ok": False, "name": name, "message": f"浏览器签到失败：{exc}"}
     if not isinstance(payload, dict):
         return {"ok": False, "name": name, "message": "浏览器签到未返回有效结果"}
+    if payload.get("error"):
+        return {"ok": False, "name": name, "message": f"浏览器请求失败：{payload.get('error')}"}
 
     user = payload.get("user") or {}
     user_text = str(user.get("text") or "")
@@ -346,8 +377,13 @@ async def _browser_signin_one(account: Dict[str, str], delay: int, timeout: int,
     individual_failed = 0
     individual_already = 0
     for item in sign_results:
-        text = str((item or {}).get("text") or "")
-        if _already_signed(text):
+        item = item or {}
+        text = str(item.get("text") or "")
+        try:
+            item_body = json.loads(text)
+        except (TypeError, ValueError):
+            item_body = {}
+        if _already_signed(text) or (isinstance(item_body, dict) and item_body.get("no") in (1101, "1101")):
             individual_already += 1
         elif int((item or {}).get("status") or 0) not in (200, 201):
             individual_failed += 1
