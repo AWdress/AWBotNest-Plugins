@@ -3325,7 +3325,7 @@
         "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "order": 51}
       },
       "tags": ["B站", "每日签到", "Cookie"],
-      "render_mode": "schema",
+      "render_mode": "vue",
       "path": "plugins_v2/bilibili_signin/"
     },
     "tieba_signin": {
@@ -3351,7 +3351,7 @@
         "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "order": 41}
       },
       "tags": ["百度贴吧", "自动签到", "Cookie"],
-      "render_mode": "schema",
+      "render_mode": "vue",
       "path": "plugins_v2/tieba_signin/"
     },
     "zpr": {
