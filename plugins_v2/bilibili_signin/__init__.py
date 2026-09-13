@@ -14,7 +14,7 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.0.2",
+    "version": "0.0.4",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
@@ -30,11 +30,10 @@ __plugin__ = {
         "notify": {"type": "boolean", "default": True, "label": "推送签到结果", "section": "功能开关", "order": 2},
         "accounts": {
             "type": "list", "default": [], "label": "B站账号", "item_label": "账号", "secret": True,
-            "help": "逐个添加账号；Cookie 从浏览器复制，平台默认隐藏并可按需显示。",
+            "help": "逐个添加账号；建议使用浏览器无痕窗口登录 B 站后复制 Cookie，避免顶掉日常登录会话；平台默认隐藏并可按需显示。",
             "section": "账号", "cols": 12, "order": 10,
             "fields": {"name": {"type": "string", "label": "账号名称", "default": "B站账号"}, "cookie": {"type": "password", "label": "Cookie"}},
         },
-        "cookie": {"type": "password", "default": "", "label": "旧版单账号 Cookie", "help": "兼容旧版单 Cookie 配置；新配置请使用逐账号列表。", "section": "兼容配置", "order": 90},
         "share": {"type": "boolean", "default": True, "label": "每日分享签到", "section": "签到项目", "order": 20},
         "heartbeat": {"type": "boolean", "default": True, "label": "每日观看签到", "section": "签到项目", "order": 21},
         "live": {"type": "boolean", "default": True, "label": "直播签到", "section": "签到项目", "order": 22},
@@ -48,7 +47,7 @@ __plugin__ = {
     },
 }
 
-__plugin__["changelog"] = "v0.0.2 更新哔哩哔哩 Logo\n- 使用用户提供的哔哩哔哩官方图标\n\n" + __plugin__["changelog"]
+__plugin__["changelog"] = "v0.0.4 修复默认配置回填\n- 平台保存空字符串时自动恢复默认 Cron、间隔和请求超时\n- 不覆盖用户明确设置的 false、0 或空账号列表\n\n" + __plugin__["changelog"]
 
 API = "https://api.bilibili.com"
 LIVE_SIGN = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
@@ -71,7 +70,7 @@ def _cron_fields(expression: str) -> Dict[str, str]:
     return dict(zip(("minute", "hour", "day", "month", "day_of_week"), parts))
 
 
-def _accounts(raw: Any, legacy_cookie: str = "") -> List[Dict[str, str]]:
+def _accounts(raw: Any) -> List[Dict[str, str]]:
     if isinstance(raw, list):
         result = []
         for index, item in enumerate(raw, 1):
@@ -82,8 +81,7 @@ def _accounts(raw: Any, legacy_cookie: str = "") -> List[Dict[str, str]]:
                 result.append({"name": str(item.get("name") or f"账号 {index}").strip(), "cookie": cookie})
         if result:
             return result
-    cookie = str(legacy_cookie or "").strip()
-    return [{"name": "默认账号", "cookie": cookie}] if cookie else []
+    return []
 
 
 def _json(response: requests.Response) -> dict:
@@ -192,7 +190,13 @@ def _signin_one(account: Dict[str, str], enabled: Dict[str, bool], delay: int, t
 
 async def setup(ctx):
     global _run_lock
-    defaults = {key: spec["default"] for key, spec in __plugin__["config_schema"].items() if "default" in spec and spec.get("type") != "action" and key not in ctx.config}
+    defaults = {}
+    for key, spec in __plugin__["config_schema"].items():
+        if "default" not in spec or spec.get("type") == "action":
+            continue
+        current = ctx.config.get(key)
+        if key not in ctx.config or current is None or (isinstance(current, str) and not current.strip()):
+            defaults[key] = spec["default"]
     if defaults:
         ctx.update_config(defaults)
     _run_lock = asyncio.Lock()
@@ -213,7 +217,7 @@ async def setup(ctx):
         assert _run_lock is not None
         if _run_lock.locked(): return {"ok": False, "message": "B站签到任务正在运行"}
         async with _run_lock:
-            accounts = _accounts(ctx.config.get("accounts"), ctx.config.get("cookie"))
+            accounts = _accounts(ctx.config.get("accounts"))
             if not accounts:
                 result = {"ok": False, "message": "未配置 B 站 Cookie"}
                 await save_results([result], source)

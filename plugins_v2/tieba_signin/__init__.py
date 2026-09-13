@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.2",
+    "version": "0.0.4",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -39,11 +39,6 @@ __plugin__ = {
                 "cookie": {"type": "password", "label": "Cookie"},
             },
         },
-        "cookie": {
-            "type": "password", "default": "", "label": "旧版单账号 Cookie",
-            "help": "兼容旧版单 Cookie 配置；新配置请使用上面的逐账号列表。",
-            "section": "兼容配置", "order": 90,
-        },
         "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "help": "每个贴吧签到请求之间的间隔，避免触发频率限制。", "section": "签到设置", "order": 20},
         "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
         "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 22},
@@ -53,7 +48,7 @@ __plugin__ = {
     },
 }
 
-__plugin__["changelog"] = "v0.0.2 更新百度贴吧 Logo\n- 使用用户提供的贴吧官方图标\n\n" + __plugin__["changelog"]
+__plugin__["changelog"] = "v0.0.4 修复默认配置回填\n- 平台保存空字符串时自动恢复默认 Cron、间隔和请求超时\n- 不覆盖用户明确设置的 false、0 或空账号列表\n\n" + __plugin__["changelog"]
 
 
 BASE_URL = "https://tieba.baidu.com"
@@ -79,7 +74,7 @@ def _cron_fields(expression: str) -> Dict[str, str]:
     return dict(zip(("minute", "hour", "day", "month", "day_of_week"), parts))
 
 
-def _accounts(raw: Any, legacy_cookie: str = "") -> List[Dict[str, str]]:
+def _accounts(raw: Any) -> List[Dict[str, str]]:
     result: List[Dict[str, str]] = []
     if isinstance(raw, list):
         for index, item in enumerate(raw, 1):
@@ -90,8 +85,7 @@ def _accounts(raw: Any, legacy_cookie: str = "") -> List[Dict[str, str]]:
                 result.append({"name": str(item.get("name") or f"账号 {index}").strip(), "cookie": cookie})
     if result:
         return result
-    cookie = str(legacy_cookie or "").strip()
-    return [{"name": "默认账号", "cookie": cookie}] if cookie else []
+    return []
 
 
 def _headers(session: requests.Session, referer: str = BASE_URL) -> Dict[str, str]:
@@ -205,11 +199,13 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
 
 async def setup(ctx):
     global _run_lock
-    defaults = {
-        key: spec["default"]
-        for key, spec in __plugin__["config_schema"].items()
-        if "default" in spec and spec.get("type") != "action" and key not in ctx.config
-    }
+    defaults = {}
+    for key, spec in __plugin__["config_schema"].items():
+        if "default" not in spec or spec.get("type") == "action":
+            continue
+        current = ctx.config.get(key)
+        if key not in ctx.config or current is None or (isinstance(current, str) and not current.strip()):
+            defaults[key] = spec["default"]
     if defaults:
         ctx.update_config(defaults)
     _run_lock = asyncio.Lock()
@@ -236,7 +232,7 @@ async def setup(ctx):
         if _run_lock.locked():
             return {"ok": False, "message": "百度贴吧签到任务正在运行"}
         async with _run_lock:
-            accounts = _accounts(ctx.config.get("accounts"), ctx.config.get("cookie"))
+            accounts = _accounts(ctx.config.get("accounts"))
             if not accounts:
                 result = {"ok": False, "message": "未配置贴吧 Cookie"}
                 await save_results([result], source)
