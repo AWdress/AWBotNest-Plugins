@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.7",
+    "version": "0.0.8",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -41,6 +41,8 @@ __plugin__ = {
                 "cookie": {"type": "password", "label": "Cookie"},
             },
         },
+        # 旧版本/误填配置可能残留顶层 cookie；隐藏声明仅用于一次性清理，界面不展示。
+        "cookie": {"type": "password", "default": "", "secret": True, "show_if": {"_legacy_cookie_visible": True}, "label": ""},
         "delay": {"type": "number", "default": 3, "min": 0, "max": 15, "step": 1, "label": "贴吧间隔（秒）", "help": "每个贴吧签到请求之间的间隔，避免触发频率限制。", "section": "签到设置", "order": 20},
         "cron": {"type": "string", "format": "cron", "default": "5 8 * * *", "label": "签到 Cron", "help": "标准五段 Cron，默认每天 08:05。", "section": "签到设置", "order": 21},
         "timeout": {"type": "number", "default": 30, "min": 5, "max": 120, "step": 1, "label": "请求超时（秒）", "section": "签到设置", "order": 22},
@@ -51,6 +53,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.0.8 修复残留 Cookie 导致保存失败\n"
+    "- 兼容清理旧配置中的顶层 Cookie 键，避免平台提示包含未声明配置项\n"
+    "- 旧 Cookie 启动时自动转入首个账号并清空隐藏旧字段，界面仍保持逐账号配置\n\n"
     "v0.0.7 修复原生配置保存\n"
     "- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n"
     "- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\n"
@@ -231,7 +236,15 @@ async def setup(ctx):
         ctx.update_config(defaults)
     raw_accounts = ctx.config.get("accounts")
     normalized_accounts = _accounts(raw_accounts)
-    if isinstance(raw_accounts, str) and normalized_accounts:
+    legacy_cookie = str(ctx.config.get("cookie") or "").strip()
+    if legacy_cookie and not normalized_accounts:
+        normalized_accounts = [{"name": "账号 1", "cookie": legacy_cookie}]
+        ctx.update_config({"accounts": normalized_accounts, "cookie": ""})
+        ctx.log.info("[百度贴吧签到] 已将残留顶层 Cookie 转入逐账号列表")
+    elif legacy_cookie:
+        ctx.update_config({"cookie": ""})
+        ctx.log.info("[百度贴吧签到] 已清理残留顶层 Cookie 配置")
+    if isinstance(raw_accounts, str) and normalized_accounts and not legacy_cookie:
         ctx.update_config({"accounts": normalized_accounts})
         ctx.log.info("[百度贴吧签到] 已将旧账号 Cookie 文本转换为逐账号列表")
     _run_lock = asyncio.Lock()
