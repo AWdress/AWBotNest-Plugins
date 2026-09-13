@@ -16,10 +16,10 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
-    "icon": "https://tieba.baidu.com/favicon.ico",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
     "changelog": "v0.0.1 首次发布\n- 根据百度贴吧签到流程接入 Cookie 校验、TBS 获取、关注贴吧扫描和一键签到\n- 支持逐账号配置、定时签到、立即执行、签到统计与历史记录\n- 仅依据贴吧接口返回的签到数量生成结果，不把 HTTP 成功误判为签到成功",
     "scope": "standalone",
     "plugin_api_version": 2,
@@ -52,6 +52,8 @@ __plugin__ = {
         "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "cols": 12, "order": 41},
     },
 }
+
+__plugin__["changelog"] = "v0.0.2 更新百度贴吧 Logo\n- 使用用户提供的贴吧官方图标\n\n" + __plugin__["changelog"]
 
 
 BASE_URL = "https://tieba.baidu.com"

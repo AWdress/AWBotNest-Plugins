@@ -14,10 +14,10 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
-    "icon": "https://www.bilibili.com/favicon.ico",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
     "changelog": "v0.0.1 首次发布\n- 接入分享、观看心跳、直播签到和漫画签到接口\n- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n- 仅依据 B 站接口 code 与明确重复签到提示判断结果",
     "scope": "standalone",
     "plugin_api_version": 2,
@@ -47,6 +47,8 @@ __plugin__ = {
         "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "cols": 12, "order": 51},
     },
 }
+
+__plugin__["changelog"] = "v0.0.2 更新哔哩哔哩 Logo\n- 使用用户提供的哔哩哔哩官方图标\n\n" + __plugin__["changelog"]
 
 API = "https://api.bilibili.com"
 LIVE_SIGN = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
