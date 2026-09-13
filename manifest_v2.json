@@ -3301,7 +3301,7 @@
     "bilibili_signin": {
       "name": "B站每日综合签到",
       "id": "bilibili_signin",
-      "version": "0.0.9",
+      "version": "0.1.0",
       "author": "AWdress",
       "scope": "standalone",
       "plugin_api_version": 2,
@@ -3332,7 +3332,7 @@
     "tieba_signin": {
       "name": "百度贴吧签到",
       "id": "tieba_signin",
-      "version": "0.0.9",
+      "version": "0.1.0",
       "author": "AWdress",
       "scope": "standalone",
       "plugin_api_version": 2,

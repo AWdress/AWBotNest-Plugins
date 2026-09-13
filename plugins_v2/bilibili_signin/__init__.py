@@ -14,7 +14,7 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.0.9",
+    "version": "0.1.0",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
@@ -55,6 +55,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.1.0 修复 B 站综合签到\n"
+    "- 动态视频接口为空时使用公开视频详情兜底，补齐 cid 与观看心跳参数\n"
+    "- 直播签到活动下线时标记为跳过，不再导致整轮失败\n\n"
     "v0.0.9 修复保存后账号列表恢复\n"
     "- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n"
     "- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\n"
@@ -75,6 +78,7 @@ LIVE_SIGN = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
 MANGA_CLOCKIN = "https://manga.bilibili.com/twirp/activity.v1.Activity/ClockIn"
 MANGA_COUPONS = "https://manga.bilibili.com/twirp/user.v1.User/GetCoupons"
 _run_lock: asyncio.Lock | None = None
+FALLBACK_BVIDS = ("BV1xx411c7mD", "BV1GJ411x7h7", "BV1Q541167Qg")
 
 
 def _bounded_int(value: Any, default: int, low: int, high: int) -> int:
@@ -174,32 +178,49 @@ def _signin_one(account: Dict[str, str], enabled: Dict[str, bool], delay: int, t
         if not csrf and enabled.get("share") or not csrf and enabled.get("heartbeat"):
             return {**result, "ok": False, "message": "Cookie 中缺少 bili_jct，无法完成分享/观看签到"}
 
-        def record(label: str, ok: bool, message: str):
-            result["actions"].append({"项目": label, "状态": "已完成" if ok else "失败", "详情": message})
+        def record(label: str, ok: bool, message: str, *, skipped: bool = False):
+            result["actions"].append({"项目": label, "状态": "跳过" if skipped else ("已完成" if ok else "失败"), "详情": message})
             if log:
                 log.info("[B站每日综合签到] [%s] %s：%s（%s）", name, label, "完成" if ok else "失败", message)
 
         bvid = ""
         if enabled.get("share") or enabled.get("heartbeat"):
-            dynamic = session.get(f"{API}/x/web-interface/dynamic/region", params={"pn": 3, "ps": 12, "rid": 129}, timeout=timeout)
+            dynamic = session.get(f"{API}/x/web-interface/dynamic/region", params={"pn": 1, "ps": 12, "rid": 0}, timeout=timeout)
             matches = re.findall(r"BV[A-Za-z0-9]{10}", dynamic.text or "")
-            bvid = matches[0] if matches else ""
+            candidates = list(dict.fromkeys(matches + list(FALLBACK_BVIDS)))
+            # 动态接口在部分账号/地区会返回空壳数据，逐个用公开视频详情接口兜底。
+            for candidate in candidates:
+                view = session.get(f"{API}/x/web-interface/view", params={"bvid": candidate}, timeout=timeout)
+                view_body = _json(view)
+                if view_body.get("code") == 0 and isinstance(view_body.get("data"), dict):
+                    bvid = candidate
+                    result["cid"] = (view_body.get("data") or {}).get("cid") or 0
+                    break
             if not bvid:
-                record("分享/观看", False, "未找到可用视频 BV 号")
+                if enabled.get("share"):
+                    record("分享签到", False, "未找到可用视频 BV 号")
+                if enabled.get("heartbeat"):
+                    record("观看签到", False, "未找到可用视频 BV 号")
         if enabled.get("share") and bvid:
             response = session.post(f"{API}/x/web-interface/share/add", data={"bvid": bvid, "csrf": csrf}, timeout=timeout)
             body = _json(response)
             record("分享签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
             if delay: time.sleep(delay)
         if enabled.get("heartbeat") and bvid:
-            response = session.post(f"{API}/x/click-interface/web/heartbeat", data={"bvid": bvid, "csrf": csrf, "played_time": 2}, timeout=timeout)
+            response = session.post(f"{API}/x/click-interface/web/heartbeat", data={
+                "bvid": bvid, "cid": result.get("cid", 0), "csrf": csrf,
+                "played_time": 2, "realtime": 2, "start_ts": int(time.time()) - 2,
+                "type": 3, "dt": 2, "play_type": 1,
+            }, timeout=timeout)
             body = _json(response)
             record("观看签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
             if delay: time.sleep(delay)
         if enabled.get("live"):
             response = session.get(LIVE_SIGN, timeout=timeout)
             body = _json(response)
-            record("直播签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
+            live_message = _message(body, response.text) or f"HTTP {response.status_code}"
+            live_offline = any(word in live_message for word in ("下线", "不存在", "未开放", "活动已结束", "无法使用"))
+            record("直播签到", _api_ok(body, response.text), live_message, skipped=live_offline)
             if delay: time.sleep(delay)
         if enabled.get("manga"):
             response = session.post(MANGA_CLOCKIN, data={"platform": "ios"}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=timeout)
@@ -211,7 +232,7 @@ def _signin_one(account: Dict[str, str], enabled: Dict[str, bool], delay: int, t
             body = _json(response)
             data = body.get("data") if isinstance(body.get("data"), dict) else {}
             result["manga"] = data.get("total_remain_amount", "-")
-        result["ok"] = all(item["状态"] == "已完成" for item in result["actions"])
+        result["ok"] = bool(result["actions"]) and all(item["状态"] in {"已完成", "跳过"} for item in result["actions"])
         result["message"] = "综合签到完成" if result["ok"] else "部分签到失败"
         return result
     except requests.RequestException as exc:

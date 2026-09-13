@@ -16,7 +16,7 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.0.9",
+    "version": "0.1.0",
     "author": "AWdress",
     "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行和结果通知。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
@@ -53,6 +53,8 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v0.1.0 修复贴吧签到结果判定\n"
+    "- 不再把 HTTP 200 或接口返回空值误判为成功，失败数量大于零时明确标记失败\n\n"
     "v0.0.9 修复保存后账号列表恢复\n"
     "- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n"
     "- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\n"
@@ -217,7 +219,10 @@ def _signin_one(account: Dict[str, str], delay: int, timeout: int, log=None) -> 
         failed = int(body.get("signedForumAmountFail") or individual_failed or 0)
         unsigned = int(body.get("unsignedForumAmount") or 0)
         success_marker = any(marker in text.lower() for marker in ("success", "forums is signed", "there is no forum"))
-        if summary.status_code != 200 or (not body and not success_marker):
+        # 一键接口 HTTP 200 不等于签到成功；例如 signed=0、fail=72 表示全部失败。
+        # 只有明确签到数量、明确无关注贴吧，或接口返回无失败的成功标记时才算成功。
+        completed = signed > 0 or (not bars and failed == 0 and unsigned == 0) or (success_marker and failed == 0)
+        if summary.status_code != 200 or (not body and not success_marker) or not completed or failed > 0:
             return {"ok": False, "name": name, "message": _message(body, text) or f"一键签到失败：HTTP {summary.status_code}", "signed": signed, "failed": failed, "unsigned": unsigned}
         return {"ok": True, "name": name, "message": "贴吧签到完成", "signed": signed, "failed": failed, "unsigned": unsigned, "bars": len(bars)}
     except requests.RequestException as exc:
