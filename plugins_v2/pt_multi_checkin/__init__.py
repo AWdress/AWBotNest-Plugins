@@ -5,11 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.0.17',
+ 'version': '2.5.55',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.0.17 适配平台正式依赖与调度规范\n'
+ 'changelog': 'v2.5.55 修复版本号倒退并统一插件元数据\n'
+              '- 恢复高于历史 v2.5.54 的连续版本号，避免市场把新版本误判为旧版本\n'
+              '- 同步入口、核心模块、manifest、README 和前端包版本\n'
+              '\n'
+              'v2.0.17 适配平台正式依赖与调度规范\n'
               '- 补充运行时直接使用的 packaging 依赖声明\n'
               '- 定时签到只使用平台正式 schedule_cron 接口\n'
               '\n'

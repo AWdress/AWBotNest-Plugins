@@ -56,6 +56,13 @@ _CHANGELOG_V2_0_16 = (
 )
 
 
+_CHANGELOG_V2_5_55 = (
+    "v2.5.55 修复版本号倒退并统一插件元数据\n"
+    "- 恢复高于历史 v2.5.54 的连续版本号，避免市场把新版本误判为旧版本\n"
+    "- 同步入口、核心模块、manifest、README 和前端包版本\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -68,7 +75,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.0.16",
+    "version": "2.5.55",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -76,7 +83,7 @@ __plugin__ = {
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 2,
-    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10", "geoip2>=4.8", "socksio>=1.0"],
+    "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10", "geoip2>=4.8", "socksio>=1.0", "packaging>=24.0"],
     "cookie_domains": [
         "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
@@ -98,7 +105,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
