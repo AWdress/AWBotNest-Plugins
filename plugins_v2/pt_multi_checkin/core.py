@@ -92,6 +92,12 @@ _CHANGELOG_V2_6_3 = (
 )
 
 
+_CHANGELOG_V2_6_4 = (
+    "v2.6.4 优化 AI 识别日志\n"
+    "- TJUPT 和 U2 日志明确显示 AI 识别出的候选名称，便于核对实际提交答案\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -104,7 +110,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.6.3",
+    "version": "2.6.4",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -134,7 +140,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -875,7 +881,13 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
             match = re.search(r"(?<!\d)(\d+)(?!\d)", suggestion)
             if match and 0 <= int(match.group(1)) < count:
                 choice = int(match.group(1))
-                _runtime_log(ctx, f"AI 识别结果：选项 {choice} ({options[choice]})，自动提交", level="info", site="TJUPT")
+                _runtime_log(
+                    ctx,
+                    f"使用 AI 自动识别完整海报与选项，海报识别名称：{options[choice]}，候选项：{options}",
+                    level="info",
+                    site="TJUPT",
+                )
+                _runtime_log(ctx, f"海报识别名称：{options[choice]}（选项 {choice}），自动提交", level="info", site="TJUPT")
                 break
             last_error = RuntimeError(f"AI 返回无效选项：{suggestion[:200]}")
         except Exception as exc:
@@ -1146,7 +1158,7 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
                     choice = _ai_choice(ctx, loop, question or "U2 签到验证题", options)
                     _runtime_log(
                         ctx,
-                        f"U2 AI 识别结果：选项 {choice + 1}（{options[choice]}），自动提交",
+                        f"U2 AI 识别名称：{options[choice]}（选项 {choice + 1}），自动提交",
                         site="U2",
                     )
                 except Exception as exc:
@@ -2004,7 +2016,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             if _ai_available(ctx, "text"):
                 try:
                     choice = await _http_ai_choice(ctx, question or "U2 签到验证题", options)
-                    _runtime_log(ctx, f"U2 AI 识别结果：选项 {choice + 1}（{options[choice]}），自动提交", site="U2")
+                    _runtime_log(ctx, f"U2 AI 识别名称：{options[choice]}（选项 {choice + 1}），自动提交", site="U2")
                 except Exception as exc:
                     _runtime_log(ctx, f"U2 AI 识别失败：{exc}，改用随机选项提交", level="warning", site="U2")
             if choice is None:

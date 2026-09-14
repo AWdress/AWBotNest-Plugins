@@ -5,11 +5,14 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.6.3',
+ 'version': '2.6.4',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.6.3 强化 TJUPT 全自动海报识别\n'
+ 'changelog': 'v2.6.4 优化 AI 识别日志\n'
+              '- TJUPT 和 U2 日志明确显示 AI 识别出的候选名称，便于核对实际提交答案\n'
+              '\n'
+              'v2.6.3 强化 TJUPT 全自动海报识别\n'
               '- 视觉模型同时接收完整页面和海报裁剪图，避免遗漏左侧影视海报\n'
               '- AI 识别失败不再回退 Telegram 手动模式，改为重试后明确失败并跳过提交\n'
               '\n'
