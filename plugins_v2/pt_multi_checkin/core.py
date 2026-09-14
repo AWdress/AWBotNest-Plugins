@@ -85,6 +85,13 @@ _CHANGELOG_V2_6_2 = (
 )
 
 
+_CHANGELOG_V2_6_3 = (
+    "v2.6.3 强化 TJUPT 全自动海报识别\n"
+    "- 视觉模型同时接收完整页面和海报裁剪图，避免遗漏左侧影视海报\n"
+    "- AI 识别失败不再回退 Telegram 手动模式，改为重试后明确失败并跳过提交\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -97,7 +104,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.6.2",
+    "version": "2.6.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -127,7 +134,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -804,6 +811,28 @@ async def _send_tjupt_question(ctx, token: str, image_path: Path, options: list[
     await ctx.bot.send_file(owner_id, str(image_path), caption=caption, buttons=rows)
 
 
+def _tjupt_visual_payload(page, image_path: Path) -> list[bytes]:
+    """构造 TJUPT 视觉输入：整页 + 最大的影视海报图片。"""
+    payload = [image_path.read_bytes()]
+    try:
+        images = page.locator("img")
+        candidates: list[tuple[float, bytes]] = []
+        for index in range(min(images.count(), 20)):
+            image = images.nth(index)
+            box = image.bounding_box()
+            if not box or box.get("width", 0) < 160 or box.get("height", 0) < 120:
+                continue
+            screenshot = image.screenshot()
+            if screenshot:
+                candidates.append((float(box.get("width", 0) * box.get("height", 0)), screenshot))
+        if candidates:
+            payload.append(max(candidates, key=lambda item: item[0])[1])
+    except Exception:
+        # 完整页面截图仍然保留，单独图片裁剪失败不应阻断签到。
+        pass
+    return payload
+
+
 def _tjupt_challenge(ctx, page, loop) -> dict:
     radios = page.locator('input[type="radio"]')
     count = min(radios.count(), 12)
@@ -821,60 +850,40 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
     except Exception:
         form.screenshot(path=str(image_path))
 
-    # 尝试 AI 自动识别并提交
+    # TJUPT 必须全自动完成：AI 失败时直接报错，不再发送 Telegram 手动确认。
+    if not _ai_available(ctx, "vision"):
+        raise RuntimeError("平台未配置视觉 AI，TJUPT 无法自动识别海报，未提交签到")
+    _runtime_log(ctx, f"使用 AI 自动识别完整海报与选项，候选项：{options}", level="info", site="TJUPT")
+    visual_images = _tjupt_visual_payload(page, image_path)
     choice = None
-    auto_submit_enabled = ctx.config.get("tjupt_ai_assist", True)
-    
-    if auto_submit_enabled and _ai_available(ctx, "vision"):
+    last_error: Exception | None = None
+    for attempt in range(2):
         try:
-            _runtime_log(ctx, f"使用 AI 自动识别海报，候选项：{options}", level="info", site="TJUPT")
-            image_bytes = image_path.read_bytes()
-            
             suggestion = str(asyncio.run_coroutine_threadsafe(
                 ctx.ai.vision(
-                    image=image_bytes,
+                    image=visual_images,
                     prompt=(
-                        "这是 TJUPT 的影视海报选择题。请同时观察图片左侧的影视海报和右侧的候选文字，"
-                        "根据海报内容判断对应的影视名称。只允许从候选项中选择一个。"
-                        "**只需要返回选项序号（从0开始），例如：0 或 1 或 2，不要返回任何解释**。\n候选项：\n"
+                        "这是 TJUPT 的影视海报选择题。请重点查看第一张完整截图左侧的影视海报；"
+                        "第二张图片（如果存在）是海报裁剪图。再对照右侧候选文字，判断海报对应的影视名称。"
+                        "只允许从候选项中选择一个，必须返回一个 0-based 选项序号。\n候选项：\n"
                         + "\n".join(f"{index}. {label}" for index, label in enumerate(options))
                     ),
-                    system="你是影视海报识别助手。只返回最可能的选项序号（0-based index），例如直接返回 0 或 1 或 2，不要返回任何解释文字。",
+                    system="你是影视海报识别助手。必须根据左侧海报选择对应候选项，只返回 0-based 数字，不要返回解释。",
                 ),
                 loop
             ).result(timeout=60))
-            
-            # 解析 AI 返回的选项序号
-            match = re.search(r'\b(\d+)\b', suggestion)
-            if match:
+            match = re.search(r"(?<!\d)(\d+)(?!\d)", suggestion)
+            if match and 0 <= int(match.group(1)) < count:
                 choice = int(match.group(1))
-                if 0 <= choice < count:
-                    _runtime_log(ctx, f"AI 识别结果：选项 {choice} ({options[choice]})，自动提交", level="info", site="TJUPT")
-                else:
-                    _runtime_log(ctx, f"AI 返回的序号 {choice} 超出范围 [0, {count-1}]，回退到手动模式", level="warning", site="TJUPT")
-                    choice = None
-            else:
-                _runtime_log(ctx, f"AI 返回内容无法解析为选项序号：{suggestion[:200]}，回退到手动模式", level="warning", site="TJUPT")
+                _runtime_log(ctx, f"AI 识别结果：选项 {choice} ({options[choice]})，自动提交", level="info", site="TJUPT")
+                break
+            last_error = RuntimeError(f"AI 返回无效选项：{suggestion[:200]}")
         except Exception as exc:
-            _runtime_log(ctx, f"AI 识图失败：{exc}，回退到手动模式", level="warning", site="TJUPT")
-            choice = None
-    
-    # 如果 AI 识别失败或未启用，回退到 Telegram 手动选择
+            last_error = exc
+        if attempt == 0:
+            _runtime_log(ctx, "AI 首次识别未返回有效答案，正在用完整海报重试", level="warning", site="TJUPT")
     if choice is None:
-        event = threading.Event()
-        pending = {"event": event, "choice": None, "created": datetime.now().timestamp()}
-        _tjupt_pending[token] = pending
-        timeout = _bounded(ctx.config.get("tjupt_confirm_timeout"), 300, 60, 600)
-        try:
-            future = asyncio.run_coroutine_threadsafe(_send_tjupt_question(ctx, token, image_path, options), loop)
-            future.result(timeout=90)
-            if not event.wait(timeout):
-                raise RuntimeError(f"等待 Telegram 选择超时（{timeout} 秒），未提交签到答案")
-            choice = pending.get("choice")
-            if not isinstance(choice, int) or choice < 0 or choice >= count:
-                raise RuntimeError("Telegram 返回的签到选项无效，未提交")
-        finally:
-            _tjupt_pending.pop(token, None)
+        raise RuntimeError(f"TJUPT AI 未能识别左侧海报，未提交签到：{last_error or '未知错误'}")
     
     # 提交选择的答案
     try:
