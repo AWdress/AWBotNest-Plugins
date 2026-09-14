@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
-const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, u2_checkin_hour: 9, u2_checkin_minute: 0, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] })
+const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, u2_checkin_hour: 9, u2_checkin_minute: 0, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [], custom_sites: [] })
 const sites = ref([]), history = ref([]), logs = ref([]), cookieState = reactive({})
 const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' })
 const loading = ref(true), loadingError = ref(''), saving = ref(false), checking = ref(false)
@@ -35,13 +35,27 @@ async function load() {
     Object.assign(config, meta.defaults || {}, saved || {})
     sites.value = meta.sites || []
     if (!Array.isArray(config.selected_sites)) config.selected_sites = sites.value.map(site => site.key)
+    const customKeys = sites.value.filter(site => site.group === '通用签到').map(site => site.key)
+    if (customKeys.length && !customKeys.some(key => config.selected_sites.includes(key))) config.selected_sites.push(...customKeys)
     await refresh()
   } catch (error) { loadingError.value = error.message || String(error); props.host.toast.error(`读取失败：${loadingError.value}`) }
   finally { loading.value = false }
 }
 async function save() {
   saving.value = true
-  try { await props.host.saveConfig({ ...config, selected_sites: [...config.selected_sites] }); props.host.toast.success('配置已保存') }
+  try {
+    await props.host.saveConfig({ ...config, selected_sites: [...config.selected_sites] })
+    // 保存后重新取一次元数据，拿到后端为通用站点生成的稳定 key，并持久化选择状态。
+    const meta = await props.host.callApi('/meta')
+    sites.value = meta.sites || sites.value
+    const customKeys = sites.value.filter(site => site.group === '通用签到').map(site => site.key)
+    const merged = [...new Set([...config.selected_sites, ...customKeys])]
+    if (merged.length !== config.selected_sites.length) {
+      config.selected_sites = merged
+      await props.host.saveConfig({ ...config, selected_sites: merged })
+    }
+    props.host.toast.success('配置已保存')
+  }
   catch (error) { props.host.toast.error(`保存失败：${error.message || error}`) }
   finally { saving.value = false }
 }
@@ -62,6 +76,16 @@ async function checkCookies() {
   finally { checking.value = false }
 }
 function toggleGroup(items, enabled) { const keys = new Set(config.selected_sites); items.forEach(site => enabled ? keys.add(site.key) : keys.delete(site.key)); config.selected_sites = [...keys] }
+function addCustomSite() {
+  if (!Array.isArray(config.custom_sites)) config.custom_sites = []
+  config.custom_sites.push({ name: '', url: '' })
+}
+function removeCustomSite(index) {
+  const item = config.custom_sites[index]
+  const old = sites.value.filter(site => site.group === '通用签到')[index]
+  if (old) config.selected_sites = config.selected_sites.filter(key => key !== old.key)
+  config.custom_sites.splice(index, 1)
+}
 async function clearHistory() { const result = await props.host.callApi('/history/clear', { method: 'POST' }); if (result.ok) { history.value = []; props.host.toast.success(result.message) } }
 async function clearLogs() { const result = await props.host.callApi('/logs/clear', { method: 'POST' }); if (result.ok) { props.host.toast.success(result.message); await refresh() } }
 onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
@@ -94,7 +118,7 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
     </section>
 
     <section class="sites-panel">
-      <div class="section-head"><div><h3>选择签到站点</h3><p>点击标签即可勾选。除 TJUPT 外，验证码由平台 AI 自动识别。</p></div><div class="section-actions"><button class="link-button" @click="toggleGroup(sites, true)">全选</button><span></span><button class="link-button" @click="toggleGroup(sites, false)">清空</button></div></div>
+      <div class="section-head"><div><h3>选择签到站点</h3><p>点击标签即可勾选。Cookie 由平台按站点域名自动读取。</p></div><div class="section-actions"><button class="link-button" @click="toggleGroup(sites, true)">全选</button><span></span><button class="link-button" @click="toggleGroup(sites, false)">清空</button></div></div>
       <div v-for="[group, items] in groups" :key="group" class="site-group">
         <div class="group-title"><span>{{ group }}</span><small>{{ items.filter(site => config.selected_sites.includes(site.key)).length }}/{{ items.length }}</small><button @click="toggleGroup(items, !items.every(site => config.selected_sites.includes(site.key)))">{{ items.every(site => config.selected_sites.includes(site.key)) ? '取消本组' : '选择本组' }}</button></div>
         <div class="site-chips">
@@ -106,6 +130,17 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
             <span v-if="cookieState[site.key]" class="cookie-dot" :title="cookieState[site.key].message"></span>
           </label>
         </div>
+      </div>
+      <div class="custom-sites">
+        <div class="custom-head"><div><h3>任意站点通用签到</h3><p>填写站点名称和地址，插件会优先访问 /attendance.php；Cookie 仍由平台按域名同步。</p></div><button class="link-button" @click="addCustomSite">＋ 添加站点</button></div>
+        <div v-if="config.custom_sites?.length" class="custom-list">
+          <div v-for="(item, index) in config.custom_sites" :key="index" class="custom-row">
+            <input v-model="item.name" aria-label="站点名称或账号" placeholder="站点名称 / 账号">
+            <input v-model="item.url" aria-label="PT站点地址" placeholder="https://example.com">
+            <button class="link-button danger" @click="removeCustomSite(index)">删除</button>
+          </div>
+        </div>
+        <div v-else class="custom-empty">尚未添加通用站点</div>
       </div>
       <footer class="save-bar"><p><span class="shield" aria-hidden="true"></span>Cookie 只从平台读取，不会保存在插件配置中。</p><button class="button primary" :disabled="saving" @click="save">{{ saving ? '正在保存…' : '保存并应用' }}</button></footer>
     </section>
@@ -140,8 +175,10 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
 @media(max-width:620px){.control-rail>.toggles{width:100%!important;min-width:0!important}.control-rail>.schedule-fields{flex-basis:100%!important}}
 
 .site-name{display:flex;align-items:center;gap:6px;min-width:0}.site-name>b{min-width:0}.site-name>em{flex:0 0 auto;padding:1px 5px;border:1px solid #9b6b2b;border-radius:5px;color:#ffc56c;background:#302413;font-size:9px;font-style:normal;font-weight:750;line-height:15px}
+.custom-sites{border-top:1px solid var(--line-soft);padding:18px}.custom-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.custom-head h3{margin:0;font-size:15px}.custom-head p{margin:3px 0 0;color:var(--muted);font-size:12px}.custom-list{display:grid;gap:9px;margin-top:13px}.custom-row{display:grid;grid-template-columns:minmax(120px,.7fr) minmax(220px,1.5fr) auto;gap:9px;align-items:center}.custom-row input{width:100%;height:38px;padding:0 10px;border:1px solid #354c68;border-radius:7px;color:var(--text);background:#0d1725;font:inherit}.custom-row input:focus{border-color:#4d9af2;outline:2px solid #244f7f}.custom-empty{margin-top:12px;padding:12px;border:1px dashed #304863;border-radius:8px;color:#7188a1;text-align:center;font-size:12px}
 .runtime-logs{max-height:320px;overflow:auto;font:12px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace}.log-row{display:grid;grid-template-columns:64px 110px 1fr;gap:12px;padding:8px 18px;border-top:1px solid var(--line-soft);color:#aebdd0}.log-row:first-child{border-top:0}.log-row time{color:#7188a1}.log-row b{overflow:hidden;color:#8ebce9;text-overflow:ellipsis;white-space:nowrap}.log-row.success span{color:var(--green)}.log-row.warning span{color:#ffc56c}.log-row.error span{color:var(--red)}.load-error{padding:40px;border:1px solid #713845;border-radius:14px;color:#d9e5f2;background:#101b2a;text-align:center}.load-error b{font-size:17px}.load-error p{margin:8px auto 18px;max-width:620px;color:#ff9da6}.load-error .button{margin:auto}@media(max-width:620px){.log-row{grid-template-columns:58px 80px 1fr;padding-inline:12px;gap:8px}}
 
 /* 数字参数保留完整可读宽度，单位独立占位，避免宿主数字步进按钮遮挡数值。 */
 .schedule-fields>label{flex:0 0 auto;min-width:max-content}.schedule-fields input{flex:0 0 64px;width:64px;min-width:64px}.time-field,.unit-field{flex:0 0 auto;min-width:max-content}.time-field input{flex-basis:50px;width:50px;min-width:50px}.unit-field{position:static;gap:7px}.unit-field input{flex-basis:68px;width:68px;min-width:68px;padding-right:7px}.unit-field i{position:static;flex:0 0 auto;white-space:nowrap}
+@media(max-width:620px){.custom-head{align-items:flex-start;flex-direction:column}.custom-row{grid-template-columns:1fr}.custom-row .link-button{justify-self:start}}
 </style>

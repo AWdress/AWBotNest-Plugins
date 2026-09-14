@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import hashlib
 import importlib
 import importlib.metadata
 import json
@@ -98,6 +99,25 @@ _CHANGELOG_V2_6_4 = (
 )
 
 
+_CHANGELOG_V2_7_0 = (
+    "v2.7.0 增加通用站点签到与中文站点分组\n"
+    "- 固定适配站点按 12 大站点、其他站点分组并统一显示中文名称\n"
+    "- 移除不支持签到的 M-Team\n"
+    "- 新增可添加任意 PT 站点的通用签到配置，Cookie 继续由平台按域名读取\n\n"
+ )
+
+_CHANGELOG_V2_7_1 = (
+    "v2.7.1 增加红豆饭、织梦、麒麟签到\n"
+    "- 新增 HDFans、ZMPT、HDKYL 三个通用 PT 站点适配\n"
+    "- Cookie 继续由平台按站点域名读取，使用通用签到结果确认流程\n\n"
+)
+
+_CHANGELOG_V2_7_2 = (
+    "v2.7.2 增加大青虫签到\n"
+    "- 新增 CyanBug（cyanbug.net）通用 PT 签到适配\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -110,7 +130,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.6.4",
+    "version": "2.7.2",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -127,7 +147,9 @@ __plugin__ = {
         "haidan.video", "*.haidan.video", "club.hares.top", "*.club.hares.top",
         "hdarea.club", "*.hdarea.club", "hdchina.org", "*.hdchina.org",
         "hdcity.city", "*.hdcity.city", "hdsky.me", "*.hdsky.me",
-        "pt.hdupt.com", "*.pt.hdupt.com", "m-team.cc", "*.m-team.cc",
+        "pt.hdupt.com", "*.pt.hdupt.com", "hdhome.org", "*.hdhome.org",
+        "hdfans.org", "*.hdfans.org", "zmpt.cc", "*.zmpt.cc", "hdkyl.in", "*.hdkyl.in",
+        "cyanbug.net", "*.cyanbug.net",
         "v6.nexushd.org", "*.v6.nexushd.org", "open.cd", "*.open.cd",
         "pterclub.net", "*.pterclub.net", "pttime.org", "*.pttime.org",
         "totheglory.im", "*.totheglory.im", "u2.dmhy.org", "*.u2.dmhy.org",
@@ -140,33 +162,38 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
-    "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
-    "ourbits": {"name": "OurBits", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "NexusPHP"},
-    "piggo": {"name": "PigGo", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "NexusPHP"},
-    "hhan": {"name": "HHanClub", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "NexusPHP"},
-    "tjupt": {"name": "TJUPT", "domain": "tjupt.org", "url": "https://www.tjupt.org/attendance.php", "group": "交互验证"},
-    "pt52": {"name": "52PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "交互验证"},
-    "btschool": {"name": "BT School", "domain": "pt.btschool.club", "url": "https://pt.btschool.club", "mode": "btschool", "group": "专用适配"},
-    "chdbits": {"name": "CHDBits", "domain": "ptchdbits.co", "url": "https://ptchdbits.co/bakatest.php", "mode": "interactive", "group": "交互验证"},
-    "haidan": {"name": "海胆", "domain": "haidan.video", "url": "https://www.haidan.video/signin.php", "mode": "haidan", "group": "专用适配"},
-    "hares": {"name": "白兔", "domain": "club.hares.top", "url": "https://club.hares.top", "mode": "hares", "group": "专用适配"},
-    "hdarea": {"name": "好大", "domain": "hdarea.club", "url": "https://www.hdarea.club", "mode": "hdarea", "group": "专用适配"},
-    "hdchina": {"name": "HDChina", "domain": "hdchina.org", "url": "https://hdchina.org/index.php", "mode": "hdchina", "group": "专用适配"},
-    "hdcity": {"name": "HDCity", "domain": "hdcity.city", "url": "https://hdcity.city/sign", "mode": "direct", "group": "专用适配"},
-    "hdsky": {"name": "天空", "domain": "hdsky.me", "url": "https://hdsky.me", "mode": "interactive", "group": "交互验证"},
-    "hdupt": {"name": "HDU PT", "domain": "pt.hdupt.com", "url": "https://pt.hdupt.com", "mode": "hdupt", "group": "专用适配"},
-    "mteam": {"name": "M-Team", "domain": "kp.m-team.cc", "url": "https://kp.m-team.cc", "mode": "visit", "group": "专用适配"},
-    "nexushd": {"name": "NexusHD", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "专用适配"},
-    "opencd": {"name": "OpenCD", "domain": "open.cd", "url": "https://www.open.cd", "mode": "interactive", "group": "交互验证"},
-    "pterclub": {"name": "PTerClub", "domain": "pterclub.net", "url": "https://pterclub.net/attendance-ajax.php", "mode": "pterclub", "group": "专用适配"},
-    "pttime": {"name": "PTTime", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "pttime", "group": "专用适配"},
-    "ttg": {"name": "TTG", "domain": "totheglory.im", "url": "https://totheglory.im", "mode": "ttg", "group": "专用适配"},
-    "u2": {"name": "U2", "domain": "u2.dmhy.org", "url": "https://u2.dmhy.org/showup.php", "mode": "interactive", "group": "交互验证"},
-    "yema": {"name": "YemaPT", "domain": "yemapt.org", "url": "https://yemapt.org/api/consumer/checkIn", "mode": "yema", "group": "专用适配"},
-    "zhuque": {"name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in", "mode": "zhuque", "group": "专用适配"},
+    # PT 社区常用的 12 个站点置于第一组；其余已有适配站点置于第二组。
+    "audiences": {"name": "观众", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "12大站点"},
+    "ourbits": {"name": "我堡", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "12大站点"},
+    "piggo": {"name": "猪猪", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "其他站点"},
+    "hhan": {"name": "憨憨", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "12大站点"},
+    "tjupt": {"name": "北洋园", "domain": "tjupt.org", "url": "https://www.tjupt.org/attendance.php", "group": "其他站点"},
+    "chdbits": {"name": "彩虹岛", "domain": "ptchdbits.co", "url": "https://ptchdbits.co/bakatest.php", "mode": "interactive", "group": "12大站点"},
+    "opencd": {"name": "皇后", "domain": "open.cd", "url": "https://www.open.cd", "mode": "interactive", "group": "12大站点"},
+    "u2": {"name": "幼儿园", "domain": "u2.dmhy.org", "url": "https://u2.dmhy.org/showup.php", "mode": "interactive", "group": "其他站点"},
+    "btschool": {"name": "学校", "domain": "pt.btschool.club", "url": "https://pt.btschool.club", "mode": "btschool", "group": "其他站点"},
+    "hdsky": {"name": "天空", "domain": "hdsky.me", "url": "https://hdsky.me", "mode": "interactive", "group": "12大站点"},
+    "pterclub": {"name": "猫站", "domain": "pterclub.net", "url": "https://pterclub.net/attendance-ajax.php", "mode": "pterclub", "group": "12大站点"},
+    "ttg": {"name": "听听歌", "domain": "totheglory.im", "url": "https://totheglory.im", "mode": "ttg", "group": "12大站点"},
+    "hdhome": {"name": "家园", "domain": "hdhome.org", "url": "https://hdhome.org/attendance.php", "group": "12大站点"},
+    "hdfans": {"name": "红豆饭", "domain": "hdfans.org", "url": "https://hdfans.org/attendance.php", "mode": "generic", "generic": True, "group": "其他站点"},
+    "zmpt": {"name": "织梦", "domain": "zmpt.cc", "url": "https://zmpt.cc/attendance.php", "mode": "generic", "generic": True, "group": "其他站点"},
+    "hdkyl": {"name": "麒麟", "domain": "hdkyl.in", "url": "https://www.hdkyl.in/attendance.php", "mode": "generic", "generic": True, "group": "其他站点"},
+    "cyanbug": {"name": "大青虫", "domain": "cyanbug.net", "url": "https://cyanbug.net/attendance.php", "mode": "generic", "generic": True, "group": "其他站点"},
+    "pt52": {"name": "我爱PT", "domain": "52pt.site", "url": "https://52pt.site/bakatest.php", "mode": "interactive", "group": "其他站点"},
+    "haidan": {"name": "海胆", "domain": "haidan.video", "url": "https://www.haidan.video/signin.php", "mode": "haidan", "group": "其他站点"},
+    "hares": {"name": "白兔", "domain": "club.hares.top", "url": "https://club.hares.top", "mode": "hares", "group": "其他站点"},
+    "hdarea": {"name": "好大", "domain": "hdarea.club", "url": "https://www.hdarea.club", "mode": "hdarea", "group": "其他站点"},
+    "hdchina": {"name": "高清中国", "domain": "hdchina.org", "url": "https://hdchina.org/index.php", "mode": "hdchina", "group": "其他站点"},
+    "hdcity": {"name": "高清城市", "domain": "hdcity.city", "url": "https://hdcity.city/sign", "mode": "direct", "group": "其他站点"},
+    "hdupt": {"name": "北邮人", "domain": "pt.hdupt.com", "url": "https://pt.hdupt.com", "mode": "hdupt", "group": "其他站点"},
+    "nexushd": {"name": "红豆", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "其他站点"},
+    "pttime": {"name": "PT时间", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "pttime", "group": "其他站点"},
+    "yema": {"name": "野马", "domain": "yemapt.org", "url": "https://yemapt.org/api/consumer/checkIn", "mode": "yema", "group": "其他站点"},
+    "zhuque": {"name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in", "mode": "zhuque", "group": "其他站点"},
 }
 
 
@@ -175,7 +202,7 @@ DEFAULTS = {
     "checkin_hour": 8, "checkin_minute": 10, "u2_checkin_hour": 9, "u2_checkin_minute": 0,
     "retry_count": 2, "retry_interval": 20,
     "tjupt_ai_assist": True, "tjupt_confirm_timeout": 300,
-    "selected_sites": list(SITES.keys()),
+    "selected_sites": list(SITES.keys()), "custom_sites": [],
 }
 
 
@@ -400,6 +427,45 @@ def _prepare_runtime_dependencies(selected_keys: list[str]) -> list[str]:
 
 def _cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
+
+
+def _custom_sites(cfg: dict | None = None) -> dict[str, dict]:
+    """Build stable runtime definitions for user-added generic PT sites."""
+    raw = (cfg or {}).get("custom_sites", []) if isinstance(cfg, dict) else []
+    if not isinstance(raw, list):
+        return {}
+    result: dict[str, dict] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        raw_url = str(item.get("url") or "").strip()
+        if not re.match(r"^https?://", raw_url, re.I):
+            continue
+        parsed = urlparse(raw_url)
+        domain = (parsed.hostname or "").lower().strip(".")
+        if domain.startswith("www."):
+            domain = domain[4:]
+        if not domain:
+            continue
+        # name is intentionally user-controlled (it can be a site name or account label).
+        name = str(item.get("name") or item.get("username") or domain).strip()[:80]
+        key_seed = f"{name}\x00{raw_url}".encode("utf-8", "ignore")
+        key = "custom_" + hashlib.sha1(key_seed).hexdigest()[:12]
+        result[key] = {
+            "name": name,
+            "domain": domain,
+            "url": raw_url,
+            "mode": "generic",
+            "generic": True,
+            "group": "通用签到",
+        }
+    return result
+
+
+def _configured_sites(cfg: dict | None = None) -> dict[str, dict]:
+    configured = dict(SITES)
+    configured.update(_custom_sites(cfg))
+    return configured
 
 
 def _task_done(task: asyncio.Task) -> None:
@@ -1573,6 +1639,13 @@ def _site_cloak_checkin(ctx, key: str, site: dict, cookie: str, headless: bool, 
         page.set_default_timeout(20_000)
         seed_url = "https://piggo.me/" if key == "piggo" else site["url"]
         _seed_browser_cookie_jar(page, cookie, seed_url)
+        if site.get("generic"):
+            target_url = site["url"]
+            parsed = urlparse(target_url)
+            if parsed.path in {"", "/"}:
+                target_url = target_url.rstrip("/") + "/attendance.php"
+            page.goto(target_url, wait_until="domcontentloaded", timeout=60_000)
+            return _browser_checkin(page, site["domain"], ctx, loop)
         if key in {"ourbits", "piggo", "hhan", "tjupt"}:
             result = _browser_checkin(page, site["domain"], ctx, loop)
             if key == "piggo":
@@ -1822,7 +1895,12 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             return response, _http_guard(response)
 
         mode = site.get("mode")
-        response, text = await get("https://piggo.me/" if key == "piggo" else site["url"])
+        request_url = "https://piggo.me/" if key == "piggo" else site["url"]
+        if site.get("generic"):
+            parsed = urlparse(request_url)
+            if parsed.path in {"", "/"}:
+                request_url = request_url.rstrip("/") + "/attendance.php"
+        response, text = await get(request_url)
         visible_text = _html_visible_text(text)
         if key == "hhan":
             state = _hhan_result_state(text)
@@ -2042,6 +2120,15 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             if final:
                 return {"status": "success", "message": "签到成功（首页状态已确认）", "engine": "http"}
             raise _NeedsBrowser("U2 HTTP 提交后未确认最终状态，切换 CloakBrowser 回查")
+        if site.get("generic"):
+            # 通用模式只接受明确的签到/已签到文案；普通 200 页面交由浏览器
+            # 识别按钮并回查结果，避免将首页访问误判为成功。
+            state = _site_result_state(visible_text, site["domain"], confirmed=True)
+            if state:
+                if state[0] == "failed":
+                    raise RuntimeError(state[1])
+                return {"status": state[0], "message": state[1], "engine": "http"}
+            raise _NeedsBrowser("通用站点未返回明确签到结果，切换 CloakBrowser 确认")
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
 
@@ -2053,10 +2140,16 @@ async def _run(ctx, source: str, selected_override: list[str] | None = None) -> 
         return {"ok": False, "message": "签到任务正在运行"}
     async with _run_lock:
         cfg = _cfg(ctx)
-        selected = selected_override if selected_override is not None else cfg.get("selected_sites", list(SITES))
+        configured = _configured_sites(cfg)
+        selected = selected_override if selected_override is not None else cfg.get("selected_sites", list(configured))
         if not isinstance(selected, list):
-            selected = list(SITES)
-        enabled = [(key, SITES[key]) for key in selected if key in SITES]
+            selected = list(configured)
+        # 新增的通用站点没有旧配置中的 key，首次保存后自动纳入签到；
+        # 一旦用户在页面明确勾选/取消，selected_sites 中会保留该 key。
+        custom_keys = set(_custom_sites(cfg))
+        if selected_override is None and custom_keys and not (custom_keys & {str(key) for key in selected}):
+            selected = [*selected, *sorted(custom_keys)]
+        enabled = [(str(key), configured[str(key)]) for key in selected if str(key) in configured]
         if not enabled:
             return {"ok": False, "message": "没有启用任何签到站点"}
         _state.update({
@@ -2255,10 +2348,11 @@ async def setup(ctx):
 
     @ctx.on_api("/meta", methods=["GET"])
     async def api_meta(req):
+        configured = _configured_sites(_cfg(ctx))
         return {
             "ok": True,
-            "sites": [{"key": key, **{field: site[field] for field in ("name", "domain", "group")}, "status": site.get("status", "ready")} for key, site in SITES.items()],
-            "defaults": DEFAULTS,
+            "sites": [{"key": key, **{field: site[field] for field in ("name", "domain", "group")}, "status": site.get("status", "ready")} for key, site in configured.items()],
+            "defaults": {**DEFAULTS, "selected_sites": list(configured)},
         }
 
     @ctx.on_api("/status", methods=["GET"])
@@ -2297,14 +2391,15 @@ async def setup(ctx):
     @ctx.on_api("/cookies/check", methods=["POST"])
     async def api_cookies_check(req):
         data = req.json if isinstance(req.json, dict) else {}
+        configured = _configured_sites(_cfg(ctx))
         requested = data.get("selected_sites")
-        selected = requested if isinstance(requested, list) else _cfg(ctx).get("selected_sites", list(SITES))
-        selected = list(dict.fromkeys(str(key) for key in selected if str(key) in SITES))
+        selected = requested if isinstance(requested, list) else _cfg(ctx).get("selected_sites", list(configured))
+        selected = list(dict.fromkeys(str(key) for key in selected if str(key) in configured))
         if not selected:
             return {"ok": False, "message": "请至少勾选一个站点", "items": []}
         rows = []
         for key in selected:
-            cookie, error = await _site_cookie(ctx, key, SITES[key])
+            cookie, error = await _site_cookie(ctx, key, configured[key])
             rows.append({"key": key, "ok": bool(cookie), "message": "平台 Cookie 可用" if cookie else error})
         return {"ok": all(row["ok"] for row in rows), "items": rows}
 
@@ -2354,15 +2449,17 @@ async def setup(ctx):
         u2_minute = _bounded(cfg.get("u2_checkin_minute"), 0, 0, 59)
 
         async def scheduled_main():
-            selected = _cfg(ctx).get("selected_sites", list(SITES))
+            configured = _configured_sites(_cfg(ctx))
+            selected = _cfg(ctx).get("selected_sites", list(configured))
             if not isinstance(selected, list):
-                selected = list(SITES)
-            non_u2 = [str(key) for key in selected if str(key) in SITES and str(key) != "u2"]
+                selected = list(configured)
+            non_u2 = [str(key) for key in selected if str(key) in configured and str(key) != "u2"]
             if non_u2:
                 await _run(ctx, "定时", non_u2)
 
         async def scheduled_u2():
-            selected = _cfg(ctx).get("selected_sites", list(SITES))
+            configured = _configured_sites(_cfg(ctx))
+            selected = _cfg(ctx).get("selected_sites", list(configured))
             if not isinstance(selected, list) or "u2" in selected:
                 await _run(ctx, "定时(U2)", ["u2"])
 

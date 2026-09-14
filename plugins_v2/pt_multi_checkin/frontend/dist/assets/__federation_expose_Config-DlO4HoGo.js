@@ -50,35 +50,47 @@ const _hoisted_26 = { class: "site-copy" };
 const _hoisted_27 = { class: "site-name" };
 const _hoisted_28 = { key: 0 };
 const _hoisted_29 = ["title"];
-const _hoisted_30 = { class: "save-bar" };
-const _hoisted_31 = ["disabled"];
-const _hoisted_32 = { class: "history-panel" };
-const _hoisted_33 = { class: "section-head" };
-const _hoisted_34 = ["disabled"];
+const _hoisted_30 = { class: "custom-sites" };
+const _hoisted_31 = {
+  key: 0,
+  class: "custom-list"
+};
+const _hoisted_32 = ["onUpdate:modelValue"];
+const _hoisted_33 = ["onUpdate:modelValue"];
+const _hoisted_34 = ["onClick"];
 const _hoisted_35 = {
+  key: 1,
+  class: "custom-empty"
+};
+const _hoisted_36 = { class: "save-bar" };
+const _hoisted_37 = ["disabled"];
+const _hoisted_38 = { class: "history-panel" };
+const _hoisted_39 = { class: "section-head" };
+const _hoisted_40 = ["disabled"];
+const _hoisted_41 = {
   key: 0,
   class: "history"
 };
-const _hoisted_36 = {
+const _hoisted_42 = {
   key: 1,
   class: "empty"
 };
-const _hoisted_37 = { class: "history-panel log-panel" };
-const _hoisted_38 = { class: "section-head" };
-const _hoisted_39 = ["disabled"];
-const _hoisted_40 = {
+const _hoisted_43 = { class: "history-panel log-panel" };
+const _hoisted_44 = { class: "section-head" };
+const _hoisted_45 = ["disabled"];
+const _hoisted_46 = {
   key: 0,
   class: "runtime-logs"
 };
-const _hoisted_41 = {
+const _hoisted_47 = {
   key: 1,
   class: "empty"
 };
-const _hoisted_42 = {
+const _hoisted_48 = {
   key: 1,
   class: "loading"
 };
-const _hoisted_43 = {
+const _hoisted_49 = {
   key: 2,
   class: "load-error"
 };
@@ -93,7 +105,7 @@ const _sfc_main = {
   setup(__props) {
 
 const props = __props;
-const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, u2_checkin_hour: 9, u2_checkin_minute: 0, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] });
+const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, u2_checkin_hour: 9, u2_checkin_minute: 0, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [], custom_sites: [] });
 const sites = ref([]), history = ref([]), logs = ref([]), cookieState = reactive({});
 const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' });
 const loading = ref(true), loadingError = ref(''), saving = ref(false), checking = ref(false);
@@ -126,13 +138,27 @@ async function load() {
     Object.assign(config, meta.defaults || {}, saved || {});
     sites.value = meta.sites || [];
     if (!Array.isArray(config.selected_sites)) config.selected_sites = sites.value.map(site => site.key);
+    const customKeys = sites.value.filter(site => site.group === '通用签到').map(site => site.key);
+    if (customKeys.length && !customKeys.some(key => config.selected_sites.includes(key))) config.selected_sites.push(...customKeys);
     await refresh();
   } catch (error) { loadingError.value = error.message || String(error); props.host.toast.error(`读取失败：${loadingError.value}`); }
   finally { loading.value = false; }
 }
 async function save() {
   saving.value = true;
-  try { await props.host.saveConfig({ ...config, selected_sites: [...config.selected_sites] }); props.host.toast.success('配置已保存'); }
+  try {
+    await props.host.saveConfig({ ...config, selected_sites: [...config.selected_sites] });
+    // 保存后重新取一次元数据，拿到后端为通用站点生成的稳定 key，并持久化选择状态。
+    const meta = await props.host.callApi('/meta');
+    sites.value = meta.sites || sites.value;
+    const customKeys = sites.value.filter(site => site.group === '通用签到').map(site => site.key);
+    const merged = [...new Set([...config.selected_sites, ...customKeys])];
+    if (merged.length !== config.selected_sites.length) {
+      config.selected_sites = merged;
+      await props.host.saveConfig({ ...config, selected_sites: merged });
+    }
+    props.host.toast.success('配置已保存');
+  }
   catch (error) { props.host.toast.error(`保存失败：${error.message || error}`); }
   finally { saving.value = false; }
 }
@@ -153,6 +179,16 @@ async function checkCookies() {
   finally { checking.value = false; }
 }
 function toggleGroup(items, enabled) { const keys = new Set(config.selected_sites); items.forEach(site => enabled ? keys.add(site.key) : keys.delete(site.key)); config.selected_sites = [...keys]; }
+function addCustomSite() {
+  if (!Array.isArray(config.custom_sites)) config.custom_sites = [];
+  config.custom_sites.push({ name: '', url: '' });
+}
+function removeCustomSite(index) {
+  config.custom_sites[index];
+  const old = sites.value.filter(site => site.group === '通用签到')[index];
+  if (old) config.selected_sites = config.selected_sites.filter(key => key !== old.key);
+  config.custom_sites.splice(index, 1);
+}
 async function clearHistory() { const result = await props.host.callApi('/history/clear', { method: 'POST' }); if (result.ok) { history.value = []; props.host.toast.success(result.message); } }
 async function clearLogs() { const result = await props.host.callApi('/logs/clear', { method: 'POST' }); if (result.ok) { props.host.toast.success(result.message); await refresh(); } }
 onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer));
@@ -362,7 +398,7 @@ return (_ctx, _cache) => {
             _createElementVNode("div", _hoisted_19, [
               _cache[31] || (_cache[31] = _createElementVNode("div", null, [
                 _createElementVNode("h3", null, "选择签到站点"),
-                _createElementVNode("p", null, "点击标签即可勾选。除 TJUPT 外，验证码由平台 AI 自动识别。")
+                _createElementVNode("p", null, "点击标签即可勾选。Cookie 由平台按站点域名自动读取。")
               ], -1)),
               _createElementVNode("div", _hoisted_20, [
                 _createElementVNode("button", {
@@ -426,8 +462,49 @@ return (_ctx, _cache) => {
                 ])
               ]))
             }), 128)),
-            _createElementVNode("footer", _hoisted_30, [
-              _cache[33] || (_cache[33] = _createElementVNode("p", null, [
+            _createElementVNode("div", _hoisted_30, [
+              _createElementVNode("div", { class: "custom-head" }, [
+                _cache[33] || (_cache[33] = _createElementVNode("div", null, [
+                  _createElementVNode("h3", null, "任意站点通用签到"),
+                  _createElementVNode("p", null, "填写站点名称和地址，插件会优先访问 /attendance.php；Cookie 仍由平台按域名同步。")
+                ], -1)),
+                _createElementVNode("button", {
+                  class: "link-button",
+                  onClick: addCustomSite
+                }, "＋ 添加站点")
+              ]),
+              (config.custom_sites?.length)
+                ? (_openBlock(), _createElementBlock("div", _hoisted_31, [
+                    (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(config.custom_sites, (item, index) => {
+                      return (_openBlock(), _createElementBlock("div", {
+                        key: index,
+                        class: "custom-row"
+                      }, [
+                        _withDirectives(_createElementVNode("input", {
+                          "onUpdate:modelValue": $event => ((item.name) = $event),
+                          "aria-label": "站点名称或账号",
+                          placeholder: "站点名称 / 账号"
+                        }, null, 8, _hoisted_32), [
+                          [_vModelText, item.name]
+                        ]),
+                        _withDirectives(_createElementVNode("input", {
+                          "onUpdate:modelValue": $event => ((item.url) = $event),
+                          "aria-label": "PT站点地址",
+                          placeholder: "https://example.com"
+                        }, null, 8, _hoisted_33), [
+                          [_vModelText, item.url]
+                        ]),
+                        _createElementVNode("button", {
+                          class: "link-button danger",
+                          onClick: $event => (removeCustomSite(index))
+                        }, "删除", 8, _hoisted_34)
+                      ]))
+                    }), 128))
+                  ]))
+                : (_openBlock(), _createElementBlock("div", _hoisted_35, "尚未添加通用站点"))
+            ]),
+            _createElementVNode("footer", _hoisted_36, [
+              _cache[34] || (_cache[34] = _createElementVNode("p", null, [
                 _createElementVNode("span", {
                   class: "shield",
                   "aria-hidden": "true"
@@ -438,12 +515,12 @@ return (_ctx, _cache) => {
                 class: "button primary",
                 disabled: saving.value,
                 onClick: save
-              }, _toDisplayString(saving.value ? '正在保存…' : '保存并应用'), 9, _hoisted_31)
+              }, _toDisplayString(saving.value ? '正在保存…' : '保存并应用'), 9, _hoisted_37)
             ])
           ]),
-          _createElementVNode("section", _hoisted_32, [
-            _createElementVNode("div", _hoisted_33, [
-              _cache[34] || (_cache[34] = _createElementVNode("div", null, [
+          _createElementVNode("section", _hoisted_38, [
+            _createElementVNode("div", _hoisted_39, [
+              _cache[35] || (_cache[35] = _createElementVNode("div", null, [
                 _createElementVNode("h3", null, "最近运行"),
                 _createElementVNode("p", null, "保留最近 30 次签到结果。")
               ], -1)),
@@ -451,10 +528,10 @@ return (_ctx, _cache) => {
                 class: "link-button danger",
                 disabled: !history.value.length,
                 onClick: clearHistory
-              }, "清空记录", 8, _hoisted_34)
+              }, "清空记录", 8, _hoisted_40)
             ]),
             (history.value.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_35, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_41, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(history.value, (item) => {
                     return (_openBlock(), _createElementBlock("details", {
                       key: item.time
@@ -465,7 +542,7 @@ return (_ctx, _cache) => {
                         }, null, 2),
                         _createElementVNode("b", null, _toDisplayString(item.summary), 1),
                         _createElementVNode("time", null, _toDisplayString(item.time), 1),
-                        _cache[35] || (_cache[35] = _createElementVNode("span", { class: "chevron" }, null, -1))
+                        _cache[36] || (_cache[36] = _createElementVNode("span", { class: "chevron" }, null, -1))
                       ]),
                       _createElementVNode("ul", null, [
                         (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(item.sites, (site) => {
@@ -482,15 +559,15 @@ return (_ctx, _cache) => {
                     ]))
                   }), 128))
                 ]))
-              : (_openBlock(), _createElementBlock("div", _hoisted_36, [...(_cache[36] || (_cache[36] = [
+              : (_openBlock(), _createElementBlock("div", _hoisted_42, [...(_cache[37] || (_cache[37] = [
                   _createElementVNode("span", { class: "empty-mark" }, null, -1),
                   _createElementVNode("b", null, "等待第一次签到", -1),
                   _createElementVNode("p", null, "运行完成后，站点结果会显示在这里。", -1)
                 ]))]))
           ]),
-          _createElementVNode("section", _hoisted_37, [
-            _createElementVNode("div", _hoisted_38, [
-              _cache[37] || (_cache[37] = _createElementVNode("div", null, [
+          _createElementVNode("section", _hoisted_43, [
+            _createElementVNode("div", _hoisted_44, [
+              _cache[38] || (_cache[38] = _createElementVNode("div", null, [
                 _createElementVNode("h3", null, "运行日志"),
                 _createElementVNode("p", null, "实时显示本次签到过程，最多保留 200 条。")
               ], -1)),
@@ -498,10 +575,10 @@ return (_ctx, _cache) => {
                 class: "link-button danger",
                 disabled: !logs.value.length,
                 onClick: clearLogs
-              }, "清空日志", 8, _hoisted_39)
+              }, "清空日志", 8, _hoisted_45)
             ]),
             (logs.value.length)
-              ? (_openBlock(), _createElementBlock("div", _hoisted_40, [
+              ? (_openBlock(), _createElementBlock("div", _hoisted_46, [
                   (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(logs.value, (item, index) => {
                     return (_openBlock(), _createElementBlock("div", {
                       key: `${item.time}-${index}`,
@@ -513,16 +590,16 @@ return (_ctx, _cache) => {
                     ], 2))
                   }), 128))
                 ]))
-              : (_openBlock(), _createElementBlock("div", _hoisted_41, [...(_cache[38] || (_cache[38] = [
+              : (_openBlock(), _createElementBlock("div", _hoisted_47, [...(_cache[39] || (_cache[39] = [
                   _createElementVNode("b", null, "暂无运行日志", -1),
                   _createElementVNode("p", null, "启动签到后，执行过程会实时显示在这里。", -1)
                 ]))]))
           ])
         ]))
       : (loading.value)
-        ? (_openBlock(), _createElementBlock("div", _hoisted_42, "正在读取签到配置…"))
-        : (_openBlock(), _createElementBlock("div", _hoisted_43, [
-            _cache[39] || (_cache[39] = _createElementVNode("b", null, "签到配置读取失败", -1)),
+        ? (_openBlock(), _createElementBlock("div", _hoisted_48, "正在读取签到配置…"))
+        : (_openBlock(), _createElementBlock("div", _hoisted_49, [
+            _cache[40] || (_cache[40] = _createElementVNode("b", null, "签到配置读取失败", -1)),
             _createElementVNode("p", null, _toDisplayString(loadingError.value), 1),
             _createElementVNode("button", {
               class: "button primary",
@@ -534,6 +611,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-145af22e"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-573e4f53"]]);
 
 export { Config as default };

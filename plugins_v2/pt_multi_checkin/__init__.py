@@ -5,11 +5,23 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.6.4',
+ 'version': '2.7.2',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.6.4 优化 AI 识别日志\n'
+ 'changelog': 'v2.7.2 增加大青虫签到\n'
+              '- 新增 CyanBug（cyanbug.net）通用 PT 签到适配\n'
+              '\n'
+              'v2.7.1 增加红豆饭、织梦、麒麟签到\n'
+              '- 新增 HDFans、ZMPT、HDKYL 三个通用 PT 站点适配\n'
+              '- Cookie 继续由平台按站点域名读取，使用通用签到结果确认流程\n'
+              '\n'
+              'v2.7.0 增加通用站点签到与中文站点分组\n'
+              '- 固定适配站点按 12 大站点、其他站点分组，统一显示中文名称\n'
+              '- 移除不支持签到的 M-Team\n'
+              '- 新增可添加任意 PT 站点的通用签到配置，Cookie 继续由平台按域名读取\n'
+              '\n'
+              'v2.6.4 优化 AI 识别日志\n'
               '- TJUPT 和 U2 日志明确显示 AI 识别出的候选名称，便于核对实际提交答案\n'
               '\n'
               'v2.6.3 强化 TJUPT 全自动海报识别\n'
@@ -198,8 +210,16 @@ __plugin__ = {'name': 'PT站自动签到',
                     '*.hdsky.me',
                     'pt.hdupt.com',
                     '*.pt.hdupt.com',
-                    'm-team.cc',
-                    '*.m-team.cc',
+                    'hdhome.org',
+                    '*.hdhome.org',
+                    'hdfans.org',
+                    '*.hdfans.org',
+                    'zmpt.cc',
+                    '*.zmpt.cc',
+                    'hdkyl.in',
+                    '*.hdkyl.in',
+                    'cyanbug.net',
+                    '*.cyanbug.net',
                     'v6.nexushd.org',
                     '*.v6.nexushd.org',
                     'open.cd',
