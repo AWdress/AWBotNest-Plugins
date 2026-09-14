@@ -63,6 +63,14 @@ _CHANGELOG_V2_5_55 = (
 )
 
 
+_CHANGELOG_V2_6_0 = (
+    "v2.6.0 增强 TJUPT 与 U2 AI 答题\n"
+    "- TJUPT AI 输入改为完整验证区域截图，同时识别左侧影视海报与右侧候选项\n"
+    "- TJUPT 识别出答案后自动勾选并提交，提交前重新确认题目未变化\n"
+    "- U2 优先调用平台 AI 识别正确选项；AI 不可用时保留随机答案兜底并记录原因\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -75,7 +83,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.5.55",
+    "version": "2.6.0",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -105,7 +113,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -138,7 +146,7 @@ SITES = {
 DEFAULTS = {
     "auto_checkin": True, "notify_result": True, "headless": True,
     "checkin_hour": 8, "checkin_minute": 10, "retry_count": 2, "retry_interval": 20,
-    "tjupt_ai_assist": True, "tjupt_confirm_timeout": 300,
+    "tjupt_ai_assist": True, "u2_ai_assist": True, "tjupt_confirm_timeout": 300,
     "selected_sites": list(SITES.keys()),
 }
 
@@ -790,10 +798,13 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
     token = secrets.token_urlsafe(6)
     image_path = Path(ctx.data_dir) / f"tjupt_{token}.png"
     form = radios.first.locator("xpath=ancestor::form[1]")
+    # TJUPT 将影视海报放在表单外侧（候选单选框仍在表单内）。只截表单会
+    # 把左侧海报裁掉，AI 只能看到右侧文字而无法完成题目判断；这里发送
+    # 完整验证区域/页面截图，确保海报与候选项同时进入视觉模型。
     try:
-        form.screenshot(path=str(image_path))
-    except Exception:
         page.screenshot(path=str(image_path), full_page=True)
+    except Exception:
+        form.screenshot(path=str(image_path))
 
     # 尝试 AI 自动识别并提交
     choice = None
@@ -808,7 +819,8 @@ def _tjupt_challenge(ctx, page, loop) -> dict:
                 ctx.ai.vision(
                     image=image_bytes,
                     prompt=(
-                        "这是 TJUPT 的影视海报选择题。请观察图片，在下列候选项中给出最可能的一个。"
+                        "这是 TJUPT 的影视海报选择题。请同时观察图片左侧的影视海报和右侧的候选文字，"
+                        "根据海报内容判断对应的影视名称。只允许从候选项中选择一个。"
                         "**只需要返回选项序号（从0开始），例如：0 或 1 或 2，不要返回任何解释**。\n候选项：\n"
                         + "\n".join(f"{index}. {label}" for index, label in enumerate(options))
                     ),
@@ -1094,11 +1106,33 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
             submits = page.locator('form:has(input[name="req"]) input[type="submit"]')
             if not req or not hash_value or not form_value or submits.count() < 1:
                 raise RuntimeError("U2 未解析到签到表单")
-            choice = secrets.randbelow(submits.count())
+            option_count = submits.count()
+            options = []
+            for index in range(option_count):
+                control = submits.nth(index)
+                options.append(
+                    control.get_attribute("value")
+                    or control.get_attribute("title")
+                    or f"选项 {index + 1}"
+                )
+            question = re.sub(r"\s+", " ", _html_visible_text(form.inner_html())).strip()[:2000]
+            choice = None
+            if ctx.config.get("u2_ai_assist", True) and _ai_available(ctx, "text"):
+                try:
+                    choice = _ai_choice(ctx, loop, question or "U2 签到验证题", options)
+                    _runtime_log(
+                        ctx,
+                        f"U2 AI 识别结果：选项 {choice + 1}（{options[choice]}），自动提交",
+                        site="U2",
+                    )
+                except Exception as exc:
+                    _runtime_log(ctx, f"U2 AI 识别失败：{exc}，改用随机选项提交", level="warning", site="U2")
+            if choice is None:
+                choice = secrets.randbelow(option_count)
             submit = submits.nth(choice)
             _runtime_log(
                 ctx,
-                f"U2 验证题任意选择第 {choice + 1}/{submits.count()} 项；答错仍会完成签到并获得 1 UCoin",
+                f"U2 提交第 {choice + 1}/{option_count} 项；答错仍会完成签到并获得 1 UCoin",
                 site="U2",
             )
             body = _u2_submit_with_browser(page, submit)
@@ -1940,7 +1974,18 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             submits = soup.select('input[type="submit"][name]')
             if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
-            submit = submits[secrets.randbelow(len(submits))]
+            options = [str(item.get("value") or item.get("title") or f"选项 {i + 1}") for i, item in enumerate(submits)]
+            question = re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).strip()[:2000]
+            choice = None
+            if ctx.config.get("u2_ai_assist", True) and _ai_available(ctx, "text"):
+                try:
+                    choice = await _http_ai_choice(ctx, question or "U2 签到验证题", options)
+                    _runtime_log(ctx, f"U2 AI 识别结果：选项 {choice + 1}（{options[choice]}），自动提交", site="U2")
+                except Exception as exc:
+                    _runtime_log(ctx, f"U2 AI 识别失败：{exc}，改用随机选项提交", level="warning", site="U2")
+            if choice is None:
+                choice = secrets.randbelow(len(submits))
+            submit = submits[choice]
             post_response, body = await post(
                 "https://u2.dmhy.org/showup.php?action=show",
                 data={"req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到", submit.get("name"): submit.get("value")},

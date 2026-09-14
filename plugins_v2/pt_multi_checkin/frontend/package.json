@@ -1,7 +1,7 @@
 {
   "name": "awbotnest-v2-pt-multi-checkin-fe",
   "private": true,
-  "version": "2.5.55",
+  "version": "2.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
