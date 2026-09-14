@@ -78,6 +78,13 @@ _CHANGELOG_V2_6_1 = (
 )
 
 
+_CHANGELOG_V2_6_2 = (
+    "v2.6.2 固定启用 U2 AI 识别\n"
+    "- 移除配置页中的 U2 AI 识别开关，U2 自动优先使用平台 AI\n"
+    "- AI 服务不可用时保留随机答案兜底，不影响签到流程\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -90,7 +97,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.6.1",
+    "version": "2.6.2",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -120,7 +127,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -154,7 +161,7 @@ DEFAULTS = {
     "auto_checkin": True, "notify_result": True, "headless": True,
     "checkin_hour": 8, "checkin_minute": 10, "u2_checkin_hour": 9, "u2_checkin_minute": 0,
     "retry_count": 2, "retry_interval": 20,
-    "tjupt_ai_assist": True, "u2_ai_assist": True, "tjupt_confirm_timeout": 300,
+    "tjupt_ai_assist": True, "tjupt_confirm_timeout": 300,
     "selected_sites": list(SITES.keys()),
 }
 
@@ -1125,7 +1132,7 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
                 )
             question = re.sub(r"\s+", " ", _html_visible_text(form.inner_html())).strip()[:2000]
             choice = None
-            if ctx.config.get("u2_ai_assist", True) and _ai_available(ctx, "text"):
+            if _ai_available(ctx, "text"):
                 try:
                     choice = _ai_choice(ctx, loop, question or "U2 签到验证题", options)
                     _runtime_log(
@@ -1985,7 +1992,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             options = [str(item.get("value") or item.get("title") or f"选项 {i + 1}") for i, item in enumerate(submits)]
             question = re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).strip()[:2000]
             choice = None
-            if ctx.config.get("u2_ai_assist", True) and _ai_available(ctx, "text"):
+            if _ai_available(ctx, "text"):
                 try:
                     choice = await _http_ai_choice(ctx, question or "U2 签到验证题", options)
                     _runtime_log(ctx, f"U2 AI 识别结果：选项 {choice + 1}（{options[choice]}），自动提交", site="U2")

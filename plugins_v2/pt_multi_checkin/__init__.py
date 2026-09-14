@@ -5,11 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.6.1',
+ 'version': '2.6.2',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.6.1 支持 U2 独立定时\n'
+ 'changelog': 'v2.6.2 固定启用 U2 AI 识别\n'
+              '- 移除配置页中的 U2 AI 识别开关，U2 自动优先使用平台 AI\n'
+              '- AI 服务不可用时保留随机答案兜底，不影响签到流程\n'
+              '\n'
+              'v2.6.1 支持 U2 独立定时\n'
               '- U2 可单独设置签到小时和分钟，默认北京时间 09:00\n'
               '- 其他站点继续使用原有全局定时，避免 U2 站点 9 点前被误触发\n'
               '\n'
