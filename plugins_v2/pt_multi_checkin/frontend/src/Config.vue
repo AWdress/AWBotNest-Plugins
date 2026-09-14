@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 const props = defineProps({ pluginId: { type: String, required: true }, host: { type: Object, required: true } })
-const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, u2_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] })
+const config = reactive({ auto_checkin: true, notify_result: true, headless: true, checkin_hour: 8, checkin_minute: 10, u2_checkin_hour: 9, u2_checkin_minute: 0, retry_count: 2, retry_interval: 20, tjupt_ai_assist: true, u2_ai_assist: true, tjupt_confirm_timeout: 300, selected_sites: [] })
 const sites = ref([]), history = ref([]), logs = ref([]), cookieState = reactive({})
 const status = reactive({ running: false, current: '', phase: '', message: '', completed: 0, total: 0, finished_at: '' })
 const loading = ref(true), loadingError = ref(''), saving = ref(false), checking = ref(false)
@@ -83,7 +83,8 @@ onMounted(load); onBeforeUnmount(() => timer && clearInterval(timer))
         <label class="toggle"><input v-model="config.u2_ai_assist" type="checkbox"><i></i><span>U2 AI 识别</span></label>
       </div>
       <div class="schedule-fields">
-        <label><span>每天执行</span><span class="time-field"><input v-model.number="config.checkin_hour" aria-label="执行小时" type="number" min="0" max="23"><b>:</b><input v-model.number="config.checkin_minute" aria-label="执行分钟" type="number" min="0" max="59"></span></label>
+        <label><span>其他站点执行</span><span class="time-field"><input v-model.number="config.checkin_hour" aria-label="其他站点执行小时" type="number" min="0" max="23"><b>:</b><input v-model.number="config.checkin_minute" aria-label="其他站点执行分钟" type="number" min="0" max="59"></span></label>
+        <label><span>U2 执行（≥09:00）</span><span class="time-field"><input v-model.number="config.u2_checkin_hour" aria-label="U2 执行小时" type="number" min="9" max="23"><b>:</b><input v-model.number="config.u2_checkin_minute" aria-label="U2 执行分钟" type="number" min="0" max="59"></span></label>
         <label><span>重试次数</span><input v-model.number="config.retry_count" type="number" min="0" max="5"></label>
         <label><span>重试间隔</span><span class="unit-field"><input v-model.number="config.retry_interval" type="number" min="5" max="300"><i>秒</i></span></label>
       </div>

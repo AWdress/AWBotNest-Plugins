@@ -71,6 +71,13 @@ _CHANGELOG_V2_6_0 = (
 )
 
 
+_CHANGELOG_V2_6_1 = (
+    "v2.6.1 支持 U2 独立定时\n"
+    "- U2 可单独设置签到小时和分钟，默认北京时间 09:00\n"
+    "- 其他站点继续使用原有全局定时，避免 U2 站点 9 点前被误触发\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -83,7 +90,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.6.0",
+    "version": "2.6.1",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -113,7 +120,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     "audiences": {"name": "Audiences", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "NexusPHP"},
@@ -145,7 +152,8 @@ SITES = {
 
 DEFAULTS = {
     "auto_checkin": True, "notify_result": True, "headless": True,
-    "checkin_hour": 8, "checkin_minute": 10, "retry_count": 2, "retry_interval": 20,
+    "checkin_hour": 8, "checkin_minute": 10, "u2_checkin_hour": 9, "u2_checkin_minute": 0,
+    "retry_count": 2, "retry_interval": 20,
     "tjupt_ai_assist": True, "u2_ai_assist": True, "tjupt_confirm_timeout": 300,
     "selected_sites": list(SITES.keys()),
 }
@@ -2009,7 +2017,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
 
-async def _run(ctx, source: str) -> dict:
+async def _run(ctx, source: str, selected_override: list[str] | None = None) -> dict:
     global _run_lock
     if _run_lock is None:
         _run_lock = asyncio.Lock()
@@ -2017,7 +2025,7 @@ async def _run(ctx, source: str) -> dict:
         return {"ok": False, "message": "签到任务正在运行"}
     async with _run_lock:
         cfg = _cfg(ctx)
-        selected = cfg.get("selected_sites", list(SITES))
+        selected = selected_override if selected_override is not None else cfg.get("selected_sites", list(SITES))
         if not isinstance(selected, list):
             selected = list(SITES)
         enabled = [(key, SITES[key]) for key in selected if key in SITES]
@@ -2314,11 +2322,26 @@ async def setup(ctx):
     if cfg.get("auto_checkin", True):
         hour = _bounded(cfg.get("checkin_hour"), 8, 0, 23)
         minute = _bounded(cfg.get("checkin_minute"), 10, 0, 59)
+        u2_hour = _bounded(cfg.get("u2_checkin_hour"), 9, 9, 23)
+        u2_minute = _bounded(cfg.get("u2_checkin_minute"), 0, 0, 59)
 
-        async def scheduled():
-            await _run(ctx, "定时")
+        async def scheduled_main():
+            selected = _cfg(ctx).get("selected_sites", list(SITES))
+            if not isinstance(selected, list):
+                selected = list(SITES)
+            non_u2 = [str(key) for key in selected if str(key) in SITES and str(key) != "u2"]
+            if non_u2:
+                await _run(ctx, "定时", non_u2)
 
-        ctx.schedule_cron("PT站每日签到", scheduled, hour=hour, minute=minute)
+        async def scheduled_u2():
+            selected = _cfg(ctx).get("selected_sites", list(SITES))
+            if not isinstance(selected, list) or "u2" in selected:
+                await _run(ctx, "定时(U2)", ["u2"])
+
+        # U2 站点只允许北京时间 09:00 后签到，单独注册定时任务，
+        # 其他站点仍按原有全局时间执行。
+        ctx.schedule_cron("PT站每日签到", scheduled_main, hour=hour, minute=minute)
+        ctx.schedule_cron("PT站 U2 签到", scheduled_u2, hour=u2_hour, minute=u2_minute)
 
 
 async def teardown(ctx):

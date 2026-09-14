@@ -5,11 +5,15 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.6.0',
+ 'version': '2.6.1',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.6.0 增强 TJUPT 与 U2 AI 答题\n'
+ 'changelog': 'v2.6.1 支持 U2 独立定时\n'
+              '- U2 可单独设置签到小时和分钟，默认北京时间 09:00\n'
+              '- 其他站点继续使用原有全局定时，避免 U2 站点 9 点前被误触发\n'
+              '\n'
+              'v2.6.0 增强 TJUPT 与 U2 AI 答题\n'
               '- TJUPT AI 输入改为完整验证区域截图，同时识别左侧影视海报与右侧候选项\n'
               '- TJUPT 识别出答案后自动勾选并提交，提交前重新确认题目未变化\n'
               '- U2 优先调用平台 AI 识别正确选项；AI 不可用时保留随机答案兜底并记录原因\n'
