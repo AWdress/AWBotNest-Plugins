@@ -1513,6 +1513,7 @@ def _category_covers(cfg: Dict[str, Any], ctx=None) -> str:
     totals = {'genre': 0, 'tag': 0}
     uploaded = {'genre': 0, 'tag': 0}
     failed: List[str] = []
+    unsupported: List[str] = []
     if ctx:
         ctx.log.info('[emby_toolbox] 开始生成分类封面（模板渲染，不调用 AI）: %s', ', '.join(kinds))
     for kind in kinds:
@@ -1523,6 +1524,13 @@ def _category_covers(cfg: Dict[str, Any], ctx=None) -> str:
                 _upload_category_cover(cfg, item, kind, ctx)
                 uploaded[kind] += 1
             except Exception as exc:
+                if 'Object reference not set' in str(exc):
+                    # Emby 4.9 exposes Genre/Tag rows as virtual entities
+                    # (Path=null). Its image endpoint returns a null-reference
+                    # error for these rows, so retrying every category only
+                    # creates noise and cannot produce a usable cover.
+                    unsupported.append('Genre' if kind == 'genre' else 'Tag')
+                    break
                 failed.append(f'{kind}:{item.get("Name", "未知")}')
                 if ctx:
                     ctx.log.warning('[emby_toolbox] 分类封面失败 %s/%s: %s', kind, item.get('Name', '未知'), exc)
@@ -1534,6 +1542,8 @@ def _category_covers(cfg: Dict[str, Any], ctx=None) -> str:
     )
     if failed:
         summary += f'，失败 {len(failed)} 项（前 5 项：{", ".join(failed[:5])}）'
+    if unsupported:
+        summary += '；Emby 当前版本将 ' + '、'.join(dict.fromkeys(unsupported)) + ' 作为虚拟分类，官方图片接口不支持自定义封面'
     if ctx:
         ctx.log.info('[emby_toolbox] %s', summary)
     return summary
