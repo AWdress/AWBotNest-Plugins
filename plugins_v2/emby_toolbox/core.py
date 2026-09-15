@@ -33,7 +33,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.3",
+    "version": "2.1.4",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -85,6 +85,8 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
+    "v2.1.4 补齐 Anime/Cartoon Genre 中文映射\n"
+    "- Anime、Cartoon 统一映射为动画，避免中英文 Genre 混杂\n\n"
     "v2.1.3 修复条目路径 GET 404 导致写入校验失败\n"
     "- GET /Items/{id} 返回 404 时改用管理员 Items?Ids 查询回读\n"
     "- 更新失败不再误用用户接口，避免返回 200 但 Genre/别名未改变\n\n"
@@ -105,6 +107,7 @@ __plugin__["changelog"] = (
 DEFAULT_GENRE_MAPPING: Dict[str, str] = {
     'Action': '动作', 'Adventure': '冒险', 'Animation': '动画',
     'Comedy': '喜剧', 'Crime': '犯罪', 'Documentary': '纪录',
+    'Anime': '动画', 'Cartoon': '动画',
     'Drama': '剧情', 'Family': '家庭', 'Fantasy': '奇幻',
     'History': '历史', 'Horror': '恐怖', 'Music': '音乐',
     'Mystery': '悬疑', 'Romance': '爱情', 'Science Fiction': '科幻', 'Sci-Fi': '科幻',

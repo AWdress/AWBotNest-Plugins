@@ -1288,7 +1288,7 @@
     "emby_toolbox": {
       "name": "Emby 工具箱",
       "id": "emby_toolbox",
-      "version": "2.1.3",
+      "version": "2.1.4",
       "author": "AWdress",
       "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。季级任务严格跳过电影。",
       "icon": "https://cdn.simpleicons.org/emby",
