@@ -18,6 +18,7 @@
 # =============================================================================
 
 import asyncio
+import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
@@ -1475,7 +1476,10 @@ def _upload_category_cover(cfg: Dict[str, Any], item: Dict[str, Any], kind: str,
     title = str(item.get('Name') or '').strip() or '未命名'
     if not item_id:
         raise ValueError('分类缺少 Id')
-    payload = render_cover(title, kind)
+    # Emby/Jellyfin's SetItemImage endpoint consumes a base64-encoded request
+    # body (despite the image/png content type).  Sending raw PNG bytes returns
+    # a misleading 204 on some versions but does not create a usable image.
+    payload = base64.b64encode(render_cover(title, kind))
     headers = {
         'X-Emby-Token': cfg['api_key'], 'Content-Type': 'image/png',
         'Accept': 'application/json',
