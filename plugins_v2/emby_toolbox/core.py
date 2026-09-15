@@ -30,10 +30,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
+from .cover_templates import render_cover
+
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.4",
+    "version": "2.1.5",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -43,7 +45,7 @@ __plugin__ = {
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 2,
     "default_enabled": False,
-    "requirements": ["requests>=2.28"],
+    "requirements": ["requests>=2.28", "Pillow>=10.0"],
     "resources": {
         "timeout_seconds": 1800,
         "max_concurrency": 1,
@@ -78,6 +80,7 @@ DEFAULTS: Dict[str, Any] = {
     'enable_genre_mapper': False, 'enable_season_renamer': False,
     'enable_country_scraper': False, 'enable_alt_renamer': False,
     'enable_strm_mediainfo': False, 'enable_damaged_check': False,
+    'enable_category_covers': False, 'category_cover_types': 'genre,tag',
     'enable_auto_schedule': False, 'schedule_cron': '0 3 * * *',
     'schedule_functions': [],
 }
@@ -85,6 +88,9 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
+    "v2.1.5 新增本地模板分类封面\n"
+    "- 使用 Pillow 固定模板生成 Genre/Tag 封面，不调用 AI\n"
+    "- 支持仅 Genre、仅 Tag 或两类一起生成，并通过原配置反代上传 Emby\n\n"
     "v2.1.4 补齐 Anime/Cartoon Genre 中文映射\n"
     "- Anime、Cartoon 统一映射为动画，避免中英文 Genre 混杂\n\n"
     "v2.1.3 修复条目路径 GET 404 导致写入校验失败\n"
@@ -130,6 +136,7 @@ FEATURES = {
     'alt_renamer': ('别名写入', '_alt_renamer', True),
     'strm_mediainfo': ('STRM 媒体信息', '_strm_mediainfo', False),
     'damaged_check': ('元数据缺失检查', '_damaged_check', False),
+    'category_covers': ('分类封面生成', '_category_covers', False),
 }
 
 _RUNTIME: Dict[str, Any] = {
@@ -172,6 +179,8 @@ def _cfg(ctx) -> Dict[str, Any]:
         'enable_alt_renamer': bool(c.get('enable_alt_renamer', False)),
         'enable_strm_mediainfo': bool(c.get('enable_strm_mediainfo', False)),
         'enable_damaged_check': bool(c.get('enable_damaged_check', False)),
+        'enable_category_covers': bool(c.get('enable_category_covers', False)),
+        'category_cover_types': str(c.get('category_cover_types', 'genre,tag') or 'genre,tag'),
         'enable_auto_schedule': bool(c.get('enable_auto_schedule', False)),
         'schedule_cron': str(c.get('schedule_cron', '0 3 * * *') or '0 3 * * *'),
         'schedule_functions': list(c.get('schedule_functions', []) or []),
@@ -1405,6 +1414,127 @@ def _damaged_check(cfg: Dict[str, Any], ctx=None) -> str:
     return '\n'.join(lines)
 
 
+def _category_types(raw: str) -> List[str]:
+    """Normalize the cover scope while accepting the old singular labels."""
+    value = str(raw or 'genre,tag').strip().casefold()
+    if value in {'all', '*', '全部'}:
+        return ['genre', 'tag']
+    aliases = {'genres': 'genre', 'tags': 'tag', '流派': 'genre', '标签': 'tag'}
+    result: List[str] = []
+    for part in re.split(r'[,，\s]+', value):
+        part = aliases.get(part.strip(), part.strip())
+        if part in {'genre', 'tag'} and part not in result:
+            result.append(part)
+    return result or ['genre', 'tag']
+
+
+def _get_category_items(cfg: Dict[str, Any], kind: str, ctx=None) -> List[Dict[str, Any]]:
+    """Read Emby's Genre/Tag entities, preserving the configured reverse proxy."""
+    endpoint = '/emby/Genres' if kind == 'genre' else '/emby/Tags'
+    fields = 'Name,Type,ImageTags'
+    last_error: Optional[Exception] = None
+    for base in _server_candidates(cfg):
+        result: List[Dict[str, Any]] = []
+        seen = set()
+        start = 0
+        try:
+            while True:
+                params = {
+                    'api_key': cfg['api_key'], 'Fields': fields,
+                    'SortBy': 'SortName', 'SortOrder': 'Ascending',
+                    'StartIndex': start, 'Limit': 1000,
+                }
+                response = requests.get(
+                    f'{base}{endpoint}', params=params,
+                    headers=_headers(cfg['api_key']), timeout=60,
+                )
+                response.raise_for_status()
+                payload = response.json() if response.content else []
+                page = payload if isinstance(payload, list) else payload.get('Items', []) if isinstance(payload, dict) else []
+                page = [x for x in page if isinstance(x, dict) and x.get('Id') and x.get('Name')]
+                fresh = [x for x in page if str(x['Id']) not in seen]
+                result.extend(fresh)
+                seen.update(str(x['Id']) for x in fresh)
+                total = int(payload.get('TotalRecordCount') or 0) if isinstance(payload, dict) else 0
+                if not page or len(page) < 1000 or (total and len(result) >= total):
+                    break
+                start += len(page)
+            cfg['_active_server'] = base
+            return result
+        except (requests.RequestException, ValueError, TypeError) as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise RuntimeError(f'读取 {"Genre" if kind == "genre" else "Tag"} 列表失败：{last_error}') from last_error
+    return []
+
+
+def _upload_category_cover(cfg: Dict[str, Any], item: Dict[str, Any], kind: str, ctx=None) -> None:
+    """Upload one deterministic PNG to Emby's Primary image endpoint."""
+    item_id = str(item.get('Id') or '').strip()
+    title = str(item.get('Name') or '').strip() or '未命名'
+    if not item_id:
+        raise ValueError('分类缺少 Id')
+    payload = render_cover(title, kind)
+    headers = {
+        'X-Emby-Token': cfg['api_key'], 'Content-Type': 'image/png',
+        'Accept': 'application/json',
+    }
+    last_error: Optional[Exception] = None
+    for base in _server_candidates(cfg):
+        # Most installations expose /emby; the second route handles older
+        # reverse proxies that strip that prefix while keeping the same host.
+        for path in (f'/emby/Items/{item_id}/Images/Primary', f'/Items/{item_id}/Images/Primary'):
+            try:
+                response = requests.post(
+                    f'{base}{path}', params={'api_key': cfg['api_key']},
+                    headers=headers, data=payload, timeout=60,
+                )
+                response.raise_for_status()
+                cfg['_active_server'] = base
+                return
+            except requests.RequestException as exc:
+                last_error = exc
+                status = getattr(exc.response, 'status_code', None)
+                if status not in (404, 405):
+                    break
+    if last_error:
+        raise RuntimeError(f'上传分类封面失败（{title}）：{last_error}') from last_error
+    raise RuntimeError(f'上传分类封面失败（{title}）')
+
+
+def _category_covers(cfg: Dict[str, Any], ctx=None) -> str:
+    """Generate and upload covers for all configured Genre/Tag entities."""
+    kinds = _category_types(cfg.get('category_cover_types', 'genre,tag'))
+    totals = {'genre': 0, 'tag': 0}
+    uploaded = {'genre': 0, 'tag': 0}
+    failed: List[str] = []
+    if ctx:
+        ctx.log.info('[emby_toolbox] 开始生成分类封面（模板渲染，不调用 AI）: %s', ', '.join(kinds))
+    for kind in kinds:
+        items = _get_category_items(cfg, kind, ctx)
+        totals[kind] = len(items)
+        for index, item in enumerate(items, 1):
+            try:
+                _upload_category_cover(cfg, item, kind, ctx)
+                uploaded[kind] += 1
+            except Exception as exc:
+                failed.append(f'{kind}:{item.get("Name", "未知")}')
+                if ctx:
+                    ctx.log.warning('[emby_toolbox] 分类封面失败 %s/%s: %s', kind, item.get('Name', '未知'), exc)
+            if ctx and (index % 20 == 0 or index == len(items)):
+                ctx.log.info('[emby_toolbox] %s 封面进度 %s/%s', 'Genre' if kind == 'genre' else 'Tag', index, len(items))
+    summary = (
+        f'分类封面完成：Genre {uploaded["genre"]}/{totals["genre"]}，'
+        f'Tag {uploaded["tag"]}/{totals["tag"]}'
+    )
+    if failed:
+        summary += f'，失败 {len(failed)} 项（前 5 项：{", ".join(failed[:5])}）'
+    if ctx:
+        ctx.log.info('[emby_toolbox] %s', summary)
+    return summary
+
+
 async def _previous_setup(ctx):
     active_action_task = None
 
@@ -1480,6 +1610,8 @@ async def _previous_setup(ctx):
                         result = _strm_mediainfo(cfg, ctx)
                     elif func_name == 'damaged_check':
                         result = _damaged_check(cfg, ctx)
+                    elif func_name == 'category_covers':
+                        result = _category_covers(cfg, ctx)
                     else:
                         result = f'未知功能: {func_name}'
                     results.append(f'{func_name}: {result}')
@@ -1540,6 +1672,8 @@ async def _previous_setup(ctx):
                     result = _strm_mediainfo(cfg, ctx)
                 elif func_name == 'damaged_check':
                     result = _damaged_check(cfg, ctx)
+                elif func_name == 'category_covers':
+                    result = _category_covers(cfg, ctx)
                 else:
                     result = f'未知功能: {func_name}'
                 results.append(f'{func_name}: {result}')
@@ -1608,6 +1742,10 @@ async def _previous_setup(ctx):
     async def action_damaged_check():
         return await _start_action('执行元数据缺失检查', lambda cfg: _damaged_check(cfg, ctx))
 
+    @ctx.action('run_category_covers')
+    async def action_category_covers():
+        return await _start_action('生成分类封面', lambda cfg: _category_covers(cfg, ctx))
+
 async def _previous_teardown(ctx):
     ctx.log.info('[emby_toolbox] 插件已停用')
 
@@ -1622,6 +1760,7 @@ def _worker_for(key: str, cfg: Dict[str, Any], ctx):
         'alt_renamer': lambda: _alt_renamer(cfg, ctx),
         'strm_mediainfo': lambda: _strm_mediainfo(cfg, ctx),
         'damaged_check': lambda: _damaged_check(cfg, ctx),
+        'category_covers': lambda: _category_covers(cfg, ctx),
         'scan_episode_mismatch': lambda: _episode_summary(*_episode_collect(cfg), cfg['max_output']),
     }
     if key not in workers:

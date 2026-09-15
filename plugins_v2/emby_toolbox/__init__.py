@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '2.1.4',
+ 'version': '2.1.5',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://cdn.simpleicons.org/emby',
@@ -55,7 +55,7 @@ __plugin__ = {'name': 'Emby 工具箱',
               'v1.4.0 迁移 Vue 媒体维护控制台\n'
               '- 新增实时任务状态、历史记录和后台 API',
  'scope': 'standalone',
- 'requirements': ['requests>=2.28'],
+ 'requirements': ['requests>=2.28', 'Pillow>=10.0'],
  'resources': {'timeout_seconds': 1800,
                'max_concurrency': 1,
                'max_background_tasks': 2,
@@ -91,6 +91,9 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'Emby 工具箱'
 __plugin__["changelog"] = (
+    'v2.1.5 新增本地模板分类封面\n'
+    '- 使用 Pillow 固定模板生成 Genre/Tag 封面，不调用 AI\n'
+    '- 支持仅 Genre、仅 Tag 或两类一起生成，并通过原配置反代上传 Emby\n\n'
     'v2.1.2 优化媒体库读取与 Emby 兼容回读\n'
     '- 使用 Recursive 分页读取媒体库，避免逐文件夹请求导致数小时运行\n'
     '- 管理员条目接口返回 404 时兼容用户接口回读，并保留实际生效校验\n\n'
