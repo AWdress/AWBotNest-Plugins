@@ -32,7 +32,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.2",
+    "version": "2.1.3",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -84,6 +84,9 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
+    "v2.1.3 修复条目路径 GET 404 导致写入校验失败\n"
+    "- GET /Items/{id} 返回 404 时改用管理员 Items?Ids 查询回读\n"
+    "- 更新失败不再误用用户接口，避免返回 200 但 Genre/别名未改变\n\n"
     "v2.1.2 优化媒体库读取与 Emby 兼容回读\n"
     "- 使用 Recursive 分页读取媒体库，避免逐文件夹请求导致数小时运行\n"
     "- 管理员条目接口返回 404 时兼容用户接口回读，并保留实际生效校验\n"
@@ -173,6 +176,17 @@ def _cfg(ctx) -> Dict[str, Any]:
 
 def _base_url(server: str) -> str:
     return server.rstrip('/')
+
+
+def _server_candidates(cfg: Dict[str, Any]) -> List[str]:
+    """Return the configured endpoint, preferring one that already worked."""
+    values = [cfg.get('_active_server', ''), cfg.get('emby_server', '')]
+    result: List[str] = []
+    for value in values:
+        base = _base_url(str(value or '').strip())
+        if base and base not in result:
+            result.append(base)
+    return result
 
 
 def _headers(api_key: str) -> Dict[str, str]:
@@ -277,43 +291,81 @@ def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str,
 
 def _get_system_item(cfg: Dict[str, Any], item_id: str, user_id: str = "") -> Dict[str, Any]:
     """读取最新元数据，优先管理员接口并兼容仅开放用户接口的服务器。"""
-    url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}"
-    try:
-        r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
-        r.raise_for_status()
-        return r.json()
-    except requests.HTTPError as exc:
-        # Some reverse proxies expose /Library/VirtualFolders and POST updates
-        # but reject the system GET with 404.  The user endpoint still returns
-        # the same fresh item for the configured account, so use it only for
-        # this specific compatibility case.
-        if getattr(exc.response, 'status_code', None) != 404:
+    last_404: Optional[Exception] = None
+    for base in _server_candidates(cfg):
+        url = f"{base}/emby/Items/{item_id}"
+        try:
+            r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+            r.raise_for_status()
+            cfg['_active_server'] = base
+            return r.json()
+        except requests.HTTPError as exc:
+            if getattr(exc.response, 'status_code', None) == 404:
+                last_404 = exc
+                # Some Emby gateways expose the item collection endpoint but
+                # not GET /Items/{id}.  Querying by Id returns the same
+                # administrator metadata and is suitable for write
+                # verification, unlike the user-scoped endpoint.
+                collection_url = f"{base}/emby/Items"
+                collection = requests.get(
+                    collection_url,
+                    params={'Ids': item_id, 'api_key': cfg['api_key'], 'Fields': 'Genres,GenreItems,Tags,SortName,SeasonName,Name'},
+                    headers=_headers(cfg['api_key']),
+                    timeout=30,
+                )
+                try:
+                    collection.raise_for_status()
+                    payload = collection.json()
+                except (requests.HTTPError, ValueError, TypeError):
+                    payload = None
+                if isinstance(payload, dict) and isinstance(payload.get('Items'), list) and payload['Items']:
+                    cfg['_active_server'] = base
+                    return payload['Items'][0]
+                continue
             raise
-        fallback_user = str(user_id or cfg.get('user_id') or _resolve_user_id(cfg)).strip()
-        if not fallback_user:
+    # Some gateways expose only the user-scoped GET route. This is a read
+    # fallback only; metadata writes never use that endpoint.
+    fallback_user = str(user_id or cfg.get('user_id') or _resolve_user_id(cfg)).strip()
+    if fallback_user:
+        try:
+            return _get_user_item(cfg, fallback_user, item_id)
+        except requests.HTTPError:
+            if last_404:
+                raise last_404
             raise
-        return _get_user_item(cfg, fallback_user, item_id)
+    if last_404:
+        raise last_404
+    raise RuntimeError(f'无法读取 Emby 条目：{item_id}')
 
 
 def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     item_id = str(item['Id'])
-    base = _base_url(cfg['emby_server'])
-    url = f"{base}/emby/Items/{item_id}"
     # reqformat=json is required by some Emby versions/reverse proxies.  Keep
     # the token in both header and query for compatibility with older servers.
     params = {'api_key': cfg['api_key'], 'reqformat': 'json'}
-    try:
-        r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), json=item, timeout=60)
-        r.raise_for_status()
-    except requests.HTTPError as e:
-        if '404' in str(e):
-            # 某些条目需要通过用户路径更新
-            user_id = _resolve_user_id(cfg)
-            url = f"{base}/emby/Users/{user_id}/Items/{item_id}"
+    last_error: Optional[Exception] = None
+    candidates = _server_candidates(cfg)
+    for base in candidates:
+        url = f"{base}/emby/Items/{item_id}"
+        try:
             r = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), json=item, timeout=60)
             r.raise_for_status()
-        else:
+            cfg['_active_server'] = base
+            return
+        except requests.HTTPError as exc:
+            # A gateway may expose reads but not administrator writes.  Do not
+            # POST metadata through /Users/... (that endpoint is user state
+            # only); surface the real write failure to the caller.
+            if getattr(exc.response, 'status_code', None) in (404, 405):
+                last_error = exc
+                continue
             raise
+    if last_error:
+        raise RuntimeError(
+            f'Emby 媒体更新接口不可用（已尝试 {len(candidates)} 个地址）；'
+            '请检查当前 Emby 地址的 /emby/Items/{id} 写入路由'
+        ) from last_error
+    raise RuntimeError('未配置可用的 Emby 地址')
 
 
 def _update_item_verified(
