@@ -18,6 +18,7 @@
 # =============================================================================
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import re
@@ -31,7 +32,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.0.4",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -80,6 +81,16 @@ DEFAULTS: Dict[str, Any] = {
     'schedule_functions': [],
 }
 
+# Keep the module metadata and the marketplace manifest in sync without
+# duplicating the historical release notes below.
+__plugin__["changelog"] = (
+    "v2.1.0 修复 Genre 写入回读确认与单集 Genre 批量并行清理\n"
+    "- 重建 GenreItems 关联，避免英文实体 ID 覆盖中文名称\n"
+    "- 补充常见 Genre 中文映射，并为季名、Tag、别名写入增加生效校验\n"
+    "- 删除单集 Genre 改为递归分页查询，避免逐季逐集串行耗时\n\n"
+    + __plugin__.get("changelog", "")
+)
+
 # Emby 的 Genre 通常来自 TMDB，返回值以英文为主。原项目提供了显式
 # Genre 映射，这里保留自定义 JSON 的覆盖能力，并内置常用英文 Genre，
 # 使开启“Genre 映射”后无需再手工填写每一项。
@@ -88,9 +99,15 @@ DEFAULT_GENRE_MAPPING: Dict[str, str] = {
     'Comedy': '喜剧', 'Crime': '犯罪', 'Documentary': '纪录',
     'Drama': '剧情', 'Family': '家庭', 'Fantasy': '奇幻',
     'History': '历史', 'Horror': '恐怖', 'Music': '音乐',
-    'Mystery': '悬疑', 'Romance': '爱情', 'Science Fiction': '科幻',
+    'Mystery': '悬疑', 'Romance': '爱情', 'Science Fiction': '科幻', 'Sci-Fi': '科幻',
     'Sci-Fi & Fantasy': '科幻', 'Thriller': '惊悚', 'War': '战争',
     'War & Politics': '战争', 'Western': '西部',
+    'Action & Adventure': '动作冒险', 'Food': '美食',
+    'Martial Arts': '武侠', 'Mini-Series': '迷你剧', 'Suspense': '悬疑',
+    'Reality': '真人秀', 'Soap': '肥皂剧', 'Talk': '脱口秀',
+    'Kids': '儿童', 'News': '新闻', 'TV Movie': '电视电影',
+    'Biography': '传记', 'Sport': '运动', 'Musical': '音乐剧',
+    'Short': '短片', 'Disaster': '灾难', 'Film-Noir': '黑色电影',
 }
 
 FEATURES = {
@@ -273,6 +290,75 @@ def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
             r.raise_for_status()
         else:
             raise
+
+
+def _update_item_verified(
+    cfg: Dict[str, Any],
+    item: Dict[str, Any],
+    expected: Dict[str, Any],
+    user_id: str,
+    *,
+    unordered: Tuple[str, ...] = (),
+) -> bool:
+    """写入条目后回读确认，避免把 HTTP 200 当成“已生效”。
+
+    Emby 的更新接口返回空响应，即使字段被服务器规范化、忽略或权限拦截，
+    POST 仍可能是 200。维护任务必须以回读结果计数，尤其是 Genres/Tags 这类
+    会被服务器重新建立关联实体的字段。
+    """
+    _update_item(cfg, item)
+    verify = _get_user_item(cfg, user_id, str(item['Id']))
+    for key, wanted in expected.items():
+        got = verify.get(key)
+        if key in unordered:
+            got = {str(x).strip().casefold() for x in (got or []) if str(x).strip()}
+            wanted = {str(x).strip().casefold() for x in (wanted or []) if str(x).strip()}
+        elif key == 'GenreItems':
+            got = {str(x.get('Name') or '').strip().casefold() for x in (got or []) if isinstance(x, dict) and str(x.get('Name') or '').strip()}
+            wanted = {str(x.get('Name') or '').strip().casefold() for x in (wanted or []) if isinstance(x, dict) and str(x.get('Name') or '').strip()}
+        elif isinstance(wanted, list):
+            got = [str(x).strip() for x in (got or []) if str(x).strip()]
+            wanted = [str(x).strip() for x in wanted if str(x).strip()]
+        if got != wanted:
+            return False
+    return True
+
+
+def _get_recursive_items(
+    cfg: Dict[str, Any],
+    parent_id: str,
+    *,
+    include_item_types: str,
+    fields: str,
+    limit: int = 1000,
+) -> List[Dict[str, Any]]:
+    """分页读取一个媒体库下的指定类型，避免季→集 N+1 查询。"""
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items"
+    result: List[Dict[str, Any]] = []
+    seen_ids = set()
+    start = 0
+    while True:
+        params = {
+            'ParentId': str(parent_id), 'api_key': cfg['api_key'],
+            'Recursive': 'true', 'IncludeItemTypes': include_item_types,
+            'Fields': fields, 'StartIndex': start, 'Limit': limit,
+            'SortBy': 'SortName', 'SortOrder': 'Ascending',
+        }
+        response = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60)
+        response.raise_for_status()
+        payload = response.json() if response.content else {}
+        page = payload.get('Items', []) if isinstance(payload, dict) else []
+        page = [x for x in page if isinstance(x, dict) and x.get('Id')]
+        fresh = [x for x in page if str(x['Id']) not in seen_ids]
+        if not fresh:
+            break
+        result.extend(fresh)
+        seen_ids.update(str(x['Id']) for x in fresh)
+        total = int(payload.get('TotalRecordCount') or 0) if isinstance(payload, dict) else 0
+        if not page or len(page) < limit or (total and len(result) >= total):
+            break
+        start += len(page)
+    return result
 
 
 def _refresh_item(cfg: Dict[str, Any], item_id: str) -> None:
@@ -513,6 +599,9 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
     if not libs:
         raise RuntimeError('未配置媒体库名称列表')
     count = 0
+    failed = 0
+    scanned = 0
+    candidates: List[Tuple[Dict[str, Any], str]] = []
     if ctx:
         ctx.log.info(f'[emby_toolbox] 开始删除单集 Genre，媒体库: {libs}')
     user_id = _resolve_user_id(cfg)
@@ -520,42 +609,59 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
         parent_id = _get_library_id(cfg, lib)
         if not parent_id:
             continue
-        media_items = _get_lib_items(cfg, parent_id)
-        series_list = [item for item in media_items if item.get('Type') == 'Series']
-        skipped_non_series = len(media_items) - len(series_list)
+        # 旧实现先读取每个剧集、每一季，再逐季读取单集，产生数千次串行请求。
+        # Emby 支持按媒体库递归查询 Episode，一次分页拿到全部候选。
+        episodes = _get_recursive_items(
+            cfg, parent_id, include_item_types='Episode',
+            fields='Genres,GenreItems,Name,SeriesName,LockedFields',
+        )
+        scanned += len(episodes)
+        candidates.extend((episode, lib) for episode in episodes
+                          if episode.get('Genres') or episode.get('GenreItems'))
         if ctx:
             ctx.log.info(
-                f'[emby_toolbox] 处理媒体库 {lib}，共 {len(series_list)} 个剧集'
-                f'（忽略电影/非剧集 {skipped_non_series} 个）'
+                f'[emby_toolbox] 处理媒体库 {lib}，扫描 {len(episodes)} 个单集，'
+                f'待清理 {sum(1 for e in episodes if e.get("Genres") or e.get("GenreItems"))} 个'
             )
-        for serie in series_list:
-            serie_id = serie['Id']
-            url = f"{_base_url(cfg['emby_server'])}/emby/Items"
-            params = {
-                'ParentId': serie_id,
-                'api_key': cfg['api_key'],
-                'Recursive': 'false',
-                'IncludeItemTypes': 'Season',
-                'Fields': 'Name,IndexNumber',
-            }
-            seasons_response = requests.get(url, headers=_headers(cfg['api_key']), params=params, timeout=60)
-            seasons = _items_from_response(seasons_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 季列表', ctx=ctx)
-            for season in seasons:
-                season_id = season.get('Id')
-                eps_response = requests.get(url, headers=_headers(cfg['api_key']), params={
-                    'ParentId': season_id, 'api_key': cfg['api_key'], 'Fields': 'Genres,Overview', 'IncludeItemTypes': 'Episode', 'Recursive': 'true', 'SortBy': 'SortName', 'SortOrder': 'Ascending'
-                }, timeout=60)
-                eps = _items_from_response(eps_response, endpoint=f'{lib}/{serie.get("Name", serie_id)} 单集列表', ctx=ctx)
-                for ep in eps:
-                    item = _get_user_item(cfg, user_id, str(ep['Id']))
-                    if item.get('Genres'):
-                        item['Genres'] = []
-                        item['GenreItems'] = []
-                        if cfg['fix_lock_data']:
-                            item['LockData'] = True
-                        _update_item(cfg, item)
-                        count += 1
-    result = f'单集 Genre 清理完成，共更新 {count} 条。'
+
+    def clear_one(pair: Tuple[Dict[str, Any], str]) -> Tuple[bool, str, str]:
+        ep, lib = pair
+        try:
+            item = _get_user_item(cfg, user_id, str(ep['Id']))
+            if not item.get('Genres') and not item.get('GenreItems'):
+                return False, 'unchanged', str(ep['Id'])
+            item['Genres'] = []
+            # 清掉关联实体，防止旧 GenreItems 让 Emby 重新挂回英文 Genre。
+            item['GenreItems'] = []
+            if cfg['fix_lock_data']:
+                locked = item.get('LockedFields') or []
+                if 'Genres' not in locked:
+                    locked.append('Genres')
+                item['LockedFields'] = locked
+                item['LockData'] = True
+            ok = _update_item_verified(
+                cfg, item, {'Genres': [], 'GenreItems': []}, user_id, unordered=('Genres',)
+            )
+            return ok, 'updated' if ok else 'verify_failed', f'{lib}/{item.get("SeriesName") or item.get("Name") or ep["Id"]}'
+        except Exception as exc:
+            return False, f'failed:{exc}', f'{lib}/{ep.get("SeriesName") or ep.get("Name") or ep["Id"]}'
+
+    # Emby 单条更新仍需逐项提交，但并行处理可避免一个条目阻塞整个媒体库。
+    completed = 0
+    with ThreadPoolExecutor(max_workers=6, thread_name_prefix='emby-episode-genre') as pool:
+        futures = [pool.submit(clear_one, pair) for pair in candidates]
+        for future in as_completed(futures):
+            ok, state, name = future.result()
+            completed += 1
+            if ok:
+                count += 1
+            elif state.startswith('failed:') or state == 'verify_failed':
+                failed += 1
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 单集 Genre 清理失败 {name}: {state}')
+            if ctx and completed % 50 == 0:
+                ctx.log.info(f'[emby_toolbox] 单集 Genre 清理进度: {completed}/{len(candidates)}（已确认 {count}）')
+    result = f'单集 Genre 清理完成：扫描 {scanned} 条，确认更新 {count} 条，失败 {failed} 条。'
     if ctx:
         ctx.log.info(f'[emby_toolbox] {result}')
     return result
@@ -577,6 +683,7 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
     mapped_count = 0
     removed_count = 0
     chinese_skip = 0
+    failed_count = 0
     scanned_count = 0
     user_id = _resolve_user_id(cfg)
     if ctx:
@@ -601,13 +708,22 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
                 if ctx and scanned_count % 50 == 0:
                     ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
                 continue
-            item = item0
+            # 候选条目读取完整 DTO；批量列表只用于筛选，直接把精简列表 DTO
+            # POST 回去会让部分 Emby 版本忽略 Genre 或清空未返回的元数据。
+            try:
+                item = _get_user_item(cfg, user_id, str(item0['Id']))
+            except Exception as exc:
+                failed_count += 1
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] Genre 中文化读取失败: {item0.get("Name", "未知")}: {exc}')
+                continue
             # 详情接口可能返回比批量接口更完整的 GenreItems。
             raw_genres = item.get('Genres', raw_genres)
             genres = [g.strip() for g in raw_genres if isinstance(g, str) and g.strip()]
             genre_items = [g for g in (item.get('GenreItems', genre_items) or []) if isinstance(g, dict)]
             new_genres = []
             item_changed = False
+            original_genres = list(genres)
             for genre in genres:
                 key = genre.casefold()
                 if key in remove_keys:
@@ -626,36 +742,53 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
                             item_changed = True
                 if genre and genre not in new_genres:
                     new_genres.append(genre)
+            # GenreItems 的 Id 属于旧英文实体。只改 Name、继续保留旧 Id 时，
+            # Emby 会在保存/刷新时按 Id 重新归一化成英文，造成日志“更新”但界面
+            # 仍是英文。按最终 Genres 重建名称关联；自定义映射提供 Id 时才使用。
             new_genre_items = []
-            for gi in genre_items:
-                gname = str(gi.get('Name') or '').strip()
-                key = gname.casefold()
-                if key in remove_keys:
-                    item_changed = True
-                    continue
-                updated = dict(gi)
-                target = mapping.get(key)
-                if target and target.get('Name') and target['Name'] != gname and not any('\u4e00' <= ch <= '\u9fff' for ch in gname):
-                    updated['Name'] = str(target['Name']).strip()
-                    # 自定义映射可提供 Emby Genre Id；未提供时保留原 ID。
-                    if target.get('Id') is not None:
-                        updated['Id'] = target['Id']
-                    item_changed = True
-                if updated.get('Name'):
-                    new_genre_items.append(updated)
-            if not item_changed and new_genres == genres and new_genre_items == genre_items:
+            target_ids = {
+                str(mapping[g.casefold()].get('Name')).strip(): mapping[g.casefold()].get('Id')
+                for g in original_genres if g.casefold() in mapping and mapping[g.casefold()].get('Name')
+            }
+            for name in new_genres:
+                row = {'Name': name}
+                if target_ids.get(name) is not None:
+                    row['Id'] = target_ids[name]
+                new_genre_items.append(row)
+            if new_genre_items != genre_items:
+                item_changed = True
+            if not item_changed and new_genres == genres:
                 continue
             item['Genres'] = new_genres
             item['GenreItems'] = new_genre_items
             if cfg['fix_lock_data']:
+                locked = item.get('LockedFields') or []
+                if 'Genres' not in locked:
+                    locked.append('Genres')
+                item['LockedFields'] = locked
                 item['LockData'] = True
-            _update_item(cfg, item)
-            count += 1
-            if ctx:
-                ctx.log.info(f'[emby_toolbox] Genre 中文化更新: {item0.get("Name", "未知")} -> {", ".join(new_genres) or "（已清空）"}')
+            try:
+                confirmed = _update_item_verified(
+                    cfg, item, {'Genres': new_genres, 'GenreItems': new_genre_items}, user_id,
+                    unordered=('Genres',)
+                )
+            except Exception as exc:
+                confirmed = False
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] Genre 中文化写入失败: {item0.get("Name", "未知")}: {exc}')
+            if confirmed:
+                count += 1
+                if ctx:
+                    ctx.log.info(f'[emby_toolbox] Genre 中文化已确认: {item0.get("Name", "未知")} -> {", ".join(new_genres) or "（已清空）"}')
+            else:
+                failed_count += 1
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] Genre 中文化回读未生效: {item0.get("Name", "未知")}')
             if ctx and scanned_count % 50 == 0:
                 ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
-    result = f'Genre 中文化/映射完成，共扫描 {scanned_count} 条，更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
+    result = f'Genre 中文化/映射完成，共扫描 {scanned_count} 条，确认更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
+    if failed_count:
+        result += f' 失败/未生效 {failed_count} 条。'
     if chinese_skip:
         result += f' 已是中文跳过 {chinese_skip} 项。'
     if ctx:
@@ -737,10 +870,18 @@ def _season_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 full['LockedFields'] = lf
                 if cfg['fix_lock_data']:
                     full['LockData'] = True
-                _update_item(cfg, full)
-                count += 1
-                if ctx:
-                    ctx.log.info(f'[emby_toolbox] 季名刮削更新: {serie.get("Name", "未知")} S{idx} -> {new_name}')
+                try:
+                    confirmed = _update_item_verified(cfg, full, {'Name': new_name}, user_id)
+                except Exception as exc:
+                    confirmed = False
+                    if ctx:
+                        ctx.log.warning(f'[emby_toolbox] 季名刮削写入失败 {serie.get("Name", "未知")} S{idx}: {exc}')
+                if confirmed:
+                    count += 1
+                    if ctx:
+                        ctx.log.info(f'[emby_toolbox] 季名刮削已确认: {serie.get("Name", "未知")} S{idx} -> {new_name}')
+                elif ctx:
+                    ctx.log.warning(f'[emby_toolbox] 季名刮削回读未生效: {serie.get("Name", "未知")} S{idx}')
     result = f'季名刮削完成，共更新 {count} 条。'
     if skip_tmdb > 0:
         result += f'（跳过 {skip_tmdb} 条 TMDB 不可达）'
@@ -817,10 +958,20 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
             item['LockedFields'] = lf
             if cfg['fix_lock_data']:
                 item['LockData'] = True
-            _update_item(cfg, item)
-            count += 1
-            if ctx:
-                ctx.log.info(f'[emby_toolbox] 国家/语言标签更新: {item0.get("Name", "未知")} +{len(new_tags)} 标签')
+            try:
+                confirmed = _update_item_verified(
+                    cfg, item, {'Tags': new_tags}, user_id, unordered=('Tags',)
+                )
+            except Exception as exc:
+                confirmed = False
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 国家/语言标签写入失败 {item0.get("Name", "未知")}: {exc}')
+            if confirmed:
+                count += 1
+                if ctx:
+                    ctx.log.info(f'[emby_toolbox] 国家/语言标签已确认: {item0.get("Name", "未知")} +{len(new_tags)} 标签')
+            elif ctx:
+                ctx.log.warning(f'[emby_toolbox] 国家/语言标签回读未生效: {item0.get("Name", "未知")}')
             if ctx and scanned % 50 == 0:
                 ctx.log.info(f'[emby_toolbox] 国家/语言扫描进度: {scanned}/{len(items)}（已更新 {count}）')
     result = f'国家/语言 Tag 更新完成，共扫描 {scanned} 条，更新 {count} 条。'
@@ -916,7 +1067,18 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             item['LockedFields'] = lf
             if cfg['fix_lock_data']:
                 item['LockData'] = True
-            _update_item(cfg, item)
+            try:
+                confirmed = _update_item_verified(
+                    cfg, item, {'SortName': sort_all, 'ForcedSortName': sort_all}, user_id
+                )
+            except Exception as exc:
+                confirmed = False
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 别名写入失败 {item0.get("Name", "未知")}: {exc}')
+            if not confirmed:
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 别名写入回读未生效: {item0.get("Name", "未知")}')
+                continue
             count += 1
             if item_key:
                 cache[item_key] = {
