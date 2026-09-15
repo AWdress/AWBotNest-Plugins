@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '2.1.1',
+ 'version': '2.1.2',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://cdn.simpleicons.org/emby',
@@ -91,6 +91,9 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'Emby 工具箱'
 __plugin__["changelog"] = (
+    'v2.1.2 优化媒体库读取与 Emby 兼容回读\n'
+    '- 使用 Recursive 分页读取媒体库，避免逐文件夹请求导致数小时运行\n'
+    '- 管理员条目接口返回 404 时兼容用户接口回读，并保留实际生效校验\n\n'
     'v2.1.1 修复 Emby Genre 更新 DTO\n'
     '- 仅提交官方支持的 Genres 字段，由 Emby 自动重建 Genre 关联\n'
     '- 补充常见 Genre 中文映射，并为季名、Tag、别名写入增加生效校验\n'

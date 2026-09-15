@@ -32,7 +32,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.1",
+    "version": "2.1.2",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -84,6 +84,10 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
+    "v2.1.2 优化媒体库读取与 Emby 兼容回读\n"
+    "- 使用 Recursive 分页读取媒体库，避免逐文件夹请求导致数小时运行\n"
+    "- 管理员条目接口返回 404 时兼容用户接口回读，并保留实际生效校验\n"
+    "\n"
     "v2.1.1 修复 Emby Genre 更新 DTO\n"
     "- 仅提交官方支持的 Genres 字段，由 Emby 自动重建 Genre 关联\n"
     "- 补充常见 Genre 中文映射，并为季名、Tag、别名写入增加生效校验\n"
@@ -271,12 +275,24 @@ def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str,
     return r.json()
 
 
-def _get_system_item(cfg: Dict[str, Any], item_id: str) -> Dict[str, Any]:
-    """通过管理员条目接口读取最新元数据，避免用户视图缓存旧 Genre。"""
+def _get_system_item(cfg: Dict[str, Any], item_id: str, user_id: str = "") -> Dict[str, Any]:
+    """读取最新元数据，优先管理员接口并兼容仅开放用户接口的服务器。"""
     url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}"
-    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
-    r.raise_for_status()
-    return r.json()
+    try:
+        r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+        r.raise_for_status()
+        return r.json()
+    except requests.HTTPError as exc:
+        # Some reverse proxies expose /Library/VirtualFolders and POST updates
+        # but reject the system GET with 404.  The user endpoint still returns
+        # the same fresh item for the configured account, so use it only for
+        # this specific compatibility case.
+        if getattr(exc.response, 'status_code', None) != 404:
+            raise
+        fallback_user = str(user_id or cfg.get('user_id') or _resolve_user_id(cfg)).strip()
+        if not fallback_user:
+            raise
+        return _get_user_item(cfg, fallback_user, item_id)
 
 
 def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
@@ -315,7 +331,7 @@ def _update_item_verified(
     会被服务器重新建立关联实体的字段。
     """
     _update_item(cfg, item)
-    verify = _get_system_item(cfg, str(item['Id']))
+    verify = _get_system_item(cfg, str(item['Id']), user_id)
     for key, wanted in expected.items():
         got = verify.get(key)
         if key in unordered:
@@ -425,50 +441,143 @@ def _get_library_id(cfg: Dict[str, Any], lib_name: str) -> Optional[str]:
 
 
 def _get_lib_items(cfg: Dict[str, Any], parent_id: str) -> List[Dict[str, Any]]:
-    """Recursively collect all non-folder media items below a library.
+    """Collect all non-folder items below a library with bounded pagination.
 
-    A library can contain nested folders (especially with mixed content).  A
-    single non-recursive request only returns those folders, causing every
-    maintenance worker to silently process zero items.  Match the reference
-    client's recursive folder walk while requesting every field used by the
-    workers, avoiding an extra GET for metadata-only features.
+    The old implementation walked every folder with a separate request.  A
+    large movie library can contain thousands of folders, turning a single
+    maintenance run into hours of serial network calls.  Emby's recursive
+    Items endpoint returns the same hierarchy in pages, so use it first and
+    retain a small non-recursive fallback for old reverse proxies.
     """
-    # Match emby_scripts: the system Items endpoint sees every item under the
-    # selected virtual folder and is not restricted by the chosen user's views.
     url = f"{_base_url(cfg['emby_server'])}/emby/Items"
     fields = (
         'ProviderIds,SortName,Tags,TagItems,Genres,GenreItems,LockedFields,'
         'Name,Type,Path,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,'
         'Overview,ProductionYear,PremiereDate,MediaStreams,LocationType'
     )
-    pending = [str(parent_id)]
+
+    def legacy_walk(first_page: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """Fallback for proxies/old Emby versions without recursive paging."""
+        pending = [str(parent_id)]
+        result: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        first = first_page
+        while pending:
+            current = pending.pop(0)
+            if not current or current in seen:
+                continue
+            seen.add(current)
+            if first is not None and current == str(parent_id):
+                items = first
+                first = None
+            else:
+                params = {
+                    'api_key': cfg['api_key'],
+                    'ParentId': current,
+                    'Recursive': 'false',
+                    'Fields': fields,
+                    'SortBy': 'SortName',
+                    'SortOrder': 'Ascending',
+                }
+                r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
+                r.raise_for_status()
+                data = r.json()
+                items = data.get('Items', []) if isinstance(data, dict) else []
+            for item in items:
+                if not isinstance(item, dict) or not item.get('Id'):
+                    continue
+                if item.get('Type') == 'Folder':
+                    pending.append(str(item['Id']))
+                else:
+                    result.append(item)
+        return result
+
+    # Emby returns folders and media together for Recursive=true.  Keep the
+    # page size conservative because metadata fields (especially MediaStreams)
+    # make each response sizeable.
+    limit = 500
+    start = 0
     result: List[Dict[str, Any]] = []
-    seen = set()
-    while pending:
-        current = pending.pop(0)
-        if not current or current in seen:
-            continue
-        seen.add(current)
-        params = {
+    seen_ids: set[str] = set()
+    probe_page: Optional[List[Dict[str, Any]]] = None
+    # Keep a lightweight non-recursive probe for older Emby proxies and for
+    # already-cached root media.  The real work still uses recursive pages.
+    try:
+        probe_params = {
             'api_key': cfg['api_key'],
-            'ParentId': current,
+            'ParentId': str(parent_id),
             'Recursive': 'false',
             'Fields': fields,
             'SortBy': 'SortName',
             'SortOrder': 'Ascending',
         }
-        r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
-        r.raise_for_status()
-        data = r.json()
-        items = data.get('Items', []) if isinstance(data, dict) else []
-        for item in items:
-            if not isinstance(item, dict) or not item.get('Id'):
-                continue
-            if item.get('Type') == 'Folder':
-                pending.append(str(item['Id']))
-            else:
-                result.append(item)
-    return result
+        probe_response = requests.get(
+            url, params=probe_params, headers=_headers(cfg['api_key']), timeout=60,
+        )
+        probe_response.raise_for_status()
+        probe_data = probe_response.json()
+        raw_probe = probe_data.get('Items', []) if isinstance(probe_data, dict) else []
+        if isinstance(raw_probe, list):
+            probe_page = raw_probe
+            for item in probe_page:
+                if not isinstance(item, dict) or not item.get('Id') or item.get('Type') == 'Folder':
+                    continue
+                item_id = str(item['Id'])
+                if item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    result.append(item)
+    except (requests.RequestException, ValueError, TypeError):
+        probe_page = None
+    try:
+        while True:
+            params = {
+                'api_key': cfg['api_key'],
+                'ParentId': str(parent_id),
+                'Recursive': 'true',
+                'Fields': fields,
+                'SortBy': 'SortName',
+                'SortOrder': 'Ascending',
+                'StartIndex': start,
+                'Limit': limit,
+            }
+            r = requests.get(url, params=params, headers=_headers(cfg['api_key']), timeout=60)
+            r.raise_for_status()
+            data = r.json()
+            page = data.get('Items', []) if isinstance(data, dict) else []
+            if not isinstance(page, list):
+                raise ValueError('递归条目响应格式不正确')
+            for item in page:
+                if not isinstance(item, dict) or not item.get('Id') or item.get('Type') == 'Folder':
+                    continue
+                item_id = str(item['Id'])
+                if item_id not in seen_ids:
+                    seen_ids.add(item_id)
+                    result.append(item)
+            total = int(data.get('TotalRecordCount') or 0) if isinstance(data, dict) else 0
+            if not page or (len(page) < limit and total == 0 and any(
+                isinstance(item, dict) and item.get('Type') == 'Folder' for item in page
+            )):
+                # Older proxies may ignore Recursive=true and return only the
+                # immediate children without a total count.  Seed the legacy
+                # walk with this page so already-fetched media is not lost.
+                if page and total == 0 and any(
+                    isinstance(item, dict) and item.get('Type') == 'Folder' for item in page
+                ):
+                    return legacy_walk(probe_page or page)
+                return result
+            if len(page) < limit or (total and start + len(page) >= total):
+                return result
+            start += len(page)
+    except (requests.HTTPError, ValueError, KeyError, TypeError):
+        # Only fall back after the recursive request is rejected or malformed;
+        # ordinary network errors should remain visible to the caller.
+        if probe_page and any(
+            isinstance(item, dict) and item.get('Type') == 'Folder' for item in probe_page
+        ):
+            return legacy_walk(probe_page)
+        if result:
+            return result
+        return legacy_walk()
 
 
 def _tmdb_fetch(cfg: Dict[str, Any], tmdb_id: str, is_movie: bool) -> Optional[Dict[str, Any]]:
