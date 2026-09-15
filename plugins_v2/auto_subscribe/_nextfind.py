@@ -29,6 +29,15 @@ class NextFindAuthError(NextFindError):
     """鉴权失败（401/403）：API 密钥无效或已过期。运行时据此立即中止整轮。"""
 
 
+class NextFindServerError(NextFindError):
+    """NextFind 服务端 5xx；插件可以选择稳定接口继续工作。"""
+
+    def __init__(self, status_code: int, path: str):
+        self.status_code = int(status_code)
+        self.path = str(path)
+        super().__init__(f"NextFind 服务端接口异常（HTTP {self.status_code}）：{self.path}")
+
+
 class NextFindClient:
     """NextFind OpenAPI 轻客户端（同步，直连不走代理）。"""
 
@@ -46,22 +55,24 @@ class NextFindClient:
         )
 
     @staticmethod
-    def _check(resp) -> None:
-        """把 401/403 转成 NextFindAuthError（密钥问题），其余非 2xx 照常抛。"""
+    def _check(resp, path: str = "") -> None:
+        """把鉴权和服务端错误转换为短消息，避免日志输出整段 URL/堆栈。"""
         if resp.status_code in (401, 403):
             raise NextFindAuthError(f"NextFind 鉴权失败（HTTP {resp.status_code}）：API 密钥无效或已过期")
+        if 500 <= resp.status_code < 600:
+            raise NextFindServerError(resp.status_code, path)
         resp.raise_for_status()
 
     def _get(self, path: str, params: dict) -> dict:
         with self._client() as client:
             resp = client.get(f"{self.base_url}{path}", params=params)
-            self._check(resp)
+            self._check(resp, path)
             return resp.json()
 
     def _post(self, path: str, body: dict) -> dict:
         with self._client() as client:
             resp = client.post(f"{self.base_url}{path}", json=body)
-            self._check(resp)
+            self._check(resp, path)
             return resp.json()
 
     # ------------------------------------------------------------------ #
@@ -143,7 +154,7 @@ class NextFindClient:
     def _request_delete(self, path: str, params: dict):
         with self._client() as client:
             resp = client.delete(f"{self.base_url}{path}", params=params)
-            self._check(resp)
+            self._check(resp, path)
             return resp.json()
 
     def settings(self, name: str):

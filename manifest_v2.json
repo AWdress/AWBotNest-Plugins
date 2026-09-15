@@ -161,7 +161,7 @@
     "auto_subscribe": {
       "name": "NextFind 助手",
       "id": "auto_subscribe",
-      "version": "2.0.9",
+      "version": "2.1.0",
       "requirements": [
         "httpx>=0.27",
         "beautifulsoup4>=4.12",

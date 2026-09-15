@@ -21,7 +21,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "1.4.5",
+    "version": "2.1.0",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -277,7 +277,15 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
         payload = client.local_library_filter("missing") or {}
     except Exception as exc:
         if log:
-            log.warning("[自动订阅] 本地库缺集接口不可用，降级使用订阅进度接口: %r", exc)
+            status = getattr(exc, "status_code", None)
+            if status:
+                log.warning(
+                    "[自动订阅] NextFind 本地库缺集接口返回 HTTP %s（服务端异常），"
+                    "已改用订阅进度接口",
+                    status,
+                )
+            else:
+                log.warning("[自动订阅] 本地库缺集接口不可用，已改用订阅进度接口：%s", exc)
         try:
             subscriptions = client.list_subscriptions()
             tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
