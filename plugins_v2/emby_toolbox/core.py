@@ -32,7 +32,7 @@ import requests
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -84,8 +84,8 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
-    "v2.1.0 修复 Genre 写入回读确认与单集 Genre 批量并行清理\n"
-    "- 重建 GenreItems 关联，避免英文实体 ID 覆盖中文名称\n"
+    "v2.1.1 修复 Emby Genre 更新 DTO\n"
+    "- 仅提交官方支持的 Genres 字段，由 Emby 自动重建 Genre 关联\n"
     "- 补充常见 Genre 中文映射，并为季名、Tag、别名写入增加生效校验\n"
     "- 删除单集 Genre 改为递归分页查询，避免逐季逐集串行耗时\n\n"
     + __plugin__.get("changelog", "")
@@ -271,6 +271,14 @@ def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str,
     return r.json()
 
 
+def _get_system_item(cfg: Dict[str, Any], item_id: str) -> Dict[str, Any]:
+    """通过管理员条目接口读取最新元数据，避免用户视图缓存旧 Genre。"""
+    url = f"{_base_url(cfg['emby_server'])}/emby/Items/{item_id}"
+    r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
     item_id = str(item['Id'])
     base = _base_url(cfg['emby_server'])
@@ -307,7 +315,7 @@ def _update_item_verified(
     会被服务器重新建立关联实体的字段。
     """
     _update_item(cfg, item)
-    verify = _get_user_item(cfg, user_id, str(item['Id']))
+    verify = _get_system_item(cfg, str(item['Id']))
     for key, wanted in expected.items():
         got = verify.get(key)
         if key in unordered:
@@ -631,8 +639,9 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
             if not item.get('Genres') and not item.get('GenreItems'):
                 return False, 'unchanged', str(ep['Id'])
             item['Genres'] = []
-            # 清掉关联实体，防止旧 GenreItems 让 Emby 重新挂回英文 Genre。
-            item['GenreItems'] = []
+            # GenreItems 为服务端维护字段，不放入更新 DTO；清空 Genres 后由
+            # Emby 自动移除对应关联，避免旧 ID 让英文 Genre 被重新挂回。
+            item.pop('GenreItems', None)
             if cfg['fix_lock_data']:
                 locked = item.get('LockedFields') or []
                 if 'Genres' not in locked:
@@ -640,7 +649,7 @@ def _delete_episode_genre(cfg: Dict[str, Any], ctx=None) -> str:
                 item['LockedFields'] = locked
                 item['LockData'] = True
             ok = _update_item_verified(
-                cfg, item, {'Genres': [], 'GenreItems': []}, user_id, unordered=('Genres',)
+                cfg, item, {'Genres': []}, user_id, unordered=('Genres',)
             )
             return ok, 'updated' if ok else 'verify_failed', f'{lib}/{item.get("SeriesName") or item.get("Name") or ep["Id"]}'
         except Exception as exc:
@@ -693,10 +702,12 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
         if not parent_id:
             continue
         items = _get_lib_items(cfg, parent_id)
+        lib_scanned = 0
         if ctx:
             ctx.log.info(f'[emby_toolbox] 处理媒体库 {lib}，共 {len(items)} 个条目')
         for item0 in items:
             scanned_count += 1
+            lib_scanned += 1
             # _get_lib_items 已请求 Genre/GenreItems；先在批量结果中筛选，
             # 只有命中映射或删除规则的条目才读取完整详情，避免每个条目
             # 都额外发起一次 GET。
@@ -705,8 +716,8 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
             genre_items = [g for g in (item0.get('GenreItems', []) or []) if isinstance(g, dict)]
             need = any(g.casefold() in mapping or g.casefold() in remove_keys for g in genres) or any((g.get('Name') or '').strip().casefold() in mapping for g in genre_items)
             if not need:
-                if ctx and scanned_count % 50 == 0:
-                    ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
+                if ctx and lib_scanned % 50 == 0:
+                    ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {lib_scanned}/{len(items)}（累计扫描 {scanned_count}，已确认更新 {count}）')
                 continue
             # 候选条目读取完整 DTO；批量列表只用于筛选，直接把精简列表 DTO
             # POST 回去会让部分 Emby 版本忽略 Genre 或清空未返回的元数据。
@@ -760,7 +771,10 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
             if not item_changed and new_genres == genres:
                 continue
             item['Genres'] = new_genres
-            item['GenreItems'] = new_genre_items
+            # GenreItems 是服务端维护的关联字段，并非 ItemUpdateDto 的可写字段。
+            # 发送旧 ID 或无 ID 的关联对象会让部分 Emby 版本静默忽略整个 Genre
+            # 更新；只提交官方支持的 Genres 字段，服务端会重建关联实体。
+            item.pop('GenreItems', None)
             if cfg['fix_lock_data']:
                 locked = item.get('LockedFields') or []
                 if 'Genres' not in locked:
@@ -769,7 +783,7 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
                 item['LockData'] = True
             try:
                 confirmed = _update_item_verified(
-                    cfg, item, {'Genres': new_genres, 'GenreItems': new_genre_items}, user_id,
+                    cfg, item, {'Genres': new_genres}, user_id,
                     unordered=('Genres',)
                 )
             except Exception as exc:
@@ -784,8 +798,8 @@ def _genre_mapper(cfg: Dict[str, Any], ctx=None) -> str:
                 failed_count += 1
                 if ctx:
                     ctx.log.warning(f'[emby_toolbox] Genre 中文化回读未生效: {item0.get("Name", "未知")}')
-            if ctx and scanned_count % 50 == 0:
-                ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {scanned_count}/{len(items)}（已更新 {count}）')
+            if ctx and lib_scanned % 50 == 0:
+                ctx.log.info(f'[emby_toolbox] Genre 扫描进度: {lib_scanned}/{len(items)}（累计扫描 {scanned_count}，已确认更新 {count}）')
     result = f'Genre 中文化/映射完成，共扫描 {scanned_count} 条，确认更新 {count} 条（映射 {mapped_count}，删除 {removed_count}）。'
     if failed_count:
         result += f' 失败/未生效 {failed_count} 条。'
