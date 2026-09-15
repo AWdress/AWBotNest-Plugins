@@ -26,6 +26,7 @@ import time
 from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -179,13 +180,18 @@ def _base_url(server: str) -> str:
 
 
 def _server_candidates(cfg: Dict[str, Any]) -> List[str]:
-    """Return the configured endpoint, preferring one that already worked."""
+    """Return the configured endpoint and a same-host HTTPS fallback."""
     values = [cfg.get('_active_server', ''), cfg.get('emby_server', '')]
     result: List[str] = []
     for value in values:
         base = _base_url(str(value or '').strip())
         if base and base not in result:
             result.append(base)
+            parsed = urlsplit(base)
+            if parsed.scheme == 'http' and parsed.netloc:
+                https_base = urlunsplit(('https', parsed.netloc, parsed.path, '', '')).rstrip('/')
+                if https_base not in result:
+                    result.append(https_base)
     return result
 
 
@@ -282,8 +288,8 @@ def _resolve_user_id(cfg: Dict[str, Any]) -> str:
     return cfg['user_id'] or _get_first_user_id(cfg)
 
 
-def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str) -> Dict[str, Any]:
-    url = f"{_base_url(cfg['emby_server'])}/emby/Users/{user_id}/Items/{item_id}"
+def _get_user_item(cfg: Dict[str, Any], user_id: str, item_id: str, base: str = '') -> Dict[str, Any]:
+    url = f"{_base_url(base or cfg['emby_server'])}/emby/Users/{user_id}/Items/{item_id}"
     r = requests.get(url, params={'api_key': cfg['api_key']}, headers=_headers(cfg['api_key']), timeout=30)
     r.raise_for_status()
     return r.json()
@@ -353,10 +359,26 @@ def _update_item(cfg: Dict[str, Any], item: Dict[str, Any]) -> None:
             cfg['_active_server'] = base
             return
         except requests.HTTPError as exc:
+            status = getattr(exc.response, 'status_code', None)
+            body = str(getattr(exc.response, 'text', '') or '').casefold()
+            if status in (400, 422) and 'source' in body:
+                # Library scans intentionally request a small field set.  A
+                # few Emby builds require the complete MediaSources/Path
+                # payload for metadata writes; fetch the administrator item
+                # through the same endpoint and merge only the requested
+                # changes before retrying.
+                user_id = str(cfg.get('user_id') or _resolve_user_id(cfg)).strip()
+                full = _get_user_item(cfg, user_id, item_id, base)
+                complete = dict(full)
+                complete.update(item)
+                retry = requests.post(url, params=params, headers=_post_headers(cfg['api_key']), json=complete, timeout=60)
+                retry.raise_for_status()
+                cfg['_active_server'] = base
+                return
             # A gateway may expose reads but not administrator writes.  Do not
             # POST metadata through /Users/... (that endpoint is user state
             # only); surface the real write failure to the caller.
-            if getattr(exc.response, 'status_code', None) in (404, 405):
+            if status in (404, 405):
                 last_error = exc
                 continue
             raise
