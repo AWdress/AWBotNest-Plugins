@@ -35,7 +35,7 @@ __plugin__ = {
             "types": {"type": "multiselect", "label": "消息类型", "default": [], "options": [{"value": "text", "label": "文本"}, {"value": "link", "label": "链接"}, {"value": "photo", "label": "图片"}, {"value": "video", "label": "视频"}, {"value": "document", "label": "文件"}, {"value": "audio", "label": "音频"}]},
             "kw": {"type": "string", "label": "关键词"}, "nkw": {"type": "string", "label": "排除词"}, "sender": {"type": "string", "label": "只转谁发的"}, "copy": {"type": "boolean", "label": "复制搬运", "default": False},
         }},
-        "forward_resolved_chat_names": {"type": "info", "label": "已识别会话名称", "section": "消息转发", "order": 22},
+        "forward_resolved_chat_names": {"type": "info", "default": "", "label": "已识别会话名称", "section": "消息转发", "order": 22},
         "forward_backfill": {"type": "action", "label": "立即检查遗漏", "action": "backfill", "help": "按当前规则回查来源历史消息并补发遗漏内容。", "section": "消息转发", "order": 21},
         "delete_command": {"type": "string", "default": ".dme", "label": "删除消息命令", "section": "消息管理", "order": 30},
         "delete_tip_seconds": {"type": "number", "default": 2, "min": 0, "max": 10, "step": 1, "label": "删除提示停留（秒）", "section": "消息管理", "order": 31},
@@ -123,8 +123,22 @@ def _migrate_old_configs(ctx):
             ctx.log.info("[Telegram 助手] 已停用旧插件：%s", ", ".join(removed))
 
 
+def _restore_defaults(ctx):
+    """Materialize schema defaults so the native form can display and save them."""
+    updates = {}
+    for key, spec in __plugin__["config_schema"].items():
+        if "default" not in spec or spec.get("type") == "action":
+            continue
+        current = ctx.config.get(key)
+        if key not in ctx.config or current is None or (isinstance(current, str) and not current.strip()):
+            updates[key] = spec["default"]
+    if updates:
+        ctx.update_config(updates)
+
+
 async def setup(ctx):
     _migrate_old_configs(ctx)
+    _restore_defaults(ctx)
     modules = [
         (msg_forward, _FORWARD), (self_delete, _DELETE), (id_plugin, _ID),
         (getmsg, _GETMSG), (auto_avatar, _AVATAR), (auto_changename, _NICKNAME),
