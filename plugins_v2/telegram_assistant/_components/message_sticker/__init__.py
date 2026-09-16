@@ -134,14 +134,14 @@ def _display_name(sender: Any, sender_id: Any) -> str:
     title = str(getattr(sender, "title", "") or "").strip()
     if title:
         return title
-    full_name = " ".join(
-        part for part in (
-            str(getattr(sender, "first_name", "") or "").strip(),
-            str(getattr(sender, "last_name", "") or "").strip(),
-        ) if part
-    )
-    if full_name:
-        return full_name
+    # last_name may be managed by the timed-nickname module and contain
+    # decorative clock/weather glyphs; quote stickers only show the stable name.
+    first_name = str(getattr(sender, "first_name", "") or "").strip()
+    if first_name:
+        return first_name
+    last_name = str(getattr(sender, "last_name", "") or "").strip()
+    if last_name:
+        return last_name
     username = str(getattr(sender, "username", "") or "").strip()
     return f"@{username}" if username else str(sender_id or "Telegram")
 
@@ -276,7 +276,8 @@ async def setup(ctx):
                 sticker,
                 mime_type="image/webp",
                 attributes=attributes,
-                force_document=True,
+                force_document=False,
+                allow_cache=False,
             )
             if ctx.config.get("delete_command", True):
                 try:
