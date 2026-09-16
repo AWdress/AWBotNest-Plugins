@@ -19,150 +19,10 @@
       "plugin_api_version": 2,
       "path": "plugins_v2/ai/"
     },
-    "auto_avatar": {
-      "id": "auto_avatar",
-      "name": "自动换头像",
-      "version": "2.0.0",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "requirements": [],
-      "render_mode": "schema",
-      "description": "定时从每账号图片池随机更换头像，并提供添加、查看和清空命令。",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_media.png",
-      "tags": [
-        "头像轮换",
-        "图片池",
-        "定时任务"
-      ],
-      "config_schema": {
-        "delete_old": {
-          "type": "boolean",
-          "default": true,
-          "label": "删除旧头像",
-          "section": "功能开关",
-          "order": 1
-        },
-        "interval_min": {
-          "type": "number",
-          "default": 60,
-          "label": "换头像间隔(分钟)",
-          "min": 10,
-          "max": 1440,
-          "step": 10,
-          "section": "头像轮换",
-          "order": 10
-        },
-        "add_command": {
-          "type": "string",
-          "default": ".avataradd",
-          "label": "加图命令",
-          "section": "图片池命令",
-          "order": 20
-        },
-        "list_command": {
-          "type": "string",
-          "default": ".avatarlist",
-          "label": "查看命令",
-          "section": "图片池命令",
-          "order": 21
-        },
-        "clear_command": {
-          "type": "string",
-          "default": ".avatarclear",
-          "label": "清空命令",
-          "section": "图片池命令",
-          "order": 22
-        }
-      },
-      "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生头像上传与删除接口\n- 使用平台异步存储记录插件设置的头像\n- 图片池限制在插件数据目录并移除 V1 兼容层",
-      "path": "plugins_v2/auto_avatar/"
-    },
-    "auto_changename": {
-      "id": "auto_changename",
-      "name": "自动报时昵称",
-      "version": "2.0.5",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "description": "定时把你的账号昵称改成当前时间，支持自定义模板（时分秒、日期、星期和随机表情）。",
-      "requirements": [],
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-      "tags": [
-        "昵称报时",
-        "日期模板",
-        "定时任务"
-      ],
-      "render_mode": "schema",
-      "config_schema": {
-        "interval_min": {
-          "type": "slider",
-          "default": 5,
-          "label": "改名间隔(分钟)",
-          "min": 1,
-          "max": 60,
-          "step": 1,
-          "order": 10,
-          "section": "更新计划",
-          "help": "每隔多少分钟改一次。修改后需重载插件生效。"
-        },
-        "name_format": {
-          "type": "string",
-          "default": "{boldH}:{boldM} {weather_icon} {temp}°C",
-          "label": "昵称模板",
-          "order": 11,
-          "section": "昵称规则",
-          "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"
-        },
-        "name_field": {
-          "type": "select",
-          "default": "last_name",
-          "label": "修改哪个名字（姓 / 名 / 姓和名）",
-          "help": "可选：姓、名或姓和名。",
-          "order": 12,
-          "section": "昵称规则",
-          "options": [
-            {
-              "value": "last_name",
-              "label": "姓 (last name)"
-            },
-            {
-              "value": "first_name",
-              "label": "名 (first name)"
-            },
-            {
-              "value": "both",
-              "label": "姓和名都改"
-            }
-          ]
-        },
-        "location": {
-          "type": "string",
-          "default": "Guangzhou",
-          "label": "城市(英文)",
-          "order": 5,
-          "section": "天气",
-          "help": "城市英文名，如 Guangzhou、Beijing、Shanghai；留空使用 Guangzhou。"
-        },
-        "weather_interval": {
-          "type": "slider",
-          "default": 30,
-          "label": "天气刷新间隔(分钟)",
-          "min": 10,
-          "max": 120,
-          "step": 5,
-          "order": 6,
-          "section": "天气",
-          "help": "天气数据缓存时间，避免频繁请求。"
-        }
-      },
-      "changelog": "v2.0.5 接入时间与天气昵称模板\n- 支持特殊字体数字、天气图标、温度和城市配置\n- 使用平台 HTTP 代理获取 wttr.in 天气并缓存结果\n- 保留原有账号选择、定时任务和昵称字段设置",
-      "path": "plugins_v2/auto_changename/"
-    },
     "telegram_assistant": {
       "id": "telegram_assistant",
       "name": "Telegram 助手",
-      "version": "0.0.3",
+      "version": "0.0.4",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -180,12 +40,12 @@
         "forward_backfill_interval_min": {"type": "number", "default": 10, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
         "forward_repeat_enabled": {"type": "boolean", "default": true, "label": "启用回复复读", "section": "消息转发", "order": 6},
         "forward_repeat_command": {"type": "string", "default": ".zf", "label": "复读命令", "section": "消息转发", "order": 7},
-        "forward_repeat_mode": {"type": "boolean", "default": false, "label": "复制重发", "section": "消息转发", "order": 8},
+        "forward_repeat_mode": {"type": "boolean", "default": false, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
         "forward_repeat_interval": {"type": "number", "default": 0.3, "min": 0, "max": 5, "step": 0.1, "label": "复读间隔（秒）", "section": "消息转发", "order": 9},
         "forward_repeat_max_times": {"type": "number", "default": 50, "min": 1, "max": 500, "step": 1, "label": "最多复读次数", "section": "消息转发", "order": 10},
         "forward_rules": {"type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "消息转发", "order": 20, "fields": {"source": {"type": "string", "label": "来源会话"}, "targets": {"type": "string", "label": "转发到"}, "types": {"type": "multiselect", "label": "消息类型", "default": [], "options": [{"value": "text", "label": "文本"}, {"value": "link", "label": "链接"}, {"value": "photo", "label": "图片"}, {"value": "video", "label": "视频"}, {"value": "document", "label": "文件"}, {"value": "audio", "label": "音频"}]}, "kw": {"type": "string", "label": "关键词"}, "nkw": {"type": "string", "label": "排除词"}, "sender": {"type": "string", "label": "只转谁发的"}, "copy": {"type": "boolean", "label": "复制搬运", "default": false}}},
         "forward_resolved_chat_names": {"type": "info", "default": "", "label": "已识别会话名称", "section": "消息转发", "order": 22},
-        "forward_backfill": {"type": "action", "label": "立即检查遗漏", "action": "backfill", "section": "消息转发", "order": 21},
+        "forward_backfill": {"type": "action", "label": "立即检查遗漏", "action": "backfill", "help": "按当前规则回查来源历史消息并补发遗漏内容。", "section": "消息转发", "order": 21},
         "delete_command": {"type": "string", "default": ".dme", "label": "删除消息命令", "section": "消息管理", "order": 30},
         "delete_tip_seconds": {"type": "number", "default": 2, "min": 0, "max": 10, "step": 1, "label": "删除提示停留（秒）", "section": "消息管理", "order": 31},
         "id_delete_command": {"type": "boolean", "default": true, "label": "查询后删除命令", "section": "查 ID", "order": 40},
@@ -204,7 +64,7 @@
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74}
       },
-      "changelog": "v0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+      "changelog": "v0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
       "path": "plugins_v2/telegram_assistant/"
     },
     "auto_lottery": {
@@ -1401,41 +1261,6 @@
       "plugin_api_version": 2,
       "path": "plugins_v2/emby_toolbox/"
     },
-    "getmsg": {
-      "id": "getmsg",
-      "name": "取消息结构",
-      "version": "2.0.0",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "requirements": [],
-      "render_mode": "schema",
-      "description": "回复消息发送 /getmsg，将 Telethon 原始结构导出为文本文件。",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-      "tags": [
-        "消息提取",
-        "结构调试",
-        "媒体信息"
-      ],
-      "config_schema": {
-        "delete_command": {
-          "type": "boolean",
-          "default": true,
-          "label": "删除命令消息",
-          "section": "功能开关",
-          "order": 1
-        },
-        "command": {
-          "type": "string",
-          "default": ".getmsg",
-          "label": "触发命令",
-          "section": "命令",
-          "order": 10
-        }
-      },
-      "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原始消息结构导出\n- 文件仅写入插件数据目录并在发送后清理\n- 移除 V1 兼容运行层",
-      "path": "plugins_v2/getmsg/"
-    },
     "gptgod_checkin": {
       "name": "GPT-GOD 自动签到",
       "id": "gptgod_checkin",
@@ -1847,51 +1672,6 @@
       "plugin_api_version": 2,
       "path": "plugins_v2/human_lottery/"
     },
-    "id": {
-      "id": "id",
-      "name": "查ID",
-      "version": "2.0.0",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "requirements": [],
-      "render_mode": "schema",
-      "description": "发送 /id 或 .id（可回复某条消息）查询群组ID、用户ID、用户名。",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_utility.png",
-      "tags": [
-        "身份查询",
-        "用户信息",
-        "Telegram账号"
-      ],
-      "config_schema": {
-        "delete_command": {
-          "type": "boolean",
-          "default": true,
-          "label": "删除命令消息",
-          "section": "功能开关",
-          "order": 1
-        },
-        "command": {
-          "type": "string",
-          "default": ".id",
-          "label": "触发命令",
-          "section": "命令",
-          "order": 10
-        },
-        "auto_delete": {
-          "type": "number",
-          "default": 20,
-          "label": "结果自动删除(秒)",
-          "min": 0,
-          "max": 120,
-          "step": 5,
-          "section": "自动清理",
-          "order": 11
-        }
-      },
-      "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 移除 V1 兼容运行层\n- 使用 Telethon 原生回复消息与实体接口\n- 自动删除任务纳入平台生命周期管理",
-      "path": "plugins_v2/id/"
-    },
     "invites_signin": {
       "name": "药丸签到",
       "id": "invites_signin",
@@ -2123,194 +1903,6 @@
       ],
       "render_mode": "vue",
       "path": "plugins_v2/movie_monitor_115/"
-    },
-    "msg_forward": {
-      "id": "msg_forward",
-      "name": "消息转发助手",
-      "version": "2.1.5",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "requirements": [],
-      "render_mode": "schema",
-      "description": "统一提供规则转发、复制搬运、历史遗漏补全和回复复读；兼容迁移原“转发复读”配置。",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_relay.png",
-      "tags": [
-        "消息转发",
-        "规则路由",
-        "转发复读"
-      ],
-      "config_schema": {
-        "enable": {
-          "type": "boolean",
-          "default": false,
-          "label": "启用规则转发",
-          "section": "功能开关",
-          "order": 1
-        },
-        "forward_album": {
-          "type": "boolean",
-          "default": true,
-          "label": "整组转发相册",
-          "section": "功能开关",
-          "order": 2
-        },
-        "backfill_limit": {
-          "type": "integer",
-          "default": 100,
-          "min": 1,
-          "max": 500,
-          "step": 1,
-          "label": "遗漏补全回查条数",
-          "help": "执行“补全遗漏”时每条规则最多回查的来源消息数。",
-          "section": "功能开关",
-          "order": 3
-        },
-        "auto_backfill": {
-          "type": "boolean",
-          "default": true,
-          "label": "自动检查遗漏",
-          "help": "插件启用或重载后立即回查，之后按设定间隔自动补发遗漏消息。",
-          "section": "功能开关",
-          "order": 4
-        },
-        "backfill_interval_min": {
-          "type": "number",
-          "default": 10,
-          "min": 1,
-          "max": 1440,
-          "step": 1,
-          "label": "遗漏检查间隔（分钟）",
-          "section": "功能开关",
-          "order": 5
-        },
-        "repeat_enabled": {
-          "type": "boolean",
-          "default": true,
-          "label": "启用回复复读",
-          "help": "回复一条消息并发送复读命令，在当前会话重复转发或复制。",
-          "section": "回复复读",
-          "order": 20
-        },
-        "repeat_command": {
-          "type": "string",
-          "default": ".zf",
-          "label": "复读命令",
-          "help": "填写 .zf、/zf 或 zf 均可；实际同时接受点号和斜杠前缀。",
-          "section": "回复复读",
-          "order": 21
-        },
-        "repeat_mode": {
-          "type": "boolean",
-          "default": false,
-          "label": "复制重发",
-          "help": "关闭时使用原样转发；开启时复制消息内容后重新发送。旧版 forward/copy 配置会自动转换。",
-          "section": "回复复读",
-          "order": 22
-        },
-        "repeat_interval": {
-          "type": "number",
-          "default": 0.3,
-          "min": 0,
-          "max": 5,
-          "step": 0.1,
-          "label": "每次间隔（秒）",
-          "section": "回复复读",
-          "order": 23
-        },
-        "repeat_max_times": {
-          "type": "number",
-          "default": 50,
-          "min": 1,
-          "max": 500,
-          "step": 1,
-          "label": "最多复读次数",
-          "section": "回复复读",
-          "order": 24
-        },
-        "resolved_chat_names": {
-          "type": "info",
-          "label": "已识别会话名称",
-          "section": "规则",
-          "order": 29
-        },
-        "rules": {
-          "type": "list",
-          "default": [],
-          "label": "转发规则",
-          "item_label": "规则",
-          "section": "规则",
-          "order": 30,
-          "fields": {
-            "source": {
-              "type": "string",
-              "label": "来源会话"
-            },
-            "targets": {
-              "type": "string",
-              "label": "转发到"
-            },
-            "types": {
-              "type": "multiselect",
-              "label": "消息类型",
-              "default": [],
-              "options": [
-                {
-                  "value": "text",
-                  "label": "文本"
-                },
-                {
-                  "value": "link",
-                  "label": "链接"
-                },
-                {
-                  "value": "photo",
-                  "label": "图片"
-                },
-                {
-                  "value": "video",
-                  "label": "视频"
-                },
-                {
-                  "value": "document",
-                  "label": "文件"
-                },
-                {
-                  "value": "audio",
-                  "label": "音频"
-                }
-              ]
-            },
-            "kw": {
-              "type": "string",
-              "label": "关键词"
-            },
-            "nkw": {
-              "type": "string",
-              "label": "排除词"
-            },
-            "sender": {
-              "type": "string",
-              "label": "只转谁发的"
-            },
-            "copy": {
-              "type": "boolean",
-              "label": "复制搬运",
-              "default": false
-            }
-          }
-        },
-        "backfill": {
-          "type": "action",
-          "label": "立即检查遗漏",
-          "action": "backfill",
-          "help": "自动检查之外，可随时立即按当前规则回查一次；持久化去重后只补发遗漏内容。",
-          "section": "维护",
-          "order": 40
-        }
-      },
-      "changelog": "v2.1.5 适配平台正式调度与整数配置规范\n- 自动遗漏检查直接使用 schedule_interval 注册\n- 遗漏补全回查条数声明为 integer，不再触发配置类型错误\n- 不再探测或静默跳过平台调度能力\n\nv2.1.4 恢复合并前的复制与转发语义\n- 复制搬运恢复为 Telegram 服务端无署名复制，不再下载图片后重新上传\n- 原样转发继续保留来源标记，两种模式严格按规则执行且不再相互降级\n- 复制与转发只有取得目标消息 ID 才记录成功，失败消息继续由遗漏检查重试\n- 升级后每条复制规则仅重新检查最新一条旧记录，修复 2.1.3 已误记的降级转发且避免批量重复\n\nv2.1.3 修复历史媒体漏发与立即检查反馈\n- 媒体复制的下载或上传请求失败时自动降级为原样转发，不再因 Telegram 重试耗尽直接漏发\n- 原生转发返回空结果时继续尝试消息 ID 路径，所有路径均无有效结果时不再误记成功\n- 补全日志显示实际投递模式，立即检查按钮点击后马上记录受理或占用状态\n\nv2.1.2 修复原样转发、配置显示与遗漏补全\n- 复读方式改为清晰的“复制重发”开关，关闭即为原样转发，并自动转换旧配置\n- 原样转发优先使用 Telethon 原生 Message，来源实体不完整时不再直接失败\n- 两种原样转发路径均失败时自动复制补发，并在日志中显示实际投递模式\n- 插件启用或重载后立即自动回查遗漏，之后按配置间隔持续检查并持久化去重\n\nv2.1.1 调整插件名称\n- 更名为更直观的“消息转发助手”\n- 插件 ID、已有配置、运行状态和全部功能保持不变\n\nv2.1.0 合并消息转发与转发复读\n- 合并原“消息转发”和“转发复读”，统一提供规则路由、复制搬运、遗漏补全与回复复读\n- 自动迁移 zf 的命令、间隔、次数和账号选择，并停用旧插件避免重复执行\n- 配置页完整展示复读模式及遗漏补全动作，配置字段均使用平台支持的类型\n\nv2.0.6 修复遗漏补全数值配置\n- backfill_limit 改用平台支持的 number 类型并限制为整数步进\n- 兼容已有数字值，运行时继续执行 1 至 500 的整数边界保护\n\nv2.0.5 修复原生转发无响应\n- 改用来源会话与消息 ID 调用 Telethon 转发，兼容单条消息和相册\n- 原生转发返回空结果时自动降级为复制搬运\n- 来源频道禁止转发时记录原因并自动复制补发\n\nv2.0.4 修复复制搬运图片变成 unnamed 文件\n- 内存下载后恢复媒体文件名与扩展名，图片继续按 Telegram 照片发送\n- 文件、视频、音频按原媒体类型设置发送参数，并保留说明文字实体\n\nv2.0.3 修复市场重复显示更新\n- 将最终版本、描述、遗漏补全配置和 changelog 写入平台可静态读取的元数据\n- 平台扫描版本与市场清单保持一致，不再反复提示更新\n\nv2.0.2 新增历史遗漏补全\n- 增加‘补全遗漏’动作，按现有规则回查来源历史消息并补发\n- 以来源消息 ID 持久化去重，重复执行不会重复发送\n- 支持相册整组补发、关键词/类型/发送者过滤和复制搬运\n\nv2.0.1 修复 Telethon 媒体与事件转发\n- 单消息和相册统一传递原生 Message，避免 Event 类型不受支持\n- 媒体下载失败时回退原生转发，不再向 send_file 传入 None\n\nv2.0.0 原生 AWBotNest V2 迁移\n- 使用 Telethon 原生消息、相册与实体接口\n- 保留多规则过滤、原生转发和复制搬运\n- 移除 V1 兼容运行层",
-      "path": "plugins_v2/msg_forward/"
     },
     "nodeseek_signin": {
       "name": "NodeSeek 签到",
@@ -2804,44 +2396,6 @@
       "render_mode": "vue",
       "plugin_api_version": 2,
       "path": "plugins_v2/red_packet_send/"
-    },
-    "self_delete": {
-      "id": "self_delete",
-      "name": "删除自己消息",
-      "version": "2.0.0",
-      "author": "AWdress",
-      "scope": "user",
-      "plugin_api_version": 2,
-      "requirements": [],
-      "render_mode": "schema",
-      "description": "发送 /dme 数字 或 .dme 数字，删除当前会话里自己最近发的若干条消息。",
-      "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_cleanup.png",
-      "tags": [
-        "消息自删",
-        "批量清理",
-        "聊天管理"
-      ],
-      "config_schema": {
-        "command": {
-          "type": "string",
-          "default": ".dme",
-          "label": "触发命令",
-          "section": "基础配置",
-          "order": 10
-        },
-        "tip_seconds": {
-          "type": "number",
-          "default": 2,
-          "label": "提示停留(秒)",
-          "min": 0,
-          "max": 10,
-          "step": 1,
-          "section": "基础配置",
-          "order": 11
-        }
-      },
-      "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 移除 V1 兼容运行层\n- 使用 Telethon 原生历史消息迭代和批量删除",
-      "path": "plugins_v2/self_delete/"
     },
     "trans115search": {
       "id": "trans115search",
