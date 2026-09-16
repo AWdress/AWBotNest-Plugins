@@ -9,7 +9,7 @@ from .. import auto_avatar, auto_changename, getmsg, id as id_plugin, msg_forwar
 __plugin__ = {
     "id": "telegram_assistant",
     "name": "Telegram 助手",
-    "version": "0.0.2",
+    "version": "0.0.3",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -55,7 +55,7 @@ __plugin__ = {
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74},
     },
-    "changelog": "v0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+    "changelog": "v0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
 }
 
 
@@ -125,17 +125,62 @@ def _migrate_old_configs(ctx):
             ctx.log.info("[Telegram 助手] 已停用旧插件：%s", ", ".join(removed))
 
 
+def _saved_plugin_config(ctx) -> dict[str, Any]:
+    """读取未叠加 schema 默认值的原始配置（仅用于修复旧表单空值）。"""
+    settings = getattr(ctx, "settings", None)
+    configs = getattr(settings, "plugin_config", None)
+    if isinstance(configs, dict) and isinstance(configs.get(__plugin__["id"]), dict):
+        return dict(configs[__plugin__["id"]])
+    registry = getattr(ctx, "_registry", None)
+    getter = getattr(registry, "get_saved_config", None)
+    if callable(getter):
+        try:
+            value = getter(__plugin__["id"])
+            if isinstance(value, dict):
+                return dict(value)
+        except Exception:
+            pass
+    return {}
+
+
 def _restore_defaults(ctx):
-    """Materialize schema defaults so the native form can display and save them."""
+    """把默认值写入配置，兼容旧版表单曾保存的空白/全关闭快照。
+
+    平台会以用户保存值覆盖 schema 默认值。旧版表单初始化失败时会把
+    文本/数字保存为空、布尔项保存为 False，导致配置页看起来没有默认内容。
+    只在检测到这种明显的空白快照时恢复布尔默认值，避免覆盖用户后来
+    有意关闭的开关。
+    """
+    schema = __plugin__["config_schema"]
+    saved = _saved_plugin_config(ctx)
+    current = ctx.config
     updates = {}
-    for key, spec in __plugin__["config_schema"].items():
+
+    # 正常的缺省值/空字符串/空数字始终可安全补回。
+    for key, spec in schema.items():
         if "default" not in spec or spec.get("type") == "action":
             continue
-        current = ctx.config.get(key)
-        if key not in ctx.config or current is None or (isinstance(current, str) and not current.strip()):
+        value = current.get(key)
+        if key not in saved or value is None or (isinstance(value, str) and not value.strip()):
             updates[key] = spec["default"]
+
+    # 识别旧表单产生的“所有文本为空 + 数值为空 + 开关全关”配置快照。
+    text_keys = [k for k, s in schema.items() if s.get("type") == "string" and k in saved]
+    number_keys = [k for k, s in schema.items() if s.get("type") in {"number", "integer", "slider"} and k in saved]
+    true_defaults = [k for k, s in schema.items() if s.get("default") is True and k in saved]
+    blank_text = sum(not str(saved.get(k) or "").strip() for k in text_keys)
+    blank_number = sum(saved.get(k) in (None, "") for k in number_keys)
+    stale_snapshot = (len(text_keys) >= 5 and blank_text >= 3 and len(number_keys) >= 5
+                      and blank_number >= 2 and true_defaults
+                      and all(saved.get(k) is False for k in true_defaults))
+    if stale_snapshot:
+        for key, spec in schema.items():
+            if "default" in spec and spec.get("type") != "action":
+                updates[key] = spec["default"]
+
     if updates:
         ctx.update_config(updates)
+        ctx.log.info("[Telegram 助手] 已补全 %d 项默认配置", len(updates))
 
 
 async def setup(ctx):
