@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -134,14 +135,16 @@ def _display_name(sender: Any, sender_id: Any) -> str:
     title = str(getattr(sender, "title", "") or "").strip()
     if title:
         return title
-    # last_name may be managed by the timed-nickname module and contain
-    # decorative clock/weather glyphs; quote stickers only show the stable name.
     first_name = str(getattr(sender, "first_name", "") or "").strip()
-    if first_name:
-        return first_name
     last_name = str(getattr(sender, "last_name", "") or "").strip()
-    if last_name:
-        return last_name
+    # The timed-nickname module normally writes a clock/weather string into
+    # last_name. Keep ordinary last names while excluding that generated suffix.
+    normalized_last_name = unicodedata.normalize("NFKC", last_name)
+    if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s+.*)?", normalized_last_name):
+        last_name = ""
+    full_name = " ".join(part for part in (first_name, last_name) if part)
+    if full_name:
+        return full_name
     username = str(getattr(sender, "username", "") or "").strip()
     return f"@{username}" if username else str(sender_id or "Telegram")
 
@@ -209,8 +212,6 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
         tx = avatar_box[0] + (avatar_size - (bounds[2] - bounds[0])) / 2
         ty = avatar_box[1] + (avatar_size - (bounds[3] - bounds[1])) / 2 - bounds[1]
         draw.text((tx, ty), letter, font=initial_font, fill=(255, 255, 255, 255))
-    draw.ellipse(avatar_box, outline=(255, 255, 255, 210), width=3)
-
     name_text = _fit_line(draw, name, name_font, body_width)
     text_x = bubble_x + inset
     text_y = outer + inset - 3
