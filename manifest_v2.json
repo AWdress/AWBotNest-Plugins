@@ -22,7 +22,7 @@
     "telegram_assistant": {
       "id": "telegram_assistant",
       "name": "Telegram 助手",
-      "version": "0.0.10",
+      "version": "0.0.11",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -46,15 +46,20 @@
         "forward_rules": {"type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "消息转发", "order": 20, "fields": {"source": {"type": "string", "label": "来源会话"}, "targets": {"type": "string", "label": "转发到"}, "types": {"type": "multiselect", "label": "消息类型", "default": [], "options": [{"value": "text", "label": "文本"}, {"value": "link", "label": "链接"}, {"value": "photo", "label": "图片"}, {"value": "video", "label": "视频"}, {"value": "document", "label": "文件"}, {"value": "audio", "label": "音频"}]}, "kw": {"type": "string", "label": "关键词"}, "nkw": {"type": "string", "label": "排除词"}, "sender": {"type": "string", "label": "只转谁发的"}, "copy": {"type": "boolean", "label": "复制搬运", "default": false}}},
         "forward_resolved_chat_names": {"type": "info", "default": "", "label": "已识别会话名称", "section": "消息转发", "order": 22},
         "forward_backfill": {"type": "action", "label": "立即检查遗漏", "action": "backfill", "help": "按当前规则回查来源历史消息并补发遗漏内容。", "section": "消息转发", "order": 21},
+        "delete_enabled": {"type": "boolean", "default": false, "label": "启用删除消息", "section": "消息管理", "order": 29},
         "delete_command": {"type": "string", "default": ".dme", "label": "删除消息命令", "section": "消息管理", "order": 30},
         "delete_tip_seconds": {"type": "number", "default": 2, "min": 0, "max": 10, "step": 1, "label": "删除提示停留（秒）", "section": "消息管理", "order": 31},
+        "id_enabled": {"type": "boolean", "default": false, "label": "启用查 ID", "section": "查 ID", "order": 39},
         "id_delete_command": {"type": "boolean", "default": false, "label": "查询后删除命令", "section": "查 ID", "order": 40},
         "id_command": {"type": "string", "default": ".id", "label": "查 ID 命令", "section": "查 ID", "order": 41},
         "id_auto_delete": {"type": "number", "default": 20, "min": 0, "max": 120, "step": 5, "label": "结果自动删除（秒）", "section": "查 ID", "order": 42},
+        "getmsg_enabled": {"type": "boolean", "default": false, "label": "启用消息结构", "section": "消息结构", "order": 49},
         "getmsg_delete_command": {"type": "boolean", "default": false, "label": "导出后删除命令", "section": "消息结构", "order": 50},
         "getmsg_command": {"type": "string", "default": ".getmsg", "label": "消息结构命令", "section": "消息结构", "order": 51},
+        "sticker_enabled": {"type": "boolean", "default": false, "label": "启用消息贴图", "section": "消息贴图", "order": 54},
         "sticker_command": {"type": "string", "default": ".贴图", "label": "贴图命令", "section": "消息贴图", "order": 55, "help": "回复消息发送该命令，生成带原发送者头像、昵称和正文的 Telegram 贴纸。"},
         "sticker_delete_command": {"type": "boolean", "default": false, "label": "成功后删除命令", "section": "消息贴图", "order": 56},
+        "avatar_enabled": {"type": "boolean", "default": false, "label": "启用自动换头像", "section": "自动换头像", "order": 59},
         "avatar_delete_old": {"type": "boolean", "default": false, "label": "删除旧头像", "section": "自动换头像", "order": 60},
         "avatar_interval_min": {"type": "number", "default": 60, "min": 10, "max": 1440, "step": 10, "label": "换头像间隔（分钟）", "section": "自动换头像", "order": 61},
         "avatar_add_command": {"type": "string", "default": ".avataradd", "label": "加图命令", "section": "自动换头像", "order": 62},
@@ -67,7 +72,7 @@
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74}
       },
-      "changelog": "v0.0.10 修复贴图昵称特殊字符\n- first_name 与 last_name 完全按 Telegram 原值显示，不再过滤报时昵称\n- 中文字体缺字时按字符回退到符号/Emoji 字体\n- 修复数学粗体时间、天气符号显示为方框的问题\n\nv0.0.9 新增报时昵称开关\n- 报时昵称默认关闭，关闭时不注册改名定时任务\n- Telegram 助手所有布尔开关的新安装默认值统一为关闭\n- 已保存的用户开关值保持不变\n\nv0.0.8 调整贴图姓名与头像\n- 同时显示 first_name 和普通 last_name，任一为空时显示另一项\n- first_name 与 last_name 均按 Telegram 原值显示\n- 移除头像外圈描边\n\nv0.0.7 修复贴图发送方式\n- 移除 Telethon force_file 标记，WebP 改为 Telegram 原生贴纸媒体\n- 昵称仅显示稳定的 first_name，不再带入报时昵称或缺字方框\n\nv0.0.6 新增消息贴图\n- 回复消息发送 .贴图，自动渲染头像、昵称和正文\n- 按 Telegram 静态 WebP 贴纸规格发送，不调用 AI\n- 配置页完整显示贴图命令和删除命令开关的默认值\n\nv0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+      "changelog": "v0.0.11 补齐全部功能开关\n- 删除消息、查 ID、消息结构、消息贴图和自动换头像新增独立开关\n- 所有功能开关的新安装默认值均为关闭\n- 功能关闭时不注册消息监听或定时任务\n\nv0.0.10 修复贴图昵称特殊字符\n- first_name 与 last_name 完全按 Telegram 原值显示，不再过滤报时昵称\n- 中文字体缺字时按字符回退到符号/Emoji 字体\n- 修复数学粗体时间、天气符号显示为方框的问题\n\nv0.0.9 新增报时昵称开关\n- 报时昵称默认关闭，关闭时不注册改名定时任务\n- Telegram 助手所有布尔开关的新安装默认值统一为关闭\n- 已保存的用户开关值保持不变\n\nv0.0.8 调整贴图姓名与头像\n- 同时显示 first_name 和普通 last_name，任一为空时显示另一项\n- first_name 与 last_name 均按 Telegram 原值显示\n- 移除头像外圈描边\n\nv0.0.7 修复贴图发送方式\n- 移除 Telethon force_file 标记，WebP 改为 Telegram 原生贴纸媒体\n- 昵称仅显示稳定的 first_name，不再带入报时昵称或缺字方框\n\nv0.0.6 新增消息贴图\n- 回复消息发送 .贴图，自动渲染头像、昵称和正文\n- 按 Telegram 静态 WebP 贴纸规格发送，不调用 AI\n- 配置页完整显示贴图命令和删除命令开关的默认值\n\nv0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
       "path": "plugins_v2/telegram_assistant/"
     },
     "auto_lottery": {
