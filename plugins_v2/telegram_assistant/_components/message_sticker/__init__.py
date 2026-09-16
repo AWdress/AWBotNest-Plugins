@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ _NAME_COLORS = (
     (255, 189, 92, 255),
     (190, 145, 255, 255),
 )
+_FONT_DIR = Path(__file__).resolve().parent / "fonts"
 _FONT_ROOTS = (
     Path("C:/Windows/Fonts"),
     Path("/usr/share/fonts/opentype/noto"),
@@ -74,8 +76,8 @@ def _name_fonts(size: int, *, bold: bool = True) -> list[Any]:
 
     fonts = [_font(size, bold=bold)]
     candidates = (
-        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-        "/usr/share/fonts/opentype/noto/NotoColorEmoji.ttf",
+        str(_FONT_DIR / "NotoSansSymbols2-Regular.ttf"),
+        str(_FONT_DIR / "NotoSansMath-Regular.ttf"),
         "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
         "/usr/share/fonts/opentype/noto/NotoEmoji-Regular.ttf",
         "C:/Windows/Fonts/seguisym.ttf",
@@ -118,16 +120,46 @@ def _font_for_char(fonts: list[Any], char: str):
     return fonts[0]
 
 
-def _fallback_width(draw, text: str, fonts: list[Any]) -> float:
-    return sum(_text_width(draw, char, _font_for_char(fonts, char)) for char in text)
+def _asset_width(asset: Any, fonts: list[Any]) -> int:
+    metrics = []
+    for font in fonts:
+        try:
+            metrics.append(font.getmetrics())
+        except Exception:
+            metrics.append((getattr(font, "size", 30), 0))
+    max_size = max(22, min(34, int(max(ascent for ascent, _ in metrics) * 0.9)))
+    width, height = getattr(asset, "size", (max_size, max_size))
+    if not width or not height:
+        return max_size
+    return max(1, min(max_size, round(width * min(max_size / width, max_size / height))))
 
 
-def _fit_fallback_line(draw, text: str, fonts: list[Any], width: int) -> str:
+def _fallback_width(
+    draw,
+    text: str,
+    fonts: list[Any],
+    emoji_assets: dict[str, Any] | None = None,
+) -> float:
+    return sum(
+        _asset_width(emoji_assets[char], fonts)
+        if emoji_assets and char in emoji_assets
+        else _text_width(draw, char, _font_for_char(fonts, char))
+        for char in text
+    )
+
+
+def _fit_fallback_line(
+    draw,
+    text: str,
+    fonts: list[Any],
+    width: int,
+    emoji_assets: dict[str, Any] | None = None,
+) -> str:
     value = str(text or "").strip()
-    if _fallback_width(draw, value, fonts) <= width:
+    if _fallback_width(draw, value, fonts, emoji_assets) <= width:
         return value
     suffix = "…"
-    while value and _fallback_width(draw, value + suffix, fonts) > width:
+    while value and _fallback_width(draw, value + suffix, fonts, emoji_assets) > width:
         value = value[:-1]
     return (value + suffix) if value else suffix
 
@@ -158,7 +190,7 @@ def _draw_fallback_text(
             asset.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
             top = int(baseline - asset.height * 0.86)
             canvas.alpha_composite(asset, (int(x), top))
-            x += max(asset.width, max_size - 2)
+            x += asset.width
             continue
         font = _font_for_char(fonts, char)
         try:
@@ -220,7 +252,14 @@ def _wrap(draw, text: str, font, width: int, max_lines: int = 9) -> list[str]:
     return lines
 
 
-def _wrap_fallback(draw, text: str, fonts: list[Any], width: int, max_lines: int = 9) -> list[str]:
+def _wrap_fallback(
+    draw,
+    text: str,
+    fonts: list[Any],
+    width: int,
+    max_lines: int = 9,
+    emoji_assets: dict[str, Any] | None = None,
+) -> list[str]:
     """Wrap text using the same per-character fonts that will draw it."""
     lines: list[str] = []
     paragraphs = str(text or "").replace("\r", "").split("\n")
@@ -234,7 +273,7 @@ def _wrap_fallback(draw, text: str, fonts: list[Any], width: int, max_lines: int
         current = ""
         for char in paragraph:
             candidate = current + char
-            if current and _fallback_width(draw, candidate, fonts) > width:
+            if current and _fallback_width(draw, candidate, fonts, emoji_assets) > width:
                 lines.append(current.rstrip())
                 current = char.lstrip()
                 if len(lines) >= max_lines:
@@ -251,7 +290,13 @@ def _wrap_fallback(draw, text: str, fonts: list[Any], width: int, max_lines: int
             break
     lines = lines[:max_lines] or ["…"]
     if overflow:
-        lines[-1] = _fit_fallback_line(draw, lines[-1].rstrip("…") + "…", fonts, width)
+        lines[-1] = _fit_fallback_line(
+            draw,
+            lines[-1].rstrip("…") + "…",
+            fonts,
+            width,
+            emoji_assets,
+        )
     return lines
 
 
@@ -302,6 +347,25 @@ def _entity_python_range(text: str, entity: Any, boundaries: list[int]) -> tuple
     return start_index, min(end_index, len(text))
 
 
+async def _emoji_document_image(client: Any, document: Any):
+    """Return a static RGBA representation for static or animated custom Emoji."""
+    from PIL import Image
+
+    for options in ({"thumb": -1}, {"thumb": 0}, {}):
+        try:
+            payload = await client.download_media(document, file=bytes, **options)
+            image = Image.open(BytesIO(payload or b""))
+            if getattr(image, "is_animated", False):
+                image.seek(0)
+            image = image.convert("RGBA")
+            image.thumbnail((34, 34), Image.Resampling.LANCZOS)
+            if image.getbbox():
+                return image.copy()
+        except Exception:
+            continue
+    return None
+
+
 async def _custom_emoji_content(client: Any, source: Any, text: str) -> tuple[str, dict[str, Any]]:
     """Download static custom Emoji documents and replace their entity ranges."""
     entities = [
@@ -319,24 +383,16 @@ async def _custom_emoji_content(client: Any, source: Any, text: str) -> tuple[st
     assets: dict[str, Any] = {}
     replacements: list[tuple[int, int, str]] = []
     boundaries = _utf16_boundaries(text)
-    from PIL import Image
-
-    for index, entity in enumerate(entities):
+    for entity in entities:
         document = documents_by_id.get(int(entity.document_id))
         span = _entity_python_range(text, entity, boundaries)
         if document is None or span is None:
             continue
-        try:
-            payload = await client.download_media(document, file=bytes)
-            image = Image.open(BytesIO(payload or b""))
-            if getattr(image, "is_animated", False):
-                image.seek(0)
-            image = image.convert("RGBA")
-            image.thumbnail((34, 34), Image.Resampling.LANCZOS)
-        except Exception:
+        image = await _emoji_document_image(client, document)
+        if image is None:
             continue
         token = chr(0xE000 + len(assets))
-        assets[token] = image.copy()
+        assets[token] = image
         replacements.append((span[0], span[1], token))
     if not replacements:
         return text, {}
@@ -352,6 +408,174 @@ async def _custom_emoji_content(client: Any, source: Any, text: str) -> tuple[st
     return "".join(result), assets
 
 
+def _is_emoji_base(char: str) -> bool:
+    codepoint = ord(char)
+    return (
+        0x1F000 <= codepoint <= 0x1FAFF
+        or 0x2600 <= codepoint <= 0x27BF
+        or 0x2300 <= codepoint <= 0x23FF
+        or 0x25AA <= codepoint <= 0x25FF
+        or codepoint in {0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D, 0x3297, 0x3299}
+    )
+
+
+def _emoji_spans(text: str) -> list[tuple[int, int]]:
+    """Find Emoji graphemes without splitting modifiers, flags or ZWJ sequences."""
+    spans: list[tuple[int, int]] = []
+    index = 0
+    while index < len(text):
+        start = index
+        codepoint = ord(text[index])
+        if text[index] in "#*0123456789":
+            cursor = index + 1
+            if cursor < len(text) and ord(text[cursor]) == 0xFE0F:
+                cursor += 1
+            if cursor < len(text) and ord(text[cursor]) == 0x20E3:
+                spans.append((start, cursor + 1))
+                index = cursor + 1
+                continue
+        if 0x1F1E6 <= codepoint <= 0x1F1FF:
+            end = index + 1
+            if end < len(text) and 0x1F1E6 <= ord(text[end]) <= 0x1F1FF:
+                end += 1
+            spans.append((start, end))
+            index = end
+            continue
+        if not _is_emoji_base(text[index]):
+            index += 1
+            continue
+        cursor = index + 1
+        while cursor < len(text) and ord(text[cursor]) in range(0xFE00, 0xFE10):
+            cursor += 1
+        if cursor < len(text) and 0x1F3FB <= ord(text[cursor]) <= 0x1F3FF:
+            cursor += 1
+        while cursor < len(text) and ord(text[cursor]) == 0x200D:
+            next_index = cursor + 1
+            if next_index >= len(text) or not _is_emoji_base(text[next_index]):
+                break
+            cursor = next_index + 1
+            while cursor < len(text) and ord(text[cursor]) in range(0xFE00, 0xFE10):
+                cursor += 1
+            if cursor < len(text) and 0x1F3FB <= ord(text[cursor]) <= 0x1F3FF:
+                cursor += 1
+        while cursor < len(text) and 0xE0020 <= ord(text[cursor]) <= 0xE007E:
+            cursor += 1
+        if cursor < len(text) and ord(text[cursor]) == 0xE007F:
+            cursor += 1
+        spans.append((start, cursor))
+        index = cursor
+    return spans
+
+
+_UNICODE_EMOJI_CACHE: dict[str, Any] = {}
+
+
+def _unicode_emoji_image(sequence: str):
+    from PIL import Image, ImageDraw, ImageFont
+
+    cached = _UNICODE_EMOJI_CACHE.get(sequence)
+    if cached is not None:
+        return cached.copy()
+    if "\u200d" in sequence:
+        parts = [part for part in sequence.split("\u200d") if part]
+        images = [_unicode_emoji_image(part) for part in parts]
+        images = [image for image in images if image is not None]
+        if images:
+            tile = 17 if len(images) > 2 else 22
+            composed = Image.new("RGBA", (34, 34), (0, 0, 0, 0))
+            positions = (
+                ((0, 6), (12, 6))
+                if len(images) == 2
+                else ((0, 0), (17, 0), (0, 17), (17, 17))
+            )
+            for image, position in zip(images[:4], positions):
+                image = image.copy()
+                image.thumbnail((tile, tile), Image.Resampling.LANCZOS)
+                composed.alpha_composite(image, position)
+            bounds = composed.getbbox()
+            if bounds:
+                composed = composed.crop(bounds)
+                _UNICODE_EMOJI_CACHE[sequence] = composed.copy()
+                return composed
+    if len(sequence) == 2 and all(0x1F1E6 <= ord(char) <= 0x1F1FF for char in sequence):
+        country = "".join(chr(ord(char) - 0x1F1E6 + ord("A")) for char in sequence)
+        composed = Image.new("RGBA", (48, 34), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(composed)
+        draw.rounded_rectangle((1, 2, 46, 31), radius=7, fill=(61, 132, 224, 255))
+        font = _font(20, bold=True)
+        bounds = draw.textbbox((0, 0), country, font=font)
+        x = (48 - (bounds[2] - bounds[0])) / 2
+        y = (34 - (bounds[3] - bounds[1])) / 2 - bounds[1]
+        draw.text((x, y), country, font=font, fill=(255, 255, 255, 255))
+        _UNICODE_EMOJI_CACHE[sequence] = composed.copy()
+        return composed
+    font_path = _FONT_DIR / "NotoColorEmoji.ttf"
+    if not font_path.exists():
+        return None
+    try:
+        font = ImageFont.truetype(str(font_path), size=109)
+        canvas = Image.new("RGBA", (max(256, len(sequence) * 150), 180), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(canvas)
+        draw.text((8, 8), sequence, font=font, embedded_color=True)
+        bounds = canvas.getbbox()
+        if not bounds:
+            return None
+        image = canvas.crop(bounds)
+        image.thumbnail((34, 34), Image.Resampling.LANCZOS)
+        _UNICODE_EMOJI_CACHE[sequence] = image.copy()
+        return image
+    except Exception:
+        return None
+
+
+def _unicode_emoji_content(
+    text: str,
+    assets: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    assets = dict(assets or {})
+    spans = _emoji_spans(text)
+    if not spans:
+        return text, assets
+    result: list[str] = []
+    cursor = 0
+    for start, end in spans:
+        result.append(text[cursor:start])
+        image = _unicode_emoji_image(text[start:end])
+        if image is None:
+            result.append(text[start:end])
+        else:
+            token = chr(0xE000 + len(assets))
+            while token in text or token in assets:
+                token = chr(ord(token) + 1)
+            assets[token] = image
+            result.append(token)
+        cursor = end
+    result.append(text[cursor:])
+    return "".join(result), assets
+
+
+async def _profile_emoji_status(client: Any, sender: Any):
+    status = getattr(sender, "emoji_status", None)
+    document_id = int(getattr(status, "document_id", 0) or 0)
+    if not document_id:
+        return None
+    expires = getattr(status, "until", None)
+    if expires is not None:
+        try:
+            expiry = expires.timestamp() if hasattr(expires, "timestamp") else float(expires)
+            if expiry <= time.time():
+                return None
+        except (TypeError, ValueError, OSError):
+            pass
+    try:
+        documents = await client(
+            functions.messages.GetCustomEmojiDocumentsRequest(document_id=[document_id])
+        )
+    except Exception:
+        return None
+    return await _emoji_document_image(client, next(iter(documents or []), None))
+
+
 def _initial(name: str) -> str:
     for char in str(name or ""):
         if char.isalnum() or ord(char) > 127:
@@ -365,6 +589,7 @@ def render_sticker(
     text: str,
     sender_key: Any = "",
     custom_emoji_assets: dict[str, Any] | None = None,
+    name_emoji_assets: dict[str, Any] | None = None,
 ) -> BytesIO:
     """Return a Telegram-compatible 512px WebP sticker stream."""
     from PIL import Image, ImageDraw, ImageOps
@@ -381,11 +606,17 @@ def render_sticker(
     body_width = bubble_width - inset * 2
     name_fonts = _name_fonts(30)
     for name_size in range(29, 17, -1):
-        if _fallback_width(draw, name, name_fonts) <= body_width:
+        if _fallback_width(draw, name, name_fonts, name_emoji_assets) <= body_width:
             break
         name_fonts = _name_fonts(name_size)
     body_fonts = _name_fonts(30, bold=False)
-    lines = _wrap_fallback(draw, text, body_fonts, body_width)
+    lines = _wrap_fallback(
+        draw,
+        text,
+        body_fonts,
+        body_width,
+        emoji_assets=custom_emoji_assets,
+    )
     font_metrics = []
     for font in name_fonts + body_fonts:
         try:
@@ -431,10 +662,24 @@ def render_sticker(
         tx = avatar_box[0] + (avatar_size - (bounds[2] - bounds[0])) / 2
         ty = avatar_box[1] + (avatar_size - (bounds[3] - bounds[1])) / 2 - bounds[1]
         draw.text((tx, ty), letter, font=initial_font, fill=(255, 255, 255, 255))
-    name_text = _fit_fallback_line(draw, name, name_fonts, body_width)
+    name_text = _fit_fallback_line(
+        draw,
+        name,
+        name_fonts,
+        body_width,
+        name_emoji_assets,
+    )
     text_x = bubble_x + inset
     text_y = outer + inset - 3
-    _draw_fallback_text(draw, (text_x, text_y), name_text, name_fonts, name_color, canvas=image)
+    _draw_fallback_text(
+        draw,
+        (text_x, text_y),
+        name_text,
+        name_fonts,
+        name_color,
+        emoji_assets=name_emoji_assets,
+        canvas=image,
+    )
     body_y = text_y + name_height + 9
     for line in lines:
         _draw_fallback_text(
@@ -492,17 +737,27 @@ async def setup(ctx):
             sender = await source.get_sender()
             sender_id = getattr(source, "sender_id", None)
             name = _display_name(sender, sender_id)
+            name, name_emoji_assets = _unicode_emoji_content(name)
+            status_image = await _profile_emoji_status(event.client, sender)
+            if status_image is not None:
+                status_token = chr(0xE000 + len(name_emoji_assets))
+                while status_token in name or status_token in name_emoji_assets:
+                    status_token = chr(ord(status_token) + 1)
+                name_emoji_assets[status_token] = status_image
+                name = f"{name} {status_token}"
             source_text = str(getattr(source, "raw_text", "") or "").strip()
             text = override or source_text or _placeholder(source)
             custom_emoji_assets = {}
             if not override and source_text:
                 text, custom_emoji_assets = await _custom_emoji_content(event.client, source, text)
+            text, custom_emoji_assets = _unicode_emoji_content(text, custom_emoji_assets)
             sticker = render_sticker(
                 await _avatar_bytes(event.client, sender),
                 name,
                 text,
                 sender_id,
                 custom_emoji_assets=custom_emoji_assets,
+                name_emoji_assets=name_emoji_assets,
             )
             attributes = [
                 types.DocumentAttributeFilename(file_name="message-sticker.webp"),
