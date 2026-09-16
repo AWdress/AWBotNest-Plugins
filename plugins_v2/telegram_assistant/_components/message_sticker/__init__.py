@@ -68,12 +68,16 @@ def _font(size: int, *, bold: bool = False):
     return ImageFont.load_default()
 
 
-def _name_fonts(size: int) -> list[Any]:
-    """Load CJK and symbol fonts used as per-character fallbacks."""
+def _name_fonts(size: int, *, bold: bool = True) -> list[Any]:
+    """Load CJK, Emoji and symbol fonts used as per-character fallbacks."""
     from PIL import ImageFont
 
-    fonts = [_font(size, bold=True)]
+    fonts = [_font(size, bold=bold)]
     candidates = (
+        "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/opentype/noto/NotoColorEmoji.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoEmoji-Regular.ttf",
         "C:/Windows/Fonts/seguisym.ttf",
         "C:/Windows/Fonts/seguiemj.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
@@ -139,7 +143,10 @@ def _draw_fallback_text(draw, position: tuple[float, float], text: str, fonts: l
     baseline = y + max(ascent for ascent, _ in metrics)
     for char in text:
         font = _font_for_char(fonts, char)
-        draw.text((x, baseline), char, font=font, fill=fill, anchor="ls")
+        try:
+            draw.text((x, baseline), char, font=font, fill=fill, anchor="ls", embedded_color=True)
+        except (TypeError, ValueError):
+            draw.text((x, baseline), char, font=font, fill=fill, anchor="ls")
         x += _text_width(draw, char, font)
 
 
@@ -195,6 +202,41 @@ def _wrap(draw, text: str, font, width: int, max_lines: int = 9) -> list[str]:
     return lines
 
 
+def _wrap_fallback(draw, text: str, fonts: list[Any], width: int, max_lines: int = 9) -> list[str]:
+    """Wrap text using the same per-character fonts that will draw it."""
+    lines: list[str] = []
+    paragraphs = str(text or "").replace("\r", "").split("\n")
+    overflow = False
+    for paragraph_index, paragraph in enumerate(paragraphs):
+        paragraph = re.sub(r"[\t ]+", " ", paragraph).strip()
+        if not paragraph:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        current = ""
+        for char in paragraph:
+            candidate = current + char
+            if current and _fallback_width(draw, candidate, fonts) > width:
+                lines.append(current.rstrip())
+                current = char.lstrip()
+                if len(lines) >= max_lines:
+                    overflow = True
+                    break
+            else:
+                current = candidate
+        if overflow:
+            break
+        if current or not lines:
+            lines.append(current.rstrip())
+        if len(lines) >= max_lines and paragraph_index < len(paragraphs) - 1:
+            overflow = True
+            break
+    lines = lines[:max_lines] or ["…"]
+    if overflow:
+        lines[-1] = _fit_fallback_line(draw, lines[-1].rstrip("…") + "…", fonts, width)
+    return lines
+
+
 def _placeholder(source: Any) -> str:
     for attribute, label in (
         ("photo", "[图片]"), ("sticker", "[贴纸]"), ("video", "[视频]"),
@@ -238,22 +280,22 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
     inset = 20
     probe = Image.new("RGBA", (width, 512), (0, 0, 0, 0))
     draw = ImageDraw.Draw(probe)
-    body_font = _font(30)
     body_width = bubble_width - inset * 2
     name_fonts = _name_fonts(30)
     for name_size in range(29, 17, -1):
         if _fallback_width(draw, name, name_fonts) <= body_width:
             break
         name_fonts = _name_fonts(name_size)
-    lines = _wrap(draw, text, body_font, body_width)
-    line_height = max(34, int(body_font.size * 1.22)) if hasattr(body_font, "size") else 36
+    body_fonts = _name_fonts(30, bold=False)
+    lines = _wrap_fallback(draw, text, body_fonts, body_width)
     font_metrics = []
-    for font in name_fonts:
+    for font in name_fonts + body_fonts:
         try:
             font_metrics.append(font.getmetrics())
         except Exception:
             font_metrics.append((getattr(font, "size", 30), 0))
     name_height = max(34, max(ascent + descent for ascent, descent in font_metrics))
+    line_height = max(34, max(ascent + descent for ascent, descent in font_metrics))
     bubble_height = inset + name_height + 9 + line_height * len(lines) + inset
     height = max(138, min(512, max(bubble_height + outer * 2, avatar_size + outer * 2)))
 
@@ -297,7 +339,7 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
     _draw_fallback_text(draw, (text_x, text_y), name_text, name_fonts, name_color)
     body_y = text_y + name_height + 9
     for line in lines:
-        draw.text((text_x, body_y), line, font=body_font, fill=(250, 249, 252, 255))
+        _draw_fallback_text(draw, (text_x, body_y), line, body_fonts, (250, 249, 252, 255))
         body_y += line_height
 
     output = BytesIO()

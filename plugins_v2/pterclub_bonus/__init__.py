@@ -1,16 +1,41 @@
 """AWBotNest 2 entry; generated from the maintained V1 plugin."""
 from __future__ import annotations
 
+from copy import deepcopy
+
 from .core import setup as _native_setup, teardown as _native_teardown
+
+
+def _ensure_config_defaults(ctx) -> None:
+    """修复旧配置页把文本默认值保存为空的问题。"""
+    config = ctx.config if ctx.config is not None else {}
+    updates = {}
+    for key, spec in __plugin__.get("config_schema", {}).items():
+        if "default" not in spec or spec.get("type") == "action":
+            continue
+        default = spec["default"]
+        current = config.get(key)
+        if default not in (None, "") and (
+            key not in config
+            or current is None
+            or (isinstance(current, str) and not current.strip())
+        ):
+            updates[key] = deepcopy(default)
+    if updates:
+        ctx.update_config(updates)
+        config.update(updates)
 
 __plugin__ = {'name': '猫站赠粮',
  'id': 'pterclub_bonus',
- 'version': '2.0.2',
+ 'version': '2.0.3',
  'plugin_api_version': 2,
  'author': 'AWdress',
  'description': '使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。',
  'icon': 'https://pterclub.net/favicon.ico',
- 'changelog': 'v2.0.2 统一富文本表格通知\n- Cookie 异常通知改为平台结构化表格\n\n'
+ 'changelog': 'v2.0.3 修复配置默认值显示\n'
+              '- 仅补齐旧配置中为空的文本默认值，输入框可正常显示 .pm、.pms 和数值\n'
+              '- 保留关闭开关、零值和用户已保存的有效配置\n\n'
+              'v2.0.2 统一富文本表格通知\n- Cookie 异常通知改为平台结构化表格\n\n'
               'v2.0.1 修复 Telethon 消息会话 ID\n'
               '- 富文本发送与普通文本回退统一使用 message.chat_id\n'
               '\n'
@@ -96,6 +121,7 @@ __plugin__ = {'name': '猫站赠粮',
                                     'order': 31}},
  'tags': ['PterClub赠魔', '魔力转赠', 'Cookie登录']}
 async def setup(ctx):
+    _ensure_config_defaults(ctx)
     await _native_setup(ctx)
 
 

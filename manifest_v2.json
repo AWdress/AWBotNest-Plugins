@@ -22,7 +22,7 @@
     "telegram_assistant": {
       "id": "telegram_assistant",
       "name": "Telegram 助手",
-      "version": "0.0.12",
+      "version": "0.0.13",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -2231,12 +2231,12 @@
     "pterclub_bonus": {
       "name": "猫站赠粮",
       "id": "pterclub_bonus",
-      "version": "2.0.2",
+      "version": "2.0.3",
       "plugin_api_version": 2,
       "author": "AWdress",
       "description": "使用平台同步的 PTerClub Cookie，通过用户账号命令单人或批量赠送猫粮。",
       "icon": "https://pterclub.net/favicon.ico",
-      "changelog": "v2.0.2 统一富文本表格通知\n- Cookie 异常通知改为平台结构化表格\n\nv2.0.1 修复 Telethon 消息会话 ID\n- 富文本发送与普通文本回退统一使用 message.chat_id\n\nv1.0.9 适配新版异步存储接口\n- 兼容新版平台异步 KV 与原有同步 KV\n- 启用时预载数据，按顺序托管写入并在停用时等待完成\n\nv1.0.8 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.7 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.6 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.4 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.0 初始版本\n- 支持 .pm 单人赠粮与 .pms 批量赠粮\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 按猫站规则校验每份 25–50,000 猫粮并显示 10% 税后到账\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
+"changelog": "v2.0.3 修复配置默认值显示\n- 仅补齐旧配置中为空的文本默认值，输入框可正常显示 .pm、.pms 和数值\n- 保留关闭开关、零值和用户已保存的有效配置\n\nv2.0.2 统一富文本表格通知\n- Cookie 异常通知改为平台结构化表格\n\nv2.0.1 修复 Telethon 消息会话 ID\n- 富文本发送与普通文本回退统一使用 message.chat_id\n\nv1.0.9 适配新版异步存储接口\n- 兼容新版平台异步 KV 与原有同步 KV\n- 启用时预载数据，按顺序托管写入并在停用时等待完成\n\nv1.0.8 修复数值配置显示\n- 将滑块字段改为精确数值输入，确保当前值始终可见\n- 保留原有默认值、范围和步长校验\n\nv1.0.7 修复 V1 默认配置恢复\n- 插件启用时恢复被旧版 V2 表单错误保存为空的默认值\n- 保留已有非空配置、关闭状态、零值和空列表，不覆盖用户有效设置\n\nv1.0.6 适配平台原生富文本通知\n- 将 notify_table 和 send_rich 交由 AWBotNest 2 平台原生服务处理\n- 原生富文本不可用时保留可读的文本降级\n\nv1.0.4 AWBotNest 2 规范复核\n- 修复 V2 实体、生命周期、配置安全和依赖兼容问题\n- 通过全量元数据、语法和发布清单检查\n\nAWBotNest 2 兼容发布\n- 使用 Telethon 原生事件、调度和生命周期托管\n- 保留 AWBotNest 1 版本与原有数据\n\nv1.0.0 初始版本\n- 支持 .pm 单人赠粮与 .pms 批量赠粮\n- Cookie 统一从平台 Cookie 同步读取，不在插件配置中保存\n- 按猫站规则校验每份 25–50,000 猫粮并显示 10% 税后到账\n- 支持登录检查、持久化冷却、安全站内跳转和赠送结果解析",
       "scope": "user",
       "cookie_domains": [
         "pterclub.net",
