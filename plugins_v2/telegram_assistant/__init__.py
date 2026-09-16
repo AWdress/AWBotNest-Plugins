@@ -2,21 +2,21 @@
 from __future__ import annotations
 
 from typing import Any, Mapping
-from ._components import auto_avatar, auto_changename, getmsg, id as id_plugin, msg_forward, self_delete
+from ._components import auto_avatar, auto_changename, getmsg, id as id_plugin, message_sticker, msg_forward, self_delete
 
 
 __plugin__ = {
     "id": "telegram_assistant",
     "name": "Telegram 助手",
-    "version": "0.0.5",
+    "version": "0.0.6",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
-    "requirements": [],
+    "requirements": ["Pillow>=10.0"],
     "render_mode": "schema",
-    "description": "Telegram 消息与账号工具集合：转发、删除消息、查询 ID、消息结构导出、自动换头像和自动报时昵称。",
+    "description": "Telegram 消息与账号工具集合：转发、删除消息、查询 ID、消息结构导出、消息贴图、自动换头像和自动报时昵称。",
     "icon": "https://cdn.simpleicons.org/telegram/26A5E4",
-    "tags": ["Telegram", "消息工具", "账号自动化"],
+    "tags": ["Telegram", "消息工具", "贴纸生成", "账号自动化"],
     "resources": {"timeout_seconds": 300, "max_concurrency": 8, "max_background_tasks": 32},
     "config_schema": {
         "forward_enable": {"type": "boolean", "default": True, "label": "启用规则转发", "section": "消息转发", "order": 1},
@@ -43,6 +43,8 @@ __plugin__ = {
         "id_auto_delete": {"type": "number", "default": 20, "min": 0, "max": 120, "step": 5, "label": "结果自动删除（秒）", "section": "查 ID", "order": 42},
         "getmsg_delete_command": {"type": "boolean", "default": True, "label": "导出后删除命令", "section": "消息结构", "order": 50},
         "getmsg_command": {"type": "string", "default": ".getmsg", "label": "消息结构命令", "section": "消息结构", "order": 51},
+        "sticker_command": {"type": "string", "default": ".贴图", "label": "贴图命令", "section": "消息贴图", "order": 55, "help": "回复消息发送该命令，生成带原发送者头像、昵称和正文的 Telegram 贴纸。"},
+        "sticker_delete_command": {"type": "boolean", "default": True, "label": "成功后删除命令", "section": "消息贴图", "order": 56},
         "avatar_delete_old": {"type": "boolean", "default": True, "label": "删除旧头像", "section": "自动换头像", "order": 60},
         "avatar_interval_min": {"type": "number", "default": 60, "min": 10, "max": 1440, "step": 10, "label": "换头像间隔（分钟）", "section": "自动换头像", "order": 61},
         "avatar_add_command": {"type": "string", "default": ".avataradd", "label": "加图命令", "section": "自动换头像", "order": 62},
@@ -54,7 +56,7 @@ __plugin__ = {
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74},
     },
-    "changelog": "v0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+    "changelog": "v0.0.6 新增消息贴图\n- 回复消息发送 .贴图，自动渲染头像、昵称和正文\n- 按 Telegram 静态 WebP 贴纸规格发送，不调用 AI\n- 配置页完整显示贴图命令和删除命令开关的默认值\n\nv0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
 }
 
 
@@ -94,6 +96,7 @@ _FORWARD = {
 _DELETE = {"delete_command": "command", "delete_tip_seconds": "tip_seconds"}
 _ID = {"id_delete_command": "delete_command", "id_command": "command", "id_auto_delete": "auto_delete"}
 _GETMSG = {"getmsg_delete_command": "delete_command", "getmsg_command": "command"}
+_STICKER = {"sticker_command": "command", "sticker_delete_command": "delete_command"}
 _AVATAR = {"avatar_delete_old": "delete_old", "avatar_interval_min": "interval_min", "avatar_add_command": "add_command", "avatar_list_command": "list_command", "avatar_clear_command": "clear_command"}
 _NICKNAME = {"nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field", "nickname_location": "location", "nickname_weather_interval": "weather_interval"}
 
@@ -226,14 +229,15 @@ async def setup(ctx):
     _restore_defaults(ctx)
     modules = [
         (msg_forward, _FORWARD), (self_delete, _DELETE), (id_plugin, _ID),
-        (getmsg, _GETMSG), (auto_avatar, _AVATAR), (auto_changename, _NICKNAME),
+        (getmsg, _GETMSG), (message_sticker, _STICKER),
+        (auto_avatar, _AVATAR), (auto_changename, _NICKNAME),
     ]
     initialized = []
     try:
         for module, mapping in modules:
             await module.setup(_ModuleContext(ctx, mapping))
             initialized.append(module)
-        ctx.log.info("[Telegram 助手] 已启用 6 个功能模块")
+        ctx.log.info("[Telegram 助手] 已启用 7 个功能模块")
     except Exception:
         for module in reversed(initialized):
             try:
@@ -244,7 +248,7 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    for module in (auto_changename, auto_avatar, getmsg, id_plugin, self_delete, msg_forward):
+    for module in (auto_changename, auto_avatar, message_sticker, getmsg, id_plugin, self_delete, msg_forward):
         try:
             await module.teardown(_ModuleContext(ctx, {}))
         except Exception:
