@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import unicodedata
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -67,6 +66,81 @@ def _font(size: int, *, bold: bool = False):
         except OSError:
             continue
     return ImageFont.load_default()
+
+
+def _name_fonts(size: int) -> list[Any]:
+    """Load CJK and symbol fonts used as per-character fallbacks."""
+    from PIL import ImageFont
+
+    fonts = [_font(size, bold=True)]
+    candidates = (
+        "C:/Windows/Fonts/seguisym.ttf",
+        "C:/Windows/Fonts/seguiemj.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansSymbols2-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansMath-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+        "/System/Library/Fonts/Apple Color Emoji.ttc",
+    )
+    loaded_names = {getattr(font, "path", None) for font in fonts}
+    for candidate in candidates:
+        path = Path(candidate)
+        if not path.exists() or str(path) in loaded_names:
+            continue
+        try:
+            font = ImageFont.truetype(str(path), size=size)
+        except OSError:
+            continue
+        fonts.append(font)
+        loaded_names.add(str(path))
+    return fonts
+
+
+def _glyph_signature(font, char: str) -> tuple[tuple[int, int], bytes]:
+    mask = font.getmask(char)
+    return mask.size, bytes(mask)
+
+
+def _font_for_char(fonts: list[Any], char: str):
+    for font in fonts:
+        try:
+            if _glyph_signature(font, char) != _glyph_signature(font, "\U0010ffff"):
+                return font
+        except Exception:
+            continue
+    return fonts[0]
+
+
+def _fallback_width(draw, text: str, fonts: list[Any]) -> float:
+    return sum(_text_width(draw, char, _font_for_char(fonts, char)) for char in text)
+
+
+def _fit_fallback_line(draw, text: str, fonts: list[Any], width: int) -> str:
+    value = str(text or "").strip()
+    if _fallback_width(draw, value, fonts) <= width:
+        return value
+    suffix = "…"
+    while value and _fallback_width(draw, value + suffix, fonts) > width:
+        value = value[:-1]
+    return (value + suffix) if value else suffix
+
+
+def _draw_fallback_text(draw, position: tuple[float, float], text: str, fonts: list[Any], fill) -> None:
+    x, y = position
+    metrics = []
+    for font in fonts:
+        try:
+            metrics.append(font.getmetrics())
+        except Exception:
+            metrics.append((getattr(font, "size", 30), 0))
+    baseline = y + max(ascent for ascent, _ in metrics)
+    for char in text:
+        font = _font_for_char(fonts, char)
+        draw.text((x, baseline), char, font=font, fill=fill, anchor="ls")
+        x += _text_width(draw, char, font)
 
 
 def _text_width(draw, text: str, font) -> float:
@@ -137,11 +211,6 @@ def _display_name(sender: Any, sender_id: Any) -> str:
         return title
     first_name = str(getattr(sender, "first_name", "") or "").strip()
     last_name = str(getattr(sender, "last_name", "") or "").strip()
-    # The timed-nickname module normally writes a clock/weather string into
-    # last_name. Keep ordinary last names while excluding that generated suffix.
-    normalized_last_name = unicodedata.normalize("NFKC", last_name)
-    if re.fullmatch(r"\d{1,2}:\d{2}(?::\d{2})?(?:\s+.*)?", normalized_last_name):
-        last_name = ""
     full_name = " ".join(part for part in (first_name, last_name) if part)
     if full_name:
         return full_name
@@ -167,14 +236,24 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
     bubble_x = outer + avatar_size + gap
     bubble_width = width - bubble_x - outer
     inset = 20
-    name_font = _font(30, bold=True)
     probe = Image.new("RGBA", (width, 512), (0, 0, 0, 0))
     draw = ImageDraw.Draw(probe)
     body_font = _font(30)
     body_width = bubble_width - inset * 2
+    name_fonts = _name_fonts(30)
+    for name_size in range(29, 17, -1):
+        if _fallback_width(draw, name, name_fonts) <= body_width:
+            break
+        name_fonts = _name_fonts(name_size)
     lines = _wrap(draw, text, body_font, body_width)
     line_height = max(34, int(body_font.size * 1.22)) if hasattr(body_font, "size") else 36
-    name_height = max(34, draw.textbbox((0, 0), "Ag南", font=name_font)[3])
+    font_metrics = []
+    for font in name_fonts:
+        try:
+            font_metrics.append(font.getmetrics())
+        except Exception:
+            font_metrics.append((getattr(font, "size", 30), 0))
+    name_height = max(34, max(ascent + descent for ascent, descent in font_metrics))
     bubble_height = inset + name_height + 9 + line_height * len(lines) + inset
     height = max(138, min(512, max(bubble_height + outer * 2, avatar_size + outer * 2)))
 
@@ -212,10 +291,10 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
         tx = avatar_box[0] + (avatar_size - (bounds[2] - bounds[0])) / 2
         ty = avatar_box[1] + (avatar_size - (bounds[3] - bounds[1])) / 2 - bounds[1]
         draw.text((tx, ty), letter, font=initial_font, fill=(255, 255, 255, 255))
-    name_text = _fit_line(draw, name, name_font, body_width)
+    name_text = _fit_fallback_line(draw, name, name_fonts, body_width)
     text_x = bubble_x + inset
     text_y = outer + inset - 3
-    draw.text((text_x, text_y), name_text, font=name_font, fill=name_color)
+    _draw_fallback_text(draw, (text_x, text_y), name_text, name_fonts, name_color)
     body_y = text_y + name_height + 9
     for line in lines:
         draw.text((text_x, body_y), line, font=body_font, fill=(250, 249, 252, 255))
