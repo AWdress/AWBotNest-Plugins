@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from telethon import types
+from telethon import functions, types
 
 
 __plugin__ = {
@@ -132,7 +132,17 @@ def _fit_fallback_line(draw, text: str, fonts: list[Any], width: int) -> str:
     return (value + suffix) if value else suffix
 
 
-def _draw_fallback_text(draw, position: tuple[float, float], text: str, fonts: list[Any], fill) -> None:
+def _draw_fallback_text(
+    draw,
+    position: tuple[float, float],
+    text: str,
+    fonts: list[Any],
+    fill,
+    emoji_assets: dict[str, Any] | None = None,
+    canvas: Any = None,
+) -> None:
+    from PIL import Image
+
     x, y = position
     metrics = []
     for font in fonts:
@@ -142,6 +152,14 @@ def _draw_fallback_text(draw, position: tuple[float, float], text: str, fonts: l
             metrics.append((getattr(font, "size", 30), 0))
     baseline = y + max(ascent for ascent, _ in metrics)
     for char in text:
+        if emoji_assets and char in emoji_assets and canvas is not None:
+            asset = emoji_assets[char].copy()
+            max_size = max(22, min(34, int(max(ascent for ascent, _ in metrics) * 0.9)))
+            asset.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            top = int(baseline - asset.height * 0.86)
+            canvas.alpha_composite(asset, (int(x), top))
+            x += max(asset.width, max_size - 2)
+            continue
         font = _font_for_char(fonts, char)
         try:
             draw.text((x, baseline), char, font=font, fill=fill, anchor="ls", embedded_color=True)
@@ -260,6 +278,80 @@ def _display_name(sender: Any, sender_id: Any) -> str:
     return f"@{username}" if username else str(sender_id or "Telegram")
 
 
+def _utf16_boundaries(text: str) -> list[int]:
+    """Return Python indexes for Telegram's UTF-16 entity offsets."""
+    boundaries = [0]
+    units = 0
+    for char in text:
+        units += 2 if ord(char) > 0xFFFF else 1
+        boundaries.append(units)
+    return boundaries
+
+
+def _entity_python_range(text: str, entity: Any, boundaries: list[int]) -> tuple[int, int] | None:
+    offset = int(getattr(entity, "offset", 0) or 0)
+    length = int(getattr(entity, "length", 0) or 0)
+    end = offset + length
+    try:
+        start_index = boundaries.index(offset)
+        end_index = boundaries.index(end)
+    except ValueError:
+        return None
+    if start_index >= end_index or start_index >= len(text):
+        return None
+    return start_index, min(end_index, len(text))
+
+
+async def _custom_emoji_content(client: Any, source: Any, text: str) -> tuple[str, dict[str, Any]]:
+    """Download static custom Emoji documents and replace their entity ranges."""
+    entities = [
+        entity for entity in (getattr(source, "entities", None) or [])
+        if isinstance(entity, types.MessageEntityCustomEmoji)
+    ]
+    if not entities or not text:
+        return text, {}
+    ids = list(dict.fromkeys(int(entity.document_id) for entity in entities))
+    try:
+        documents = await client(functions.messages.GetCustomEmojiDocumentsRequest(document_id=ids))
+    except Exception:
+        return text, {}
+    documents_by_id = {int(getattr(document, "id", 0)): document for document in documents or []}
+    assets: dict[str, Any] = {}
+    replacements: list[tuple[int, int, str]] = []
+    boundaries = _utf16_boundaries(text)
+    from PIL import Image
+
+    for index, entity in enumerate(entities):
+        document = documents_by_id.get(int(entity.document_id))
+        span = _entity_python_range(text, entity, boundaries)
+        if document is None or span is None:
+            continue
+        try:
+            payload = await client.download_media(document, file=bytes)
+            image = Image.open(BytesIO(payload or b""))
+            if getattr(image, "is_animated", False):
+                image.seek(0)
+            image = image.convert("RGBA")
+            image.thumbnail((34, 34), Image.Resampling.LANCZOS)
+        except Exception:
+            continue
+        token = chr(0xE000 + len(assets))
+        assets[token] = image.copy()
+        replacements.append((span[0], span[1], token))
+    if not replacements:
+        return text, {}
+    result: list[str] = []
+    cursor = 0
+    for start, end, token in sorted(replacements):
+        if start < cursor:
+            continue
+        result.append(text[cursor:start])
+        result.append(token)
+        cursor = end
+    result.append(text[cursor:])
+    return "".join(result), assets
+
+
 def _initial(name: str) -> str:
     for char in str(name or ""):
         if char.isalnum() or ord(char) > 127:
@@ -267,7 +359,13 @@ def _initial(name: str) -> str:
     return "T"
 
 
-def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any = "") -> BytesIO:
+def render_sticker(
+    avatar: bytes | None,
+    name: str,
+    text: str,
+    sender_key: Any = "",
+    custom_emoji_assets: dict[str, Any] | None = None,
+) -> BytesIO:
     """Return a Telegram-compatible 512px WebP sticker stream."""
     from PIL import Image, ImageDraw, ImageOps
 
@@ -336,10 +434,18 @@ def render_sticker(avatar: bytes | None, name: str, text: str, sender_key: Any =
     name_text = _fit_fallback_line(draw, name, name_fonts, body_width)
     text_x = bubble_x + inset
     text_y = outer + inset - 3
-    _draw_fallback_text(draw, (text_x, text_y), name_text, name_fonts, name_color)
+    _draw_fallback_text(draw, (text_x, text_y), name_text, name_fonts, name_color, canvas=image)
     body_y = text_y + name_height + 9
     for line in lines:
-        _draw_fallback_text(draw, (text_x, body_y), line, body_fonts, (250, 249, 252, 255))
+        _draw_fallback_text(
+            draw,
+            (text_x, body_y),
+            line,
+            body_fonts,
+            (250, 249, 252, 255),
+            emoji_assets=custom_emoji_assets,
+            canvas=image,
+        )
         body_y += line_height
 
     output = BytesIO()
@@ -386,8 +492,18 @@ async def setup(ctx):
             sender = await source.get_sender()
             sender_id = getattr(source, "sender_id", None)
             name = _display_name(sender, sender_id)
-            text = override or str(getattr(source, "raw_text", "") or "").strip() or _placeholder(source)
-            sticker = render_sticker(await _avatar_bytes(event.client, sender), name, text, sender_id)
+            source_text = str(getattr(source, "raw_text", "") or "").strip()
+            text = override or source_text or _placeholder(source)
+            custom_emoji_assets = {}
+            if not override and source_text:
+                text, custom_emoji_assets = await _custom_emoji_content(event.client, source, text)
+            sticker = render_sticker(
+                await _avatar_bytes(event.client, sender),
+                name,
+                text,
+                sender_id,
+                custom_emoji_assets=custom_emoji_assets,
+            )
             attributes = [
                 types.DocumentAttributeFilename(file_name="message-sticker.webp"),
                 types.DocumentAttributeImageSize(w=sticker.width, h=sticker.height),
