@@ -8,7 +8,7 @@ from ._components import auto_avatar, auto_changename, getmsg, id as id_plugin, 
 __plugin__ = {
     "id": "telegram_assistant",
     "name": "Telegram 助手",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -19,14 +19,14 @@ __plugin__ = {
     "tags": ["Telegram", "消息工具", "贴纸生成", "账号自动化"],
     "resources": {"timeout_seconds": 300, "max_concurrency": 8, "max_background_tasks": 32},
     "config_schema": {
-        "forward_enable": {"type": "boolean", "default": True, "label": "启用规则转发", "section": "消息转发", "order": 1},
-        "forward_album": {"type": "boolean", "default": True, "label": "整组转发相册", "section": "消息转发", "order": 2},
+        "forward_enable": {"type": "boolean", "default": False, "label": "启用规则转发", "section": "消息转发", "order": 1},
+        "forward_album": {"type": "boolean", "default": False, "label": "整组转发相册", "section": "消息转发", "order": 2},
         "forward_backfill_limit": {"type": "integer", "default": 50, "min": 1, "max": 500, "label": "遗漏补全回查条数", "section": "消息转发", "order": 3},
-        "forward_auto_backfill": {"type": "boolean", "default": True, "label": "自动检查遗漏", "section": "消息转发", "order": 4},
+        "forward_auto_backfill": {"type": "boolean", "default": False, "label": "自动检查遗漏", "section": "消息转发", "order": 4},
         "forward_backfill_interval_min": {"type": "number", "default": 60, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
-        "forward_repeat_enabled": {"type": "boolean", "default": True, "label": "启用回复复读", "section": "消息转发", "order": 6},
+        "forward_repeat_enabled": {"type": "boolean", "default": False, "label": "启用回复复读", "section": "消息转发", "order": 6},
         "forward_repeat_command": {"type": "string", "default": ".zf", "label": "复读命令", "section": "消息转发", "order": 7},
-        "forward_repeat_mode": {"type": "boolean", "default": True, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
+        "forward_repeat_mode": {"type": "boolean", "default": False, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
         "forward_repeat_interval": {"type": "number", "default": 0.3, "min": 0, "max": 5, "step": 0.1, "label": "复读间隔（秒）", "section": "消息转发", "order": 9},
         "forward_repeat_max_times": {"type": "number", "default": 50, "min": 1, "max": 500, "step": 1, "label": "最多复读次数", "section": "消息转发", "order": 10},
         "forward_rules": {"type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "消息转发", "order": 20, "fields": {
@@ -38,25 +38,26 @@ __plugin__ = {
         "forward_backfill": {"type": "action", "label": "立即检查遗漏", "action": "backfill", "help": "按当前规则回查来源历史消息并补发遗漏内容。", "section": "消息转发", "order": 21},
         "delete_command": {"type": "string", "default": ".dme", "label": "删除消息命令", "section": "消息管理", "order": 30},
         "delete_tip_seconds": {"type": "number", "default": 2, "min": 0, "max": 10, "step": 1, "label": "删除提示停留（秒）", "section": "消息管理", "order": 31},
-        "id_delete_command": {"type": "boolean", "default": True, "label": "查询后删除命令", "section": "查 ID", "order": 40},
+        "id_delete_command": {"type": "boolean", "default": False, "label": "查询后删除命令", "section": "查 ID", "order": 40},
         "id_command": {"type": "string", "default": ".id", "label": "查 ID 命令", "section": "查 ID", "order": 41},
         "id_auto_delete": {"type": "number", "default": 20, "min": 0, "max": 120, "step": 5, "label": "结果自动删除（秒）", "section": "查 ID", "order": 42},
-        "getmsg_delete_command": {"type": "boolean", "default": True, "label": "导出后删除命令", "section": "消息结构", "order": 50},
+        "getmsg_delete_command": {"type": "boolean", "default": False, "label": "导出后删除命令", "section": "消息结构", "order": 50},
         "getmsg_command": {"type": "string", "default": ".getmsg", "label": "消息结构命令", "section": "消息结构", "order": 51},
         "sticker_command": {"type": "string", "default": ".贴图", "label": "贴图命令", "section": "消息贴图", "order": 55, "help": "回复消息发送该命令，生成带原发送者头像、昵称和正文的 Telegram 贴纸。"},
-        "sticker_delete_command": {"type": "boolean", "default": True, "label": "成功后删除命令", "section": "消息贴图", "order": 56},
-        "avatar_delete_old": {"type": "boolean", "default": True, "label": "删除旧头像", "section": "自动换头像", "order": 60},
+        "sticker_delete_command": {"type": "boolean", "default": False, "label": "成功后删除命令", "section": "消息贴图", "order": 56},
+        "avatar_delete_old": {"type": "boolean", "default": False, "label": "删除旧头像", "section": "自动换头像", "order": 60},
         "avatar_interval_min": {"type": "number", "default": 60, "min": 10, "max": 1440, "step": 10, "label": "换头像间隔（分钟）", "section": "自动换头像", "order": 61},
         "avatar_add_command": {"type": "string", "default": ".avataradd", "label": "加图命令", "section": "自动换头像", "order": 62},
         "avatar_list_command": {"type": "string", "default": ".avatarlist", "label": "查看图片池命令", "section": "自动换头像", "order": 63},
         "avatar_clear_command": {"type": "string", "default": ".avatarclear", "label": "清空图片池命令", "section": "自动换头像", "order": 64},
+        "nickname_enabled": {"type": "boolean", "default": False, "label": "启用报时昵称", "section": "报时昵称", "order": 69},
         "nickname_interval_min": {"type": "number", "default": 5, "min": 1, "max": 60, "step": 1, "label": "昵称更新时间（分钟）", "section": "报时昵称", "order": 70},
         "nickname_name_format": {"type": "string", "default": "{boldH}:{boldM} {weather_icon} {temp}°C", "label": "昵称模板", "section": "报时昵称", "order": 71, "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"},
         "nickname_name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字（姓 / 名 / 姓和名）", "section": "报时昵称", "order": 72, "help": "可选：姓、名或姓和名。", "options": [{"value": "last_name", "label": "姓"}, {"value": "first_name", "label": "名"}, {"value": "both", "label": "姓和名"}]},
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74},
     },
-    "changelog": "v0.0.8 调整贴图姓名与头像\n- 同时显示 first_name 和普通 last_name，任一为空时显示另一项\n- 仅过滤自动报时生成的时间/天气 last_name\n- 移除头像外圈描边\n\nv0.0.7 修复贴图发送方式\n- 移除 Telethon force_file 标记，WebP 改为 Telegram 原生贴纸媒体\n- 昵称仅显示稳定的 first_name，不再带入报时昵称或缺字方框\n\nv0.0.6 新增消息贴图\n- 回复消息发送 .贴图，自动渲染头像、昵称和正文\n- 按 Telegram 静态 WebP 贴纸规格发送，不调用 AI\n- 配置页完整显示贴图命令和删除命令开关的默认值\n\nv0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+    "changelog": "v0.0.9 新增报时昵称开关\n- 报时昵称默认关闭，关闭时不注册改名定时任务\n- Telegram 助手所有布尔开关的新安装默认值统一为关闭\n- 已保存的用户开关值保持不变\n\nv0.0.8 调整贴图姓名与头像\n- 同时显示 first_name 和普通 last_name，任一为空时显示另一项\n- 仅过滤自动报时生成的时间/天气 last_name\n- 移除头像外圈描边\n\nv0.0.7 修复贴图发送方式\n- 移除 Telethon force_file 标记，WebP 改为 Telegram 原生贴纸媒体\n- 昵称仅显示稳定的 first_name，不再带入报时昵称或缺字方框\n\nv0.0.6 新增消息贴图\n- 回复消息发送 .贴图，自动渲染头像、昵称和正文\n- 按 Telegram 静态 WebP 贴纸规格发送，不调用 AI\n- 配置页完整显示贴图命令和删除命令开关的默认值\n\nv0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
 }
 
 
@@ -98,7 +99,7 @@ _ID = {"id_delete_command": "delete_command", "id_command": "command", "id_auto_
 _GETMSG = {"getmsg_delete_command": "delete_command", "getmsg_command": "command"}
 _STICKER = {"sticker_command": "command", "sticker_delete_command": "delete_command"}
 _AVATAR = {"avatar_delete_old": "delete_old", "avatar_interval_min": "interval_min", "avatar_add_command": "add_command", "avatar_list_command": "list_command", "avatar_clear_command": "clear_command"}
-_NICKNAME = {"nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field", "nickname_location": "location", "nickname_weather_interval": "weather_interval"}
+_NICKNAME = {"nickname_enabled": "enabled", "nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field", "nickname_location": "location", "nickname_weather_interval": "weather_interval"}
 
 
 _LEGACY_MAPS = {

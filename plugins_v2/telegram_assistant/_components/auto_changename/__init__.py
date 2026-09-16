@@ -5,7 +5,7 @@ import random
 from datetime import datetime, timedelta, timezone
 
 __plugin__ = {
-    "id": "auto_changename", "name": "自动报时昵称", "version": "2.0.5",
+    "id": "auto_changename", "name": "自动报时昵称", "version": "2.0.6",
     "author": "AWdress", "scope": "user", "plugin_api_version": 2,
     "description": "定时把昵称改成当前时间、天气图标和温度，支持特殊字体与自定义模板。",
     "requirements": [],
@@ -13,13 +13,14 @@ __plugin__ = {
     "tags": ["昵称报时", "天气", "定时任务"], "render_mode": "schema",
     "resources": {"timeout_seconds": 60, "max_concurrency": 4, "max_background_tasks": 8, "failure_threshold": 5},
     "config_schema": {
+        "enabled": {"type": "boolean", "default": False, "label": "启用报时昵称", "order": 1, "section": "功能开关"},
         "interval_min": {"type": "slider", "default": 5, "label": "改名间隔(分钟)", "min": 1, "max": 60, "step": 1, "order": 10, "section": "更新计划", "help": "每隔多少分钟改一次。修改后需重载插件生效。"},
         "name_format": {"type": "string", "default": "{boldH}:{boldM} {weather_icon} {temp}°C", "label": "昵称模板", "order": 11, "section": "昵称规则", "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"},
         "name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字（姓 / 名 / 姓和名）", "order": 12, "section": "昵称规则", "help": "可选：姓、名或姓和名。", "options": [{"value": "last_name", "label": "姓 (last name)"}, {"value": "first_name", "label": "名 (first name)"}, {"value": "both", "label": "姓和名都改"}]},
         "location": {"type": "string", "default": "Guangzhou", "label": "城市(英文)", "order": 5, "section": "天气", "help": "城市英文名，如 Guangzhou、Beijing、Shanghai；留空使用 Guangzhou。"},
         "weather_interval": {"type": "slider", "default": 30, "label": "天气刷新间隔(分钟)", "min": 10, "max": 120, "step": 5, "order": 6, "section": "天气", "help": "天气数据缓存时间，避免频繁请求。"},
     },
-    "changelog": "v2.0.5 接入时间与天气昵称模板\n- 支持特殊字体数字、天气图标、温度和城市配置\n- 使用平台 HTTP 代理获取 wttr.in 天气并缓存结果\n- 保留原有账号选择、定时任务和昵称字段设置",
+    "changelog": "v2.0.6 新增启用开关\n- 默认关闭报时昵称\n- 关闭时不注册改名定时任务\n\nv2.0.5 接入时间与天气昵称模板\n- 支持特殊字体数字、天气图标、温度和城市配置\n- 使用平台 HTTP 代理获取 wttr.in 天气并缓存结果\n- 保留原有账号选择、定时任务和昵称字段设置",
 }
 
 DEFAULT_FORMAT = "{boldH}:{boldM} {weather_icon} {temp}°C"
@@ -91,6 +92,9 @@ def _restore_defaults(ctx) -> None:
 
 async def setup(ctx):
     _restore_defaults(ctx)
+    if not ctx.config.get("enabled", False):
+        ctx.log.info("[自动报时] 已关闭")
+        return
     try:
         interval = max(1, min(int(ctx.config.get("interval_min", 5) or 5), 60))
     except (TypeError, ValueError):
