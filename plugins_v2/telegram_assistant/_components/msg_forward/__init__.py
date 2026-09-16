@@ -543,6 +543,10 @@ async def setup(ctx):
         ctx.log.info("[消息转发助手] 立即检查遗漏任务已启动")
         return {"ok": True, "message": "已开始回查历史消息并补发遗漏，详情见插件日志"}
 
+    @ctx.on_api("/backfill", methods=["POST"])
+    async def api_backfill(request):
+        return await action_backfill()
+
     if ctx.config.get("auto_backfill",True) and ctx.config.get("enable",False) and ctx.user:
         try:interval=max(1,min(int(ctx.config.get("backfill_interval_min",10) or 10),1440))
         except (TypeError,ValueError):interval=10
