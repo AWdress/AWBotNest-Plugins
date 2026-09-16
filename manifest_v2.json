@@ -81,7 +81,7 @@
     "auto_changename": {
       "id": "auto_changename",
       "name": "自动报时昵称",
-      "version": "2.0.0",
+      "version": "2.0.5",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -96,7 +96,7 @@
       "render_mode": "schema",
       "config_schema": {
         "interval_min": {
-          "type": "number",
+          "type": "slider",
           "default": 5,
           "label": "改名间隔(分钟)",
           "min": 1,
@@ -108,16 +108,17 @@
         },
         "name_format": {
           "type": "string",
-          "default": "{emoji}{H}:{M}",
+          "default": "{boldH}:{boldM} {weather_icon} {temp}°C",
           "label": "昵称模板",
           "order": 11,
           "section": "昵称规则",
-          "help": "占位符：{emoji}随机表情 {H}时 {M}分 {S}秒 {date}年-月-日 {md}月-日 {week}星期几"
+          "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"
         },
         "name_field": {
           "type": "select",
           "default": "last_name",
-          "label": "改哪个名",
+          "label": "修改哪个名字（姓 / 名 / 姓和名）",
+          "help": "可选：姓、名或姓和名。",
           "order": 12,
           "section": "昵称规则",
           "options": [
@@ -134,15 +135,34 @@
               "label": "姓和名都改"
             }
           ]
+        },
+        "location": {
+          "type": "string",
+          "default": "Guangzhou",
+          "label": "城市(英文)",
+          "order": 5,
+          "section": "天气",
+          "help": "城市英文名，如 Guangzhou、Beijing、Shanghai；留空使用 Guangzhou。"
+        },
+        "weather_interval": {
+          "type": "slider",
+          "default": 30,
+          "label": "天气刷新间隔(分钟)",
+          "min": 10,
+          "max": 120,
+          "step": 5,
+          "order": 6,
+          "section": "天气",
+          "help": "天气数据缓存时间，避免频繁请求。"
         }
       },
-      "changelog": "v2.0.0 原生 AWBotNest V2 迁移\n- 移除 V1 兼容运行层\n- 使用原生 Telethon 账号资料接口\n- 使用平台原生定时任务与生命周期管理",
+      "changelog": "v2.0.5 接入时间与天气昵称模板\n- 支持特殊字体数字、天气图标、温度和城市配置\n- 使用平台 HTTP 代理获取 wttr.in 天气并缓存结果\n- 保留原有账号选择、定时任务和昵称字段设置",
       "path": "plugins_v2/auto_changename/"
     },
     "telegram_assistant": {
       "id": "telegram_assistant",
       "name": "Telegram 助手",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -179,10 +199,12 @@
         "avatar_list_command": {"type": "string", "default": ".avatarlist", "label": "查看图片池命令", "section": "自动换头像", "order": 63},
         "avatar_clear_command": {"type": "string", "default": ".avatarclear", "label": "清空图片池命令", "section": "自动换头像", "order": 64},
         "nickname_interval_min": {"type": "number", "default": 5, "min": 1, "max": 60, "step": 1, "label": "昵称更新时间（分钟）", "section": "报时昵称", "order": 70},
-        "nickname_name_format": {"type": "string", "default": "{emoji}{H}:{M}", "label": "昵称模板", "section": "报时昵称", "order": 71},
-        "nickname_name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字", "section": "报时昵称", "order": 72, "options": [{"value": "last_name", "label": "姓"}, {"value": "first_name", "label": "名"}, {"value": "both", "label": "姓和名"}]}
+        "nickname_name_format": {"type": "string", "default": "{boldH}:{boldM} {weather_icon} {temp}°C", "label": "昵称模板", "section": "报时昵称", "order": 71, "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"},
+        "nickname_name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字（姓 / 名 / 姓和名）", "section": "报时昵称", "order": 72, "help": "可选：姓、名或姓和名。", "options": [{"value": "last_name", "label": "姓"}, {"value": "first_name", "label": "名"}, {"value": "both", "label": "姓和名"}]},
+        "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
+        "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74}
       },
-      "changelog": "v0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+      "changelog": "v0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
       "path": "plugins_v2/telegram_assistant/"
     },
     "auto_lottery": {

@@ -9,7 +9,7 @@ from .. import auto_avatar, auto_changename, getmsg, id as id_plugin, msg_forwar
 __plugin__ = {
     "id": "telegram_assistant",
     "name": "Telegram 助手",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -50,10 +50,12 @@ __plugin__ = {
         "avatar_list_command": {"type": "string", "default": ".avatarlist", "label": "查看图片池命令", "section": "自动换头像", "order": 63},
         "avatar_clear_command": {"type": "string", "default": ".avatarclear", "label": "清空图片池命令", "section": "自动换头像", "order": 64},
         "nickname_interval_min": {"type": "number", "default": 5, "min": 1, "max": 60, "step": 1, "label": "昵称更新时间（分钟）", "section": "报时昵称", "order": 70},
-        "nickname_name_format": {"type": "string", "default": "{emoji}{H}:{M}", "label": "昵称模板", "section": "报时昵称", "order": 71, "help": "占位符：{emoji}、{H}、{M}、{S}、{date}、{md}、{week}"},
-        "nickname_name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字", "section": "报时昵称", "order": 72, "options": [{"value": "last_name", "label": "姓"}, {"value": "first_name", "label": "名"}, {"value": "both", "label": "姓和名"}]},
+        "nickname_name_format": {"type": "string", "default": "{boldH}:{boldM} {weather_icon} {temp}°C", "label": "昵称模板", "section": "报时昵称", "order": 71, "help": "占位符：{boldH}:{boldM}特殊字体时分，{H}:{M}普通时分，{weather_icon}天气图标，{temp}温度，{emoji}随机表情，{date}日期，{week}星期。"},
+        "nickname_name_field": {"type": "select", "default": "last_name", "label": "修改哪个名字（姓 / 名 / 姓和名）", "section": "报时昵称", "order": 72, "help": "可选：姓、名或姓和名。", "options": [{"value": "last_name", "label": "姓"}, {"value": "first_name", "label": "名"}, {"value": "both", "label": "姓和名"}]},
+        "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
+        "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74},
     },
-    "changelog": "v0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+    "changelog": "v0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
 }
 
 
@@ -94,7 +96,7 @@ _DELETE = {"delete_command": "command", "delete_tip_seconds": "tip_seconds"}
 _ID = {"id_delete_command": "delete_command", "id_command": "command", "id_auto_delete": "auto_delete"}
 _GETMSG = {"getmsg_delete_command": "delete_command", "getmsg_command": "command"}
 _AVATAR = {"avatar_delete_old": "delete_old", "avatar_interval_min": "interval_min", "avatar_add_command": "add_command", "avatar_list_command": "list_command", "avatar_clear_command": "clear_command"}
-_NICKNAME = {"nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field"}
+_NICKNAME = {"nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field", "nickname_location": "location", "nickname_weather_interval": "weather_interval"}
 
 
 def _migrate_old_configs(ctx):
