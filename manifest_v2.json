@@ -22,7 +22,7 @@
     "telegram_assistant": {
       "id": "telegram_assistant",
       "name": "Telegram 助手",
-      "version": "0.0.4",
+      "version": "0.0.5",
       "author": "AWdress",
       "scope": "user",
       "plugin_api_version": 2,
@@ -33,14 +33,14 @@
       "tags": ["Telegram", "消息工具", "账号自动化"],
       "resources": {"timeout_seconds": 300, "max_concurrency": 8, "max_background_tasks": 32},
       "config_schema": {
-        "forward_enable": {"type": "boolean", "default": false, "label": "启用规则转发", "section": "消息转发", "order": 1},
+        "forward_enable": {"type": "boolean", "default": true, "label": "启用规则转发", "section": "消息转发", "order": 1},
         "forward_album": {"type": "boolean", "default": true, "label": "整组转发相册", "section": "消息转发", "order": 2},
-        "forward_backfill_limit": {"type": "integer", "default": 100, "min": 1, "max": 500, "label": "遗漏补全回查条数", "section": "消息转发", "order": 3},
+        "forward_backfill_limit": {"type": "integer", "default": 50, "min": 1, "max": 500, "label": "遗漏补全回查条数", "section": "消息转发", "order": 3},
         "forward_auto_backfill": {"type": "boolean", "default": true, "label": "自动检查遗漏", "section": "消息转发", "order": 4},
-        "forward_backfill_interval_min": {"type": "number", "default": 10, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
+        "forward_backfill_interval_min": {"type": "number", "default": 60, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
         "forward_repeat_enabled": {"type": "boolean", "default": true, "label": "启用回复复读", "section": "消息转发", "order": 6},
         "forward_repeat_command": {"type": "string", "default": ".zf", "label": "复读命令", "section": "消息转发", "order": 7},
-        "forward_repeat_mode": {"type": "boolean", "default": false, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
+        "forward_repeat_mode": {"type": "boolean", "default": true, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
         "forward_repeat_interval": {"type": "number", "default": 0.3, "min": 0, "max": 5, "step": 0.1, "label": "复读间隔（秒）", "section": "消息转发", "order": 9},
         "forward_repeat_max_times": {"type": "number", "default": 50, "min": 1, "max": 500, "step": 1, "label": "最多复读次数", "section": "消息转发", "order": 10},
         "forward_rules": {"type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "消息转发", "order": 20, "fields": {"source": {"type": "string", "label": "来源会话"}, "targets": {"type": "string", "label": "转发到"}, "types": {"type": "multiselect", "label": "消息类型", "default": [], "options": [{"value": "text", "label": "文本"}, {"value": "link", "label": "链接"}, {"value": "photo", "label": "图片"}, {"value": "video", "label": "视频"}, {"value": "document", "label": "文件"}, {"value": "audio", "label": "音频"}]}, "kw": {"type": "string", "label": "关键词"}, "nkw": {"type": "string", "label": "排除词"}, "sender": {"type": "string", "label": "只转谁发的"}, "copy": {"type": "boolean", "label": "复制搬运", "default": false}}},
@@ -64,7 +64,7 @@
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74}
       },
-      "changelog": "v0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+      "changelog": "v0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
       "path": "plugins_v2/telegram_assistant/"
     },
     "auto_lottery": {

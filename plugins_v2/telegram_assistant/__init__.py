@@ -8,7 +8,7 @@ from ._components import auto_avatar, auto_changename, getmsg, id as id_plugin, 
 __plugin__ = {
     "id": "telegram_assistant",
     "name": "Telegram 助手",
-    "version": "0.0.4",
+    "version": "0.0.5",
     "author": "AWdress",
     "scope": "user",
     "plugin_api_version": 2,
@@ -19,14 +19,14 @@ __plugin__ = {
     "tags": ["Telegram", "消息工具", "账号自动化"],
     "resources": {"timeout_seconds": 300, "max_concurrency": 8, "max_background_tasks": 32},
     "config_schema": {
-        "forward_enable": {"type": "boolean", "default": False, "label": "启用规则转发", "section": "消息转发", "order": 1},
+        "forward_enable": {"type": "boolean", "default": True, "label": "启用规则转发", "section": "消息转发", "order": 1},
         "forward_album": {"type": "boolean", "default": True, "label": "整组转发相册", "section": "消息转发", "order": 2},
-        "forward_backfill_limit": {"type": "integer", "default": 100, "min": 1, "max": 500, "label": "遗漏补全回查条数", "section": "消息转发", "order": 3},
+        "forward_backfill_limit": {"type": "integer", "default": 50, "min": 1, "max": 500, "label": "遗漏补全回查条数", "section": "消息转发", "order": 3},
         "forward_auto_backfill": {"type": "boolean", "default": True, "label": "自动检查遗漏", "section": "消息转发", "order": 4},
-        "forward_backfill_interval_min": {"type": "number", "default": 10, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
+        "forward_backfill_interval_min": {"type": "number", "default": 60, "min": 1, "max": 1440, "step": 1, "label": "遗漏检查间隔（分钟）", "section": "消息转发", "order": 5},
         "forward_repeat_enabled": {"type": "boolean", "default": True, "label": "启用回复复读", "section": "消息转发", "order": 6},
         "forward_repeat_command": {"type": "string", "default": ".zf", "label": "复读命令", "section": "消息转发", "order": 7},
-        "forward_repeat_mode": {"type": "boolean", "default": False, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
+        "forward_repeat_mode": {"type": "boolean", "default": True, "label": "复制重发", "help": "关闭为原样转发，开启为无署名复制。", "section": "消息转发", "order": 8},
         "forward_repeat_interval": {"type": "number", "default": 0.3, "min": 0, "max": 5, "step": 0.1, "label": "复读间隔（秒）", "section": "消息转发", "order": 9},
         "forward_repeat_max_times": {"type": "number", "default": 50, "min": 1, "max": 500, "step": 1, "label": "最多复读次数", "section": "消息转发", "order": 10},
         "forward_rules": {"type": "list", "default": [], "label": "转发规则", "item_label": "规则", "section": "消息转发", "order": 20, "fields": {
@@ -54,7 +54,7 @@ __plugin__ = {
         "nickname_location": {"type": "string", "default": "Guangzhou", "label": "天气城市（英文）", "section": "报时昵称", "order": 73, "help": "例如 Guangzhou、Beijing；用于获取昵称中的天气和温度。"},
         "nickname_weather_interval": {"type": "number", "default": 30, "min": 10, "max": 120, "step": 5, "label": "天气刷新间隔（分钟）", "section": "报时昵称", "order": 74},
     },
-    "changelog": "v0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
+    "changelog": "v0.0.5 补齐默认值与旧配置迁移\n- 新安装完整显示开关、数字、命令、昵称和天气默认值\n- 从旧六个插件迁移配置、转发规则、账号范围和通知渠道\n- 转发默认值按原插件常用设置填入 50 条、60 分钟与复制重发\n\nv0.0.4 完成源码级合并\n- 六项功能源码全部内置到 Telegram 助手安装包\n- 不再依赖或发布六个旧插件，修复独立安装时的导入失败\n\nv0.0.3 修复默认配置为空\n- 自动补全缺失/空白的命令、数值和昵称模板\n- 兼容旧版表单把默认开关全部保存为关闭的情况\n\nv0.0.2 更新自动报时昵称\n- 使用时间特殊字体、天气图标和温度模板\n- 增加天气城市与天气缓存间隔配置\n\nv0.0.1 首次发布\n- 合并消息转发、删除消息、查 ID、消息结构、自动换头像和自动报时昵称\n- 保留原有命令、规则和定时行为，启用时自动迁移旧插件配置\n- 使用 Telegram 官方图标",
 }
 
 
@@ -98,30 +98,69 @@ _AVATAR = {"avatar_delete_old": "delete_old", "avatar_interval_min": "interval_m
 _NICKNAME = {"nickname_interval_min": "interval_min", "nickname_name_format": "name_format", "nickname_name_field": "name_field", "nickname_location": "location", "nickname_weather_interval": "weather_interval"}
 
 
-def _migrate_old_configs(ctx):
-    settings = getattr(ctx, "settings", None)
-    configs = getattr(settings, "plugin_config", None)
-    if not isinstance(configs, dict):
+_LEGACY_MAPS = {
+    "msg_forward": _FORWARD,
+    "self_delete": _DELETE,
+    "id": _ID,
+    "getmsg": _GETMSG,
+    "auto_avatar": _AVATAR,
+    "auto_changename": _NICKNAME,
+}
+
+
+async def _migrate_old_configs(ctx):
+    """一次性吸收被合并插件的真实已保存配置。"""
+    storage = getattr(ctx, "storage", None)
+    if storage is not None and await storage.get("legacy_plugins_migrated_v005", False):
         return
-    maps = {"msg_forward": _FORWARD, "self_delete": _DELETE, "id": _ID, "getmsg": _GETMSG, "auto_avatar": _AVATAR, "auto_changename": _NICKNAME}
+
+    registry = getattr(ctx, "_registry", None)
+    saved_getter = getattr(registry, "get_saved_config", None)
+    settings = getattr(ctx, "settings", None)
+    settings_configs = getattr(settings, "plugin_config", None)
     updates = {}
-    for plugin_id, mapping in maps.items():
-        old = configs.get(plugin_id)
-        if not isinstance(old, dict):
+    migrated_ids = []
+    for plugin_id, mapping in _LEGACY_MAPS.items():
+        old = None
+        if callable(saved_getter):
+            try:
+                old = saved_getter(plugin_id)
+            except Exception:
+                old = None
+        if not isinstance(old, dict) and isinstance(settings_configs, dict):
+            old = settings_configs.get(plugin_id)
+        if not isinstance(old, dict) or not old:
             continue
+        migrated_ids.append(plugin_id)
         for namespaced, legacy in mapping.items():
-            if namespaced not in ctx.config and legacy in old:
+            if legacy in old:
                 updates[namespaced] = old[legacy]
+
     if updates:
         ctx.update_config(updates)
-        ctx.log.info("[Telegram 助手] 已迁移 %s 个旧插件配置项", len(updates))
-    enabled = getattr(settings, "enabled_plugins", None)
-    if isinstance(enabled, list):
-        removed = [name for name in maps if name in enabled]
-        for name in removed:
-            enabled.remove(name)
-        if removed:
-            ctx.log.info("[Telegram 助手] 已停用旧插件：%s", ", ".join(removed))
+        ctx.log.info("[Telegram 助手] 已迁移 %d 个旧插件的 %d 项配置", len(migrated_ids), len(updates))
+
+    # 原消息转发助手的账号范围和通知渠道最能代表合并插件的运行范围。
+    if registry is not None and migrated_ids:
+        get_scope = getattr(registry, "get_account_scope", None)
+        set_scope = getattr(registry, "set_account_scope", None)
+        if callable(get_scope) and callable(set_scope):
+            scope = get_scope("msg_forward")
+            if scope:
+                set_scope(__plugin__["id"], scope)
+        get_bot = getattr(registry, "get_bot_choice", None)
+        set_bot = getattr(registry, "set_bot_choice", None)
+        if callable(get_bot) and callable(set_bot):
+            bot_choice = get_bot("msg_forward")
+            if bot_choice:
+                set_bot(__plugin__["id"], bot_choice)
+        set_enabled = getattr(registry, "set_enabled", None)
+        if callable(set_enabled):
+            for plugin_id in migrated_ids:
+                set_enabled(plugin_id, False)
+
+    if storage is not None:
+        await storage.set("legacy_plugins_migrated_v005", True)
 
 
 def _saved_plugin_config(ctx) -> dict[str, Any]:
@@ -183,7 +222,7 @@ def _restore_defaults(ctx):
 
 
 async def setup(ctx):
-    _migrate_old_configs(ctx)
+    await _migrate_old_configs(ctx)
     _restore_defaults(ctx)
     modules = [
         (msg_forward, _FORWARD), (self_delete, _DELETE), (id_plugin, _ID),
