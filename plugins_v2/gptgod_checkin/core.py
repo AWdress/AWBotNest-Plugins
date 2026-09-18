@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "2.0.4",
+    "version": "2.1.0",
     "author": "AWdress",
-    "description": "使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。",
-    "changelog": "v2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\nv2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
+    "description": "使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知，通知附带各账号剩余积分。",
+    "changelog": "v2.1.0 恢复剩余积分读取与通知\n- 签到完成后重新读取各账号“当前可用积分”，并写入签到结果与历史记录\n- 汇总通知新增“剩余积分”列，未读取到时明确显示未读取\n- 兼容全角标点与 万/K/W 单位，Docker 下积分卡片拆分节点时定向拼接读取\n- 积分读取失败不影响签到结果，仅记录日志\n\nv2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\nv2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -280,8 +280,111 @@ def _loading_error(page, area: str) -> RuntimeError:
     return RuntimeError(f"{area}加载超时，未找到预期控件")
 
 
+def _extract_points(text: str) -> str | None:
+    """从签到页文字提取当前可用积分，兼容全角标点与 万/K/W 单位。"""
+    normalized = str(text or "").replace("，", ",").replace("\u00a0", " ")
+    patterns = (
+        r"当前可用积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
+        r"(?:剩余|可用)积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*(?:积分)?(?:\s|$)",
+        r"当前可用积分[\s\S]{0,30}?([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*积分",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.MULTILINE)
+        if not match:
+            continue
+        raw_value = re.sub(r"\s+", "", match.group(1).replace(",", ""))
+        try:
+            unit = str(match.group(2) or "").casefold()
+            if unit == "万" or unit == "w":
+                value = int(float(raw_value) * 10_000)
+            elif unit == "k":
+                value = int(float(raw_value) * 1_000)
+            else:
+                value = int(float(raw_value))
+        except (TypeError, ValueError):
+            continue
+        return f"{value:,}"
+    return None
+
+
+def _extract_points_from_page(page) -> str | None:
+    points = _extract_points(_page_text(page))
+    if points:
+        return points
+    # 部分 Docker 视口下积分卡片被拆成多个节点；定向拼接标签附近内容。
+    try:
+        nearby_text = page.evaluate("""() => {
+            const visible = (node) => {
+                if (!node || !node.getBoundingClientRect) return false;
+                const style = getComputedStyle(node);
+                const box = node.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                    && box.width > 0 && box.height > 0;
+            };
+            const nodes = [...document.querySelectorAll('div,section,article,span,p')];
+            const label = nodes.find((node) => visible(node)
+                && (node.innerText || '').trim() === '当前可用积分');
+            if (!label) return '';
+            const pieces = [label.innerText || ''];
+            let current = label;
+            for (let i = 0; i < 4 && current; i += 1) {
+                if (current.parentElement && visible(current.parentElement)) {
+                    pieces.push(current.parentElement.innerText || '');
+                }
+                if (current.nextElementSibling && visible(current.nextElementSibling)) {
+                    pieces.push(current.nextElementSibling.innerText || '');
+                }
+                current = current.parentElement;
+            }
+            return pieces.join('\n');
+        }""")
+        return _extract_points(str(nearby_text or ""))
+    except Exception:  # noqa: BLE001 - DOM 定向读取失败时放弃本次积分读取
+        return None
+
+
+def _read_current_points(page, timeout_ms: int = 15_000, trace=None) -> str | None:
+    trace = trace or (lambda _message: None)
+    trace("开始读取当前积分")
+    # 签到完成后的页面已包含“当前可用积分”，先等待异步卡片挂载。
+    deadline = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < deadline:
+        points = _extract_points_from_page(page)
+        if points:
+            trace(f"已读取当前积分：{points}")
+            return points
+        if "/login" in _current_url(page):
+            trace("读取积分时会话失效并返回登录页")
+            return None
+        page.wait_for_timeout(500)
+    trace("当前页面未找到积分卡片，清理前端缓存后重载一次")
+    try:
+        _clear_site_frontend_cache(page)
+        _goto_fresh(page, WELFARE_URL)
+    except Exception:  # noqa: BLE001 - 重载失败时放弃积分读取
+        return None
+    # 重载兜底只再等一半时间，避免在平台浏览器 240 秒超时内挤占签到收尾。
+    retry_deadline = time.monotonic() + max(timeout_ms / 2000, 5)
+    while time.monotonic() < retry_deadline:
+        points = _extract_points_from_page(page)
+        if points:
+            trace(f"重载后已读取当前积分：{points}")
+            return points
+        if "/login" in _current_url(page):
+            trace("重载积分页后会话失效并返回登录页")
+            return None
+        page.wait_for_timeout(500)
+    trace("积分读取超时：页面未匹配到当前可用积分")
+    return None
+
+
 def _checkin_result(page, status: str, message: str, trace=None) -> dict:
-    return {"status": status, "message": message}
+    points = None
+    try:
+        points = _read_current_points(page, trace=trace)
+    except Exception:  # noqa: BLE001 - 积分读取失败不能改变签到结果
+        pass
+    return {"status": status, "message": message, "points": points}
 
 
 def _displayed_account_matches(page, email: str) -> bool:
@@ -800,6 +903,7 @@ async def _run(ctx, source: str) -> dict:
                             "already": status == "already",
                             "message": message,
                             "attempts": attempt,
+                            "points": str((browser_result or {}).get("points") or ""),
                         }
                         ctx.log.info(
                             "[签到流程][%s] 完成，结果=%s，尝试=%s",
@@ -865,6 +969,7 @@ async def _run(ctx, source: str) -> dict:
                     {
                         "账号": item.get("account", ""),
                         "结果": "已签到" if item.get("already") else ("成功" if item.get("ok") else "失败"),
+                        "剩余积分": item.get("points") or "未读取",
                         "尝试次数": item.get("attempts", 1),
                         "详情": item.get("message", ""),
                     }

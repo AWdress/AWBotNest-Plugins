@@ -5,11 +5,12 @@ from .core import setup as _native_setup, teardown as _native_teardown
 
 __plugin__ = {'name': 'GPT-GOD 自动签到',
  'id': 'gptgod_checkin',
- 'version': '2.0.6',
+ 'version': '2.1.0',
  'plugin_api_version': 2,
  'author': 'AWdress',
- 'description': '使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知。',
- 'changelog': 'v2.0.6 适配平台正式调度规范\n- Cron 配置声明为平台 cron 格式并复用统一 CronInput 组件\n- 定时任务只使用平台正式 schedule_cron 接口\n\n'
+ 'description': '使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知，通知附带各账号剩余积分。',
+ 'changelog': 'v2.1.0 恢复剩余积分读取与通知\n- 签到完成后重新读取各账号“当前可用积分”，并写入签到结果与历史记录\n- 汇总通知新增“剩余积分”列，未读取到时明确显示未读取\n- 兼容全角标点与 万/K/W 单位，Docker 下积分卡片拆分节点时定向拼接读取\n- 积分读取失败不影响签到结果，仅记录日志\n\n'
+              'v2.0.6 适配平台正式调度规范\n- Cron 配置声明为平台 cron 格式并复用统一 CronInput 组件\n- 定时任务只使用平台正式 schedule_cron 接口\n\n'
               'v2.0.5 复核密码独立显隐\n- 多账号密码继续逐行默认隐藏，每行提供独立眼睛按钮\n- 账号列表由平台受控读取真实值，避免显示脱敏占位符\n\n'
               'v2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\n'
               'v2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\n'

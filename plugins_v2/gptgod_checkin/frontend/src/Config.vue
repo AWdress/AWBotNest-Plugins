@@ -10,6 +10,10 @@ const defaults = {
 }
 const form = reactive({...defaults})
 const status = reactive({running: false, last_result: null, history: []})
+const results = computed(() => {
+  const accounts = status.last_result?.accounts
+  return Array.isArray(accounts) ? accounts : []
+})
 const visible = reactive({})
 const loading = ref(true)
 const saving = ref(false)
@@ -136,9 +140,25 @@ onBeforeUnmount(() => clearInterval(timer))
       <button class="secondary" type="button" :disabled="running || status.running || !form.accounts.length" @click="runNow">{{ running || status.running ? '签到进行中…' : '立即签到' }}</button>
       <button class="primary" type="button" :disabled="saving || loading || !!loadError" @click="save">{{ saving ? '正在保存…' : '保存配置' }}</button>
     </footer>
+
+    <section v-if="results.length" aria-labelledby="result-title">
+      <div class="section-head">
+        <div>
+          <h3 id="result-title">最近签到结果</h3>
+          <p>{{ status.last_result?.time || '' }}</p>
+        </div>
+      </div>
+      <div class="result-list">
+        <article v-for="(item, index) in results" :key="index" class="result-row">
+          <span class="result-account">{{ item.account }}</span>
+          <span class="result-state" :class="{failed: !item.ok}">{{ item.already ? '已签到' : (item.ok ? '成功' : '失败') }}</span>
+          <span class="result-points">{{ item.points ? `剩余积分 ${item.points}` : '积分未读取' }}</span>
+        </article>
+      </div>
+    </section>
   </main>
 </template>
 
 <style scoped>
 .config-shell{color:var(--text-primary,#e8edf5);padding:4px 2px 18px;display:grid;gap:28px;min-width:0}.page-head,.section-head,.actions{display:flex;align-items:center;justify-content:space-between;gap:18px}.page-head{padding-bottom:20px;border-bottom:1px solid var(--border,#263244)}h2,h3,p{margin:0}h2{font-size:22px;letter-spacing:-.02em}h3{font-size:14px;color:var(--accent,#4f9cff);margin-bottom:14px}.page-head p,.section-head p{margin-top:7px;color:var(--text-muted,#8591a3);font-size:13px}.state{font-size:12px;color:#8bd3a9;background:#153224;padding:6px 11px;border-radius:999px}.state.busy{color:#9fc5ff;background:#172d4d}.alert{padding:12px 14px;border:1px solid #743b43;border-radius:12px;background:#2b171b;color:#ffb8c0;overflow-wrap:anywhere}.switch-grid,.form-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.switch-grid label{display:flex;justify-content:space-between;align-items:center;padding:13px 14px;border:1px solid var(--border,#263244);border-radius:12px;background:var(--bg-elevated,#121b28)}input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent,#338cff)}button,input,select{font:inherit}.secondary,.primary,.remove{border:1px solid var(--border,#314057);border-radius:10px;padding:9px 14px;color:inherit;background:var(--bg-elevated,#152031);cursor:pointer}.primary{background:var(--accent,#287ff0);border-color:var(--accent,#287ff0);color:#fff}.remove{color:#ff9aa5;background:transparent;padding:8px 11px}.account-list{display:grid;gap:10px}.account-row{display:grid;grid-template-columns:30px minmax(180px,1fr) minmax(180px,1fr) auto;align-items:end;gap:12px;padding:14px;border:1px solid var(--border,#263244);border-radius:14px;background:var(--bg-elevated,#111a27)}.row-number{align-self:center;width:26px;height:26px;display:grid;place-items:center;border-radius:8px;background:#1b2b42;color:#8dbbff;font-variant-numeric:tabular-nums}label>span{display:block;margin-bottom:7px;font-size:12px;color:var(--text-muted,#919daf)}input:not([type=checkbox]),select{box-sizing:border-box;width:100%;height:42px;border:1px solid var(--border,#314057);border-radius:10px;background:var(--bg-input,#0c1420);color:inherit;padding:0 12px;outline:none}input:focus,select:focus{border-color:var(--accent,#338cff);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent,#338cff) 20%,transparent)}.secret{position:relative}.secret input{padding-right:44px}.secret button{position:absolute;inset-inline-end:5px;top:5px;width:32px;height:32px;border:0;background:transparent;color:#8290a4;cursor:pointer}.secret svg{width:18px;fill:none;stroke:currentColor;stroke-width:1.8}.empty{padding:20px;border:1px dashed var(--border,#314057);border-radius:12px;color:var(--text-muted,#919daf);text-align:center}.form-grid label{min-width:0}.form-grid .wide{grid-column:span 2}.actions{padding-top:18px;border-top:1px solid var(--border,#263244);justify-content:flex-end}button:disabled{opacity:.5;cursor:not-allowed}@media(max-width:760px){.switch-grid,.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}.account-row{grid-template-columns:28px 1fr}.account-row label{grid-column:2}.account-row .remove{grid-column:2;justify-self:start}.page-head{align-items:flex-start}.section-head{align-items:flex-end}}@media(prefers-reduced-motion:no-preference){button{transition:background-color .16s ease-out,border-color .16s ease-out,opacity .16s ease-out}}@media(forced-colors:active){button,input,select,.account-row{border:1px solid CanvasText}}
-</style>
+.result-list{display:grid;gap:8px}.result-row{display:grid;grid-template-columns:minmax(120px,1fr) 90px minmax(120px,1fr);align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border,#263244);border-radius:12px;background:var(--bg-elevated,#111a27)}.result-account{overflow-wrap:anywhere}.result-state{color:#8bd3a9;font-size:13px}.result-state.failed{color:#ff9aa5}.result-points{color:var(--text-muted,#919daf);font-size:13px;font-variant-numeric:tabular-nums}</style>
