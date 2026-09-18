@@ -118,6 +118,15 @@ _CHANGELOG_V2_7_2 = (
 )
 
 
+_CHANGELOG_V2_7_3 = (
+    "v2.7.3 修复 U2 视觉验证识别\n"
+    "- U2 签到验证题改为交给视觉模型判断半透明圆点标出的作品，不再用文字模型猜选项\n"
+    "- 恢复并增强圆点定位高亮，OpenCV 不可用时安全回退原图\n"
+    "- 验证图片按站点模板多种特征定位，日志记录实际使用的来源与图片大小\n"
+    "- 视觉模型不可用或识别失败时仍保留随机兜底，不影响签到流程\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -130,7 +139,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.7.2",
+    "version": "2.7.3",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -162,7 +171,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     # PT 社区常用的 12 个站点置于第一组；其余已有适配站点置于第二组。
@@ -1123,6 +1132,113 @@ def _ai_ocr(ctx, loop, image: bytes, length: int = 6) -> str:
 
 
 
+_U2_CAPTCHA_SELECTORS = (
+    'img[src*="image.php"]', 'img[src*="captcha.php"]', 'img[src*="anidb/"]',
+    'img[alt="captcha"]', 'img[alt*="验证"]', 'img[alt*="CAPTCHA" i]',
+)
+
+
+def _locate_u2_captcha(form):
+    """按站点模板定位验证图片；验证题只以图片承载，表单内不会再有其他图片。"""
+    for selector in _U2_CAPTCHA_SELECTORS:
+        try:
+            node = form.locator(selector).first
+            if node.count() > 0:
+                return node, selector
+        except Exception:
+            continue
+    # 站点改版换掉类名时，回退到挑战表单内的第一张图片。
+    try:
+        fallback = form.locator("img").first
+        if fallback.count() > 0:
+            return fallback, "form img（回退）"
+    except Exception:
+        pass
+    return None, ""
+
+
+def _highlight_u2_marker(image: bytes) -> tuple[bytes, str]:
+    """定位半透明圆点并高亮；OpenCV 不可用或置信度不足时安全回退原图。"""
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        return image, "未能预定位，请直接观察半透明圆点"
+    try:
+        frame = cv2.imdecode(np.frombuffer(image, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if frame is None:
+            return image, "未能预定位，请直接观察半透明圆点"
+        gray = cv2.medianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), 5)
+        height, width = gray.shape[:2]
+        shortest = min(height, width)
+        circles = cv2.HoughCircles(
+            gray, cv2.HOUGH_GRADIENT, dp=1.2, minDist=max(30, shortest // 10),
+            param1=80, param2=28,
+            minRadius=max(12, int(shortest * 0.035)), maxRadius=max(24, int(shortest * 0.085)),
+        )
+        if circles is None:
+            return image, "未能预定位，请直接观察半透明圆点"
+        yy, xx = np.ogrid[:height, :width]
+        ranked = []
+        for raw_x, raw_y, raw_r in circles[0]:
+            mask = (xx - raw_x) ** 2 + (yy - raw_y) ** 2 <= (raw_r * 0.72) ** 2
+            ranked.append((float(gray[mask].std()), int(round(raw_x)), int(round(raw_y)), int(round(raw_r))))
+        # 只有内部纹理明显被压平（方差足够低）时才视为可信圆点，
+        # 避免把错误的红圈画到别的海报上反而误导视觉模型。
+        deviation, x, y, radius = min(ranked)
+        if deviation > 24:
+            return image, "预定位置信度不足，请直接观察半透明圆点"
+        cv2.circle(frame, (x, y), radius + 7, (0, 0, 255), 4)
+        cv2.line(frame, (max(0, x - radius - 12), y), (min(width - 1, x + radius + 12), y), (0, 0, 255), 2)
+        cv2.line(frame, (x, max(0, y - radius - 12)), (x, min(height - 1, y + radius + 12)), (0, 0, 255), 2)
+        ok, encoded = cv2.imencode(".png", frame)
+        horizontal = "左侧" if x < width * 0.45 else ("右侧" if x > width * 0.55 else "水平中央")
+        vertical = "上方" if y < height * 0.4 else ("下方" if y > height * 0.6 else "垂直中央")
+        marker = f"圆点中心在整图{horizontal}{vertical}（x={x}/{width}, y={y}/{height}）"
+        return (bytes(encoded) if ok else image), marker
+    except Exception:
+        return image, "未能预定位，请直接观察半透明圆点"
+
+
+def _u2_vision_prompt(options: list[str], marker: str) -> str:
+    return (
+        "这是 U2 签到验证图，由两张或多张作品海报组成，半透明圆形斑点是目标标记。"
+        "先准确定位圆点覆盖的是哪一张海报，不要被其他海报上更清晰的文字误导；"
+        "再根据该海报的角色、机体、构图和标题线索逐项对比候选作品。"
+        f"程序预定位结果：{marker}；图上如有红圈和十字，它们精确标出了目标圆点。"
+        "可以写简短分析，最后一行必须写 FINAL=编号；无法确认则写 FINAL=0。\n"
+        + "\n".join(f"{i + 1}. {item}" for i, item in enumerate(options))
+    )
+
+
+_U2_VISION_SYSTEM = "先做视觉定位和候选作品对比，再在最后一行输出 FINAL=编号。"
+
+
+def _parse_u2_vision_answer(answer: str, option_count: int) -> int | None:
+    match = re.search(r"FINAL\s*[:=]\s*(\d+)", answer or "", re.IGNORECASE)
+    if not match:
+        return None
+    index = int(match.group(1)) - 1
+    return index if 0 <= index < option_count else None
+
+
+def _ai_u2_image_choice(ctx, loop, image: bytes, options: list[str]) -> int:
+    """用视觉模型判断圆点标出的作品；文字模型看不到图，因此必须走 vision。"""
+    highlighted, marker = _highlight_u2_marker(image)
+    prompt = _u2_vision_prompt(options, marker)
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            answer = _ai_call(ctx, loop, "vision", image=highlighted, prompt=prompt, system=_U2_VISION_SYSTEM)
+            index = _parse_u2_vision_answer(answer, len(options))
+            if index is not None:
+                return index
+            last_error = RuntimeError("模型未返回 FINAL=有效编号")
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到") from last_error
+
+
 def _quiz_checkin(page, site: dict, ctx, loop) -> dict:
     text = _page_text(page)
     if "今天已经签过到了" in text:
@@ -1217,11 +1333,31 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
                     or control.get_attribute("title")
                     or f"选项 {index + 1}"
                 )
-            question = re.sub(r"\s+", " ", _html_visible_text(form.inner_html())).strip()[:2000]
+            captcha, captcha_selector = _locate_u2_captcha(form)
             choice = None
-            if _ai_available(ctx, "text"):
+            if captcha is None:
+                _runtime_log(
+                    ctx,
+                    "U2 未定位到验证图片，改用随机选项提交",
+                    level="warning",
+                    site="U2",
+                )
+            elif not _ai_available(ctx, "vision"):
+                _runtime_log(
+                    ctx,
+                    "平台未配置可用的视觉模型，U2 图片验证改用随机选项提交",
+                    level="warning",
+                    site="U2",
+                )
+            else:
                 try:
-                    choice = _ai_choice(ctx, loop, question or "U2 签到验证题", options)
+                    shot = captcha.screenshot()
+                    _runtime_log(
+                        ctx,
+                        f"U2 读取验证图片（{captcha_selector}，{len(shot)} 字节），交给视觉模型识别",
+                        site="U2",
+                    )
+                    choice = _ai_u2_image_choice(ctx, loop, shot, options)
                     _runtime_log(
                         ctx,
                         f"U2 AI 识别名称：{options[choice]}（选项 {choice + 1}），自动提交",
@@ -1872,6 +2008,27 @@ async def _http_ai_ocr(ctx, image: bytes, length: int = 6) -> str:
 
 
 
+async def _http_ai_u2_image_choice(ctx, image: bytes, options: list[str]) -> int:
+    """HTTP 路径同样用视觉模型判断圆点标出的作品。"""
+    if not _ai_available(ctx, "vision"):
+        raise RuntimeError("平台未配置视觉模型，无法识别 U2 签到验证")
+    highlighted, marker = _highlight_u2_marker(image)
+    prompt = _u2_vision_prompt(options, marker)
+    last_error: Exception | None = None
+    for _ in range(3):
+        try:
+            answer = str(await ctx.ai.vision(
+                image=highlighted, prompt=prompt, system=_U2_VISION_SYSTEM,
+            ) or "").strip()
+            index = _parse_u2_vision_answer(answer, len(options))
+            if index is not None:
+                return index
+            last_error = RuntimeError("模型未返回 FINAL=有效编号")
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError("AI 连续 3 次未能可靠判断 U2 图片选项，未提交签到") from last_error
+
+
 def _soup_value(soup: BeautifulSoup, name: str) -> str:
     node = soup.select_one(f'input[name="{name}"]')
     return str(node.get("value") or "") if node else ""
@@ -2088,12 +2245,35 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             submits = soup.select('input[type="submit"][name]')
             if not req or not hash_value or not form_value or not submits:
                 raise _NeedsBrowser("HTTP 未解析到 U2 签到表单，切换 CloakBrowser")
+            captcha_node = None
+            challenge_form = soup.select_one('form:has(input[name="req"])')
+            for selector in _U2_CAPTCHA_SELECTORS:
+                captcha_node = (challenge_form or soup).select_one(selector)
+                if captcha_node is not None:
+                    break
+            if captcha_node is None and challenge_form is not None:
+                captcha_node = challenge_form.select_one("img")
             options = [str(item.get("value") or item.get("title") or f"选项 {i + 1}") for i, item in enumerate(submits)]
-            question = re.sub(r"\s+", " ", soup.get_text(" ", strip=True)).strip()[:2000]
             choice = None
-            if _ai_available(ctx, "text"):
+            if captcha_node is None:
+                _runtime_log(ctx, "U2 未定位到验证图片，改用随机选项提交", level="warning", site="U2")
+            elif not _ai_available(ctx, "vision"):
+                _runtime_log(
+                    ctx, "平台未配置可用的视觉模型，U2 图片验证改用随机选项提交",
+                    level="warning", site="U2",
+                )
+            else:
                 try:
-                    choice = await _http_ai_choice(ctx, question or "U2 签到验证题", options)
+                    image_url = str(response.url.join(str(captcha_node.get("src") or "")))
+                    image_response = await client.get(image_url)
+                    if image_response.status_code >= 400:
+                        raise RuntimeError(f"下载验证图片失败（HTTP {image_response.status_code}）")
+                    _runtime_log(
+                        ctx,
+                        f"U2 读取验证图片（{len(image_response.content)} 字节），交给视觉模型识别",
+                        site="U2",
+                    )
+                    choice = await _http_ai_u2_image_choice(ctx, image_response.content, options)
                     _runtime_log(ctx, f"U2 AI 识别名称：{options[choice]}（选项 {choice + 1}），自动提交", site="U2")
                 except Exception as exc:
                     _runtime_log(ctx, f"U2 AI 识别失败：{exc}，改用随机选项提交", level="warning", site="U2")
