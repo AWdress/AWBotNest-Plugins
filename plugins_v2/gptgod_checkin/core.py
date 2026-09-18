@@ -11,10 +11,10 @@ import time
 __plugin__ = {
     "name": "GPT-GOD 自动签到",
     "id": "gptgod_checkin",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "author": "AWdress",
     "description": "使用平台托管浏览器为多个 GPT-GOD 账号定时自动签到，支持每日时分、Cron、独立会话复用、立即签到和汇总通知，通知附带各账号剩余积分。",
-    "changelog": "v2.1.0 恢复剩余积分读取与通知\n- 签到完成后重新读取各账号“当前可用积分”，并写入签到结果与历史记录\n- 汇总通知新增“剩余积分”列，未读取到时明确显示未读取\n- 兼容全角标点与 万/K/W 单位，Docker 下积分卡片拆分节点时定向拼接读取\n- 积分读取失败不影响签到结果，仅记录日志\n\nv2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\nv2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
+    "changelog": "v2.1.1 修复英文界面下积分读取失败\n- 平台托管浏览器默认 en-US，站点渲染英文界面导致中文正则全部落空\n- 首选站点接口 /api/user/info 的 data.tokens，与界面语言无关\n- 兜底按积分卡片结构读取，并补充 Available/Current/Remaining Credits 等英文文案\n- 本地使用真实账号验证 zh-CN 与 en-US 均可正确读取\n\nv2.1.0 恢复剩余积分读取与通知\n- 签到完成后重新读取各账号“当前可用积分”，并写入签到结果与历史记录\n- 汇总通知新增“剩余积分”列，未读取到时明确显示未读取\n- 兼容全角标点与 万/K/W 单位，Docker 下积分卡片拆分节点时定向拼接读取\n- 积分读取失败不影响签到结果，仅记录日志\n\nv2.0.4 恢复多账号列表配置\n- 恢复逐个添加、删除 GPT-GOD 账号的配置方式\n- 整个账号列表按敏感字段受控读取，每个密码默认隐藏并可单独显示\n- 自动将 2.0.3 单行账号配置还原为列表，不丢失已保存账号\n\nv2.0.3 适配平台敏感配置规范\n- 多账号凭据整体脱敏，避免嵌套列表密码经配置接口泄露\n\nv2.0.2 新增双定时方式\n- 可选择每天指定时分或标准五段 Cron 表达式\n- 非法 Cron 会记录明确错误且不影响插件启用和手动签到\n\nv1.1.9 修复定时签到完成后仍显示运行中\n- 定时触发改为投递平台托管后台任务，避免浏览器或通知收尾占住计划任务状态\n- 签到结果通知增加 30 秒超时，不再无限等待\n\nv1.1.8 修复新版福利页误点快捷入口\n- 严格匹配‘签到 领取 N 积分’按钮，不再误点‘签到 / 兑换码’快捷入口\n- 本地使用真实账号完成首次签到并取得服务端 success 回执\n- 二次运行正确识别今天已签到，不会重复提交\n\nv1.1.7 适配 GPT-GOD 新版签到回执\n- 兼容空 2xx、纯文本与 JSON 三类响应\n- 修复 JSON 解析失败时丢弃成功 HTTP 状态导致的误报失败",
     "icon": "https://gptgod.online/favicon.ico",
     "scope": "standalone",
     "min_platform_version": "1.1.4.0",
@@ -281,75 +281,107 @@ def _loading_error(page, area: str) -> RuntimeError:
 
 
 def _extract_points(text: str) -> str | None:
-    """从签到页文字提取当前可用积分，兼容全角标点与 万/K/W 单位。"""
-    normalized = str(text or "").replace("，", ",").replace("\u00a0", " ")
+    """从页面文字提取当前可用积分，兼容中英文界面与全角标点、万/K/W 单位。"""
+    normalized = str(text or "").replace("，", ",").replace(" ", " ")
     patterns = (
         r"当前可用积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
         r"(?:剩余|可用)积分[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*(?:积分)?(?:\s|$)",
         r"当前可用积分[\s\S]{0,30}?([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?\s*积分",
+        r"(?:Available|Current|Remaining)\s+Credits[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
+        r"(?:Credits?|Points?)\s+Left[\s:：]*([\d, ]+(?:\.\d+)?)\s*(万|[KkWw])?",
     )
     for pattern in patterns:
-        match = re.search(pattern, normalized, re.MULTILINE)
+        match = re.search(pattern, normalized, re.IGNORECASE | re.MULTILINE)
         if not match:
             continue
-        raw_value = re.sub(r"\s+", "", match.group(1).replace(",", ""))
-        try:
-            unit = str(match.group(2) or "").casefold()
-            if unit == "万" or unit == "w":
-                value = int(float(raw_value) * 10_000)
-            elif unit == "k":
-                value = int(float(raw_value) * 1_000)
-            else:
-                value = int(float(raw_value))
-        except (TypeError, ValueError):
-            continue
-        return f"{value:,}"
+        value = _normalize_points_value(match.group(1), match.group(2))
+        if value is not None:
+            return value
     return None
+
+
+def _normalize_points_value(raw, unit):
+    """把抓到的数字与单位换算成带千分位的积分数值。"""
+    digits = re.sub(r"\s+", "", str(raw or "").replace(",", ""))
+    if not digits:
+        return None
+    try:
+        suffix = str(unit or "").casefold()
+        if suffix in {"万", "w"}:
+            value = int(float(digits) * 10_000)
+        elif suffix == "k":
+            value = int(float(digits) * 1_000)
+        else:
+            value = int(float(digits))
+    except (TypeError, ValueError):
+        return None
+    return f"{value:,}"
+
+
+# 积分卡片由站点自身类名承载，与界面语言无关，优先按结构读取。
+_POINTS_SCRIPT = """() => {
+    const visible = (node) => {
+        if (!node || !node.getBoundingClientRect) return false;
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden'
+            && box.width > 0 && box.height > 0;
+    };
+    const classes = ['balanceValue', 'balanceValueRow', 'balanceMain', 'balanceMetric'];
+    for (const name of classes) {
+        for (const node of document.querySelectorAll('[class*="' + name + '"]')) {
+            if (!visible(node)) continue;
+            const text = (node.innerText || '').trim();
+            if (text) return text;
+        }
+    }
+    return '';
+}"""
 
 
 def _extract_points_from_page(page) -> str | None:
     points = _extract_points(_page_text(page))
     if points:
         return points
-    # 部分 Docker 视口下积分卡片被拆成多个节点；定向拼接标签附近内容。
+    # 中英文文案都可能变化，再按站点自身积分卡片结构读取。
     try:
-        nearby_text = page.evaluate("""() => {
-            const visible = (node) => {
-                if (!node || !node.getBoundingClientRect) return false;
-                const style = getComputedStyle(node);
-                const box = node.getBoundingClientRect();
-                return style.display !== 'none' && style.visibility !== 'hidden'
-                    && box.width > 0 && box.height > 0;
-            };
-            const nodes = [...document.querySelectorAll('div,section,article,span,p')];
-            const label = nodes.find((node) => visible(node)
-                && (node.innerText || '').trim() === '当前可用积分');
-            if (!label) return '';
-            const pieces = [label.innerText || ''];
-            let current = label;
-            for (let i = 0; i < 4 && current; i += 1) {
-                if (current.parentElement && visible(current.parentElement)) {
-                    pieces.push(current.parentElement.innerText || '');
-                }
-                if (current.nextElementSibling && visible(current.nextElementSibling)) {
-                    pieces.push(current.nextElementSibling.innerText || '');
-                }
-                current = current.parentElement;
-            }
-            return pieces.join('\n');
+        card_text = str(page.evaluate(_POINTS_SCRIPT) or "")
+    except Exception:  # noqa: BLE001 - 引擎不支持时退回文字匹配
+        card_text = ""
+    points = _extract_points(card_text)
+    if points:
+        return points
+    if card_text.strip():
+        match = re.search(r"([\d,]+(?:\.\d+)?)\s*(万|[KkWw])?", card_text)
+        if match:
+            return _normalize_points_value(match.group(1), match.group(2))
+    return None
+
+
+def _points_from_api(page) -> str | None:
+    """站点接口 /api/user/info 返回 tokens，与界面语言无关，最可靠。"""
+    try:
+        raw = page.evaluate("""async () => {
+            const response = await fetch('/api/user/info', {credentials: 'include'});
+            if (!response.ok) return '';
+            const payload = await response.json();
+            const value = payload && payload.data && payload.data.tokens;
+            return value === undefined || value === null ? '' : String(value);
         }""")
-        return _extract_points(str(nearby_text or ""))
-    except Exception:  # noqa: BLE001 - DOM 定向读取失败时放弃本次积分读取
+    except Exception:  # noqa: BLE001 - 接口不可用时退回页面读取
         return None
+    digits = str(raw or "").strip().replace(",", "")
+    if not digits or not re.fullmatch(r"\d+(?:\.\d+)?", digits):
+        return None
+    return _normalize_points_value(digits, None)
 
 
 def _read_current_points(page, timeout_ms: int = 15_000, trace=None) -> str | None:
     trace = trace or (lambda _message: None)
     trace("开始读取当前积分")
-    # 签到完成后的页面已包含“当前可用积分”，先等待异步卡片挂载。
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
-        points = _extract_points_from_page(page)
+        points = _points_from_api(page) or _extract_points_from_page(page)
         if points:
             trace(f"已读取当前积分：{points}")
             return points
@@ -357,7 +389,7 @@ def _read_current_points(page, timeout_ms: int = 15_000, trace=None) -> str | No
             trace("读取积分时会话失效并返回登录页")
             return None
         page.wait_for_timeout(500)
-    trace("当前页面未找到积分卡片，清理前端缓存后重载一次")
+    trace("当前页面未找到积分，清理前端缓存后重载一次")
     try:
         _clear_site_frontend_cache(page)
         _goto_fresh(page, WELFARE_URL)
@@ -366,7 +398,7 @@ def _read_current_points(page, timeout_ms: int = 15_000, trace=None) -> str | No
     # 重载兜底只再等一半时间，避免在平台浏览器 240 秒超时内挤占签到收尾。
     retry_deadline = time.monotonic() + max(timeout_ms / 2000, 5)
     while time.monotonic() < retry_deadline:
-        points = _extract_points_from_page(page)
+        points = _points_from_api(page) or _extract_points_from_page(page)
         if points:
             trace(f"重载后已读取当前积分：{points}")
             return points
@@ -374,7 +406,7 @@ def _read_current_points(page, timeout_ms: int = 15_000, trace=None) -> str | No
             trace("重载积分页后会话失效并返回登录页")
             return None
         page.wait_for_timeout(500)
-    trace("积分读取超时：页面未匹配到当前可用积分")
+    trace("积分读取超时：页面与接口均未返回可用积分")
     return None
 
 
