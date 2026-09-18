@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'Emby 工具箱',
  'id': 'emby_toolbox',
- 'version': '2.1.5',
+ 'version': '2.1.6',
  'author': 'AWdress',
  'description': '集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。',
  'icon': 'https://cdn.simpleicons.org/emby',
@@ -91,6 +91,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'Emby 工具箱'
 __plugin__["changelog"] = (
+    'v2.1.6 修复别名与分类封面实际写入\n'
+    '- 别名写入改用 Emby 实际持久化的 ForcedSortName，并在完整条目上回读确认\n'
+    '- 别名缓存升级后自动失效，避免旧缓存跳过修复\n'
+    '- 分类封面上传后回读 ImageTags/ImageInfos，HTTP 204 但未落库时计为失败\n\n'
     'v2.1.5 新增本地模板分类封面\n'
     '- 使用 Pillow 固定模板生成 Genre/Tag 封面，不调用 AI\n'
     '- 支持仅 Genre、仅 Tag 或两类一起生成，并通过原配置反代上传 Emby\n\n'

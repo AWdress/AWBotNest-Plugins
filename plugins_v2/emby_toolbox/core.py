@@ -7,7 +7,7 @@
 # 3. Genre 映射 / 删除
 # 4. 季名刮削（TMDB）
 # 5. 国家 / 语言转 Tag（TMDB）
-# 6. 别名写入 SortName（TMDB）
+# 6. 别名写入 ForcedSortName（TMDB）
 # 7. STRM MediaInfo 刷新
 # 8. 元数据缺失检查
 #
@@ -27,7 +27,7 @@ import time
 from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 
@@ -36,7 +36,7 @@ from .cover_templates import render_cover
 __plugin__ = {
     "name": "Emby 工具箱",
     "id": "emby_toolbox",
-    "version": "2.1.5",
+    "version": "2.1.6",
     "author": "AWdress",
     "description": "集成 Emby 剧集校验、Genre 清理/映射、季名刮削、国家语言 Tag、别名写入、STRM 刷新、元数据缺失检查等维护功能。支持定时执行与完整日志。",
     "icon": "https://cdn.simpleicons.org/emby",
@@ -89,6 +89,10 @@ DEFAULTS: Dict[str, Any] = {
 # Keep the module metadata and the marketplace manifest in sync without
 # duplicating the historical release notes below.
 __plugin__["changelog"] = (
+    "v2.1.6 修复别名与分类封面实际写入\n"
+    "- 别名写入改用 Emby 实际持久化的 ForcedSortName，并在完整条目上回读确认\n"
+    "- 别名缓存升级后自动失效，避免旧缓存跳过修复\n"
+    "- 分类封面上传后回读 ImageTags/ImageInfos，HTTP 204 但未落库时计为失败\n\n"
     "v2.1.5 新增本地模板分类封面\n"
     "- 使用 Pillow 固定模板生成 Genre/Tag 封面，不调用 AI\n"
     "- 支持仅 Genre、仅 Tag 或两类一起生成，并通过原配置反代上传 Emby\n\n"
@@ -151,7 +155,7 @@ _RECENT = deque(maxlen=30)
 # setup 提供的 persist 回调把别名缓存写回平台存储。
 _EMBY_STATE: Dict[str, Any] = {}
 _EMBY_PERSIST = None
-_ALT_CACHE_KEY = 'emby_toolbox.alt_renamer_cache.v1'
+_ALT_CACHE_KEY = 'emby_toolbox.alt_renamer_cache.v2'
 
 
 def _now() -> str:
@@ -328,7 +332,11 @@ def _get_system_item(cfg: Dict[str, Any], item_id: str, user_id: str = "") -> Di
                 collection_url = f"{base}/emby/Items"
                 collection = requests.get(
                     collection_url,
-                    params={'Ids': item_id, 'api_key': cfg['api_key'], 'Fields': 'Genres,GenreItems,Tags,SortName,SeasonName,Name'},
+                    params={
+                        'Ids': item_id,
+                        'api_key': cfg['api_key'],
+                        'Fields': 'Genres,GenreItems,Tags,SortName,ForcedSortName,LockedFields,SeasonName,Name',
+                    },
                     headers=_headers(cfg['api_key']),
                     timeout=30,
                 )
@@ -538,7 +546,7 @@ def _get_lib_items(cfg: Dict[str, Any], parent_id: str) -> List[Dict[str, Any]]:
     """
     url = f"{_base_url(cfg['emby_server'])}/emby/Items"
     fields = (
-        'ProviderIds,SortName,Tags,TagItems,Genres,GenreItems,LockedFields,'
+        'ProviderIds,SortName,ForcedSortName,Tags,TagItems,Genres,GenreItems,LockedFields,'
         'Name,Type,Path,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,'
         'Overview,ProductionYear,PremiereDate,MediaStreams,LocationType'
     )
@@ -1192,6 +1200,43 @@ def _country_scraper(cfg: Dict[str, Any], ctx=None) -> str:
     return result
 
 
+def _split_sort_names(value: Any) -> List[str]:
+    """Split Emby's slash-separated sort title while preserving display text."""
+    return [part.strip() for part in str(value or '').split(' / ') if part and part.strip()]
+
+
+def _alias_value_matches(value: Any, expected: str) -> bool:
+    """Accept Emby-normalized sort text while requiring every alias."""
+    got = _split_sort_names(value)
+    wanted = _split_sort_names(expected)
+    if not wanted:
+        return False
+    got_folded = {part.casefold() for part in got}
+    return all(part.casefold() in got_folded for part in wanted)
+
+
+def _update_alias_verified(
+    cfg: Dict[str, Any],
+    item: Dict[str, Any],
+    expected: str,
+    user_id: str,
+) -> bool:
+    """Update an alias using ForcedSortName and verify the effective value.
+
+    ``SortName`` is a calculated field in Emby and is commonly ignored when
+    sent in ItemUpdateService.  ``ForcedSortName`` is the persisted field.
+    Some older servers omit it from the response, so the calculated SortName
+    remains a compatible verification fallback.
+    """
+    _update_item(cfg, item)
+    verify = _get_system_item(cfg, str(item['Id']), user_id)
+    forced = verify.get('ForcedSortName')
+    sort_name = verify.get('SortName')
+    if forced not in (None, ''):
+        return _alias_value_matches(forced, expected)
+    return _alias_value_matches(sort_name, expected)
+
+
 def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
     libs = _parse_libs(cfg['library_names'])
     if not libs:
@@ -1222,7 +1267,7 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 continue
             is_movie = item0.get('Type') == 'Movie'
             item_key = str(item0.get('Id') or '')
-            current_sort = str(item0.get('SortName') or '')
+            current_sort = str(item0.get('ForcedSortName') or item0.get('SortName') or '')
             cached = cache.get(item_key) if item_key else None
             if (isinstance(cached, dict)
                     and str(cached.get('provider')) == str(provider)
@@ -1245,10 +1290,19 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 alt_names.extend(tmdb['hant_trans'])
             if not alt_names:
                 continue
-            item = item0
+            # The recursive library response is intentionally lightweight and
+            # may omit ForcedSortName/locked metadata.  Read the full
+            # administrator DTO before writing so Emby receives the fields it
+            # actually persists instead of silently ignoring a partial body.
+            try:
+                item = _get_system_item(cfg, item_key, user_id)
+            except Exception as exc:
+                if ctx:
+                    ctx.log.warning(f'[emby_toolbox] 别名写入读取完整条目失败 {item0.get("Name", item_key)}: {exc}')
+                continue
             splitr = ' / '
-            old_sort = item.get('SortName', '') or ''
-            old_names = [n.strip() for n in old_sort.split(splitr) if n and n.strip()] if old_sort else []
+            old_sort = str(item.get('ForcedSortName') or item.get('SortName') or '').strip()
+            old_names = _split_sort_names(old_sort)
             if not old_names and item.get('Name'):
                 old_names = [str(item.get('Name')).strip()]
             existing = set(old_names)
@@ -1269,7 +1323,9 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
                 continue
             if ctx:
                 ctx.log.info(f'[emby_toolbox] 别名写入更新: {item0.get("Name", "未知")} -> {sort_all[:60]}...')
-            item['SortName'] = sort_all
+            # ForcedSortName is the field handled by Emby's
+            # ItemUpdateService.  SortName is calculated by the server and
+            # should not be treated as a writable alias field.
             item['ForcedSortName'] = sort_all
             lf = item.get('LockedFields') or []
             if 'SortName' not in lf:
@@ -1278,16 +1334,14 @@ def _alt_renamer(cfg: Dict[str, Any], ctx=None) -> str:
             if cfg['fix_lock_data']:
                 item['LockData'] = True
             try:
-                confirmed = _update_item_verified(
-                    cfg, item, {'SortName': sort_all, 'ForcedSortName': sort_all}, user_id
-                )
+                confirmed = _update_alias_verified(cfg, item, sort_all, user_id)
             except Exception as exc:
                 confirmed = False
                 if ctx:
                     ctx.log.warning(f'[emby_toolbox] 别名写入失败 {item0.get("Name", "未知")}: {exc}')
             if not confirmed:
                 if ctx:
-                    ctx.log.warning(f'[emby_toolbox] 别名写入回读未生效: {item0.get("Name", "未知")}')
+                    ctx.log.warning(f'[emby_toolbox] 别名写入回读未生效（ForcedSortName/SortName）: {item0.get("Name", "未知")}')
                 continue
             count += 1
             if item_key:
@@ -1432,7 +1486,7 @@ def _category_types(raw: str) -> List[str]:
 def _get_category_items(cfg: Dict[str, Any], kind: str, ctx=None) -> List[Dict[str, Any]]:
     """Read Emby's Genre/Tag entities, preserving the configured reverse proxy."""
     endpoint = '/emby/Genres' if kind == 'genre' else '/emby/Tags'
-    fields = 'Name,Type,ImageTags'
+    fields = 'Name,Type,Path,ImageTags,ImageInfos'
     last_error: Optional[Exception] = None
     for base in _server_candidates(cfg):
         result: List[Dict[str, Any]] = []
@@ -1470,8 +1524,70 @@ def _get_category_items(cfg: Dict[str, Any], kind: str, ctx=None) -> List[Dict[s
     return []
 
 
-def _upload_category_cover(cfg: Dict[str, Any], item: Dict[str, Any], kind: str, ctx=None) -> None:
-    """Upload one deterministic PNG to Emby's Primary image endpoint."""
+def _category_image_state(
+    cfg: Dict[str, Any],
+    item: Dict[str, Any],
+    kind: str,
+) -> Dict[str, Any]:
+    """Read a category's persisted Primary image metadata.
+
+    Genre/Tag rows are virtual entities on some Emby builds, where
+    ``GET /Items/{id}`` is not exposed even though ``Items?Ids=...`` works.
+    Try both forms and return a normalized state so a successful-looking 204
+    cannot be counted until Emby reports an actual Primary image.
+    """
+    item_id = str(item.get('Id') or '').strip()
+    if not item_id:
+        raise ValueError('分类缺少 Id')
+    fields = 'Name,Type,Path,ImageTags,ImageInfos'
+    last_error: Optional[Exception] = None
+    for base in _server_candidates(cfg):
+        endpoints = (
+            (f'{base}/emby/Items/{item_id}', {'api_key': cfg['api_key'], 'Fields': fields}),
+            (f'{base}/Items/{item_id}', {'api_key': cfg['api_key'], 'Fields': fields}),
+            (f'{base}/emby/Items', {'api_key': cfg['api_key'], 'Ids': item_id, 'Fields': fields}),
+            (f'{base}/Items', {'api_key': cfg['api_key'], 'Ids': item_id, 'Fields': fields}),
+        )
+        for url, params in endpoints:
+            try:
+                response = requests.get(
+                    url, params=params, headers=_headers(cfg['api_key']), timeout=30,
+                )
+                response.raise_for_status()
+                payload = response.json() if response.content else {}
+                if isinstance(payload, dict) and isinstance(payload.get('Items'), list):
+                    payload = payload['Items'][0] if payload['Items'] else {}
+                if not isinstance(payload, dict) or not payload:
+                    continue
+                tags = payload.get('ImageTags')
+                primary_tag = tags.get('Primary') if isinstance(tags, dict) else None
+                if not primary_tag:
+                    infos = payload.get('ImageInfos')
+                    if isinstance(infos, list):
+                        for info in infos:
+                            if not isinstance(info, dict):
+                                continue
+                            image_type = str(info.get('Type') or info.get('ImageType') or '').casefold()
+                            if image_type == 'primary':
+                                primary_tag = info.get('ImageTag') or info.get('Tag')
+                                if primary_tag:
+                                    break
+                cfg['_active_server'] = base
+                return {
+                    'item': payload,
+                    'has_primary': bool(primary_tag),
+                    'primary_tag': str(primary_tag or ''),
+                }
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                last_error = exc
+                continue
+    if last_error:
+        raise RuntimeError(f'读取分类封面状态失败（{item.get("Name", item_id)}）：{last_error}') from last_error
+    raise RuntimeError(f'读取分类封面状态失败（{item.get("Name", item_id)}）')
+
+
+def _upload_category_cover(cfg: Dict[str, Any], item: Dict[str, Any], kind: str, ctx=None) -> Dict[str, Any]:
+    """Upload one deterministic PNG and verify Emby persisted Primary image."""
     item_id = str(item.get('Id') or '').strip()
     title = str(item.get('Name') or '').strip() or '未命名'
     if not item_id:
@@ -1484,23 +1600,48 @@ def _upload_category_cover(cfg: Dict[str, Any], item: Dict[str, Any], kind: str,
         'X-Emby-Token': cfg['api_key'], 'Content-Type': 'image/png',
         'Accept': 'application/json',
     }
+    before: Optional[Dict[str, Any]] = None
+    try:
+        before = _category_image_state(cfg, item, kind)
+    except Exception:
+        # A missing/unsupported read route is not fatal yet; the upload below
+        # may expose a route that can be verified afterwards.
+        before = None
     last_error: Optional[Exception] = None
+    category_path = quote(title, safe='')
     for base in _server_candidates(cfg):
         # Most installations expose /emby; the second route handles older
-        # reverse proxies that strip that prefix while keeping the same host.
-        for path in (f'/emby/Items/{item_id}/Images/Primary', f'/Items/{item_id}/Images/Primary'):
+        # reverse proxies that strip that prefix.  Genre/Tag name routes are
+        # supported by Emby builds that represent categories as virtual rows.
+        paths = (
+            f'/emby/Items/{item_id}/Images/Primary',
+            f'/Items/{item_id}/Images/Primary',
+            f'/emby/{"Genres" if kind == "genre" else "Tags"}/{category_path}/Images/Primary',
+            f'/{"Genres" if kind == "genre" else "Tags"}/{category_path}/Images/Primary',
+        )
+        for path in paths:
             try:
                 response = requests.post(
                     f'{base}{path}', params={'api_key': cfg['api_key']},
                     headers=headers, data=payload, timeout=60,
                 )
                 response.raise_for_status()
+                state = _category_image_state(cfg, item, kind)
+                if not state.get('has_primary'):
+                    last_error = RuntimeError('Emby 返回成功但未发现 Primary 图片')
+                    continue
                 cfg['_active_server'] = base
-                return
-            except requests.RequestException as exc:
+                return {
+                    'image_tag': state.get('primary_tag', ''),
+                    'changed': bool(
+                        not before or not before.get('has_primary')
+                        or state.get('primary_tag') != before.get('primary_tag')
+                    ),
+                }
+            except (requests.RequestException, RuntimeError, ValueError, TypeError) as exc:
                 last_error = exc
-                status = getattr(exc.response, 'status_code', None)
-                if status not in (404, 405):
+                status = getattr(getattr(exc, 'response', None), 'status_code', None)
+                if status not in (None, 404, 405):
                     break
     if last_error:
         raise RuntimeError(f'上传分类封面失败（{title}）：{last_error}') from last_error
@@ -1521,8 +1662,13 @@ def _category_covers(cfg: Dict[str, Any], ctx=None) -> str:
         totals[kind] = len(items)
         for index, item in enumerate(items, 1):
             try:
-                _upload_category_cover(cfg, item, kind, ctx)
+                state = _upload_category_cover(cfg, item, kind, ctx)
                 uploaded[kind] += 1
+                if ctx and not state.get('changed'):
+                    ctx.log.info(
+                        f'[emby_toolbox] 分类封面已确认（内容未变化）: '
+                        f'{item.get("Name", "未知")} / Primary={state.get("image_tag", "未知")}'
+                    )
             except Exception as exc:
                 if 'Object reference not set' in str(exc):
                     # Emby 4.9 exposes Genre/Tag rows as virtual entities
