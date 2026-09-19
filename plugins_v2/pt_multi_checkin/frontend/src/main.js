@@ -30,7 +30,6 @@ const demoHost = {
       { key: 'hdchina', name: '高清中国', domain: 'hdchina.org', group: '其他站点' },
       { key: 'hdcity', name: '高清城市', domain: 'hdcity.city', group: '其他站点' },
       { key: 'hdupt', name: '北邮人', domain: 'pt.hdupt.com', group: '其他站点' },
-      { key: 'nexushd', name: '红豆', domain: 'v6.nexushd.org', group: '其他站点' },
       { key: 'pttime', name: 'PT时间', domain: 'pttime.org', group: '其他站点' },
       { key: 'yema', name: '野马', domain: 'yemapt.org', group: '其他站点' },
       { key: 'zhuque', name: '朱雀', domain: 'zhuque.in', group: '其他站点' },

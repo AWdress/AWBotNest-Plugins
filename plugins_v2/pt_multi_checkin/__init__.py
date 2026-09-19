@@ -5,11 +5,11 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'PT站自动签到',
  'id': 'pt_multi_checkin',
- 'version': '2.7.3',
+ 'version': '2.7.4',
  'author': 'AWdress',
  'description': '多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg',
- 'changelog': 'v2.7.3 修复 U2 视觉验证识别\n- U2 签到验证题改为交给视觉模型判断半透明圆点标出的作品，不再用文字模型猜选项\n- 恢复并增强圆点定位高亮，OpenCV 不可用时安全回退原图\n- 验证图片按站点模板多种特征定位，日志记录实际使用的来源与图片大小\n- 视觉模型不可用或识别失败时仍保留随机兜底，不影响签到流程\n\nv2.7.2 增加大青虫签到\n'
+ 'changelog': 'v2.7.4 增加失败站点延迟补签\n- 单站失败后立即记录并继续处理下一站，不中断整轮签到\n- 首轮结束 30 分钟后仅重试失败站点一次，补签完成后结束且不循环重试\n- U2 自动签到留言统一填写“一切随缘~”，通知仅显示签到成功或签到失败\n- 单站失败后立即记录并继续处理下一站，不中断整轮签到\n- 首轮结束 30 分钟后仅重试失败站点一次，补签完成后结束且不循环重试\n\nv2.7.3 修复 U2 视觉验证识别\n- U2 签到验证题改为交给视觉模型判断半透明圆点标出的作品，不再用文字模型猜选项\n- 恢复并增强圆点定位高亮，OpenCV 不可用时安全回退原图\n- 验证图片按站点模板多种特征定位，日志记录实际使用的来源与图片大小\n- 视觉模型不可用或识别失败时仍保留随机兜底，不影响签到流程\n\nv2.7.2 增加大青虫签到\n'
               '- 新增 CyanBug（cyanbug.net）通用 PT 签到适配\n'
               '\n'
               'v2.7.1 增加红豆饭、织梦、麒麟签到\n'
@@ -220,8 +220,6 @@ __plugin__ = {'name': 'PT站自动签到',
                     '*.hdkyl.in',
                     'cyanbug.net',
                     '*.cyanbug.net',
-                    'v6.nexushd.org',
-                    '*.v6.nexushd.org',
                     'open.cd',
                     '*.open.cd',
                     'pterclub.net',

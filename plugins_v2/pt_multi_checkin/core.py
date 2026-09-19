@@ -127,6 +127,14 @@ _CHANGELOG_V2_7_3 = (
 )
 
 
+_CHANGELOG_V2_7_4 = (
+    "v2.7.4 增加失败站点延迟补签\n"
+    "- 单站失败后立即记录并继续处理下一站，不中断整轮签到\n"
+    "- 首轮结束 30 分钟后仅重试失败站点一次，补签完成后结束且不循环重试\n\n"
+    "- U2 自动签到留言统一填写‘一切随缘~’\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -139,7 +147,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.7.3",
+    "version": "2.7.4",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -159,7 +167,7 @@ __plugin__ = {
         "pt.hdupt.com", "*.pt.hdupt.com", "hdhome.org", "*.hdhome.org",
         "hdfans.org", "*.hdfans.org", "zmpt.cc", "*.zmpt.cc", "hdkyl.in", "*.hdkyl.in",
         "cyanbug.net", "*.cyanbug.net",
-        "v6.nexushd.org", "*.v6.nexushd.org", "open.cd", "*.open.cd",
+        "open.cd", "*.open.cd",
         "pterclub.net", "*.pterclub.net", "pttime.org", "*.pttime.org",
         "totheglory.im", "*.totheglory.im", "u2.dmhy.org", "*.u2.dmhy.org",
         "yemapt.org", "*.yemapt.org", "zhuque.in", "*.zhuque.in",
@@ -171,7 +179,7 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_7_4 + _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     # PT 社区常用的 12 个站点置于第一组；其余已有适配站点置于第二组。
@@ -199,7 +207,6 @@ SITES = {
     "hdchina": {"name": "高清中国", "domain": "hdchina.org", "url": "https://hdchina.org/index.php", "mode": "hdchina", "group": "其他站点"},
     "hdcity": {"name": "高清城市", "domain": "hdcity.city", "url": "https://hdcity.city/sign", "mode": "direct", "group": "其他站点"},
     "hdupt": {"name": "北邮人", "domain": "pt.hdupt.com", "url": "https://pt.hdupt.com", "mode": "hdupt", "group": "其他站点"},
-    "nexushd": {"name": "红豆", "domain": "v6.nexushd.org", "url": "https://v6.nexushd.org", "mode": "nexushd", "group": "其他站点"},
     "pttime": {"name": "PT时间", "domain": "pttime.org", "url": "https://www.pttime.org/attendance.php", "mode": "pttime", "group": "其他站点"},
     "yema": {"name": "野马", "domain": "yemapt.org", "url": "https://yemapt.org/api/consumer/checkIn", "mode": "yema", "group": "其他站点"},
     "zhuque": {"name": "朱雀", "domain": "zhuque.in", "url": "https://zhuque.in", "mode": "zhuque", "group": "其他站点"},
@@ -217,6 +224,7 @@ DEFAULTS = {
 
 _run_lock: asyncio.Lock | None = None
 _tasks: set[asyncio.Task] = set()
+_failed_retry_tasks: dict[str, asyncio.Task] = {}
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
 _tjupt_pending: dict[str, dict] = {}
@@ -232,6 +240,7 @@ _storage_tasks: set[asyncio.Task] = set()
 
 _TURNSTILE_TIMEOUT_SECONDS = 90
 _TURNSTILE_AUTO_GRACE_SECONDS = 8
+_FAILED_RETRY_DELAY_SECONDS = 30 * 60
 _CLOUDFLARE_SESSION_COOKIES = {"cf_clearance", "__cf_bm"}
 
 
@@ -490,6 +499,57 @@ def _task_done(task: asyncio.Task) -> None:
         _state.update({"running": False, "phase": "异常", "message": f"后台任务异常：{error}", "current": ""})
 
 
+def _schedule_failed_retry(ctx, failed_keys: list[str]) -> bool:
+    """Schedule one delayed, single-attempt pass for each failed site."""
+    batch = tuple(dict.fromkeys(
+        str(key) for key in failed_keys
+        if str(key) and not (
+            _failed_retry_tasks.get(str(key)) is not None
+            and not _failed_retry_tasks[str(key)].done()
+        )
+    ))
+    if not batch:
+        _runtime_log(ctx, "失败站点均已有待执行的 30 分钟补签任务，不重复安排")
+        return False
+
+    configured = _configured_sites(_cfg(ctx))
+    names = [configured[key]["name"] for key in batch if key in configured]
+    label = "、".join(names) or "、".join(batch)
+
+    async def delayed_retry() -> dict:
+        _runtime_log(ctx, f"失败站点将在 30 分钟后仅补签一次：{label}", level="warning")
+        await asyncio.sleep(_FAILED_RETRY_DELAY_SECONDS)
+        _runtime_log(ctx, f"开始失败站点补签，仅处理：{label}")
+        result = await _run(
+            ctx,
+            "失败站点补签",
+            list(batch),
+            schedule_failed_retry=False,
+            wait_for_lock=True,
+            retry_count_override=0,
+        )
+        _runtime_log(
+            ctx,
+            "失败站点补签已结束，不再继续安排重试",
+            level="success" if result.get("ok") else "warning",
+        )
+        return result
+
+    task = ctx.create_task(delayed_retry(), name="PT站失败站点30分钟补签")
+    for key in batch:
+        _failed_retry_tasks[key] = task
+    _tasks.add(task)
+
+    def done(finished: asyncio.Task) -> None:
+        for key in batch:
+            if _failed_retry_tasks.get(key) is finished:
+                _failed_retry_tasks.pop(key, None)
+        _task_done(finished)
+
+    task.add_done_callback(done)
+    return True
+
+
 def _bounded(value, default: int, low: int, high: int) -> int:
     try:
         return max(low, min(high, int(value)))
@@ -596,6 +656,18 @@ def _html_visible_text(html: str) -> str:
     soup = BeautifulSoup(html or "", "html.parser")
     for node in soup.select("script, style, template, noscript"):
         node.decompose()
+    for node in soup.find_all(True):
+        attrs = node.attrs or {}
+        style = str(attrs.get("style") or "").replace(" ", "").lower()
+        classes = " ".join(str(value) for value in (attrs.get("class") or []))
+        if (
+            attrs.get("hidden") is not None
+            or str(attrs.get("aria-hidden") or "").lower() == "true"
+            or "display:none" in style
+            or "visibility:hidden" in style
+            or re.search(r"(?:^|\s)(?:hidden|d-none|invisible)(?:\s|$)", classes, re.IGNORECASE)
+        ):
+            node.decompose()
     return soup.get_text("\n", strip=True)
 
 
@@ -670,27 +742,29 @@ def _u2_result_state(text: str, *, submitted: bool = False) -> tuple[str, str] |
     # 必须在 Wrong answer 等通用错误词之前识别这类成功回执。
     challenge_form_present = bool(re.search(r'name\s*=\s*["\']req["\']', raw, re.IGNORECASE))
     award_match = re.search(r"(\d+(?:\.\d+)?)\s*ucoin", compact, re.IGNORECASE)
+    correct_answer = bool(re.search(
+        r"(?:回答|答案)(?:正确|正確)\s*[!！]", visible, re.IGNORECASE
+    ))
+    actual_wrong_answer = bool(re.search(
+        r"(?:回答|答案)(?:错误|錯誤)(?=\s*(?:[!！,，。:：]|获得|獲得|$))",
+        compact,
+        re.IGNORECASE,
+    )) or any(marker in compact for marker in ("wronganswer", "incorrectanswer"))
+    if correct_answer:
+        return "success", "签到成功（回答正确）"
     wrong_but_awarded = (
         not challenge_form_present
-        and any(marker in compact for marker in (
-            "回答错误", "回答錯誤", "答案错误", "答案錯誤",
-            "wronganswer", "incorrectanswer",
-        ))
+        and actual_wrong_answer
         and award_match is not None
     )
     if wrong_but_awarded:
         return "success", f"签到成功（回答错误，获得 {award_match.group(1)} UCoin）"
-    wrong_answer = any(marker in compact for marker in (
-        "回答错误", "回答錯誤", "答案错误", "答案錯誤",
-        "wronganswer", "incorrectanswer",
-    ))
-    if submitted and wrong_answer:
+    if submitted and actual_wrong_answer:
         return "success", "签到成功（回答错误，获得 1 UCoin）"
     if any(marker in compact for marker in (
-        "签到失败", "簽到失敗", "验证失败", "驗證失敗", "答案错误", "答案錯誤",
-        "wronganswer", "incorrectanswer", "invalidcaptcha", "captchaexpired",
+        "签到失败", "簽到失敗", "验证失败", "驗證失敗", "invalidcaptcha", "captchaexpired",
         "请求已过期", "請求已過期", "操作频繁", "操作頻繁", "请稍后再试", "請稍後再試",
-    )) or re.search(r'"status"\s*:\s*"error"', raw, re.IGNORECASE):
+    )) or actual_wrong_answer or re.search(r'"status"\s*:\s*"error"', raw, re.IGNORECASE):
         return "failed", "U2 未接受本次签到验证答案"
     if re.search(r"[\[【]\s*(?:已签到|已簽到)\s*[\]】]", visible, re.IGNORECASE) or any(marker in compact for marker in (
         "感谢，今天已签到", "感謝，今天已簽到", "今天已经签到", "今天已經簽到",
@@ -715,7 +789,7 @@ def _u2_submit_with_browser(page, submit) -> str:
         if (!form) throw new Error('submit control has no form');
         const message = form.querySelector('[name="message"]');
         if (message && !String(message.value || '').trim()) {
-            message.value = '每日自动签到';
+            message.value = '一切随缘~';
             message.dispatchEvent(new Event('input', {bubbles: true}));
             message.dispatchEvent(new Event('change', {bubbles: true}));
         }
@@ -1428,9 +1502,6 @@ def _special_checkin(page, key: str, site: dict, ctx, loop) -> dict:
         if any(ch.isdigit() for ch in _page_text(page)):
             return {"status": "success", "message": "签到成功"}
         raise RuntimeError("HDU PT 签到接口返回异常")
-    if mode == "nexushd":
-        result = _fetch_same_origin(page, "https://v6.nexushd.org/signin.php", method="POST", data={"action": "post", "content": ""})
-        return _response_result(result.get("text", ""), success=("本次签到获得",), already=("你今天已经签到过了",))
     if mode == "pterclub":
         return _response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过"))
     if mode == "ttg":
@@ -2131,9 +2202,6 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             if any(char.isdigit() for char in BeautifulSoup(body, "html.parser").get_text(" ")):
                 return {"status": "success", "message": "签到成功", "engine": "http"}
             raise RuntimeError("HDU PT 签到接口返回异常")
-        if mode == "nexushd":
-            _, body = await post("https://v6.nexushd.org/signin.php", data={"action": "post", "content": ""})
-            return {**_response_result(body, success=("本次签到获得",), already=("你今天已经签到过了",)), "engine": "http"}
         if mode == "pterclub":
             return {**_response_result(text, success=('"status":"1"', "签到已成功"), already=('"status":"0"', "已经签到过")), "engine": "http"}
         if mode == "ttg":
@@ -2282,7 +2350,7 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
             submit = submits[choice]
             post_response, body = await post(
                 "https://u2.dmhy.org/showup.php?action=show",
-                data={"req": req, "hash": hash_value, "form": form_value, "message": "每日自动签到", submit.get("name"): submit.get("value")},
+                data={"req": req, "hash": hash_value, "form": form_value, "message": "一切随缘~", submit.get("name"): submit.get("value")},
                 extra_headers={"Referer": str(response.url)},
             )
             posted = _u2_result_state(body, submitted=True)
@@ -2312,11 +2380,19 @@ async def _http_checkin(ctx, key: str, site: dict, cookie: str) -> dict:
         raise _NeedsBrowser("该站点暂无稳定 HTTP 适配，切换 CloakBrowser")
 
 
-async def _run(ctx, source: str, selected_override: list[str] | None = None) -> dict:
+async def _run(
+    ctx,
+    source: str,
+    selected_override: list[str] | None = None,
+    *,
+    schedule_failed_retry: bool = True,
+    wait_for_lock: bool = False,
+    retry_count_override: int | None = None,
+) -> dict:
     global _run_lock
     if _run_lock is None:
         _run_lock = asyncio.Lock()
-    if _run_lock.locked():
+    if _run_lock.locked() and not wait_for_lock:
         return {"ok": False, "message": "签到任务正在运行"}
     async with _run_lock:
         cfg = _cfg(ctx)
@@ -2362,7 +2438,12 @@ async def _run(ctx, source: str, selected_override: list[str] | None = None) -> 
         _state.update({"phase": "准备", "message": "依赖已就绪，开始签到"})
         _runtime_log(ctx, f"开始{source}签到，共 {len(enabled)} 个站点")
         results = []
-        retries = _bounded(cfg.get("retry_count"), 2, 0, 5)
+        retries = _bounded(
+            cfg.get("retry_count") if retry_count_override is None else retry_count_override,
+            2,
+            0,
+            5,
+        )
         interval = _bounded(cfg.get("retry_interval"), 20, 5, 300)
         loop = asyncio.get_running_loop()
         for key, site in enabled:
@@ -2371,6 +2452,7 @@ async def _run(ctx, source: str, selected_override: list[str] | None = None) -> 
             cookie, error = await _site_cookie(ctx, key, site)
             if error:
                 _runtime_log(ctx, error, level="error", site=site["name"])
+                _runtime_log(ctx, "本站已记录失败，继续处理下一个站点", level="warning", site=site["name"])
                 results.append({"key": key, "site": site["name"], "ok": False, "status": "failed", "message": error})
                 _state["completed"] += 1
                 continue
@@ -2491,6 +2573,8 @@ async def _run(ctx, source: str, selected_override: list[str] | None = None) -> 
                         _runtime_log(ctx, message, level="error", site=site["name"])
                         break
             results.append(item)
+            if item and not item["ok"]:
+                _runtime_log(ctx, "本站已记录失败，继续处理下一个站点", level="warning", site=site["name"])
             _state["completed"] += 1
 
         success = sum(1 for item in results if item["ok"])
@@ -2506,19 +2590,48 @@ async def _run(ctx, source: str, selected_override: list[str] | None = None) -> 
         _persist(ctx, _HISTORY_KEY, [record, *history][:30])
         _persist(ctx, _LAST_KEY, text)
         if cfg.get("notify_result", True):
-            rows = [{"站点": item["site"], "结果": "已签到" if item["status"] == "already" else ("成功" if item["ok"] else "失败"), "详情": item["message"]} for item in results]
+            rows = [
+                {
+                    "站点": item["site"],
+                    "结果": "签到成功" if item["ok"] else "签到失败",
+                }
+                for item in results
+            ]
             try:
                 await ctx.notify(rows, level="success" if success == len(results) else "warning", category="PT站签到")
             except Exception as exc:  # noqa: BLE001
                 ctx.log.warning("签到结果推送失败：%r", exc)
-        _state.update({"running": False, "finished_at": stamp, "current": "", "phase": "完成", "message": summary})
+        failed_keys = [str(item["key"]) for item in results if not item["ok"]]
+        retry_scheduled = bool(
+            schedule_failed_retry
+            and failed_keys
+            and _schedule_failed_retry(ctx, failed_keys)
+        )
+        if retry_scheduled:
+            retry_message = f"{summary}；失败站点将在 30 分钟后补签一次"
+            _state.update({
+                "running": False,
+                "finished_at": stamp,
+                "current": "",
+                "phase": "等待失败站点补签",
+                "message": retry_message,
+            })
+        else:
+            _state.update({"running": False, "finished_at": stamp, "current": "", "phase": "完成", "message": summary})
         _runtime_log(ctx, summary, level="success" if success == len(results) else "warning")
-        return {"ok": success == len(results), "message": text, "results": results}
+        return {
+            "ok": success == len(results),
+            "message": text,
+            "results": results,
+            "retry_scheduled": retry_scheduled,
+            "failed_keys": failed_keys,
+        }
 
 
 async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
+    _failed_retry_tasks.clear()
     _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0})
     _runtime_logs.clear()
     _storage_state.clear()
@@ -2664,6 +2777,7 @@ async def teardown(ctx):
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+    _failed_retry_tasks.clear()
     if _storage_tasks:
         await asyncio.gather(*list(_storage_tasks), return_exceptions=True)
     _storage_tasks.clear()
