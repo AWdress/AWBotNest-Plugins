@@ -54,6 +54,59 @@ const tgChatName = ref('')
 
 const recent = ref([])
 const recentLoading = ref(false)
+const webhookUrl = ref('')
+const webhookExact = ref(false)
+
+async function platformJson(path, options = {}) {
+  const headers = {'Content-Type': 'application/json'}
+  if (props.host.token) headers.Authorization = `Bearer ${props.host.token}`
+  const response = await fetch(path, {...options, headers: {...headers, ...(options.headers || {})}})
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
+}
+
+async function loadWebhookUrl() {
+  const origin = window.location.origin.replace(/\/$/, '')
+  let path = `/api/plugin/${props.pluginId}/receive`
+  try {
+    const meta = await platformJson(`/api/plugins/${props.pluginId}/webhook`)
+    const routes = Array.isArray(meta.webhooks) ? meta.webhooks.map(String) : []
+    const route = routes.includes('receive') ? 'receive' : (routes[0] || 'receive')
+    path = `${String(meta.base_url || `/api/plugin/${props.pluginId}/`).replace(/\/$/, '')}/${route.replace(/^\//, '')}`
+  } catch (_) { /* 使用插件声明的固定公开路径 */ }
+  try {
+    const secret = await platformJson('/api/settings/reveal-secret', {
+      method: 'POST',
+      body: JSON.stringify({kind: 'system', field: 'WEBHOOK_SECRET', id: ''}),
+    })
+    if (secret?.value) {
+      webhookUrl.value = `${origin}${path}?apikey=${encodeURIComponent(secret.value)}`
+      webhookExact.value = true
+      return
+    }
+  } catch (_) { /* 未设置密钥时显示可填写模板 */ }
+  webhookUrl.value = `${origin}${path}?apikey=<平台 Webhook 密钥>`
+  webhookExact.value = false
+}
+
+async function copyWebhookUrl() {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(webhookUrl.value)
+    props.host.toast.success(webhookExact.value ? 'Webhook 地址已复制' : 'Webhook 地址格式已复制')
+  } catch (_) {
+    const field = document.createElement('textarea')
+    field.value = webhookUrl.value
+    field.style.position = 'fixed'
+    field.style.opacity = '0'
+    document.body.appendChild(field)
+    field.select()
+    const copied = document.execCommand('copy')
+    field.remove()
+    if (copied) props.host.toast.success(webhookExact.value ? 'Webhook 地址已复制' : 'Webhook 地址格式已复制')
+    else props.host.toast.error('复制失败，请手动选择地址复制')
+  }
+}
 
 onMounted(async () => {
   try {
@@ -63,6 +116,7 @@ onMounted(async () => {
     }
     Object.assign(cfg, DEFAULTS, saved || {})
     await loadChatName()
+    await loadWebhookUrl()
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
@@ -150,6 +204,11 @@ function switchTab(t) {
           <template v-if="group === 'base'">
             <h3 class="det-title">基础</h3>
             <section class="card">
+              <div class="webhook-block">
+                <div class="webhook-head"><span>Emby / Jellyfin Webhook 地址</span><button type="button" class="btn" @click="copyWebhookUrl">复制</button></div>
+                <div class="webhook-url">{{ webhookUrl }}</div>
+                <p class="tip">请求方式为 POST，内容类型为 application/json。<template v-if="!webhookExact">请先在“系统设置 → 通知渠道 → Webhook”生成平台密钥。</template></p>
+              </div>
               <label class="row switch"><input v-model="cfg.enable_tmdb" type="checkbox" /><span>TMDB 元数据增强</span></label>
               <template v-if="cfg.enable_tmdb">
                 <label class="row"><span>TMDB API Key</span><div class="secret-field"><input v-model="cfg.tmdb_api_key" class="inp" :type="secretVisible.tmdb_api_key ? 'text' : 'password'" placeholder="留空则不做 TMDB 增强" /><button type="button" aria-label="显示或隐藏 TMDB API Key" @click="secretVisible.tmdb_api_key = !secretVisible.tmdb_api_key"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div></label>
@@ -200,7 +259,7 @@ function switchTab(t) {
                 <label class="row"><span>接收用户</span><input v-model="cfg.wx_user_id" class="inp" placeholder="@all" /></label>
               </div>
               <label class="row"><span>消息类型</span><select v-model="cfg.wx_msg_type" class="inp"><option v-for="o in WX_MSG_TYPES" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
-              <label class="row"><span>API 地址</span><input v-model="cfg.wx_proxy_url" class="inp" placeholder="留空=官方；自建反代可改" /></label>
+              <label class="row"><span>API 地址</span><input v-model="cfg.wx_proxy_url" class="inp" placeholder="留空=官方；可直接填 wx.example.com，自动补 https://" /></label>
               <label class="row switch"><input v-model="cfg.wx_no_proxy" type="checkbox" /><span>企微请求不走代理</span></label>
             </section>
           </template>
@@ -287,6 +346,9 @@ function switchTab(t) {
 
 .pane { display: flex; flex-direction: column; gap: 14px; }
 .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 10px; background: var(--bg-elevated, #1a1d27); border: 1px solid var(--border-light, #2a2e3a); }
+.webhook-block { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--border-light, #2a2e3a); border-radius: 9px; background: var(--bg-card, #12141c); }
+.webhook-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--text-secondary, #b9c0cc); }
+.webhook-url { padding: 9px 10px; border-radius: 7px; background: var(--bg-input, #0d0f16); color: var(--text-primary, #e8ebf0); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
 .chat-names { padding: 8px 10px; border: 1px solid var(--border-light, #2a2e3a); border-radius: 8px; color: var(--text-secondary, #b9c0cc); font-size: 13px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 20px; }
 .row { display: flex; align-items: center; gap: 10px; }

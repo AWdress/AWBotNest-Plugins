@@ -17,6 +17,7 @@ const defaults = {
   keywords: '验证码|重要通知|账单|订单',
   poll_seconds: 30,
   manual_check_limit: 10,
+  imap_proxy_url: '',
   ai_verification: false,
   ai_summary_enabled: false,
   verification_prompt: '',
@@ -25,6 +26,7 @@ const defaults = {
 }
 const form = reactive({...defaults})
 const visible = reactive({})
+const proxyVisible = ref(false)
 const loading = ref(true)
 const saving = ref(false)
 const checking = ref(false)
@@ -64,6 +66,10 @@ function validate() {
     toast('error', `邮箱 ${incomplete + 1} 的类型、地址或授权码未填写完整`)
     return false
   }
+  if (form.imap_proxy_url && !/^(?:http:\/\/|socks4a?:\/\/|socks5h?:\/\/)/i.test(form.imap_proxy_url)) {
+    toast('error', 'IMAP 代理地址必须以 http://、socks4://、socks5:// 或 socks5h:// 开头')
+    return false
+  }
   return true
 }
 async function refreshStatus() {
@@ -75,6 +81,9 @@ async function load() {
   try {
     const saved = await props.host.getConfig()
     Object.assign(form, defaults, saved || {})
+    if (saved?.imap_proxy_url === '********') {
+      form.imap_proxy_url = await props.host.revealSecret('imap_proxy_url')
+    }
     if (saved?.mailboxes === '********') {
       form.mailboxes = normalizeMailboxes(await props.host.revealSecret('mailboxes'))
     } else {
@@ -181,6 +190,7 @@ onBeforeUnmount(() => clearInterval(timer))
         <label class="wide"><span>关键词（用 | 分隔）</span><input v-model.trim="form.keywords" type="text" placeholder="验证码|重要通知|账单|订单"></label>
         <label><span>轮询间隔（秒）</span><input v-model.number="form.poll_seconds" type="number" min="10" max="300"></label>
         <label><span>立即检查回查数量</span><input v-model.number="form.manual_check_limit" type="number" min="1" max="500"></label>
+        <label class="wide"><span>IMAP 代理地址（可选）</span><div class="secret"><input v-model.trim="form.imap_proxy_url" :type="proxyVisible ? 'text' : 'password'" autocomplete="off" placeholder="容器无法直连 993 时填写，如 socks5://host:port"><button type="button" :aria-label="proxyVisible ? '隐藏代理地址' : '显示代理地址'" @click="proxyVisible = !proxyVisible"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button></div><small>留空时固定使用 IPv4 直连并自动重试；支持 HTTP、SOCKS4 和 SOCKS5 代理。</small></label>
       </div>
     </section>
 

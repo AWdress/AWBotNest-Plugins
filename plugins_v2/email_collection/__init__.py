@@ -8,14 +8,18 @@ import email.message
 import html
 import imaplib
 import re
+import socket
+import ssl
+import time
 from email.header import decode_header
 from html.parser import HTMLParser
 from typing import Any, Dict, List
+from urllib.parse import unquote, urlsplit
 
 __plugin__ = {
     "name": "邮件集",
     "id": "email_collection",
-    "version": "0.0.12",
+    "version": "0.0.13",
     "author": "AWdress",
     "description": "近实时轮询多个 IMAP 邮箱，支持已读回查、验证码识别、关键词过滤和 AI 邮件概要。",
     "icon": "https://raw.githubusercontent.com/EWEDLCM/MoviePilot-Plugins/main/icons/yjj.png",
@@ -25,7 +29,7 @@ __plugin__ = {
     "tags": ["邮件监控", "验证码", "通知推送"],
     "default_enabled": False,
     "render_mode": "vue",
-    "requirements": [],
+    "requirements": ["PySocks>=1.7.1"],
     "config_schema": {
         "enabled": {"type": "boolean", "default": False, "label": "启用邮件监控", "section": "功能开关", "order": 1},
         "push_all": {
@@ -61,11 +65,22 @@ __plugin__ = {
         "keywords": {"type": "string", "default": "验证码|重要通知|账单|订单", "label": "关键词（用 | 分隔）", "section": "过滤", "order": 20},
         "poll_seconds": {"type": "number", "default": 30, "min": 10, "max": 300, "label": "轮询间隔（秒）", "section": "运行设置", "order": 21},
         "manual_check_limit": {"type": "number", "default": 10, "min": 1, "max": 500, "step": 1, "label": "立即检查回查数量", "help": "点击立即检查时，每个邮箱回查最近多少封邮件；包含已读和未读邮件。", "section": "运行设置", "order": 22},
+        "imap_proxy_url": {
+            "type": "password", "default": "", "secret": True,
+            "label": "IMAP 代理地址",
+            "help": "容器无法直连 993 端口时填写；支持 http://、socks5:// 和 socks5h://，留空使用 IPv4 直连。",
+            "section": "运行设置", "order": 23,
+        },
         "check_now": {"type": "action", "label": "立即检查", "action": "check_now", "help": "立即回查近期已读和未读邮件，已处理邮件不会重复推送。", "section": "操作", "cols": 6, "order": 40},
     },
 }
 
 __plugin__["changelog"] = (
+    "v0.0.13 修复 Docker IMAP 网络不可达\n"
+    "- IMAP 直连固定使用 IPv4 并对临时网络错误自动重试\n"
+    "- Gmail 主地址不可达时自动切换备用 IMAP 域名\n"
+    "- 新增 HTTP/SOCKS5 IMAP 代理，解决容器无法直连邮箱 993 端口的问题\n"
+    "- 网络最终失败时输出可操作的连接方式与检查提示\n\n"
     "v0.0.12 适配平台正式 AI 能力接口\n"
     "- 验证码识别与邮件概要直接使用平台 is_available 能力判断\n"
     "- 不再探测旧 AI 可用状态字段\n\n"
@@ -82,6 +97,10 @@ PROVIDER_HOSTS = {
     "gmail": "imap.gmail.com",
     "outlook": "outlook.office365.com",
     "sina": "imap.sina.com",
+}
+PROVIDER_FALLBACK_HOSTS = {
+    "gmail": ("imap.googlemail.com",),
+    "outlook": ("imap-mail.outlook.com",),
 }
 DOMAIN_PROVIDERS = {
     "qq.com": "qq",
@@ -185,16 +204,119 @@ def _parse_boxes(raw: Any) -> List[Dict[str, str]]:
     return out
 
 
+def _ipv4_ssl_connection(
+    host: str,
+    port: int,
+    timeout: float,
+    ssl_context: ssl.SSLContext,
+) -> socket.socket:
+    """Try every IPv4 address, including its TLS handshake."""
+    last_error: OSError | None = None
+    addresses = socket.getaddrinfo(
+        host,
+        port,
+        family=socket.AF_INET,
+        type=socket.SOCK_STREAM,
+        proto=socket.IPPROTO_TCP,
+    )
+    for family, socktype, proto, _, address in addresses:
+        connection = socket.socket(family, socktype, proto)
+        connection.settimeout(min(float(timeout), 6.0))
+        try:
+            connection.connect(address)
+            return ssl_context.wrap_socket(connection, server_hostname=host)
+        except OSError as exc:
+            last_error = exc
+            connection.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError(f"无法解析 IMAP IPv4 地址：{host}")
+
+
+def _proxy_connection(host: str, port: int, timeout: float, proxy_url: str) -> socket.socket:
+    try:
+        import socks
+    except ImportError as exc:
+        raise RuntimeError("IMAP 代理依赖 PySocks 未安装，请重新安装或更新插件") from exc
+    parsed = urlsplit(proxy_url)
+    scheme = parsed.scheme.lower()
+    proxy_types = {
+        "http": socks.HTTP,
+        "socks4": socks.SOCKS4,
+        "socks4a": socks.SOCKS4,
+        "socks5": socks.SOCKS5,
+        "socks5h": socks.SOCKS5,
+    }
+    if scheme not in proxy_types or not parsed.hostname:
+        raise ValueError("IMAP 代理地址仅支持 http://、socks4://、socks5:// 或 socks5h://")
+    proxy_port = parsed.port or (1080 if scheme.startswith("socks") else 8080)
+    return socks.create_connection(
+        (host, port),
+        timeout=timeout,
+        proxy_type=proxy_types[scheme],
+        proxy_addr=parsed.hostname,
+        proxy_port=proxy_port,
+        proxy_username=unquote(parsed.username or "") or None,
+        proxy_password=unquote(parsed.password or "") or None,
+        proxy_rdns=True,
+    )
+
+
+class _ReachableIMAP4SSL(imaplib.IMAP4_SSL):
+    def __init__(self, host: str, port: int, *, timeout: float, proxy_url: str = ""):
+        self._proxy_url = proxy_url
+        super().__init__(host, port, timeout=timeout)
+
+    def _create_socket(self, timeout):
+        if not self._proxy_url:
+            return _ipv4_ssl_connection(
+                self.host,
+                self.port,
+                timeout,
+                self.ssl_context,
+            )
+        raw = _proxy_connection(self.host, self.port, timeout, self._proxy_url)
+        try:
+            return self.ssl_context.wrap_socket(raw, server_hostname=self.host)
+        except Exception:
+            raw.close()
+            raise
+
+
+def _open_imap(hosts: str | List[str], proxy_url: str = "") -> imaplib.IMAP4_SSL:
+    candidates = [hosts] if isinstance(hosts, str) else list(hosts)
+    candidates = list(dict.fromkeys(str(item).strip() for item in candidates if str(item).strip()))
+    last_error: Exception | None = None
+    for attempt in range(1, 3):
+        for host in candidates:
+            try:
+                return _ReachableIMAP4SSL(host, 993, timeout=12, proxy_url=proxy_url)
+            except (OSError, imaplib.IMAP4.abort) as exc:
+                last_error = exc
+        if attempt < 2:
+            time.sleep(attempt)
+    mode = "代理" if proxy_url else "IPv4 直连"
+    raise RuntimeError(
+        f"IMAP {mode}网络不可达（已重试）：{last_error}；"
+        "请检查 Docker 的 993 出站网络，或在邮件集配置中填写 IMAP 代理"
+    ) from last_error
+
+
 def _poll(
     box: Dict[str, str],
     seen: set[str],
     *,
     include_read: bool = False,
     limit: int = 30,
+    proxy_url: str = "",
 ) -> List[Dict[str, Any]]:
     """读取一批邮件；后台只查未读，手动检查可查已读和未读。"""
     found: List[Dict[str, Any]] = []
-    mail = imaplib.IMAP4_SSL(box["host"], 993, timeout=30)
+    hosts = [
+        box["host"],
+        *PROVIDER_FALLBACK_HOSTS.get(box.get("provider", ""), ()),
+    ]
+    mail = _open_imap(hosts, proxy_url)
     try:
         mail.login(box["email"], box["password"])
         status, _ = mail.select("INBOX", readonly=True)
@@ -388,6 +510,7 @@ async def setup(ctx):
                         seen,
                         include_read=include_read,
                         limit=limit,
+                        proxy_url=str(cfg.get("imap_proxy_url") or "").strip(),
                     )
                     stats["checked"] += 1
                     stats["messages"] += len(messages)
