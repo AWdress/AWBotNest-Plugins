@@ -6,7 +6,6 @@ from . import _storage
 
 import asyncio
 import html
-import random
 import re
 import time
 from urllib.parse import urljoin, urlparse
@@ -18,24 +17,6 @@ from ._auth import cookie_header
 
 
 _OFFICIAL_BOT_ID = 8780479105
-_REDPACKET_HANDLED_KEY = "bonus_redpacket_handled"
-
-
-def _random_packet_command(text: str) -> str:
-    """从 HHanClub 官方随机红包正文提取口令；结构不完整时拒绝。"""
-    required = ("总额", "共", "发送口令", "领取", "过期")
-    # 官方文案有「随机红包」和「普通红包」两种标题，均为可参与的口令红包。
-    if not all(marker in text for marker in required) or not ("随机红包" in text or "普通红包" in text):
-        return ""
-    match = re.search(r"发送口令\s*[「『“\"]\s*([^\n「」『』“”\"]{1,100}?)\s*[」』”\"]\s*领取", text)
-    if not match:
-        return ""
-    command = match.group(1).strip()
-    if not command or any(ord(char) < 32 for char in command):
-        return ""
-    return command
-
-
 __plugin__ = {
     "name": "憨憨赠豆",
     "id": "hhan_bonus",
@@ -493,68 +474,6 @@ async def setup(ctx):
             ctx.log.info("[憨憨赠豆] 已自动确认转赠：msg=%s result=%s", message.id, detail)
         except Exception as exc:  # noqa: BLE001
             ctx.log.warning("[憨憨赠豆] 自动确认转赠失败：msg=%s error=%r", message.id, exc)
-
-    @ctx.on_message(incoming=True)
-    async def auto_grab_random_packet(event):
-        if not event.is_group:
-            return
-        client, message = event.client, event.message
-        """解析官方机器人随机红包口令，随机延迟后使用用户账号参与。"""
-        cfg = ctx.config
-        if not cfg.get("auto_grab_random_packet", False):
-            return
-        sender = await event.get_sender()
-        if not sender or int(getattr(sender, "id", 0) or 0) != _OFFICIAL_BOT_ID:
-            return
-        text = str(message.raw_text or "")
-        command = _random_packet_command(text)
-        if not command:
-            if ("随机红包" in text or "普通红包" in text) and "发送口令" in text:
-                ctx.log.warning("[憨憨红包] 收到官方随机红包，但正文结构或口令无效：msg=%s", message.id)
-            return
-        chat_id = int(event.chat_id or 0)
-        message_id = int(getattr(message, "id", 0) or 0)
-        if not chat_id or not message_id:
-            return
-        me = getattr(client, "me", None)
-        account_id = int(getattr(me, "id", 0) or 0)
-        packet_key = f"{account_id}:{chat_id}:{message_id}"
-        handled = _storage.get(ctx, _REDPACKET_HANDLED_KEY, []) or []
-        handled = [str(item) for item in handled] if isinstance(handled, list) else []
-        if packet_key in handled:
-            return
-        _storage.set(ctx, _REDPACKET_HANDLED_KEY, [packet_key, *handled][:300])
-
-        try:
-            delay_min = max(0.0, min(float(cfg.get("random_packet_delay_min", 1) or 0), 3600.0))
-            delay_max = max(0.0, min(float(cfg.get("random_packet_delay_max", 5) or 0), 3600.0))
-        except (TypeError, ValueError):
-            delay_min, delay_max = 1.0, 5.0
-        if delay_min > delay_max:
-            delay_min, delay_max = delay_max, delay_min
-        delay = random.uniform(delay_min, delay_max)
-        ctx.log.info(
-            "[憨憨红包] 识别随机红包：chat=%s msg=%s，将在 %.1f 秒后发送口令 %r",
-            chat_id, message_id, delay, command,
-        )
-
-        async def send_command():
-            try:
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                sent = await client.send_message(chat_id, command)
-                ctx.log.info(
-                    "[憨憨红包] 已发送随机红包口令：chat=%s packet=%s sent=%s command=%r",
-                    chat_id, message_id, getattr(sent, "id", 0), command,
-                )
-            except Exception as exc:  # noqa: BLE001
-                latest = _storage.get(ctx, _REDPACKET_HANDLED_KEY, []) or []
-                if isinstance(latest, list):
-                    _storage.set(ctx, _REDPACKET_HANDLED_KEY, [item for item in latest if str(item) != packet_key])
-                ctx.log.warning("[憨憨红包] 发送随机红包口令失败：msg=%s error=%r", message_id, exc)
-
-        ctx.create_task(send_command(), name="憨憨随机红包延迟参与")
-
 
 async def teardown(ctx):
     pass

@@ -12,18 +12,18 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import httpx
 from bs4 import BeautifulSoup
 
-from . import _bonus, _lottery
+from . import _activity, _bonus, _lottery
 from ._auth import cookie_header
 
 
 __plugin__ = {
     "name": "憨憨小助手",
     "id": "hhan_lottery",
-    "version": "2.9.0",
+    "version": "2.0.4",
     "author": "AWdress",
-    "description": "HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。",
+    "description": "HHanClub 综合助手：赠豆、官方红包与抽奖自动参与、幸运转盘及消息管理。",
     "icon": "https://hhanclub.net/favicon.ico",
-    "changelog": "v2.9.0 新增 HHanClub 随机红包自动参与\n- 仅监听官方机器人 8780479105\n- 自动解析“发送口令「…」领取”并在原群发送\n- 支持配置最短与最长随机延迟\n- 按账号、群组和红包消息持久化去重\n\nv2.8.0 新增憨豆转赠自动确认",
+    "changelog": "v2.0.4 新增官方抽奖自动参与并完善红包识别\n- 自动提取进行中抽奖的参与口令并发送\n- 普通红包兼容“每份金额”文案，不再要求正文包含总额\n- 同时支持官方机器人直接消息和 Telegram 原生转发消息\n- 抢红包与抽奖独立为配置分类，两个开关默认关闭",
     "scope": "user",
     "min_platform_version": "1.1.4.0",
     "plugin_api_version": 1,
@@ -72,6 +72,7 @@ DEFAULTS = {
     "bonus_enabled": True,
     "auto_confirm_bonus_transfer": False,
     "auto_grab_random_packet": False,
+    "auto_join_official_lottery": False,
     "random_packet_delay_min": 1.0,
     "random_packet_delay_max": 5.0,
     "single_command": ".hh",
@@ -511,6 +512,10 @@ async def setup(ctx):
         await _bonus.setup(ctx)
     except Exception as exc:  # noqa: BLE001
         ctx.log.exception("[憨憨小助手] 赠豆模块初始化失败，其他功能继续加载：%r", exc)
+    try:
+        await _activity.setup(ctx)
+    except Exception as exc:  # noqa: BLE001
+        ctx.log.exception("[憨憨小助手] 红包抽奖模块初始化失败，其他功能继续加载：%r", exc)
 
     @ctx.on_api("/read/status", methods=["GET", "POST"])
     async def api_status(req):
@@ -574,6 +579,7 @@ async def teardown(ctx):
         _stop_event.set()
     await _lottery.teardown(ctx)
     await _bonus.teardown(ctx)
+    await _activity.teardown(ctx)
     await _storage.close()
 
 

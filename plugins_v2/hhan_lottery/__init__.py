@@ -9,11 +9,12 @@ except ImportError:
 
 __plugin__ = {'name': '憨憨小助手',
  'id': 'hhan_lottery',
- 'version': '2.0.3',
+ 'version': '2.0.4',
  'author': 'AWdress',
- 'description': 'HHanClub 综合助手：赠豆与自动确认、随机红包、幸运转盘及消息管理。',
+ 'description': 'HHanClub 综合助手：赠豆、官方红包与抽奖自动参与、幸运转盘及消息管理。',
  'icon': 'https://hhanclub.net/favicon.ico',
- 'changelog': 'v2.0.3 补齐 Cookie 显示按钮\n- 手动 Cookie 默认隐藏，点击眼睛后显示平台受控读取的真实值\n- 保存时兼容平台脱敏占位值，避免覆盖已有 Cookie\n\n'
+ 'changelog': 'v2.0.4 新增官方抽奖自动参与并完善红包识别\n- 自动提取进行中抽奖的参与口令并发送\n- 普通红包兼容“每份金额”文案，不再要求正文包含总额\n- 同时支持官方机器人直接消息和 Telegram 原生转发消息\n- 抢红包与抽奖独立为配置分类，两个开关默认关闭\n\n'
+              'v2.0.3 补齐 Cookie 显示按钮\n- 手动 Cookie 默认隐藏，点击眼睛后显示平台受控读取的真实值\n- 保存时兼容平台脱敏占位值，避免覆盖已有 Cookie\n\n'
               'v2.0.2 修复多行通知显示\n- 转盘运行摘要按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.1 统一富文本表格通知\n- 转盘、赠豆和消息管理通知统一使用结构化表格\n\n'
               'v2.0.0 原生 AWBotNest V2 迁移\n'
@@ -66,7 +67,7 @@ __plugin__ = {'name': '憨憨小助手',
                                      'type': 'password',
                                      'secret': True,
                                      'default': ''}},
- 'tags': ['幸运转盘', '赠豆', '消息管理'],
+ 'tags': ['红包', '抽奖', '幸运转盘', '赠豆', '消息管理'],
  'render_mode': 'vue',
  'plugin_api_version': 2}
 
