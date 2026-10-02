@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, time
+from urllib.parse import urlsplit
 from telethon.helpers import add_surrogate, del_surrogate
 
 
@@ -362,51 +363,33 @@ def extract_prize_amount(prize_name: str) -> int:
     """
     从开奖中奖者奖品名称中提取数量（用于发奖 "+金额"）。
     支持 "6666*1"→6666 / "1234茉莉*1"→1234 / "1w"→10000 / "5000"→5000 等。
-    无法解析返回 0。
+    多个数值、负数、无单位小数或单位换算后非整数，均返回 0。
     """
-    try:
-        prize_name = (prize_name or "").strip()
-        if '*' in prize_name:
-            before_star = prize_name.split('*')[0].strip()
-            if before_star.isdigit():
-                return int(before_star)
-            match = re.match(r'^(\d+)([万千百十wWkKmM])', before_star)
-            if match:
-                return int(int(match.group(1)) * _CN_MULTIPLIERS.get(match.group(2).lower(), 1))
-            match = re.match(r'^(\d+)\s', before_star)
-            if match:
-                return int(match.group(1))
-            match = re.match(r'^(\d+)[一-鿿]', before_star)
-            if match:
-                return int(match.group(1))
-            match = re.search(r'[一-鿿]+(\d+)$', before_star)
-            if match:
-                return int(match.group(1))
-            match = re.search(r'[a-zA-Z]+\s+(\d+)$', before_star)
-            if match:
-                return int(match.group(1))
-            match = re.search(r'[a-zA-Z]+(\d+)$', before_star)
-            if match:
-                return int(match.group(1))
-            numbers = re.findall(r'\d+', before_star)
-            if numbers:
-                return int(numbers[-1])
-        # 无 * 号
-        match = re.match(r'(\d+(?:\.\d+)?)\s*[wW]', prize_name)
-        if match:
-            return int(float(match.group(1)) * 10000)
-        match = re.match(r'(\d+(?:\.\d+)?)\s*[kK]', prize_name)
-        if match:
-            return int(float(match.group(1)) * 1000)
-        match = re.match(r'(\d+(?:\.\d+)?)\s*([万千百十])', prize_name)
-        if match:
-            return int(float(match.group(1)) * _CN_MULTIPLIERS.get(match.group(2), 1))
-        numbers = re.findall(r'\d+', prize_name)
-        if numbers:
-            return int(numbers[-1])
+    prize_name = (prize_name or "").strip().replace('×', '*')
+    if '*' in prize_name:
+        prize_name, _, quantity = prize_name.partition('*')
+        if not re.fullmatch(r'\s*\d+\s*', quantity):
+            return 0
+        prize_name = prize_name.strip()
+    if re.search(r'[-−﹣－]\s*\d', prize_name):
         return 0
-    except Exception:
+    numbers = list(re.finditer(r'\d+(?:\.\d+)?', prize_name))
+    if len(numbers) != 1:
         return 0
+    number = numbers[0]
+    prefix = prize_name[:number.start()].rstrip()
+    suffix = prize_name[number.end():].lstrip()
+    if prefix.endswith(('.', ',', '，')) or suffix.startswith(('.', ',', '，')):
+        return 0
+    unit = re.match(r'([万千百十wWkKmM])(?=$|[^A-Za-z])', suffix)
+    multiplier = _CN_MULTIPLIERS[unit.group(1).lower()] if unit else 1
+    number_text = number.group()
+    if '.' in number_text and not unit:
+        return 0
+    # 用整数运算换算单位，避免小数残片被当成金额或浮点精度截断。
+    decimals = len(number_text.partition('.')[2])
+    amount, remainder = divmod(int(number_text.replace('.', '')) * multiplier, 10 ** decimals)
+    return amount if remainder == 0 else 0
 
 
 # ─── 陷阱抽奖检测 ────────────────────────────────────────────────────────────
@@ -474,43 +457,122 @@ def is_trap_lottery(message_text: str, lottery_info: dict, *,
 
 # ─── 中奖者解析（开奖消息）──────────────────────────────────────────────────
 
-def extract_participation_target(draw_text: str, entities, user_name: str, user_id: str):
+_PRIZE_HEADER_PATTERN = re.compile(
+    r'(?m)^[^\S\r\n]*([^▸\r\n]+?)[^\S\r\n]*[*×][^\S\r\n]*(\d+)'
+    r'[^\S\r\n]*[：:][^\S\r\n]*(?:\r?\n|(?=▸)|$)'
+)
+_WINNER_PATTERN = re.compile(r'▸[^\S\r\n]*([^▸\r\n]+)[^\S\r\n]+\((-?\d+)\)')
+
+
+def parse_draw_identity(text: str) -> tuple[str, str]:
+    """只接受唯一的身份字段，创建者 ID 取字段行末，不能取昵称内的数字。"""
+    ids = re.findall(r'(?m)^抽奖 ID[：:][^\S\r\n]*([a-fA-F0-9\-]+)[^\S\r\n]*\r?$', text)
+    creators = re.findall(r'(?m)^创建者[：:][^\r\n]*\((\d+)\)[^\S\r\n]*\r?$', text)
+    return (ids[0], creators[0]) if len(ids) == len(creators) == 1 else ('', '')
+
+
+def _winner_block_end(draw_text: str, start: int, end: int) -> int:
+    """赢家条目及参与消息续行构成连续区块，遇到其他小节即停止。"""
+    position = start
+    have_winner = False
+    for line in draw_text[start:end].splitlines(keepends=True):
+        content = line.strip()
+        if content.startswith('▸'):
+            have_winner = True
+        elif content and not (have_winner and (
+            re.match(r'^[^\w]*参与消息(?:[^\w]|$)', content) or
+            _parse_participation_link(content)
+        )):
+            return position
+        position += len(line)
+    return end
+
+
+def _parse_participation_link(link: str):
+    """解析 Telegram 消息链接；话题链接取最后一段消息 ID。"""
+    if not isinstance(link, str):
+        return None
+    try:
+        url = urlsplit(link if '://' in link else f'https://{link}')
+        if url.scheme not in {'http', 'https'} or url.hostname not in {
+            't.me', 'telegram.me', 'telegram.dog',
+        }:
+            return None
+        private = re.fullmatch(r'/c/([1-9]\d*)/(?:[1-9]\d*/)?([1-9]\d*)/?', url.path)
+        if private:
+            return int(f'-100{private.group(1)}'), int(private.group(2))
+        public = re.fullmatch(
+            r'/(?:s/)?([A-Za-z][A-Za-z0-9_]*)/(?:[1-9]\d*/)?([1-9]\d*)/?',
+            url.path,
+        )
+        if public and public.group(1).lower() not in {
+            'c', 's', 'share', 'iv', 'joinchat', 'addstickers', 'proxy', 'login', 'boost',
+        }:
+            return public.group(1), int(public.group(2))
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def extract_participation_target(draw_text: str, entities, user_name: str, user_id: str,
+                                 *, winner_start: int | None = None,
+                                 block_end: int | None = None):
     """
     从开奖消息的 entities 中找到某中奖者的「参与消息」链接，解析出 (reply_chat_id, message_id)。
+    draw_text 必须是实体偏移对应的原文（Telethon raw_text）。
+    winner_start 为该中奖行在原文中的位置，避免同一用户中多个奖项时取到首条链接。
     找不到返回 None。
     """
     if not entities or not draw_text:
         return None
-    user_text_pattern = rf"▸\s*{re.escape(user_name)}\s*\({user_id}\)"
-    user_match = re.search(user_text_pattern, draw_text)
+    user_pattern = re.compile(
+        rf'▸[^\S\r\n]*{re.escape(user_name)}[^\S\r\n]*\({re.escape(str(user_id))}\)'
+    )
+    user_match = (user_pattern.search(draw_text) if winner_start is None
+                  else user_pattern.match(draw_text, winner_start))
     if not user_match:
         return None
+
+    # 以真实赢家/奖品边界代替固定字符窗口，缺链接时不会借用下一位的链接。
+    entry_end = len(draw_text) if block_end is None else min(block_end, len(draw_text))
+    next_bullet = draw_text.find('▸', user_match.end())
+    if next_bullet != -1:
+        entry_end = min(entry_end, next_bullet)
+    next_prize = _PRIZE_HEADER_PATTERN.search(draw_text, user_match.end())
+    if next_prize:
+        entry_end = min(entry_end, next_prize.start())
     user_end_pos = len(add_surrogate(draw_text[:user_match.end()]))
-    participation_link = None
+    entry_end_pos = len(add_surrogate(draw_text[:entry_end]))
+    labelled: list[tuple[int, tuple]] = []
+    bare_urls: list[tuple[int, tuple]] = []
     for entity in entities:
-        entity_start = int(getattr(entity, "offset", -1))
+        try:
+            entity_start = int(entity.offset)
+            entity_length = int(entity.length)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if (entity_length <= 0 or entity_start < user_end_pos or
+                entity_start + entity_length > entry_end_pos):
+            continue
         entity_text = _entity_text(draw_text, entity)
-        if user_end_pos <= entity_start <= user_end_pos + 30:
-            entity_type_str = _entity_kind(entity)
-            if entity_type_str == "text_link":
-                if getattr(entity, "url", None):
-                    if "参与消息" in entity_text or "/c/" in entity.url:
-                        participation_link = entity.url
-                        break
-            elif entity_type_str == "url":
-                if "/c/" in entity_text and "t.me/" in entity_text:
-                    participation_link = entity_text
-                    break
-    if not participation_link:
-        return None
-    link_match = re.search(r'/c/(\d+)/(\d+)', participation_link)
-    if link_match:
-        chat_id_str = link_match.group(1)
-        message_id = int(link_match.group(2))
-        return int(f"-100{chat_id_str}"), message_id
-    public_match = re.search(r't\.me/([^/]+)/(\d+)', participation_link)
-    if public_match:
-        return public_match.group(1), int(public_match.group(2))
+        entity_kind = _entity_kind(entity)
+        if entity_kind == 'text_link':
+            target = _parse_participation_link(getattr(entity, 'url', None))
+            if target and '参与消息' in entity_text:
+                labelled.append((entity_start, target))
+        elif entity_kind == 'url':
+            target = _parse_participation_link(entity_text)
+            if not target:
+                continue
+            prefix = del_surrogate(add_surrogate(draw_text)[user_end_pos:entity_start])
+            if '参与消息' in prefix:
+                labelled.append((entity_start, target))
+            elif '\n' not in prefix and not prefix.strip(' \t\r:：()（）[]【】-,，'):
+                bare_urls.append((entity_start, target))
+    if labelled:
+        return min(labelled, key=lambda item: item[0])[1]
+    if len(bare_urls) == 1:
+        return bare_urls[0][1]
     return None
 
 
@@ -521,30 +583,34 @@ def parse_winners(draw_text: str, entities, lottery_type: str, my_id: str,
     返回 [{prize_name, prize_amount, user_name, user_id, reply_chat_id, message_id}, ...]。
     reply_chat_id/message_id 在找不到参与链接时为 None。
     """
-    winner_section_match = re.search(r'中奖信息\n([\s\S]+)', draw_text)
+    winner_section_match = re.search(r'中奖信息[^\S\r\n]*[：:]?[^\S\r\n]*(?:\r?\n|$)', draw_text)
     if not winner_section_match:
         return []
-    winner_section = winner_section_match.group(1)
-
-    if lottery_type == "手动开奖":
-        prize_pattern = r'(\d+)\s*\*\s*(\d+)[：:]\s*\n?((?:\s*▸.+?(?:\n|$))+)'
-    else:
-        prize_pattern = r'(.+?)\s*\*\s*(\d+)[：:]\s*\n?((?:\s*▸.+?(?:\n|$))+)'
+    prize_matches = list(_PRIZE_HEADER_PATTERN.finditer(draw_text, winner_section_match.end()))
+    stored_prizes = [line.strip().lstrip('▸').strip()
+                     for line in (stored_prize_name or '').splitlines() if line.strip()]
 
     winners: list[dict] = []
-    for prize_match in re.finditer(prize_pattern, winner_section):
-        if lottery_type == "手动开奖":
-            prize_name = stored_prize_name or "未知奖品"
-        else:
-            prize_name = prize_match.group(1).strip()
+    for index, prize_match in enumerate(prize_matches):
+        prize_name = prize_match.group(1).strip()
         prize_amount = extract_prize_amount(prize_name)
-        winners_text = prize_match.group(3)
-        for winner_match in re.finditer(r'▸\s*(.+?)\s+\((-?\d+)\)', winners_text):
+        # 手动开奖也以每个奖项正文金额为准；只有单奖品且正文无金额时才用缓存兜底。
+        if (lottery_type == '手动开奖' and not re.search(r'\d', prize_name) and
+                len(prize_matches) == 1 and len(stored_prizes) == 1):
+            prize_name = stored_prizes[0]
+            prize_amount = extract_prize_amount(prize_name)
+        prize_end = (prize_matches[index + 1].start() if index + 1 < len(prize_matches)
+                     else len(draw_text))
+        prize_end = _winner_block_end(draw_text, prize_match.end(), prize_end)
+        for winner_match in _WINNER_PATTERN.finditer(draw_text, prize_match.end(), prize_end):
             user_name = winner_match.group(1).strip()
             user_id = winner_match.group(2)
             if str(user_id) == str(my_id):
                 continue
-            target = extract_participation_target(draw_text, entities, user_name, user_id)
+            target = extract_participation_target(
+                draw_text, entities, user_name, user_id, winner_start=winner_match.start(),
+                block_end=prize_end,
+            )
             winners.append({
                 'prize_name': prize_name,
                 'prize_amount': prize_amount,

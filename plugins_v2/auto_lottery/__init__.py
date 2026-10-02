@@ -9,12 +9,17 @@ except ImportError:
 
 __plugin__ = {'name': '小菜抽奖',
  'id': 'auto_lottery',
- 'version': '2.0.7',
+ 'version': '2.0.8',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg',
- 'changelog': 'v2.0.7 适配受保护来源消息\n'
+ 'changelog': 'v2.0.8 修复自动发奖\n'
+              '- 正确读取当前 Telegram 账号，按原始开奖消息解析创建者、奖品金额与参与链接\n'
+              '- 支持新消息及编辑后的开奖，自动发奖与手动补发使用正确的创建账号\n'
+              '- 逐人保存发奖进度，明确失败保留待发，已发出的不重复发送\n'
+              '- 发送结果不明时提示核对，避免断网、停用或清空记录后重复发奖\n\n'
+              'v2.0.7 适配受保护来源消息\n'
               '- 来源群开启内容保护时，转发参与消息失败会改为直接发送参与关键词\n'
               '- 仅对 Telegram 明确的 ChatForwardsRestrictedError 处理，其他发送异常继续报告\n\n'
               'v2.0.6 修复消息链接\n'

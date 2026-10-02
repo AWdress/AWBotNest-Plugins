@@ -22,7 +22,7 @@
 #   4. 原通知发到 PT_GROUP_ID['BOT_MESSAGE_CHAT'] → 改用 ctx.notify（notify_owner 开关）。
 #   5. 原贴纸 LOTTERY_Sticker_REPLY_MESSAGE（thank1-5/heimu1-2）平台无此配置，改为
 #      thank_texts / heimu_texts 多行文字随机选一条。
-#   6. MY_TGID→ctx.owner_id；后台 task 登记并在 teardown cancel。
+#   6. 当前账号 ID 由 client.get_me() 读取；后台 task 登记并在 teardown cancel。
 #
 # scope=user：用你的用户账号监听群消息并参与抽奖、发关键词 / 发奖，请仅监听可信抽奖群。
 # =============================================================================
@@ -36,7 +36,7 @@ from random import randint, random
 from ._helpers import (
     parse_groups, parse_keywords, parse_group_wait_overrides, to_int,
     parse_time_ranges, is_within_time_ranges, has_markdown_format,
-    parse_new_lottery, parse_prize_list, match_prize_group, is_trap_lottery,
+    parse_new_lottery, parse_prize_list, match_prize_group, is_trap_lottery, parse_draw_identity,
 )
 from . import _state
 from ._prize import PrizeStore, record_draw_result, send_prizes
@@ -44,14 +44,14 @@ from ._prize import PrizeStore, record_draw_result, send_prizes
 __plugin__ = {
     "name": "小菜抽奖",
     "id": "auto_lottery",
-    "version": "1.0.13",
+    "version": "2.0.8",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
     "description": "自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg",
-    "changelog": "v1.0.12 合并参与群组选择器\n- 「预定义/自定义抽奖群组」合并为单个「参与抽奖群组」\n- 不选 = 全部群组都参与（原为不参与任何群）；旧自定义群组自动并入\n\nv1.0.11 修正奖品匹配语义\n- 默认除陷阱外全部参与，不再按奖品名过滤\n- 「单独匹配」改为自定义奖品名白名单：勾选后只抽命中列表的，且忽略群组列（跨群匹配）\n- 奖品列表支持裸关键词行（无需再写 群组ID|），兼容旧写法\n\nv1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
+    "changelog": "v2.0.8 修复自动发奖\n- 正确读取当前 Telegram 账号，按原始开奖消息解析创建者、奖品金额与参与链接\n- 支持新消息及编辑后的开奖，自动发奖与手动补发使用正确的创建账号\n- 逐人保存发奖进度，明确失败保留待发，已发出的不重复发送\n- 发送结果不明时提示核对，避免断网、停用或清空记录后重复发奖\n\nv1.0.12 合并参与群组选择器\n- 「预定义/自定义抽奖群组」合并为单个「参与抽奖群组」\n- 不选 = 全部群组都参与（原为不参与任何群）；旧自定义群组自动并入\n\nv1.0.11 修正奖品匹配语义\n- 默认除陷阱外全部参与，不再按奖品名过滤\n- 「单独匹配」改为自定义奖品名白名单：勾选后只抽命中列表的，且忽略群组列（跨群匹配）\n- 奖品列表支持裸关键词行（无需再写 群组ID|），兼容旧写法\n\nv1.0.10 调整奖品匹配默认行为\n- 奖品匹配默认匹配所有群的奖品名（无需再勾选通用匹配）\n- 「通用奖品匹配」改为「单独奖品匹配」：勾选后每个群才只匹配自己配置的奖品名\n\nv1.0.9 修复金额与时间窗\n- 修复中文单位（万/千/百）奖品金额未换算导致发奖严重偏少\n- 修复跨零点抽奖时间窗（如 22:00-06:00）被误判为不在窗口\n\nv1.0.8 更新插件 Logo\n- 使用小菜抽奖专属图片作为插件卡片与市场图标",
 }
 
 # vue 模式无 config_schema：配置默认值集中此处备查（后端各处 ctx.config.get(k, 默认) 已带默认，
@@ -197,9 +197,23 @@ async def setup(ctx):
     await _store.initialize()
     ctx.add_cleanup(_store.close)
 
-    def _my_id(client):
-        me = getattr(client, "me", None)
-        return str(me.id) if me else ""
+    account_ids = {}
+    prize_processing = set()
+    prize_updates = {}
+
+    async def _my_id(client):
+        if client in account_ids:
+            return account_ids[client]
+        try:
+            me = await client.get_me()
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.warning("[小菜抽奖] 读取当前账号失败：%s", exc)
+            return ""
+        if me and getattr(me, "id", None):
+            account_ids[client] = str(me.id)
+            return account_ids[client]
+        ctx.log.warning("[小菜抽奖] 未取得当前账号 ID，暂不发奖")
+        return ""
 
     async def _maybe_notify(text, level, client, *, skip=False):
         if not ctx.config.get("notify_owner", True):
@@ -463,12 +477,13 @@ async def setup(ctx):
     # ============================================================
     # 3. 开奖结果：中奖回应 + 发奖记录
     # ============================================================
+    @ctx.on_edited_message()
     @ctx.on_message(incoming=True)
     async def on_draw_result(event):
         client, message = event.client, event.message
         sender = await event.get_sender()
         cfg = ctx.config
-        text = message.raw_text or ""
+        text = (message.raw_text or "").lstrip()
         is_auto = text.startswith("参与人数够啦！！开奖")
         is_manual = text.startswith("手动开奖啦！！")
         if not (is_auto or is_manual):
@@ -486,15 +501,18 @@ async def setup(ctx):
         _lot_groups = _all_lottery_groups(cfg)
         in_lottery_group = (not _lot_groups) or event.chat_id in _lot_groups  # 不选=全部群参与
 
-        # ── 中奖社交回应（仅自动开奖消息含中奖信息块，且在自动参与群组内）──
-        if is_auto and in_lottery_group:
-            await _handle_win_reactions(client, message)
-
         # ── 发奖记录 / 发放（不限群组，对齐原项目 record_lottery_result）──
         if cfg.get("auto_prize_enabled", False):
+            lottery_id, _ = parse_draw_identity(text)
+            entry = _state.lottery_list.get(lottery_id, {})
             _spawn(_handle_prize(
                 client, message, "手动开奖" if is_manual else "自动开奖", chat,
+                stored_prize=entry.get('prize', ''),
             ))
+
+        # 发奖先登记，社交回应或状态清理不会阻断发奖或丢失手动开奖的奖品名。
+        if is_auto and in_lottery_group:
+            await _handle_win_reactions(client, message)
 
     async def _handle_win_reactions(client, message):
         cfg = ctx.config
@@ -503,7 +521,7 @@ async def setup(ctx):
         finish_key = m.group(1) if m else ""
         winner_m = re.search(r"中奖信息\n([\s\S]+)", text)
         winner_block = winner_m.group(1) if winner_m else ""
-        my_id = _my_id(client)
+        my_id = await _my_id(client)
         wait_on = cfg.get("lottery_wait_enabled", False)
 
         entry = _state.lottery_list.get(finish_key)
@@ -554,52 +572,68 @@ async def setup(ctx):
         if finish_key:
             _state.remove(finish_key)
 
-    async def _handle_prize(client, message, lottery_type, chat=None):
+    async def _handle_prize(client, message, lottery_type, chat=None, *, stored_prize=""):
         cfg = ctx.config
-        my_id = _my_id(client)
+        my_id = await _my_id(client)
+        if not my_id:
+            return
         draw_link = _message_link(message, chat)
-        # 手动开奖时奖品名从 lottery_list 取
-        stored_prize = ""
-        m = re.search(r'抽奖 ID[：:]\s*([a-f0-9\-]+)', message.raw_text or "")
-        if m:
-            entry = _state.lottery_list.get(m.group(1))
-            if entry:
-                stored_prize = entry.get('prize', '')
+        lottery_id, creator_id = parse_draw_identity(message.raw_text or "")
+        if not lottery_id or not creator_id:
+            ctx.log.warning("[小菜抽奖] 开奖消息的抽奖 ID 或创建者不明确：消息 %s", message.id)
+            return
+        if creator_id != my_id:
+            return
+        if _store.is_completed(lottery_id):
+            return
+        if lottery_id in prize_processing:
+            prize_updates[lottery_id] = (client, message, lottery_type, chat, stored_prize)
+            return
+        prize_processing.add(lottery_id)
         try:
-            record = await record_draw_result(message, lottery_type, _store, my_id, stored_prize)
-        except Exception as e:  # noqa: BLE001
-            ctx.log.error("记录开奖信息失败: %r", e)
-            return
-        if not record:
-            return
-        lottery_id = record['lottery_id']
-        winners = record['winners']
-        ctx.log.info("记录待发奖 %s，%d 位中奖者", lottery_id, len(winners))
+            record = await record_draw_result(
+                message, lottery_type, _store, my_id, stored_prize, chat=chat,
+            )
+            if not record:
+                ctx.log.warning("[小菜抽奖] 自己创建的抽奖未解析到其他中奖者：%s", lottery_id)
+                return
+            winners = [winner for winner in record['winners'] if not winner.get('sent')]
+            ctx.log.info("记录待发奖 %s，%d 位中奖者", lottery_id, len(winners))
 
-        if cfg.get("manual_prize_mode", False):
-            await _maybe_notify(
-                f"记录待发奖\n\n{lottery_id}\n\n{len(winners)} 人\n\n"
-                f"{record['chat_title']}\n\n发奖: .sendprize {lottery_id[:8]}\n\n{draw_link}",
-                "info", client)
-            return
+            if cfg.get("manual_prize_mode", False):
+                await _maybe_notify(
+                    f"记录待发奖\n\n{lottery_id}\n\n{len(winners)} 人\n\n"
+                    f"{record['chat_title']}\n\n发奖: .sendprize {lottery_id[:8]}\n\n{draw_link}",
+                    "info", client)
+                return
 
-        # 自动发奖
-        success, total, failed = await send_prizes(
-            record, client, store=_store, log=ctx.log,
-            interval_enabled=cfg.get("prize_send_interval_enabled", True),
-            interval_min=_int_cfg(cfg, "prize_send_interval_min", 2),
-            interval_max=_int_cfg(cfg, "prize_send_interval_max", 5),
-            send_blacklist=set(parse_keywords(cfg.get("prize_send_blacklist", ""))),
-        )
-        if failed:
-            detail = "\n".join(f"  {f['user_name']}({f['user_id']}): {f['reason']}" for f in failed)
-            await _maybe_notify(
-                f"发奖完成（部分失败）\n\n{lottery_id}\n\n成功 {success}/{total}\n\n"
-                f"失败明细:\n\n{detail}\n\n{draw_link}", "warning", client)
-        else:
-            await _maybe_notify(
-                f"发奖完成\n\n{lottery_id}\n\n成功 {success}/{total} 人\n\n{draw_link}",
-                "success", client)
+            success, total, failed = await send_prizes(
+                record, client, store=_store, log=ctx.log,
+                interval_enabled=cfg.get("prize_send_interval_enabled", True),
+                interval_min=_int_cfg(cfg, "prize_send_interval_min", 2),
+                interval_max=_int_cfg(cfg, "prize_send_interval_max", 5),
+                send_blacklist=set(parse_keywords(cfg.get("prize_send_blacklist", ""))),
+            )
+            if failed:
+                detail = "\n".join(f"  {f['user_name']}({f['user_id']}): {f['reason']}" for f in failed)
+                await _maybe_notify(
+                    f"发奖结束，失败者保留待发\n\n{lottery_id}\n\n成功 {success}/{total}\n\n"
+                    f"失败明细:\n\n{detail}\n\n{draw_link}", "warning", client)
+            elif total:
+                await _maybe_notify(
+                    f"发奖完成\n\n{lottery_id}\n\n成功 {success}/{total} 人\n\n{draw_link}",
+                    "success", client)
+        except Exception as exc:  # noqa: BLE001
+            ctx.log.error("[小菜抽奖] 抽奖 %s 发奖未完成，待发记录保留：%s", lottery_id, exc)
+        finally:
+            prize_processing.discard(lottery_id)
+            updated = prize_updates.pop(lottery_id, None)
+            if updated and _runtime_ctx is not None:
+                update_client, update_message, update_type, update_chat, update_prize = updated
+                _spawn(_handle_prize(
+                    update_client, update_message, update_type, update_chat,
+                    stored_prize=update_prize or stored_prize,
+                ))
 
     # ============================================================
     # 4. 负面回复（被质疑是机器人）
@@ -633,7 +667,7 @@ async def setup(ctx):
     async def cmd_sendprize(event):
         client, message = event.client, event.message
         cfg = ctx.config
-        text = (message.text or "").strip()
+        text = (message.raw_text or "").strip()
         arg = ""
         for prefix in ("/sendprize", ".sendprize"):
             if text.startswith(prefix):
@@ -652,14 +686,25 @@ async def setup(ctx):
             return
         total_success = total_winners = 0
         all_failed = []
+        my_id = await _my_id(client)
+        if not my_id:
+            await message.reply("无法取得当前账号 ID，请检查账号连接后重试")
+            return
         for record in matched:
-            s, t, f = await send_prizes(
-                record, client, store=_store, log=ctx.log,
-                interval_enabled=cfg.get("prize_send_interval_enabled", True),
-                interval_min=_int_cfg(cfg, "prize_send_interval_min", 2),
-                interval_max=_int_cfg(cfg, "prize_send_interval_max", 5),
-                send_blacklist=set(parse_keywords(cfg.get("prize_send_blacklist", ""))),
-            )
+            if str(record.get('creator_id', '')) != my_id:
+                await message.reply(f"抽奖 {record['lottery_id'][:8]} 不属于当前账号，已跳过")
+                continue
+            try:
+                s, t, f = await send_prizes(
+                    record, client, store=_store, log=ctx.log,
+                    interval_enabled=cfg.get("prize_send_interval_enabled", True),
+                    interval_min=_int_cfg(cfg, "prize_send_interval_min", 2),
+                    interval_max=_int_cfg(cfg, "prize_send_interval_max", 5),
+                    send_blacklist=set(parse_keywords(cfg.get("prize_send_blacklist", ""))),
+                )
+            except Exception as exc:  # noqa: BLE001
+                await message.reply(f"抽奖 {record['lottery_id'][:8]} 未发出：{exc}")
+                continue
             total_success += s
             total_winners += t
             all_failed.extend(f)
@@ -679,7 +724,8 @@ async def setup(ctx):
             return
         lines = ["待发奖列表:"]
         for i, (lid, r) in enumerate(pending.items(), 1):
-            lines.append(f"{i}. #{lid[:8]} | {len(r.get('winners', []))} 人 | "
+            remaining = sum(not winner.get('sent') for winner in r.get('winners', []))
+            lines.append(f"{i}. #{lid[:8]} | {remaining} 人 | "
                          f"{r.get('chat_title', '')}")
         lines.append(f"共 {len(pending)} 个。发奖: .sendprize <ID前缀> / .sendprize all")
         await message.reply("\n".join(lines))
@@ -687,7 +733,12 @@ async def setup(ctx):
     @ctx.on_message(pattern=r"^(?:/clearprize|\.clearprize)\b", incoming=False, outgoing=True)
     async def cmd_clearprize(event):
         client, message = event.client, event.message
-        n = _store.clear()
+        try:
+            n = _store.clear()
+            await _store.flush()
+        except RuntimeError as exc:
+            await message.reply(str(exc))
+            return
         await message.reply(f"已清空待发奖列表，共 {n} 个")
 
     @ctx.on_message(pattern=r"^(?:/prizehelp|\.prizehelp)\b", incoming=False, outgoing=True)
@@ -763,11 +814,12 @@ async def setup(ctx):
     async def _api_pending(req):
         items = []
         for lid, r in (_store.all() or {}).items():
+            remaining = [winner for winner in r.get("winners", []) if not winner.get("sent")]
             items.append({
                 "lottery_id": lid,
-                "winners": len(r.get("winners", [])),
+                "winners": len(remaining),
                 "chat_title": r.get("chat_title", ""),
-                "prize": (r.get("winners") or [{}])[0].get("prize_name", "") if r.get("winners") else "",
+                "prize": remaining[0].get("prize_name", "") if remaining else "",
                 "time": _fmt_ts(r.get("timestamp")),
             })
         items.sort(key=lambda x: x["time"], reverse=True)
@@ -775,7 +827,6 @@ async def setup(ctx):
 
     @ctx.on_api("/history", methods=["GET"])
     async def _api_prize_history(req):
-        import json as _json
         raw = _store.history()
         items = []
         for h in (raw if isinstance(raw, list) else []):
@@ -783,6 +834,7 @@ async def setup(ctx):
                 "lottery_id": h.get("lottery_id", ""),
                 "total": h.get("total", 0), "success": h.get("success", 0),
                 "failed": h.get("failed", 0), "time": _fmt_ts(h.get("ts")),
+                "failures": h.get("failures", []),
             })
         items.reverse()  # 最近的在前
         return {"items": items}
@@ -795,7 +847,6 @@ async def setup(ctx):
         apps = list(getattr(ctx, "user_apps", None) or [])
         if not apps:
             return {"ok": False, "message": "没有可用的用户账号"}
-        client = apps[0]
         cfg = ctx.config
         pending = _store.all() or {}
         if data.get("all"):
@@ -806,11 +857,25 @@ async def setup(ctx):
             records = [rec] if rec else []
         if not records:
             return {"ok": False, "message": "未找到待发奖记录"}
+        clients_by_id = {}
+        for app in apps:
+            account_id = await _my_id(app)
+            if account_id:
+                clients_by_id[account_id] = app
+        if not clients_by_id:
+            return {"ok": False, "message": "无法取得用户账号 ID，请检查账号连接"}
 
         async def _bg_send(records):
             total_success = total_winners = 0
             all_failed = []
+            notice_client = apps[0]
             for record in records:
+                client = clients_by_id.get(str(record.get('creator_id', '')))
+                if client is None:
+                    ctx.log.warning("[小菜抽奖] 抽奖 %s 的创建账号未连接，保留待发", record['lottery_id'])
+                    all_failed.append({'user_name': record['lottery_id'][:8], 'user_id': record.get('creator_id', ''), 'reason': '创建账号未连接'})
+                    continue
+                notice_client = client
                 try:
                     s, t, f = await send_prizes(
                         record, client, store=_store, log=ctx.log,
@@ -824,6 +889,7 @@ async def setup(ctx):
                     all_failed.extend(f)
                 except Exception as e:  # noqa: BLE001
                     ctx.log.error("[小菜抽奖] 前端发奖失败: %r", e)
+                    all_failed.append({'user_name': record['lottery_id'][:8], 'user_id': record.get('creator_id', ''), 'reason': str(e)})
             msg = f"发奖完成：成功 {total_success}/{total_winners}，剩余待发 {_store.count()} 个"
             if all_failed:
                 msg += "\n失败:\n" + "\n".join(
@@ -832,7 +898,7 @@ async def setup(ctx):
                 await _maybe_notify(
                     msg,
                     level="success" if not all_failed else "warning",
-                    client=client,
+                    client=notice_client,
                 )
 
         _spawn(_bg_send(records))
@@ -841,7 +907,11 @@ async def setup(ctx):
 
     @ctx.on_api("/clear", methods=["POST"])
     async def _api_clear(req):
-        n = _store.clear()
+        try:
+            n = _store.clear()
+            await _store.flush()
+        except RuntimeError as exc:
+            return {"ok": False, "message": str(exc)}
         return {"ok": True, "cleared": n}
 
     groups = _all_lottery_groups(ctx.config)
@@ -852,14 +922,23 @@ async def setup(ctx):
         "全部" if not groups else len(groups),
         "开启" if ctx.config.get("trap_enabled", True) else "关闭",
     )
+    ctx.log.info(
+        "[小菜抽奖] 发奖模式：%s，待发抽奖 %d 个",
+        ("手动" if ctx.config.get("manual_prize_mode", False) else "自动")
+        if ctx.config.get("auto_prize_enabled", False) else "关闭",
+        _store.count(),
+    )
 
 
 async def teardown(ctx):
     global _runtime_ctx
     _runtime_ctx = None
     # 取消所有后台 task
-    for t in list(_tasks):
+    tasks = list(_tasks)
+    for t in tasks:
         t.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
     # 清空进程内抽奖状态
     _state.clear()
