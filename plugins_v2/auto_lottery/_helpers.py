@@ -465,9 +465,17 @@ _WINNER_PATTERN = re.compile(r'▸[^\S\r\n]*([^▸\r\n]+)[^\S\r\n]+\((-?\d+)\)')
 
 
 def parse_draw_identity(text: str) -> tuple[str, str]:
-    """只接受唯一的身份字段，创建者 ID 取字段行末，不能取昵称内的数字。"""
-    ids = re.findall(r'(?m)^抽奖 ID[：:][^\S\r\n]*([a-fA-F0-9\-]+)[^\S\r\n]*\r?$', text)
-    creators = re.findall(r'(?m)^创建者[：:][^\r\n]*\((\d+)\)[^\S\r\n]*\r?$', text)
+    """允许字段缩进；身份字段必须唯一，创建者 ID 取行末而非昵称内的数字。"""
+    id_field = r'(?m)^[^\S\r\n]*抽奖[^\S\r\n]*ID[^\S\r\n]*[：:]'
+    creator_field = r'(?m)^[^\S\r\n]*创建者[^\S\r\n]*[：:]'
+    if len(re.findall(id_field, text)) != 1 or len(re.findall(creator_field, text)) != 1:
+        return '', ''
+    ids = re.findall(
+        id_field + r'[^\S\r\n]*([a-fA-F0-9\-]+)[^\S\r\n]*\r?$', text,
+    )
+    creators = re.findall(
+        creator_field + r'[^\r\n]*\((\d+)\)[^\S\r\n]*\r?$', text,
+    )
     return (ids[0], creators[0]) if len(ids) == len(creators) == 1 else ('', '')
 
 

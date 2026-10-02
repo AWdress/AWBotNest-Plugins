@@ -9,12 +9,15 @@ except ImportError:
 
 __plugin__ = {'name': '小菜抽奖',
  'id': 'auto_lottery',
- 'version': '2.0.8',
+ 'version': '2.0.9',
  'author': 'AWdress',
  'scope': 'user',
  'description': '自动识别小菜抽奖机器人的抽奖消息并参与，中奖记录与可选自动发奖。自带 Vue 配置界面 + 待发奖管理。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/auto_lottery.jpg',
- 'changelog': 'v2.0.8 修复自动发奖\n'
+ 'changelog': 'v2.0.9 修复缩进开奖消息识别\n'
+              '- 抽奖 ID、创建者字段支持缩进、全角空格及中英文冒号\n'
+              '- 保留唯一字段和创建者行末 ID 校验，避免昵称数字或重复字段误触发发奖\n\n'
+              'v2.0.8 修复自动发奖\n'
               '- 正确读取当前 Telegram 账号，按原始开奖消息解析创建者、奖品金额与参与链接\n'
               '- 支持新消息及编辑后的开奖，自动发奖与手动补发使用正确的创建账号\n'
               '- 逐人保存发奖进度，明确失败保留待发，已发出的不重复发送\n'
