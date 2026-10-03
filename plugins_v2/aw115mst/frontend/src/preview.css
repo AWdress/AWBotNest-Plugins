@@ -1,0 +1,4 @@
+/* Preview shell only; the federated configuration inherits the platform theme. */
+:root{color-scheme:dark;font-family:"Segoe UI","Microsoft YaHei",sans-serif}
+body{margin:0;background:#0c141f}
+@media(prefers-color-scheme:light){:root{color-scheme:light;--bg-base:#f6f8fb;--bg-card:#fff;--bg-elevated:#f1f4f8;--border:#d1dae6;--text-primary:#182335;--text-secondary:#52627a;--accent:#176bc4;--danger:#bb3346}body{background:var(--bg-base)}}
