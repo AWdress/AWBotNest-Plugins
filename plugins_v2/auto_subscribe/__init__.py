@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.1.0',
+ 'version': '2.1.1',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -114,6 +114,11 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.1.1 修复无效缺集订阅降级与失败统计\n'
+    '- 本地缺集接口失败时明确报告失败，不再用已有订阅列表冒充本地缺集列表\n'
+    '- 按媒体类型和 TMDB ID 去重，处理重复候选和字符串布尔状态\n'
+    '- 订阅及补缺查询失败不再显示空列表成功，鉴权失效停止后续请求\n'
+    '- 明确新增订阅与已有订阅补缺的独立开关，不自动开启补缺\n\n'
     'v2.1.0 处理 NextFind 本地库接口 HTTP 500\n'
     '- 识别服务端 5xx，改用简洁错误并继续使用订阅进度降级\n'
     '- 不再把整段 httpx URL/堆栈写入运行日志\n\n'

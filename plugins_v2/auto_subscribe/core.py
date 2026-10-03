@@ -21,7 +21,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -89,10 +89,9 @@ def _effective_cfg(ctx) -> dict:
 def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats: Optional[dict] = None, extra_added: Optional[list] = None) -> str:
     """把一轮结果格式化成通知/返回文本。"""
     # 鉴权失败：一目了然地报因，别淹没在一堆「失败N」里。
-    if getattr(result, "auth_error", ""):
-        return (f"📥 自动订阅 · {label}\n❌ {result.auth_error}\n"
-                f"请到「设置」页更新 NextFind API 密钥（可点「测试连接」验证）后重试。")
     lines = [f"📥 自动订阅 · {label}"]
+    if getattr(result, "auth_error", ""):
+        lines.extend([f"❌ {result.auth_error}", "请更新 NextFind API 密钥后重试。"])
     for src, st in getattr(result, "stats", {}).items():
         parts = [f"{STATUS_LABELS.get(k, k)}{v}" for k, v in st.items() if v]
         lines.append(f"[{SOURCE_NAMES.get(src, src)}] " + ("，".join(parts) if parts else "无产出"))
@@ -101,6 +100,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
 
     if missing_subs is not None:
         m_parts = []
+        if missing_subs.get("error"):
+            m_parts.append(f"查询/执行失败：{missing_subs['error']}")
         if missing_subs.get("checked"):
             m_parts.append(f"检查{missing_subs['checked']}")
         if missing_subs.get("added"):
@@ -109,6 +110,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
             m_parts.append(f"已跳过{missing_subs['skipped']}")
         if missing_subs.get("failed"):
             m_parts.append(f"失败{missing_subs['failed']}")
+        if missing_subs.get("unprocessed"):
+            m_parts.append(f"未处理{missing_subs['unprocessed']}")
         lines.append("[缺集订阅] " + ("，".join(m_parts) if m_parts else "无缺集项目"))
 
     if fill_stats is not None:
@@ -121,6 +124,10 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
             f_parts.append(f"失败{fill_stats['failed']}")
         if fill_stats.get("limited"):
             f_parts.append(f"限额{fill_stats['limited']}")
+        if fill_stats.get("error"):
+            f_parts.append(f"查询/执行失败：{fill_stats['error']}")
+        if fill_stats.get("unprocessed"):
+            f_parts.append(f"未处理{fill_stats['unprocessed']}")
         lines.append("[自动补缺] " + "，".join(f_parts))
 
     all_added = list(getattr(result, "added", []) or [])
@@ -184,13 +191,73 @@ def _tmdb_id(item: dict) -> str:
 
 
 def _media_type(item: dict) -> str:
-    return str(item.get("media_type") or item.get("mediaType") or item.get("raw_type") or item.get("type") or "").lower()
+    value = str(item.get("media_type") or item.get("mediaType") or item.get("raw_type") or item.get("type") or "").strip().lower()
+    return {"电影": "movie", "剧集": "tv", "电视剧": "tv", "series": "tv"}.get(value, value)
+
+
+def _flag_true(value) -> bool:
+    return value is True or (not isinstance(value, bool) and str(value).strip().lower() in ("1", "true"))
+
+
+def _subscribed(item: dict) -> bool:
+    return any(_flag_true(item.get(key)) for key in ("is_subscribed", "subscribed", "has_subscribed"))
+
+
+def _media_key(item: dict) -> tuple[str, str]:
+    # NextFind's active list is treated as whole-media subscriptions. Do not
+    # change season granularity without a confirmed server-side contract.
+    return _media_type(item), _tmdb_id(item)
+
+
+def _request_error(exc: Exception) -> str:
+    from ._nextfind import NextFindError
+    if isinstance(exc, NextFindError):
+        return str(exc)
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status:
+        return f"NextFind 请求失败（HTTP {status}）"
+    if isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__:
+        return "NextFind 请求超时"
+    return f"NextFind 请求失败（{type(exc).__name__}）"
+
+
+def _round_error(stats: dict, exc: Exception, operation: str, log=None) -> None:
+    from ._nextfind import NextFindAuthError
+    stats["failed"] += 1
+    stats["error"] = _request_error(exc)
+    if isinstance(exc, NextFindAuthError):
+        stats["auth_error"] = stats["error"]
+    if log:
+        log.error("[自动订阅] %s失败：%s", operation, stats["error"])
+
+
+def _response_items(payload, operation: str) -> list:
+    """An invalid response is a failed query, not an empty library."""
+    from ._nextfind import NextFindError
+    data = payload
+    for _ in range(3):
+        if isinstance(data, list):
+            if not all(isinstance(item, dict) for item in data):
+                break
+            return data
+        if not isinstance(data, dict):
+            break
+        status = str(data.get("status") or "").strip().lower()
+        if ("status" in data and status not in ("success", "ok")) or ("success" in data and not _flag_true(data["success"])):
+            break
+        for key in ("data", "results", "items", "list", "records", "medias", "subscriptions"):
+            if key in data:
+                data = data[key]
+                break
+        else:
+            break
+    raise NextFindError(f"{operation}响应格式无效，无法确认查询结果")
 
 
 def _has_missing_episodes(item: dict) -> bool:
     """只识别响应明确给出的缺集状态，避免字段未知时误触发全库补缺。"""
     for key in ("has_missing", "has_missing_episodes", "is_missing"):
-        if item.get(key) is True:
+        if _flag_true(item.get(key)):
             return True
     for key in ("missing_count", "missing_episode_count"):
         try:
@@ -203,8 +270,11 @@ def _has_missing_episodes(item: dict) -> bool:
         return True
     try:
         total = int(item.get("total_episodes") or 0)
-        local = int(item.get("local_episodes") or item.get("downloaded_episodes") or 0)
-        if total > 0 and local < total:
+        local_value = item.get("local_episodes")
+        if local_value is None:
+            local_value = item.get("downloaded_episodes")
+        local = int(local_value)
+        if total > 0 and 0 <= local < total:
             return True
     except (TypeError, ValueError):
         pass
@@ -214,105 +284,77 @@ def _has_missing_episodes(item: dict) -> bool:
 def _fill_missing_round(cfg: dict, log=None) -> dict:
     """检查活跃剧集订阅，并只触发明确缺集的项目。"""
     client = _nf_client(cfg)
+    stats = {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0, "unprocessed": 0, "error": "", "auth_error": ""}
     if log:
         log.info("[自动订阅] 自动补缺：开始检查 NextFind 活跃剧集订阅...")
     try:
-        subscriptions = client.list_subscriptions()
+        subscriptions = _response_items(client.list_subscriptions(), "订阅列表")
     except Exception as exc:
-        if log:
-            log.error("[自动订阅] 自动补缺：获取活跃剧集订阅列表失败: %r", exc)
-        return {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0}
+        _round_error(stats, exc, "自动补缺：获取活跃订阅", log)
+        return stats
 
-    tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
+    by_id = {_tmdb_id(item): item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)}
+    tv_items = list(by_id.values())
+    stats["checked"] = len(tv_items)
     query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
     try:
-        details = client.subscription_info(query) if query else []
+        details = _response_items(client.subscription_info(query), "订阅进度") if query else []
     except Exception as exc:
-        if log:
-            log.error("[自动订阅] 自动补缺：批量获取订阅详情失败: %r", exc)
-        details = []
+        stats["unprocessed"] = len(tv_items)
+        _round_error(stats, exc, "自动补缺：获取订阅进度", log)
+        return stats
 
-    by_id = {_tmdb_id(item): item for item in tv_items}
     for detail in details:
         key = _tmdb_id(detail)
-        if key:
-            by_id[key] = {**by_id.get(key, {}), **detail}
+        if key in by_id and _media_type(detail) in ("", "tv"):
+            by_id[key] = {**by_id[key], **detail}
     candidates = [item for item in by_id.values() if _has_missing_episodes(item)]
     limit = max(1, min(int(cfg.get("auto_fill_missing_limit", 20) or 20), 100))
+    stats["missing"] = len(candidates)
+    stats["limited"] = max(0, len(candidates) - limit)
     if log:
         log.info("[自动订阅] 自动补缺：活跃剧集共 %d 部，发现明确缺集 %d 部（本轮上限 %d）",
                  len(tv_items), len(candidates), limit)
-    triggered = failed = 0
-    for item in candidates[:limit]:
+    selected = candidates[:limit]
+    for index, item in enumerate(selected):
         tmdb_id = _tmdb_id(item)
         title = str(item.get("title") or "")
         try:
             ok, message = client.fill_missing(tmdb_id, "tv", title)
-            triggered += int(ok)
-            failed += int(not ok)
+            stats["triggered"] += int(ok)
+            stats["failed"] += int(not ok)
             if log:
                 log.info("[自动订阅] 自动补缺 · %s(%s) → %s%s", title or "未命名", tmdb_id,
                          "已触发" if ok else "失败", f"（{message}）" if message else "")
         except Exception as exc:  # noqa: BLE001
-            failed += 1
-            if log:
-                log.error("[自动订阅] 自动补缺 · %s(%s) 调用失败: %r", title or "未命名", tmdb_id, exc)
+            _round_error(stats, exc, f"自动补缺 · {title or '未命名'}({tmdb_id})", log)
+            if stats["auth_error"]:
+                stats["unprocessed"] = len(selected) - index - 1
+                break
     if log:
-        log.info("[自动订阅] 自动补缺完成：检查 %d，缺集 %d，已触发 %d，失败 %d%s",
-                 len(tv_items), len(candidates), triggered, failed,
+        log_round = log.warning if stats["failed"] else log.info
+        log_round("[自动订阅] 自动补缺%s：检查 %d，缺集 %d，已触发 %d，失败 %d%s",
+                  "结束，存在失败" if stats["failed"] else "完成",
+                  len(tv_items), len(candidates), stats["triggered"], stats["failed"],
                  f"，另有 {len(candidates) - limit} 条受每轮上限限制" if len(candidates) > limit else "")
-    return {
-        "checked": len(tv_items), "missing": len(candidates),
-        "triggered": triggered, "failed": failed,
-        "limited": max(0, len(candidates) - limit),
-    }
+    return stats
 
 
 def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
     """从 NextFind 本地库缺集列表中订阅尚未订阅的媒体。"""
     client = _nf_client(cfg)
+    stats = {"checked": 0, "added": 0, "skipped": 0, "failed": 0, "unprocessed": 0, "error": "", "auth_error": ""}
     if log:
         log.info("[自动订阅] 缺集订阅：开始请求 NextFind 本地缺集列表...")
     try:
-        payload = client.local_library_filter("missing") or {}
+        items = _response_items(client.local_library_filter("missing"), "本地缺集列表")
     except Exception as exc:
+        _round_error(stats, exc, "本地缺集列表查询（本轮未检查本地库）", log)
         if log:
-            status = getattr(exc, "status_code", None)
-            if status:
-                log.warning(
-                    "[自动订阅] NextFind 本地库缺集接口返回 HTTP %s（服务端异常），"
-                    "已改用订阅进度接口",
-                    status,
-                )
-            else:
-                log.warning("[自动订阅] 本地库缺集接口不可用，已改用订阅进度接口：%s", exc)
-        try:
-            subscriptions = client.list_subscriptions()
-            tv_items = [item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)]
-            query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
-            details = client.subscription_info(query) if query else []
-            by_id = {_tmdb_id(item): item for item in tv_items}
-            for detail in details:
-                key = _tmdb_id(detail)
-                if key:
-                    by_id[key] = {**by_id.get(key, {}), **detail}
-            payload = {"data": [item for item in by_id.values() if _has_missing_episodes(item)]}
-        except Exception as fallback_exc:
-            if log:
-                log.error("[自动订阅] 缺集订阅降级查询也失败: %r", fallback_exc)
-            return {"checked": 0, "added": 0, "skipped": 0, "failed": 0}, []
+            log.warning("[自动订阅] 未新增本地缺集订阅；订阅进度不能替代本地库缺集列表，请检查 NextFind 服务")
+        return stats, []
 
-    data = payload
-    if isinstance(payload, dict):
-        data = payload.get("data", payload.get("results", payload.get("items", payload.get("list", payload))))
-    if isinstance(data, dict):
-        items = data.get("items", data.get("results", data.get("list", data.get("records", data.get("medias", [])))))
-    elif isinstance(data, list):
-        items = data
-    else:
-        items = []
-
-    stats = {"checked": len(items), "added": 0, "skipped": 0, "failed": 0}
+    stats["checked"] = len(items)
     added_titles: list[str] = []
 
     if not items:
@@ -320,18 +362,18 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
             log.info("[自动订阅] 缺集订阅：NextFind 本地库暂无缺集媒体")
         return stats, added_titles
 
-    # /local_library/filter historically did not always include is_subscribed.
-    # Cross-check the active subscription list before applying the per-round
-    # add limit so existing subscriptions neither call /subscriptions/add nor
-    # consume one of the available slots.
-    active_ids = set()
+    # A subscription list is necessary for reliable deduplication. Do not
+    # blindly add files when it is unavailable or use it to replace the library.
     try:
-        for subscription in client.list_subscriptions() or []:
-            if isinstance(subscription, dict) and _tmdb_id(subscription):
-                active_ids.add(_tmdb_id(subscription))
+        subscriptions = _response_items(client.list_subscriptions(), "订阅列表")
+        active_ids = {_media_key(item) for item in subscriptions if _tmdb_id(item) and _media_type(item) in ("movie", "tv")}
+        if any(not _tmdb_id(item) or _media_type(item) not in ("movie", "tv") for item in subscriptions):
+            from ._nextfind import NextFindError
+            raise NextFindError("订阅列表缺少媒体类型或 TMDB ID，无法安全去重")
     except Exception as exc:
-        if log:
-            log.warning("[自动订阅] 缺集订阅：读取现有订阅失败，将仅使用缺集列表状态: %r", exc)
+        stats["unprocessed"] = len(items)
+        _round_error(stats, exc, "缺集订阅：读取现有订阅", log)
+        return stats, added_titles
 
     pending = []
     for item in items:
@@ -344,39 +386,49 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
         if not tmdb_id or media_type not in ("tv", "movie"):
             stats["failed"] += 1
             continue
-        if item.get("is_subscribed") or item.get("subscribed") or item.get("has_subscribed") or tmdb_id in active_ids:
+        if _subscribed(item) or (media_type, tmdb_id) in active_ids:
             stats["skipped"] += 1
             continue
         pending.append((item, tmdb_id, title, media_type))
 
     if log:
         log.info(
-            "[自动订阅] 缺集订阅：检索到 %d 条，已订阅跳过 %d 条，待新增 %d 条，本轮将全部处理",
+            "[自动订阅] 缺集订阅：检索到 %d 条，已订阅跳过 %d 条，待处理 %d 条，本轮不设新增上限",
             len(items), stats["skipped"], len(pending),
         )
 
     # 缺集补订不再按每轮上限截断；开启该功能即一次处理当前返回的全部未订阅项目。
-    for item, tmdb_id, title, media_type in pending:
+    attempted = set()
+    for index, (item, tmdb_id, title, media_type) in enumerate(pending):
+        key = (media_type, tmdb_id)
+        if key in active_ids or key in attempted:
+            stats["skipped"] += 1
+            continue
+        attempted.add(key)
         try:
             ok, message = client.add(tmdb_id, media_type, item.get("season"))
             if ok:
                 stats["added"] += 1
                 added_titles.append(f"{title}(缺集)")
-                active_ids.add(tmdb_id)
-            elif any(marker in str(message or "").lower() for marker in ("已订阅", "already", "exist")):
+                active_ids.add(key)
+            elif any(marker in str(message or "").lower() for marker in ("已订阅", "已存在", "already subscribed", "already exists", "subscription exists")):
                 # A concurrent/manual subscription may win after the pre-check.
                 stats["skipped"] += 1
+                active_ids.add(key)
             else:
                 stats["failed"] += 1
             if log:
                 log.info("[自动订阅] 缺集补订 · %s(%s %s) → %s", title, media_type, tmdb_id, message or ("成功" if ok else "失败"))
         except Exception as exc:
-            stats["failed"] += 1
-            if log:
-                log.error("[自动订阅] 缺集补订失败 · %s(%s): %r", title, tmdb_id, exc)
+            _round_error(stats, exc, f"缺集补订 · {title}({tmdb_id})", log)
+            if stats["auth_error"]:
+                stats["unprocessed"] = len(pending) - index - 1
+                break
 
     if log:
-        log.info("[自动订阅] 缺集订阅完成：检索 %d，新增 %d，跳过 %d，失败 %d",
+        log_round = log.warning if stats["failed"] else log.info
+        log_round("[自动订阅] 缺集订阅%s：检索 %d，新增 %d，跳过 %d，失败 %d",
+                 "结束，存在失败" if stats["failed"] else "完成",
                  stats["checked"], stats["added"], stats["skipped"], stats["failed"])
     return stats, added_titles
 
@@ -427,17 +479,23 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("auto_subscribe_missing") and not getattr(result, "auth_error", ""):
             try:
                 missing_subs, missing_added = await asyncio.to_thread(_subscribe_missing_round, cfg, ctx.log)
-                _state_set(ctx, "last_missing_subscription_stats", missing_subs)
             except Exception as exc:
-                ctx.log.error("[自动订阅] 本地缺集订阅失败: %r", exc)
+                missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 0, "error": "", "auth_error": ""}
+                _round_error(missing_subs, exc, "本地缺集订阅", ctx.log)
+            _state_set(ctx, "last_missing_subscription_stats", missing_subs)
+            if missing_subs.get("auth_error"):
+                result.auth_error = missing_subs["auth_error"]
 
         fill_stats = None
         if cfg.get("auto_fill_missing") and not getattr(result, "auth_error", ""):
             try:
                 fill_stats = await asyncio.to_thread(_fill_missing_round, cfg, ctx.log)
-                _state_set(ctx, "last_fill_missing_stats", fill_stats)
             except Exception as exc:  # noqa: BLE001
-                ctx.log.error("[自动订阅] 自动补缺集失败: %r", exc)
+                fill_stats = {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0, "error": "", "auth_error": ""}
+                _round_error(fill_stats, exc, "自动补缺集", ctx.log)
+            _state_set(ctx, "last_fill_missing_stats", fill_stats)
+            if fill_stats.get("auth_error"):
+                result.auth_error = fill_stats["auth_error"]
 
         # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
         agg: dict = {}
@@ -448,16 +506,26 @@ async def _run(ctx, label: str) -> str:
             agg["missing_checked"] = missing_subs.get("checked", 0)
             agg["missing_added"] = missing_subs.get("added", 0)
             agg["missing_skipped"] = missing_subs.get("skipped", 0)
+            agg["missing_failed"] = missing_subs.get("failed", 0)
+        if fill_stats:
+            agg["fill_checked"] = fill_stats.get("checked", 0)
+            agg["fill_triggered"] = fill_stats.get("triggered", 0)
+            agg["fill_failed"] = fill_stats.get("failed", 0)
+        module_failures = sum(st.get("failed", 0) for st in (missing_subs, fill_stats) if st)
+        if module_failures:
+            agg["error"] = agg.get("error", 0) + module_failures
+        elif result.auth_error:
+            agg["error"] = max(1, agg.get("error", 0))
         _state_set(ctx, "last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         _state_set(ctx, "last_stats", agg)
 
         summary = _summary(result, label, missing_subs=missing_subs, fill_stats=fill_stats, extra_added=missing_added)
+        has_err = bool(result.auth_error or result.errors or module_failures or agg.get("error"))
 
         # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
         # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
         if cfg.get("notify", True):
-            has_err = result.errors or (missing_subs and missing_subs.get("failed")) or (fill_stats and fill_stats.get("failed"))
-            has_add = result.added or missing_added
+            has_add = result.added or missing_added or (fill_stats and fill_stats.get("triggered"))
             level = "error" if has_err else ("success" if has_add else "info")
             try:
                 lines = [line.strip() for line in str(summary or "").splitlines() if line.strip()]
@@ -473,7 +541,11 @@ async def _run(ctx, label: str) -> str:
             except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
                 ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
         total_added_count = len(result.added) + len(missing_added)
-        ctx.log.info("[自动订阅] 完成(%s)：新增 %d 部（榜单 %d，缺集 %d）", label, total_added_count, len(result.added), len(missing_added))
+        log_round = ctx.log.warning if has_err else ctx.log.info
+        log_round("[自动订阅] %s(%s)：新增 %d 部（榜单 %d，缺集 %d），触发补缺 %d 部",
+                  "本轮存在失败" if has_err else "完成", label,
+                  total_added_count, len(result.added), len(missing_added),
+                  fill_stats.get("triggered", 0) if fill_stats else 0)
         return summary
 
 

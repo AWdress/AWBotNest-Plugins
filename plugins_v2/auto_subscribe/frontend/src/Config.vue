@@ -277,10 +277,10 @@ function switchTab(t) {
                 <label class="row switch"><input v-model="cfg.auto_fill_missing" type="checkbox" /><span>自动补缺集</span></label>
                 <label v-if="cfg.auto_fill_missing" class="row"><span>每轮补缺上限</span><input v-model.number="cfg.auto_fill_missing_limit" class="inp" type="number" min="1" max="100" /></label>
                 <label class="row switch"><input v-model="cfg.auto_subscribe_missing" type="checkbox" /><span>本地缺集自动订阅</span></label>
-                <div v-if="cfg.auto_subscribe_missing" class="hint">缺集订阅会一次处理当前检测到的全部未订阅项目；已经订阅的项目会自动跳过。</div>
+                <div v-if="cfg.auto_subscribe_missing" class="hint flow-hint">一次订阅本地缺集列表中全部未订阅项目。已有订阅不会重复新增；需要补缺时请开启「自动补缺集」。本地缺集接口失败时会报告失败，不改用已有订阅列表。</div>
               </div>
               <div v-if="cfg.ai_assist_recognition" class="hint">仅在常规搜索无结果时调用平台 AI 清洗片名、判断电影/剧集及季号；识别结果仍须经 NextFind 核验，平台 AI 不可用时自动降级。</div>
-              <div v-if="cfg.auto_fill_missing" class="hint">批量检查 NextFind 活跃剧集的入库进度，只将明确缺集的订阅推入高优搜索队列；无需启用榜单源。</div>
+              <div v-if="cfg.auto_fill_missing" class="hint flow-hint">检查已有剧集订阅的入库进度，将明确缺集的项目加入补缺队列，每轮按补缺上限处理。不新增订阅，也无需启用榜单源。</div>
               <div class="row">
                 <button class="btn primary" :disabled="running" @click="runNow">{{ running ? '运行中…' : '立即运行一次' }}</button>
               </div>
@@ -520,6 +520,7 @@ function switchTab(t) {
 .row.switch { justify-content: flex-start; }
 .row.switch span { min-width: 0; }
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
+.flow-hint { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; }
 .secret-field { position: relative; flex: 1; min-width: 0; }
 .secret-field .inp { width: 100%; padding-right: 44px; }
 .secret-field button { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted, #7a8291); cursor: pointer; }

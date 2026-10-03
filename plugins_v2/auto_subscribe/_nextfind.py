@@ -29,6 +29,10 @@ class NextFindAuthError(NextFindError):
     """鉴权失败（401/403）：API 密钥无效或已过期。运行时据此立即中止整轮。"""
 
 
+class NextFindResponseError(NextFindError):
+    """HTTP 成功但响应无法作为可靠查询结果使用。"""
+
+
 class NextFindServerError(NextFindError):
     """NextFind 服务端 5xx；插件可以选择稳定接口继续工作。"""
 
@@ -67,13 +71,61 @@ class NextFindClient:
         with self._client() as client:
             resp = client.get(f"{self.base_url}{path}", params=params)
             self._check(resp, path)
-            return resp.json()
+            try:
+                return resp.json()
+            except ValueError:
+                raise NextFindResponseError(f"NextFind 响应不是有效 JSON：{path}") from None
 
     def _post(self, path: str, body: dict) -> dict:
         with self._client() as client:
             resp = client.post(f"{self.base_url}{path}", json=body)
             self._check(resp, path)
-            return resp.json()
+            try:
+                return resp.json()
+            except ValueError:
+                raise NextFindResponseError(f"NextFind 响应不是有效 JSON：{path}") from None
+
+    @staticmethod
+    def _true_flag(value) -> bool:
+        """成功标志只接受明确的 true/1，不能把字符串 false 当作成功。"""
+        return value is True or value == 1 or (
+            isinstance(value, str) and value.strip().lower() in ("true", "1")
+        )
+
+    @classmethod
+    def _list_data(cls, payload, path: str) -> List[dict]:
+        """查询失败或包装损坏必须报错；只有有效列表才能代表查询成功。"""
+        if not isinstance(payload, dict):
+            raise NextFindResponseError(f"NextFind 响应格式异常：{path}（缺少数据包装）")
+        if "status" in payload and str(payload["status"]).strip().lower() not in ("success", "ok"):
+            raise NextFindResponseError(f"NextFind 响应表示失败：{path}（status）")
+        if "success" in payload and not cls._true_flag(payload["success"]):
+            raise NextFindResponseError(f"NextFind 响应表示失败：{path}（success）")
+        data = payload.get("data")
+        if isinstance(data, dict):
+            for key in ("items", "results", "subscriptions"):
+                if isinstance(data.get(key), list):
+                    data = data[key]
+                    break
+        if not isinstance(data, list):
+            raise NextFindResponseError(f"NextFind 响应格式异常：{path}（缺少有效列表）")
+        if any(not isinstance(item, dict) for item in data):
+            raise NextFindResponseError(f"NextFind 响应格式异常：{path}（列表项目不是对象）")
+        return data
+
+    def _mutation_result(self, payload, path: str) -> Tuple[bool, str]:
+        if not isinstance(payload, dict):
+            raise NextFindResponseError(f"NextFind 响应格式异常：{path}（缺少结果包装）")
+        status = str(payload.get("status") or "").strip().lower()
+        ok = status in ("success", "ok") or self._true_flag(payload.get("success"))
+        if "status" in payload and status not in ("success", "ok"):
+            ok = False
+        if "success" in payload and not self._true_flag(payload["success"]):
+            ok = False
+        message = str(payload.get("message") or "")
+        if self.api_key:
+            message = message.replace(self.api_key, "[已隐藏 API 密钥]")
+        return ok, message
 
     # ------------------------------------------------------------------ #
     # 查询
@@ -94,21 +146,12 @@ class NextFindClient:
     def list_subscriptions(self) -> List[dict]:
         """活跃订阅列表（本插件主要靠 /search 的 is_subscribed 去重，此处备用）。"""
         payload = self._get("/subscriptions", {})
-        data = (payload or {}).get("data")
-        return data if isinstance(data, list) else []
+        return self._list_data(payload, "/subscriptions")
 
     def subscription_info(self, items: List[dict]) -> List[dict]:
         """批量查询订阅入库进度，兼容常见的数据包装格式。"""
         payload = self._post("/subscriptions/info", {"items": items})
-        data = (payload or {}).get("data")
-        if isinstance(data, list):
-            return data
-        if isinstance(data, dict):
-            for key in ("items", "results", "subscriptions"):
-                value = data.get(key)
-                if isinstance(value, list):
-                    return value
-        return []
+        return self._list_data(payload, "/subscriptions/info")
 
     def quota(self) -> dict:
         """查询额度/积分（供「测试连接」动作）。"""
@@ -175,9 +218,7 @@ class NextFindClient:
         if season is not None and str(media_type).lower() == "tv":
             body["season"] = season
         payload = self._post("/subscriptions/add", body)
-        status = str((payload or {}).get("status") or "").lower()
-        message = str((payload or {}).get("message") or "")
-        return status == "success", message
+        return self._mutation_result(payload, "/subscriptions/add")
 
     def remove(self, tmdb_id, media_type: str) -> Tuple[bool, str]:
         """取消订阅（本次不接入 UI，保留供将来用）。"""
@@ -193,6 +234,4 @@ class NextFindClient:
             "media_type": str(media_type).lower(),
             "title": str(title or ""),
         })
-        status = str((payload or {}).get("status") or "").lower()
-        ok = status in ("success", "ok") or bool((payload or {}).get("success"))
-        return ok, str((payload or {}).get("message") or "")
+        return self._mutation_result(payload, "/media/fill_missing")

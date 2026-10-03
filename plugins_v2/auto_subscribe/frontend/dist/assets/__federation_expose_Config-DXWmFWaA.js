@@ -48,7 +48,7 @@ const _hoisted_25 = {
 const _hoisted_26 = { class: "row switch" };
 const _hoisted_27 = {
   key: 1,
-  class: "hint"
+  class: "hint flow-hint"
 };
 const _hoisted_28 = {
   key: 0,
@@ -56,7 +56,7 @@ const _hoisted_28 = {
 };
 const _hoisted_29 = {
   key: 1,
-  class: "hint"
+  class: "hint flow-hint"
 };
 const _hoisted_30 = { class: "row" };
 const _hoisted_31 = ["disabled"];
@@ -589,14 +589,14 @@ return (_ctx, _cache) => {
                           _cache[57] || (_cache[57] = _createElementVNode("span", null, "本地缺集自动订阅", -1))
                         ]),
                         (cfg.auto_subscribe_missing)
-                          ? (_openBlock(), _createElementBlock("div", _hoisted_27, "缺集订阅会一次处理当前检测到的全部未订阅项目；已经订阅的项目会自动跳过。"))
+                          ? (_openBlock(), _createElementBlock("div", _hoisted_27, "一次订阅本地缺集列表中全部未订阅项目。已有订阅不会重复新增；需要补缺时请开启「自动补缺集」。本地缺集接口失败时会报告失败，不改用已有订阅列表。"))
                           : _createCommentVNode("", true)
                       ]),
                       (cfg.ai_assist_recognition)
                         ? (_openBlock(), _createElementBlock("div", _hoisted_28, "仅在常规搜索无结果时调用平台 AI 清洗片名、判断电影/剧集及季号；识别结果仍须经 NextFind 核验，平台 AI 不可用时自动降级。"))
                         : _createCommentVNode("", true),
                       (cfg.auto_fill_missing)
-                        ? (_openBlock(), _createElementBlock("div", _hoisted_29, "批量检查 NextFind 活跃剧集的入库进度，只将明确缺集的订阅推入高优搜索队列；无需启用榜单源。"))
+                        ? (_openBlock(), _createElementBlock("div", _hoisted_29, "检查已有剧集订阅的入库进度，将明确缺集的项目加入补缺队列，每轮按补缺上限处理。不新增订阅，也无需启用榜单源。"))
                         : _createCommentVNode("", true),
                       _createElementVNode("div", _hoisted_30, [
                         _createElementVNode("button", {
@@ -1399,6 +1399,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-d39cc5b9"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5966a98d"]]);
 
 export { Config as default };
