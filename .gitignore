@@ -12,3 +12,7 @@ MIGRATION.md
 # 本地测试与内部文档，不公开到仓库
 tests_v2/
 docs/
+
+# 远程打印端的本地凭据和状态，不放入插件发布目录的隐藏文件
+/plugins_v2/remote_print/agent/config.json
+/plugins_v2/remote_print/agent/state/

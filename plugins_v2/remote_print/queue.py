@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import hmac
+import hashlib
+import json
 import re
 import secrets
 import time
@@ -12,8 +14,8 @@ from pathlib import Path
 
 ACTIVE = {"receiving", "pending", "queued", "leased", "started"}
 TERMINAL = {"submitted", "failed", "unknown", "cancelled", "archived"}
-LABELS = {"receiving": "正在收文件", "pending": "等待确认", "queued": "等待电脑领取",
-          "leased": "电脑正在准备", "started": "正在提交打印", "submitted": "已提交打印队列",
+LABELS = {"receiving": "正在收文件", "pending": "等待确认", "queued": "等待打印",
+          "leased": "正在准备打印", "started": "正在提交打印", "submitted": "已提交打印队列",
           "failed": "失败", "unknown": "结果待核查（不会自动重打）", "cancelled": "已取消", "archived": "已核查归档（未重打）"}
 
 
@@ -76,7 +78,9 @@ class PrintQueue:
 
     def _remove_orphans(self, known):
         for path in self.root.iterdir():
-            if path.is_file() and re.fullmatch(r"[a-f0-9]{16}\.(?:bin|part)", path.name) and path.name not in known:
+            scratch = re.fullmatch(r"\.ipp-[a-z0-9_]{8}\.jpg", path.name)
+            orphan = re.fullmatch(r"[a-f0-9]{16}\.(?:bin|part|ipp\.jpg)", path.name) and path.name not in known
+            if path.is_file() and (scratch or orphan):
                 path.unlink(missing_ok=True)
 
     def file(self, job_id):
@@ -87,6 +91,19 @@ class PrintQueue:
     def _check(self):
         if self.faulted:
             raise ValueError("队列存储异常，已停止领取任务，请重载插件后检查")
+
+    @staticmethod
+    def target_key(cfg):
+        return hashlib.sha256(json.dumps([cfg.get("ipp_url", ""), cfg.get("ipp_printer_uri", "")], ensure_ascii=False).encode()).hexdigest()
+
+    def route_matches(self, job):
+        cfg = self.config()
+        backend = job.get("backend", "agent")  # 0.0.1 的任务只属于 Windows 打印端。
+        if backend != cfg.get("print_mode", "agent"):
+            return False
+        if backend == "ipp":
+            return job.get("ipp_target") == self.target_key(cfg)
+        return job["device_id"] == cfg["device_id"]
 
     async def _commit(self, snapshot):
         # 写入有歧义时停发所有任务，不能用旧内存状态再次返回 proceed。
@@ -140,9 +157,10 @@ class PrintQueue:
             job_id = secrets.token_hex(8)
             snapshot["jobs"][job_id] = {"id": job_id, "owner": owner, "source": source,
                 "filename": filename, "status": "receiving", "created": now, "updated": now,
-                "copies": min(cfg["default_copies"], cfg["max_copies"]), "printer": cfg["printer_name"],
+                "copies": min(cfg["default_copies"], cfg["max_copies"]), "printer": "IPP" if cfg.get("print_mode") == "ipp" else cfg["printer_name"],
                 "device_id": cfg["device_id"], "size": allocation, "file_present": True,
-                "claim_token": "", "message": ""}
+                "claim_token": "", "message": "", "backend": cfg.get("print_mode", "agent"),
+                "ipp_target": self.target_key(cfg) if cfg.get("print_mode") == "ipp" else ""}
             snapshot["seen"][source_key] = now
             # 去重缓存有硬上限；满额时拒绝而非移除仍可能被重放的记录。
             snapshot["seen"] = {key: stamp for key, stamp in snapshot["seen"].items() if now - stamp < 86400}
@@ -193,13 +211,17 @@ class PrintQueue:
             if job["status"] != "pending":
                 raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
             cfg = self.config()
+            if not self.route_matches(job):
+                raise ValueError("打印连接方式或目标已更改，请取消旧任务并重新发送文件")
             value = job["copies"] if copies is None else copies
             if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= cfg["max_copies"]:
                 raise ValueError(f"打印份数必须是 1～{cfg['max_copies']} 的整数")
             target = job["printer"] if printer is None else str(printer).strip()
             if len(target) > 200 or any(ord(char) < 32 for char in target):
                 raise ValueError("打印机名称无效")
-            if target and self.device and target not in self.device.get("printers", []):
+            if job.get("backend", "agent") == "ipp" and printer is not None:
+                raise ValueError("IPP 模式使用配置中的固定打印机，请不要在命令中另指定打印机")
+            if job.get("backend", "agent") == "agent" and target and self.device and target not in self.device.get("printers", []):
                 raise ValueError("该打印机不在电脑端允许列表内，请先发送 /printers 查看")
             job.update(status="queued", copies=value, printer=target, updated=time.time())
             await self._commit(snapshot)
@@ -211,7 +233,7 @@ class PrintQueue:
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id, owner)
             if job["status"] not in {"receiving", "pending", "queued", "leased"}:
-                raise ValueError("任务已开始或已结束，不能保证取消；请在电脑打印队列中查看")
+                raise ValueError("任务已开始或已结束，不能保证取消；请在打印机或系统打印队列中查看")
             job.update(status="cancelled", updated=time.time())
             await self._commit(snapshot)
             return copy.deepcopy(job)
@@ -223,7 +245,9 @@ class PrintQueue:
 
     @staticmethod
     def public(job):
-        return {key: job.get(key) for key in ("id", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
+        result = {key: job.get(key) for key in ("id", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
+        result["backend"] = job.get("backend", "agent")
+        return result
 
     async def hello(self, payload):
         printers = payload.get("printers", [])
@@ -235,19 +259,22 @@ class PrintQueue:
                        "default_printer": str(payload.get("default_printer", ""))[:200], "last_seen": time.time()}
         return {"ok": True}
 
-    async def poll(self):
+    async def poll(self, backend="agent"):
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
             cfg, now = self.config(), time.time()
-            self.device["last_seen"] = now
+            if backend != cfg.get("print_mode", "agent"):
+                return {"ok": True, "job": None}
+            if backend == "agent":
+                self.device["last_seen"] = now
             # 一台电脑只处理一个任务；未确认是否已提交时不领取其他任务。
             if any(job["status"] in {"leased", "started"} for job in snapshot["jobs"].values()):
                 return {"ok": True, "job": None}
             for job in snapshot["jobs"].values():
-                if job["status"] != "queued" or job["device_id"] != cfg["device_id"]:
+                if job["status"] != "queued" or not self.route_matches(job):
                     continue
-                if job.get("format") not in self.device.get("formats", []):
+                if backend == "agent" and job.get("format") not in self.device.get("formats", []):
                     continue
                 job.update(status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
                 await self._commit(snapshot)
@@ -256,9 +283,9 @@ class PrintQueue:
                 return {"ok": True, "job": result}
             return {"ok": True, "job": None}
 
-    def _claim(self, snapshot, job_id, token):
+    def _claim(self, snapshot, job_id, token, check_route=True):
         job = self._find(snapshot, job_id)
-        if (job["device_id"] != self.config()["device_id"] or not isinstance(token, str)
+        if ((check_route and not self.route_matches(job)) or not isinstance(token, str)
                 or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token)
                 or not hmac.compare_digest(str(job.get("claim_token", "")), token)):
             raise ValueError("任务领取凭据无效")
@@ -283,7 +310,7 @@ class PrintQueue:
             await self._commit(snapshot)
             return {"ok": True, "proceed": True}
 
-    async def result(self, job_id, token, status, spool_id=""):
+    async def result(self, job_id, token, status, spool_id="", message=None):
         if status not in {"submitted", "failed", "unknown"}:
             raise ValueError("打印结果无效")
         async with self.lock:
@@ -294,15 +321,15 @@ class PrintQueue:
             if job_id not in snapshot["jobs"]:
                 # 旧记录已按保留策略清理。允许打印端结束补报，不能因此重新打印。
                 return None
-            job = self._claim(snapshot, job_id, token)
+            job = self._claim(snapshot, job_id, token, check_route=False)
             if job["status"] == status or (job["status"] in {"submitted", "failed", "cancelled", "archived"}):
                 return None
             if job["status"] not in {"leased", "started", "unknown"}:
                 raise ValueError("任务当前不能接收打印结果")
             if job["status"] == "leased" and status == "submitted":
                 raise ValueError("未获得提交许可，不能标记打印已提交")
-            message = {"submitted": "已提交到系统打印队列；实际出纸请查看打印机", "failed": "打印端未能完成提交，请查看电脑端日志",
-                       "unknown": "提交结果不确定，请核查电脑打印队列；不会自动重打"}[status]
+            message = message or {"submitted": "已提交到打印队列；实际出纸请查看打印机", "failed": "未能完成打印提交，请查看日志",
+                       "unknown": "提交结果不确定，请核查打印机队列；不会自动重打"}[status]
             job.update(status=status, message=message, spool_id=str(spool_id)[:64], updated=time.time())
             await self._commit(snapshot)
             return copy.deepcopy(job)
@@ -329,13 +356,17 @@ class PrintQueue:
             for job in snapshot["jobs"].values():
                 status = job["status"]
                 if status == "leased" and now > job.get("lease_until", 0):
-                    job.update(status="failed", message="电脑端准备超时，未自动重新打印；请检查后重发", updated=now)
+                    job.update(status="failed", message="打印准备超时，未自动重新打印；请检查后重发", updated=now)
                     notifications.append(copy.deepcopy(job))
                 elif status == "started" and now - job["updated"] > 600:
-                    job.update(status="unknown", message="打印端未回报，需核查打印队列", updated=now)
+                    job.update(status="unknown", message="未收到打印结果，需核查打印队列", updated=now)
                     notifications.append(copy.deepcopy(job))
                 if job["status"] in {"pending", "queued"} and now - job["created"] > horizon:
                     job.update(status="cancelled", message="未及时打印，任务已过期", updated=now)
+                    notifications.append(copy.deepcopy(job))
+                status = job["status"]
+                if status in {"pending", "queued"} and not self.route_matches(job):
+                    job.update(status="failed", message="打印方式或目标已更改，旧任务未转发；请重新发送", updated=now)
                     notifications.append(copy.deepcopy(job))
                 status = job["status"]
                 if job.get("file_present") and status in TERMINAL and (now - job["updated"] > horizon or (completed_only and status != "unknown")):

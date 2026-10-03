@@ -6,6 +6,8 @@
 
 ## 安装与配置
 
+平台插件选择“Windows 电脑打印端”后才需要此程序；选择默认的“VPS / FRP 直连 IPP”时不需要安装或启动它。
+
 将整个 `agent` 目录复制到打印机所在的 Windows 电脑。在该目录打开 PowerShell：
 
 ```powershell

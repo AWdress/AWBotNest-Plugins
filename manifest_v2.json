@@ -3,7 +3,7 @@
     "remote_print": {
       "id": "remote_print",
       "name": "远程打印",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "author": "AWdress",
       "repository": "AWdress/AWBotNest-Plugins",
       "scope": "bot",
@@ -11,8 +11,8 @@
       "plugin_api_version": 2,
       "render_mode": "schema",
       "webhook": true,
-      "description": "通过 Telegram 或企业微信自建应用发送 PDF、图片，Windows 电脑主动领取并提交到本地打印机；支持确认打印、任务查询和取消。",
-      "changelog": "v0.0.1 首次发布\n- Telegram 与企业微信共用持久打印队列\n- 配套 Windows 打印端，主动连接服务器，无需开放电脑端口\n- 默认关闭自动打印，按用户授权，断线与重启不自动重打已提交任务\n- 支持 PDF、JPG、PNG、WebP、BMP；打印成功表示系统队列已接收，不代表实际出纸",
+      "description": "通过 Telegram 或企业微信自建应用发送 PDF、图片，支持 VPS 经 FRP 直连 IPP 打印机，或由 Windows 打印端领取；提供确认打印、任务查询和取消。",
+      "changelog": "v0.0.2 增加 FRP / IPP 直连并修复安装\n- 新增 VPS 直连 IPP 模式、只读连接测试及打印机能力检查\n- PDF/JPEG 直接提交，其他支持图片转 JPEG；不依赖 Windows 电脑\n- 切换打印模式或目标不会把旧任务送到另一台打印机；不重试有歧义的提交\n- 移除发布目录内的隐藏文件，修复平台安装器拒绝安装\n\nv0.0.1 首次发布\n- Telegram 与企业微信共用持久打印队列\n- 配套 Windows 打印端，主动连接服务器，无需开放电脑端口\n- 默认关闭自动打印，按用户授权，断线与重启不自动重打已提交任务\n- 支持 PDF、JPG、PNG、WebP、BMP；打印成功表示系统队列已接收，不代表实际出纸",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/remote_print/icon.svg",
       "tags": [
         "打印机",
@@ -46,20 +46,82 @@
           "section": "基本设置",
           "order": 2
         },
+        "print_mode": {
+          "type": "select",
+          "default": "ipp",
+          "label": "打印连接方式",
+          "options": [
+            {
+              "value": "ipp",
+              "label": "VPS / FRP 直连 IPP"
+            },
+            {
+              "value": "agent",
+              "label": "Windows 电脑打印端"
+            }
+          ],
+          "section": "基本设置",
+          "order": 3
+        },
         "public_base_url": {
           "type": "string",
           "default": "",
           "label": "平台外网 HTTPS 地址",
-          "help": "填写平台域名及必要的部署前缀，不含 /api 路径、密钥或查询参数。电脑端需能访问。",
+          "help": "用于显示企微回调地址；Windows 模式也用于电脑端连接。填写域名及必要的部署前缀，不含 /api 路径、密钥或查询参数。",
           "section": "基本设置",
-          "order": 3
+          "order": 4
         },
         "usage": {
           "type": "info",
-          "default": "打印机接在 Windows 电脑；电脑上运行随插件提供的 agent 打印端。支持 PDF、JPG、PNG、WebP、BMP；Office 文档请先另存 PDF。只接收 Telegram 私聊和企业微信自建应用。",
+          "default": "FRP 转发打印机的 IPP 631 端口到 VPS，插件直接提交 PDF/JPEG，其他支持图片自动转 JPEG，不用 Windows 打印端。可选 Windows 模式。支持 PDF、JPG、PNG、WebP、BMP；Office 文档请先另存 PDF。默认需要确认后打印。",
           "label": "使用说明",
           "section": "基本设置",
-          "order": 4
+          "order": 5
+        },
+        "ipp_url": {
+          "type": "string",
+          "default": "",
+          "label": "IPP / FRP 访问地址",
+          "help": "填写服务器容器能访问的地址，例如 http://宿主机地址:FRP映射端口/ipp/print；局域网可直接填 http://打印机IP:631/ipp/print。容器的 127.0.0.1 不是 VPS 宿主机。不要把无鉴权打印端口裸露到公网。",
+          "show_if": {
+            "print_mode": "ipp"
+          },
+          "section": "IPP / FRP 直连",
+          "order": 6
+        },
+        "ipp_printer_uri": {
+          "type": "string",
+          "default": "",
+          "label": "打印机原生 URI（可选）",
+          "help": "通常留空，自动使用打印机报告的 URI。与上面的 FRP 访问地址不同；必要时填写 ipp://打印机局域网IP:631/ipp/print。",
+          "show_if": {
+            "print_mode": "ipp"
+          },
+          "section": "IPP / FRP 直连",
+          "order": 7
+        },
+        "ipp_timeout_seconds": {
+          "type": "number",
+          "default": 30,
+          "min": 5,
+          "max": 120,
+          "label": "IPP 请求超时（秒）",
+          "show_if": {
+            "print_mode": "ipp"
+          },
+          "section": "IPP / FRP 直连",
+          "order": 8
+        },
+        "test_ipp": {
+          "type": "action",
+          "label": "测试 IPP 连接（不打印）",
+          "action": "test_ipp",
+          "help": "只读取打印机名称、状态、格式及份数能力，不发送打印任务。",
+          "show_if": {
+            "print_mode": "ipp"
+          },
+          "section": "IPP / FRP 直连",
+          "order": 9
         },
         "telegram_enabled": {
           "type": "boolean",
@@ -134,6 +196,9 @@
           "default": "home-printer",
           "label": "电脑端设备 ID",
           "help": "需与电脑端配置一致。本版连接一台 Windows 电脑，可选择该电脑的多台打印机。",
+          "show_if": {
+            "print_mode": "agent"
+          },
           "section": "电脑连接",
           "order": 30
         },
@@ -143,6 +208,9 @@
           "default": "",
           "label": "电脑端连接密钥",
           "help": "至少 32 个字符；可点下方按钮生成，再用眼睛读取，复制到电脑端配置。不要使用平台管理员密码。",
+          "show_if": {
+            "print_mode": "agent"
+          },
           "section": "电脑连接",
           "order": 31
         },
@@ -152,6 +220,9 @@
           "action": "generate_device_token",
           "danger": true,
           "help": "更换后旧打印端不能连接，需要更新电脑端配置。",
+          "show_if": {
+            "print_mode": "agent"
+          },
           "section": "电脑连接",
           "order": 32
         },
@@ -160,15 +231,18 @@
           "default": "",
           "label": "默认目标打印机",
           "help": "留空使用电脑端系统默认打印机；填写时必须与电脑端“允许打印机”中的完整名称一致。",
+          "show_if": {
+            "print_mode": "agent"
+          },
           "section": "电脑连接",
           "order": 33
         },
         "show_connection": {
           "type": "action",
-          "label": "查看连接地址与打印机",
+          "label": "查看回调地址与打印机",
           "action": "show_connection",
-          "section": "电脑连接",
-          "order": 34
+          "section": "任务管理",
+          "order": 49
         },
         "default_copies": {
           "type": "number",
@@ -256,7 +330,7 @@
           "label": "待核查任务归档（不重打）",
           "action": "archive_unknown",
           "danger": true,
-          "help": "先核查 Windows 打印队列和实际出纸。此按钮将所有“结果待核查”任务归档，不会重打或取消打印机中的任务。",
+          "help": "先核查打印机队列和实际出纸。此按钮将所有“结果待核查”任务归档，不会重打或取消打印机中的任务。",
           "section": "任务管理",
           "order": 52
         }

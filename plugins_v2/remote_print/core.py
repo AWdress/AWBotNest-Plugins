@@ -13,6 +13,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from . import __plugin__
 from .files import inspect_file, safe_name
+from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
 from .wecom import WeCom
 
@@ -26,6 +27,9 @@ class RemotePrint:
         self.ctx = ctx
         self.queue = PrintQueue(ctx, self.config)
         self.wecom = WeCom(ctx, self.config)
+        self.ipp = IPPPrinter(ctx, self.config)
+        self.ipp_status = {}
+        self.dispatch_lock = asyncio.Lock()
         self.downloads = asyncio.Semaphore(2)
         self.receiving = 0
         self.stopped = False
@@ -34,7 +38,7 @@ class RemotePrint:
         cfg = {key: copy.deepcopy(field["default"]) for key, field in __plugin__["config_schema"].items() if "default" in field and field["type"] != "info"}
         cfg.update(dict(self.ctx.config))
         for key, limits in {"default_copies": (1, 5), "max_copies": (1, 5), "max_pages": (1, 50), "max_file_mb": (1, 25),
-                            "max_queue": (1, 100), "max_storage_mb": (25, 1000), "retention_hours": (1, 168)}.items():
+                            "max_queue": (1, 100), "max_storage_mb": (25, 1000), "retention_hours": (1, 168), "ipp_timeout_seconds": (5, 120)}.items():
             try:
                 number = int(cfg[key])
             except (ValueError, TypeError, OverflowError):
@@ -42,8 +46,10 @@ class RemotePrint:
             cfg[key] = max(limits[0], min(limits[1], number))
         for key in ("enabled", "telegram_enabled", "wecom_enabled", "auto_print"):
             cfg[key] = cfg[key] is True
-        for key in ("device_id", "device_token", "printer_name", "public_base_url"):
+        for key in ("device_id", "device_token", "printer_name", "public_base_url", "ipp_url", "ipp_printer_uri"):
             cfg[key] = str(cfg[key] or "").strip()
+        if cfg["print_mode"] not in {"ipp", "agent"}:
+            cfg["print_mode"] = "ipp"
         return cfg
 
     async def setup(self):
@@ -57,13 +63,16 @@ class RemotePrint:
         self.ctx.action("generate_device_token", self.generate_device_token)
         self.ctx.action("cleanup_files", self.cleanup_files)
         self.ctx.action("archive_unknown", self.archive_unknown)
+        self.ctx.action("test_ipp", self.test_ipp)
         self.ctx.schedule_interval("print_cleanup", self.cleanup, seconds=60)
+        if self.config()["print_mode"] == "ipp":
+            self.ctx.schedule_interval("ipp_dispatch", self.dispatch, seconds=3)
         if self.config()["telegram_enabled"]:
             if self.ctx.bot is None:
                 self.ctx.log.warning("Telegram 打印未接入：请先连接平台 Bot；企业微信不受影响")
             else:
                 self.ctx.on_message(incoming=True, outgoing=False)(self.telegram)
-        self.ctx.log.info("远程打印已就绪，等待授权用户和电脑端连接")
+        self.ctx.log.info("远程打印已就绪，方式=%s", "IPP / FRP 直连" if self.config()["print_mode"] == "ipp" else "Windows 打印端")
 
     def spawn(self, coroutine, name):
         if self.stopped:
@@ -148,6 +157,8 @@ class RemotePrint:
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
                 job = await self.queue.confirm(values[0], owner, copies, printer)
+                if job.get("backend") == "ipp":
+                    return f"已确认任务 {job['id']}：{job['copies']} 份。等待服务器通过 IPP 提交打印。"
                 return f"已确认任务 {job['id']}：{job['copies']} 份。等待电脑端提交打印；电脑离线时会排队。"
             if command in {"/print_cancel", "取消"}:
                 job = await self.queue.cancel(argument.strip(), owner)
@@ -155,14 +166,17 @@ class RemotePrint:
             if command in {"/print_jobs", "任务"}:
                 return self.jobs_text(await self.queue.jobs(owner))
             if command in {"/printers", "打印机"}:
+                if self.config()["print_mode"] == "ipp":
+                    await self.refresh_ipp()
                 return self.device_text()
             return self.help()
         except ValueError as exc:
             return str(exc) if str(exc) != "invalid literal for int() with base 10" and not str(exc).startswith("invalid literal") else "份数必须是整数。"
 
-    @staticmethod
-    def help():
-        return "先私聊发送 PDF 或图片。\n打印 任务ID [份数] [打印机完整名称]\n取消 任务ID\n任务：查看你的最近任务\n打印机：查看允许的打印机\nTelegram 也支持 /print、/print_cancel、/print_jobs、/printers。\n已提交仅表示系统队列接收，不保证实际出纸。"
+    def help(self):
+        printer = " [打印机完整名称]" if self.config()["print_mode"] == "agent" else ""
+        return (f"先发送 PDF 或图片。\n打印 任务ID [份数]{printer}\n取消 任务ID\n任务：查看你的最近任务\n打印机：查看设备状态"
+                + "\nTelegram 仅接受私聊，支持 /print、/print_cancel、/print_jobs、/printers。\n已提交仅表示打印队列接收，不保证实际出纸。")
 
     @staticmethod
     def jobs_text(jobs):
@@ -171,6 +185,10 @@ class RemotePrint:
         return "最近打印任务：\n" + "\n".join(f"{j['id']} · {LABELS[j['status']]} · {j['filename']} · {j['copies']}份" for j in jobs)
 
     def device_text(self):
+        if self.config()["print_mode"] == "ipp":
+            if not self.ipp_status:
+                return "IPP / FRP 直连模式。请先填写 IPP 访问地址，点击“测试 IPP 连接（不打印）”。"
+            return self.ipp_text(self.ipp_status)
         device = self.queue.device
         if not device:
             return "电脑端尚未连接。请在 Windows 电脑配置并运行 agent 打印端。"
@@ -277,7 +295,7 @@ class RemotePrint:
         cfg = self.config()
         token = cfg["device_token"]
         supplied = str(request.headers.get("authorization", ""))
-        return (cfg["enabled"] and re.fullmatch(r"[!-~]{32,512}", token) is not None and
+        return (cfg["enabled"] and cfg["print_mode"] == "agent" and re.fullmatch(r"[!-~]{32,512}", token) is not None and
                 re.fullmatch(r"[A-Za-z0-9_-]{1,128}", cfg["device_id"]) is not None and len(supplied) < 1024 and
                 hmac.compare_digest(supplied.encode("utf-8"), ("Bearer " + token).encode("ascii")) and
                 hmac.compare_digest(str(request.headers.get("x-print-device", "")).encode("utf-8"), cfg["device_id"].encode("ascii")))
@@ -329,12 +347,91 @@ class RemotePrint:
         for job in jobs:
             await self.notify_job(job)
 
+    @staticmethod
+    def ipp_text(caps):
+        states = {3: "空闲", 4: "正在处理", 5: "已停止"}
+        return (f"IPP 打印机：{caps.get('name') or '未提供名称'}\n状态：{states.get(caps.get('state'), '未知')}"
+                + f"\n接受任务：{'是' if caps.get('accepting_jobs') else '否'}"
+                + "\n支持格式：" + "、".join(caps.get("formats", [])))
+
+    async def refresh_ipp(self):
+        caps = await self.ipp.probe()
+        self.ipp_status = caps
+        return caps
+
+    async def test_ipp(self, payload=None):
+        try:
+            caps = await self.refresh_ipp()
+            return {"ok": True, "message": self.ipp_text(caps) + "\n只读取设备能力，未发送打印任务。"}
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+
+    async def dispatch(self):
+        cfg = self.config()
+        if self.stopped or not cfg["enabled"] or cfg["print_mode"] != "ipp" or self.dispatch_lock.locked():
+            return
+        async with self.dispatch_lock:
+            grant = (await self.queue.poll("ipp"))["job"]
+            if grant is None:
+                return
+            job_id, claim = grant["id"], grant["claim_token"]
+            original = self.queue.file(job_id)
+            converted = original.with_suffix(".ipp.jpg")
+            started, status, spool_id = False, "failed", ""
+            message = ""
+            try:
+                caps = await self.refresh_ipp()
+                metadata = await asyncio.to_thread(inspect_file, original, grant["filename"], cfg["max_file_mb"] * 1024 * 1024, cfg["max_pages"])
+                if metadata["sha256"] != grant["sha256"] or metadata["format"] != grant["format"] or metadata["size"] != grant["size"]:
+                    raise ValueError("打印文件内容与收件记录不一致，已停止提交")
+                if grant["copies"] > self.config()["max_copies"]:
+                    raise ValueError("打印份数超过当前安全上限，请重新发送并确认")
+                self.ipp.validate_document(grant["format"], grant["copies"], caps)
+                prepared, mime = await self.ipp.prepare(original, grant["format"])
+                latest = self.config()
+                if self.stopped or not latest["enabled"] or grant["copies"] > latest["max_copies"]:
+                    raise ValueError("打印已关闭或份数上限已更改，未提交任务")
+                permission = await self.queue.start(job_id, claim)
+                if not permission["proceed"]:
+                    return
+                started = True
+                receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps)
+                spool_id, status = receipt["spool_id"], "submitted"
+                message = f"打印机已接收任务（编号 {spool_id}）；实际出纸请查看打印机"
+            except asyncio.CancelledError:
+                # 正在 POST 时取消无法证明打印机未收件。重启也不能再次发送。
+                try:
+                    await self.queue.result(job_id, claim, "unknown" if started else "failed",
+                                            message="提交中断，无法确认打印机是否已收件；不会自动重打" if started else "打印准备中断，未提交打印任务")
+                except Exception:
+                    pass  # 持久记录下次启用会恢复 unknown / failed。
+                raise
+            except IPPRejected as exc:
+                status, message = "failed", str(exc)
+            except IPPSubmissionUnknown as exc:
+                status, message = "unknown", str(exc)
+            except Exception as exc:
+                status = "unknown" if started else "failed"
+                message = str(exc) if isinstance(exc, ValueError) else ("IPP 提交结果不确定，请核查打印机；不会自动重打" if started else "IPP 准备失败，请检查连接和打印文件")
+            finally:
+                if converted.exists():
+                    await self.queue._unlink(converted)
+            result = await self.queue.result(job_id, claim, status, spool_id, message=message)
+            if result is not None:
+                self.ctx.log.info("IPP 打印任务 %s：%s", job_id, LABELS[status])
+                await self.notify_job(result)
+
     def urls(self):
         base = self.config()["public_base_url"].rstrip("/")
+        if not base and self.config()["print_mode"] == "ipp" and not self.config()["wecom_enabled"]:
+            return "Telegram / IPP 模式无需平台外网回调地址；使用企业微信时请设置平台外网 HTTPS 地址。"
         parsed = urlsplit(base)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             return "请先设置正确的平台外网 HTTPS 地址。"
-        return f"企微接收消息 URL：\n{base}/api/plugin/remote_print/wecom\n电脑端 server_url：\n{base}\n电脑端接口：\n{base}/api/plugin/remote_print/agent"
+        result = f"企微接收消息 URL：\n{base}/api/plugin/remote_print/wecom"
+        if self.config()["print_mode"] == "agent":
+            result += f"\n电脑端 server_url：\n{base}\n电脑端接口：\n{base}/api/plugin/remote_print/agent"
+        return result
 
     async def show_connection(self, payload=None):
         return {"ok": True, "message": self.urls() + "\n\n" + self.device_text()}
@@ -352,12 +449,13 @@ class RemotePrint:
 
     async def archive_unknown(self, payload=None):
         count = await self.queue.archive_unknown()
-        return {"ok": True, "message": f"已归档 {count} 个待核查任务。未重新打印，也未取消 Windows 打印队列中的任务。"}
+        return {"ok": True, "message": f"已归档 {count} 个待核查任务。未重新打印，也未取消打印机现有任务。"}
 
     async def admin_status(self, request):
         if request.method != "GET":
             return JSONResponse({"ok": False}, status_code=405)
-        return {"ok": True, "faulted": self.queue.faulted, "device": self.queue.device,
+        return {"ok": True, "faulted": self.queue.faulted, "mode": self.config()["print_mode"], "device": self.queue.device,
+                "ipp": {key: self.ipp_status.get(key) for key in ("name", "state", "accepting_jobs", "formats")},
                 "connection": self.urls(), "jobs": await self.queue.jobs()}
 
 

@@ -20,7 +20,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import warnings
 
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 FORMATS = ("pdf", "png", "jpg", "jpeg", "webp", "bmp")
 MAX_FILE_BYTES = 25 * 1024 * 1024
 MAX_RESPONSE_BYTES = 128 * 1024
