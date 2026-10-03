@@ -1,0 +1,11 @@
+{
+  "server_url": "https://bot.example.com",
+  "token": "",
+  "device_id": "home-printer",
+  "allowed_printers": ["填写 Windows 中的真实打印机名称"],
+  "default_printer": "填写 Windows 中的真实打印机名称",
+  "poll_seconds": 5,
+  "render_dpi": 150,
+  "allow_virtual_printers": false,
+  "allow_insecure_localhost": false
+}

@@ -1,0 +1,60 @@
+"""AWBotNest V2 远程打印：服务器队列与电脑端主动领取。"""
+
+__plugin__ = {
+    "id": "remote_print",
+    "name": "远程打印",
+    "version": "0.0.1",
+    "author": "AWdress",
+    "repository": "AWdress/AWBotNest-Plugins",
+    "scope": "bot",
+    "instance_mode": "shared",
+    "plugin_api_version": 2,
+    "render_mode": "schema",
+    "webhook": True,
+    "description": "通过 Telegram 或企业微信自建应用发送 PDF、图片，Windows 电脑主动领取并提交到本地打印机；支持确认打印、任务查询和取消。",
+    "changelog": "v0.0.1 首次发布\n- Telegram 与企业微信共用持久打印队列\n- 配套 Windows 打印端，主动连接服务器，无需开放电脑端口\n- 默认关闭自动打印，按用户授权，断线与重启不自动重打已提交任务\n- 支持 PDF、JPG、PNG、WebP、BMP；打印成功表示系统队列已接收，不代表实际出纸",
+    "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/remote_print/icon.svg",
+    "tags": ["打印机", "Telegram", "企业微信"],
+    "requirements": ["cryptography>=44,<47", "defusedxml>=0.7,<1", "Pillow>=11,<13", "pypdf>=6,<7"],
+    "resources": {"timeout_seconds": 180, "max_concurrency": 8, "max_background_tasks": 16},
+    "config_schema": {
+        "enabled": {"type": "boolean", "default": False, "label": "接收远程打印任务", "section": "基本设置", "order": 1},
+        "auto_print": {"type": "boolean", "default": False, "label": "收到文件后自动打印", "help": "关闭时，先收文件，再发送“打印 任务ID”确认。开启后仅授权用户的文件会自动进入打印队列。", "section": "基本设置", "order": 2},
+        "public_base_url": {"type": "string", "default": "", "label": "平台外网 HTTPS 地址", "help": "填写平台域名及必要的部署前缀，不含 /api 路径、密钥或查询参数。电脑端需能访问。", "section": "基本设置", "order": 3},
+        "usage": {"type": "info", "default": "打印机接在 Windows 电脑；电脑上运行随插件提供的 agent 打印端。支持 PDF、JPG、PNG、WebP、BMP；Office 文档请先另存 PDF。只接收 Telegram 私聊和企业微信自建应用。", "label": "使用说明", "section": "基本设置", "order": 4},
+        "telegram_enabled": {"type": "boolean", "default": False, "label": "Telegram 打印", "section": "Telegram", "order": 10},
+        "telegram_users": {"type": "text", "default": "", "label": "允许的 Telegram 用户 ID", "help": "每行一个数字用户 ID，也可用逗号分隔；留空拒绝所有人。仅接收私聊。", "section": "Telegram", "order": 11},
+        "wecom_enabled": {"type": "boolean", "default": False, "label": "企业微信打印", "section": "企业微信自建应用", "order": 20},
+        "wecom_corp_id": {"type": "string", "default": "", "label": "企业 ID（CorpID）", "section": "企业微信自建应用", "order": 21},
+        "wecom_agent_id": {"type": "string", "default": "", "label": "应用 AgentID", "section": "企业微信自建应用", "order": 22},
+        "wecom_secret": {"type": "password", "secret": True, "default": "", "label": "应用 Secret", "section": "企业微信自建应用", "order": 23},
+        "wecom_token": {"type": "password", "secret": True, "default": "", "label": "接收消息 Token", "section": "企业微信自建应用", "order": 24},
+        "wecom_encoding_aes_key": {"type": "password", "secret": True, "default": "", "label": "接收消息 EncodingAESKey", "section": "企业微信自建应用", "order": 25},
+        "wecom_users": {"type": "text", "default": "", "label": "允许的企业微信成员 UserID", "help": "每行一个成员 UserID，也可用逗号分隔；不是手机号或昵称。留空拒绝所有人。", "section": "企业微信自建应用", "order": 26},
+        "device_id": {"type": "string", "default": "home-printer", "label": "电脑端设备 ID", "help": "需与电脑端配置一致。本版连接一台 Windows 电脑，可选择该电脑的多台打印机。", "section": "电脑连接", "order": 30},
+        "device_token": {"type": "password", "secret": True, "default": "", "label": "电脑端连接密钥", "help": "至少 32 个字符；可点下方按钮生成，再用眼睛读取，复制到电脑端配置。不要使用平台管理员密码。", "section": "电脑连接", "order": 31},
+        "generate_device_token": {"type": "action", "label": "生成 / 更换电脑端密钥", "action": "generate_device_token", "danger": True, "help": "更换后旧打印端不能连接，需要更新电脑端配置。", "section": "电脑连接", "order": 32},
+        "printer_name": {"type": "string", "default": "", "label": "默认目标打印机", "help": "留空使用电脑端系统默认打印机；填写时必须与电脑端“允许打印机”中的完整名称一致。", "section": "电脑连接", "order": 33},
+        "show_connection": {"type": "action", "label": "查看连接地址与打印机", "action": "show_connection", "section": "电脑连接", "order": 34},
+        "default_copies": {"type": "number", "default": 1, "min": 1, "max": 5, "label": "默认打印份数", "section": "安全限制", "order": 40},
+        "max_copies": {"type": "number", "default": 3, "min": 1, "max": 5, "label": "单任务最多份数", "section": "安全限制", "order": 41},
+        "max_pages": {"type": "number", "default": 50, "min": 1, "max": 50, "label": "单份最多页数", "section": "安全限制", "order": 42},
+        "max_file_mb": {"type": "number", "default": 20, "min": 1, "max": 25, "label": "单文件上限（MB）", "section": "安全限制", "order": 43},
+        "max_queue": {"type": "number", "default": 30, "min": 1, "max": 100, "label": "最多活动任务数", "section": "安全限制", "order": 44},
+        "max_storage_mb": {"type": "number", "default": 200, "min": 25, "max": 1000, "label": "文件存储总上限（MB）", "help": "包括待确认、排队和最近完成的文件；到达上限拒绝新文件，不删除正在打印的任务。", "section": "安全限制", "order": 45},
+        "retention_hours": {"type": "number", "default": 24, "min": 1, "max": 168, "label": "文件保留时间（小时）", "help": "超时未确认的任务取消；已完成文件到期清理。已开始的任务不重排，不自动重打。", "section": "安全限制", "order": 46},
+        "show_jobs": {"type": "action", "label": "查看最近打印任务", "action": "show_jobs", "section": "任务管理", "order": 50},
+        "cleanup_files": {"type": "action", "label": "清理已结束任务的文件", "action": "cleanup_files", "danger": True, "help": "只删除已提交、失败、取消的任务文件；未知结果任务先核查打印机，不自动重打。", "section": "任务管理", "order": 51},
+        "archive_unknown": {"type": "action", "label": "待核查任务归档（不重打）", "action": "archive_unknown", "danger": True, "help": "先核查 Windows 打印队列和实际出纸。此按钮将所有“结果待核查”任务归档，不会重打或取消打印机中的任务。", "section": "任务管理", "order": 52},
+    },
+}
+
+
+async def setup(ctx):
+    from .core import setup as start
+    await start(ctx)
+
+
+async def teardown(ctx):
+    from .core import teardown as stop
+    await stop(ctx)
