@@ -1,31 +1,19 @@
-"""Signed WeCom callbacks and media access through the platform HTTP service."""
+"""Native print cards through the selected platform application's HTTP service.
+
+Incoming messages and media are handled exclusively by the platform WeCom SDK.
+"""
 from __future__ import annotations
 
 import asyncio
-import base64
-import hashlib
 import hmac
-import json
 import re
-import struct
 import time
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlencode, urljoin, urlsplit, urlunsplit
-
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from defusedxml.ElementTree import fromstring
+from urllib.parse import urlsplit, urlunsplit
 
 
-MAX_CALLBACK_BYTES = 1024 * 1024
-_API = "https://qyapi.weixin.qq.com/cgi-bin/"
 _EXPIRED_TOKEN_CODES = {40001, 40014, 42001}
-_MESSAGE_FIELDS = {
-    "MsgType", "FromUserName", "ToUserName", "AgentID", "MsgId",
-    "MediaId", "FileName", "Content", "CreateTime",
-    "Event", "EventKey", "TaskId", "CardType", "ResponseCode",
-}
 
 
 def normalize_api_base(value: Any = None) -> str:
@@ -48,67 +36,6 @@ def normalize_api_base(value: Any = None) -> str:
         return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path.rstrip("/"), "", ""))
     except ValueError:
         raise ValueError("平台企业微信代理地址无效") from None
-
-
-def _xml(body: bytes):
-    if not body or len(body) > MAX_CALLBACK_BYTES:
-        raise ValueError("企业微信回调内容大小无效")
-    try:
-        root = fromstring(body, forbid_dtd=True, forbid_entities=True, forbid_external=True)
-    except Exception:
-        raise ValueError("企业微信回调 XML 无效") from None
-    if root.tag != "xml":
-        raise ValueError("企业微信回调 XML 无效")
-    return root
-
-
-def _filename(headers: Mapping[str, str]) -> str:
-    disposition = str(headers.get("content-disposition", ""))
-    extended = re.search(r"(?:^|;)\s*filename\*\s*=\s*(?:\"([^\"]*)\"|([^;]*))", disposition, re.I)
-    regular = re.search(r"(?:^|;)\s*filename\s*=\s*(?:\"([^\"]*)\"|([^;]*))", disposition, re.I)
-    name = ""
-    if extended:
-        value = (extended.group(1) or extended.group(2) or "").strip()
-        try:
-            charset, _language, encoded = value.split("'", 2)
-            if charset.lower() in {"utf-8", "us-ascii"}:
-                name = unquote(encoded, encoding=charset, errors="strict")
-        except (ValueError, UnicodeError):
-            pass
-    if not name and regular:
-        name = (regular.group(1) or regular.group(2) or "").strip()
-    # Returned metadata is a display name, never a path chosen by the server.
-    name = name.replace("\\", "/").rsplit("/", 1)[-1]
-    name = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]', "_", name).strip(" .")[:180]
-    if name and name not in {".", ".."}:
-        return name
-    content_type = str(headers.get("content-type", "")).split(";", 1)[0].lower().strip()
-    suffix = {
-        "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
-        "application/pdf": ".pdf", "image/tiff": ".tiff", "image/gif": ".gif",
-    }.get(content_type, "")
-    return "media" + suffix if suffix else ""
-
-
-def _safe_media_redirect(url: str, api_base: str | None = None) -> bool:
-    try:
-        parsed = urlsplit(url)
-        host = (parsed.hostname or "").lower()
-        official = (
-            parsed.scheme == "https" and not parsed.username and not parsed.password
-            and parsed.port in {None, 443}
-            and (host == "qyapi.weixin.qq.com" or host == "wework.qpic.cn")
-        )
-        if official:
-            return True
-        if api_base is None or parsed.username is not None or parsed.password is not None or parsed.fragment:
-            return False
-        configured = urlsplit(normalize_api_base(api_base) + "/cgi-bin/media/get")
-        return (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path) == (
-            configured.scheme.lower(), configured.netloc.lower(), configured.path,
-        )
-    except ValueError:
-        return False
 
 
 class WeCom:
@@ -134,92 +61,6 @@ class WeCom:
         if not value or len(value) > 512:
             raise ValueError("企业微信配置不完整")
         return value
-
-    @staticmethod
-    def _decrypt(encrypted: str, config: Mapping[str, Any]) -> bytes:
-        corp_id = WeCom._setting(config, "wecom_corp_id").encode("utf-8")
-        encoding_key = WeCom._setting(config, "wecom_encoding_aes_key")
-        if not re.fullmatch(r"[A-Za-z0-9+/]{43}", encoding_key):
-            raise ValueError("企业微信 EncodingAESKey 无效")
-        try:
-            key = base64.b64decode(encoding_key + "=", validate=True)
-            ciphertext = base64.b64decode(encrypted, validate=True)
-            if len(key) != 32 or not ciphertext or len(ciphertext) % 16:
-                raise ValueError
-            decryptor = Cipher(algorithms.AES(key), modes.CBC(key[:16])).decryptor()
-            padded = decryptor.update(ciphertext) + decryptor.finalize()
-            padding = padded[-1]
-            # WeCom's padding block is 32 bytes, although AES has 16-byte blocks.
-            if len(padded) % 32 or not 1 <= padding <= 32:
-                raise ValueError
-            if not hmac.compare_digest(padded[-padding:], bytes([padding]) * padding):
-                raise ValueError
-            frame = padded[:-padding]
-            if len(frame) < 20:
-                raise ValueError
-            message_length = struct.unpack("!I", frame[16:20])[0]
-            if not 0 < message_length <= MAX_CALLBACK_BYTES or 20 + message_length > len(frame):
-                raise ValueError
-            receive_id = frame[20 + message_length:]
-            if not hmac.compare_digest(receive_id, corp_id):
-                raise ValueError
-            message = frame[20:20 + message_length]
-            message.decode("utf-8")
-            return message
-        except Exception:
-            raise ValueError("企业微信回调解密失败") from None
-
-    async def verify(self, request: Any) -> bytes:
-        """Verify GET URL checks or POST envelopes and return authenticated bytes."""
-        config = self._config()
-        token = self._setting(config, "wecom_token")
-        method = str(request.method).upper()
-        if method not in {"GET", "POST"}:
-            raise ValueError("企业微信回调请求方式无效")
-        query = request.query
-        timestamp = str(query.get("timestamp", ""))
-        nonce = str(query.get("nonce", ""))
-        signature = str(query.get("msg_signature", ""))
-        if not re.fullmatch(r"[0-9]{1,12}", timestamp) or abs(time.time() - int(timestamp)) > 300:
-            raise ValueError("企业微信回调时间戳无效")
-        if not nonce or len(nonce) > 256 or not re.fullmatch(r"[0-9a-fA-F]{40}", signature):
-            raise ValueError("企业微信回调参数无效")
-        if method == "GET":
-            encrypted = str(query.get("echostr", ""))
-        else:
-            try:
-                content_length = request.headers.get("content-length")
-                if content_length is not None and (int(content_length) < 0 or int(content_length) > MAX_CALLBACK_BYTES):
-                    raise ValueError
-                # Plugin SDK WebhookRequest already carries the received bytes.
-                body = request.body
-                if not isinstance(body, bytes) or len(body) > MAX_CALLBACK_BYTES:
-                    raise ValueError
-            except Exception:
-                raise ValueError("企业微信回调内容大小无效") from None
-            root = _xml(body)
-            encrypted_nodes = root.findall("Encrypt")
-            if len(encrypted_nodes) != 1 or len(encrypted_nodes[0]) or not encrypted_nodes[0].text:
-                raise ValueError("企业微信回调加密内容无效")
-            encrypted = encrypted_nodes[0].text
-        if not encrypted or len(encrypted) > MAX_CALLBACK_BYTES:
-            raise ValueError("企业微信回调加密内容无效")
-        expected = hashlib.sha1("".join(sorted((token, timestamp, nonce, encrypted))).encode("utf-8")).hexdigest()
-        if not hmac.compare_digest(expected, signature.lower()):
-            raise ValueError("企业微信回调签名无效")
-        return self._decrypt(encrypted, config)
-
-    @staticmethod
-    def parse(body: bytes) -> dict[str, str]:
-        root = _xml(body)
-        result: dict[str, str] = {}
-        for child in root:
-            if child.tag not in _MESSAGE_FIELDS:
-                continue
-            if child.tag in result or len(child):
-                raise ValueError("企业微信消息字段无效")
-            result[child.tag] = child.text or ""
-        return result
 
     async def _request(self, method: str, endpoint: str, *, api_base: str | None = None, **kwargs: Any) -> Any:
         base = normalize_api_base(api_base if api_base is not None else self._config().get("wecom_api_base"))
@@ -249,13 +90,22 @@ class WeCom:
         except (TypeError, ValueError, OverflowError):
             raise ValueError("企业微信接口响应无效") from None
 
-    async def _token(self, config: Mapping[str, Any] | None = None) -> str:
+    def _check_delivery(self, config, permission_check):
+        if permission_check is not None:
+            permission_check()
+        current = self._config()
+        fields = ("wecom_channel_id", "wecom_corp_id", "wecom_agent_id", "wecom_secret", "wecom_api_base")
+        if any(current.get(key) != config.get(key) for key in fields):
+            raise ValueError("企业微信打印入口已更改，本次回执未发送")
+
+    async def _token(self, config: Mapping[str, Any] | None = None, *, permission_check=None) -> str:
         config = self._config() if config is None else config
         credentials = (
             self._setting(config, "wecom_corp_id"), self._setting(config, "wecom_secret"),
             normalize_api_base(config.get("wecom_api_base")),
         )
         async with self._token_lock:
+            self._check_delivery(config, permission_check)
             if credentials == self._token_credentials and self._access_token and time.monotonic() < self._token_until:
                 return self._access_token
             result = await self._request("GET", "gettoken", api_base=credentials[2], params={
@@ -280,75 +130,6 @@ class WeCom:
             if hmac.compare_digest(self._access_token, access_token):
                 self._token_until = 0.0
 
-    async def _media_headers(self, url: str, max_bytes: int, *, api_base: str | None = None) -> Mapping[str, str]:
-        """HEAD is optional metadata; never fetch a complete media body here."""
-        try:
-            response = await self.ctx.http.request("HEAD", url, timeout=30, follow_redirects=False)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            return {}
-        if response.status_code in {301, 302, 303, 307, 308}:
-            location = str(response.headers.get("location", ""))
-            if not location or not _safe_media_redirect(urljoin(url, location), api_base):
-                raise ValueError("企业微信媒体跳转地址无效")
-            return {}
-        if not 200 <= response.status_code < 300:
-            return {}
-        content_length = response.headers.get("content-length")
-        if content_length is not None:
-            try:
-                if int(content_length) > max_bytes:
-                    raise ValueError
-            except (TypeError, ValueError, OverflowError):
-                raise ValueError("企业微信媒体超过允许的大小") from None
-        return response.headers
-
-    async def download(self, media_id: str, path: str | Path, max_bytes: int) -> str:
-        """Download the selected platform API resource; return safe filename metadata.
-
-        The platform's download facade bounds streaming bytes and handles its proxy.
-        It follows redirects internally. Only the trusted platform media/get endpoint
-        receives a validated opaque ID; callers cannot supply a download URL.
-        """
-        if not isinstance(media_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", media_id):
-            raise ValueError("企业微信媒体 ID 无效")
-        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 0 < max_bytes <= 25 * 1024 * 1024:
-            raise ValueError("企业微信媒体大小限制无效")
-        target = Path(path)
-        config = self._config()
-        api_base = normalize_api_base(config.get("wecom_api_base"))
-        for attempt in range(2):
-            access_token = await self._token(config)
-            url = api_base + "/cgi-bin/media/get?" + urlencode({"access_token": access_token, "media_id": media_id})
-            headers = await self._media_headers(url, max_bytes, api_base=api_base)
-            try:
-                await self.ctx.http.download(url, target, max_bytes=max_bytes)
-                if not target.is_file() or target.stat().st_size == 0 or target.stat().st_size > max_bytes:
-                    raise ValueError
-                with target.open("rb") as source:
-                    prefix = source.read(min(MAX_CALLBACK_BYTES, max_bytes))
-            except asyncio.CancelledError:
-                target.unlink(missing_ok=True)
-                raise
-            except Exception:
-                target.unlink(missing_ok=True)
-                raise ValueError("企业微信媒体下载失败或超过允许的大小") from None
-            # WeCom may return HTTP 200 with a JSON error instead of file bytes.
-            if prefix.lstrip().startswith((b"{", b"[")):
-                target.unlink(missing_ok=True)
-                try:
-                    result = json.loads(prefix)
-                    code = self._error_code(result) if isinstance(result, dict) else -1
-                except (ValueError, TypeError):
-                    code = -1
-                if code in _EXPIRED_TOKEN_CODES and not attempt:
-                    await self._invalidate(access_token)
-                    continue
-                raise ValueError("企业微信媒体获取失败，请重新发送文件")
-            return _filename(headers)
-        raise ValueError("企业微信媒体访问凭据已失效")
-
     @staticmethod
     def _recipient(user: str) -> str:
         if not isinstance(user, str) or user.lower() == "@all" or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", user):
@@ -365,7 +146,7 @@ class WeCom:
             raise ValueError("企业微信应用 AgentID 无效") from None
         return agent_id
 
-    async def _send_message(self, user: str, message: Mapping[str, Any]) -> None:
+    async def _send_message(self, user: str, message: Mapping[str, Any], *, permission_check=None) -> None:
         """Freeze the platform application for a single delivery and token retry."""
         user = self._recipient(user)
         config = self._config()
@@ -373,7 +154,9 @@ class WeCom:
         payload.update(touser=user, agentid=self._agent_id(config))
         api_base = normalize_api_base(config.get("wecom_api_base"))
         for attempt in range(2):
-            access_token = await self._token(config)
+            self._check_delivery(config, permission_check)
+            access_token = await self._token(config, permission_check=permission_check)
+            self._check_delivery(config, permission_check)
             result = await self._request("POST", "message/send", api_base=api_base,
                                          params={"access_token": access_token}, json=payload)
             code = self._error_code(result)
@@ -385,14 +168,15 @@ class WeCom:
             return
         raise ValueError("企业微信通知访问凭据已失效")
 
-    async def send(self, user: str, text: str) -> None:
+    async def send(self, user: str, text: str, *, permission_check=None) -> None:
         self._recipient(user)
         content = str(text).encode("utf-8")[:2048].decode("utf-8", errors="ignore")
         if not content:
             return
-        await self._send_message(user, {"msgtype": "text", "text": {"content": content}, "safe": 0})
+        await self._send_message(user, {"msgtype": "text", "text": {"content": content}, "safe": 0},
+                                 permission_check=permission_check)
 
-    async def send_card(self, user: str, card: Mapping[str, Any]) -> None:
+    async def send_card(self, user: str, card: Mapping[str, Any], *, permission_check=None) -> None:
         """Send one native print card, never a broadcast or a silent text fallback.
 
         Keys carry the exact queue job ID. Ownership, source application, current
@@ -447,9 +231,9 @@ class WeCom:
         await self._send_message(user, {
             "msgtype": "template_card", "template_card": normalized,
             "enable_id_trans": 0, "enable_duplicate_check": 1, "duplicate_check_interval": 600,
-        })
+        }, permission_check=permission_check)
 
-    async def send_print_card(self, user: str, job: Mapping[str, Any], actions=None) -> None:
+    async def send_print_card(self, user: str, job: Mapping[str, Any], actions=None, *, permission_check=None) -> None:
         """One file, one confirmation card; callers should not resend its task ID."""
         if not isinstance(job, Mapping) or not re.fullmatch(r"[a-f0-9]{16}", str(job.get("id", ""))):
             raise ValueError("企业微信打印卡片任务无效")
@@ -470,4 +254,4 @@ class WeCom:
             "main_title": {"title": "文件已收到", "desc": description},
             "sub_title_text": card_text,
             "button_list": actions,
-        })
+        }, permission_check=permission_check)

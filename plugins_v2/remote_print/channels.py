@@ -69,18 +69,12 @@ class PlatformChannels:
             "wecom_callback_enabled": config.get("callback_enabled") is True,
             "wecom_callback_users": str(config.get("callback_users") or ""),
         }
-        token = config.get("callback_token")
-        aes_key = config.get("callback_aes_key")
-        if token:
-            result["wecom_token"] = str(token).strip()
-        if aes_key:
-            result["wecom_encoding_aes_key"] = str(aes_key).strip()
         return result
 
     def wecom_config(self) -> dict[str, Any]:
         """Return the selected platform app, or an empty mapping if absent.
 
-        Multiple applications require an explicit platform route or default.
+        The unified callback dispatches only explicitly bound applications.
         No plugin settings are consulted, including old copies of credentials.
         """
         applications = self._applications()
@@ -97,14 +91,7 @@ class PlatformChannels:
             if complete is None:
                 raise ValueError("平台绑定的企业微信自建应用配置不完整，群机器人不能接收文件")
             return self._canonical(complete)
-        if not applications:
-            return {}
-        defaults = [item for item in applications if item.get("is_default")]
-        if len(defaults) == 1:
-            return self._canonical(defaults[0])
-        if len(defaults) > 1 or len(applications) > 1:
-            raise ValueError("平台存在多个企业微信应用，请在平台为远程打印绑定渠道或设置默认渠道")
-        return self._canonical(applications[0])
+        return {}
 
     def telegram_bot_id(self) -> str:
         """Choose one platform Bot, without substituting another for a bound Bot."""

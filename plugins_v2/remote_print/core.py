@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import copy
 import hashlib
 import hmac
@@ -11,7 +10,7 @@ import secrets
 import time
 from urllib.parse import urlsplit
 
-from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
+from starlette.responses import FileResponse, JSONResponse
 
 from . import __plugin__
 from .channels import PlatformChannels
@@ -91,21 +90,9 @@ class RemotePrint:
     def wecom_config(self):
         config = self.channels.wecom_config()
         if not config:
-            raise ValueError("请先在平台配置企业微信自建应用；群机器人不能接收文件")
+            raise ValueError("请在平台通知设置为“远程打印”关联企业微信自建应用；群机器人不能接收文件")
         if config.get("wecom_callback_enabled") is not True:
             raise ValueError("请先在平台企业微信自建应用中开启消息回调")
-        token = config.get("wecom_token", "")
-        key = config.get("wecom_encoding_aes_key", "")
-        if not token or not key:
-            raise ValueError("请在平台企业微信自建应用中填写回调 Token 和 EncodingAESKey；插件不另行生成密钥")
-        if (token == "********" or len(token) > 128
-                or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in token)):
-            raise ValueError("平台企业微信回调 Token 格式不正确")
-        if not re.fullmatch(r"[A-Za-z0-9+/]{43}", key):
-            raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
-        decoded = base64.b64decode(key + "=", validate=True)
-        if len(decoded) != 32:
-            raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
         return config
 
     async def show_wecom_setup(self, payload=None):
@@ -115,18 +102,22 @@ class RemotePrint:
                 f"平台企业微信应用：{config.get('wecom_channel_name') or config['wecom_channel_id']}\n"
                 + self.urls()
                 + "\n\n填写位置：企业微信管理后台 → 应用管理 → 此自建应用 → 接收消息 → 设置 API 接收。"
-                + "\n将接收 URL 换为上面的打印专用地址；Token 和 EncodingAESKey 沿用平台对应通知渠道中的值，插件不另存密钥。"
-                + "\n不要填写 /api/wecom/callback/渠道ID：平台统一回调仅处理文字，图片和打印按钮不会进入本插件。"
-                + "\n每个应用只有一个接收 URL；改为打印入口后，该应用不再处理平台的 /插件、/运行 命令，要保留平台指令请使用另一个自建应用。"
+                + "\n使用平台统一回调，已设置正确地址时不用更换；Token 和 EncodingAESKey 仍在平台通知渠道设置。"
+                + "\n请在平台插件通知设置中为“远程打印”关联此应用，仅设置默认应用不能接收打印文件。"
+                + "\n图片、PDF 和打印按钮由平台交给本插件；/插件、/运行 等平台指令仍可使用。"
+                + "\n若旧版填了 /api/plugin/remote_print/wecom，请换回上面的平台统一回调地址，旧打印专用入口已移除。"
                 + "\n设置好后开启插件的“接收打印文件”，并确保成员账号在平台回调名单和插件打印名单中均已授权。")}
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
 
     async def setup(self):
+        if not callable(getattr(self.ctx, "on_wecom_message", None)):
+            raise ValueError("远程打印需要平台的统一企业微信消息接口，请先更新平台再启用插件")
         self.remove_obsolete_channel_config()
         self.seed_config_defaults()
         await self.queue.open()
-        self.ctx.on_webhook("wecom", self.wecom_callback)
+        self.ctx.on_wecom_message(self.wecom_message, message_types=("text", "image", "file", "event"),
+                                 events=("enter_agent", "template_card_event"))
         self.ctx.on_webhook("agent", self.agent)
         self.ctx.on_webhook("agent_file", self.agent_file)
         self.ctx.on_api("status", self.admin_status)
@@ -286,7 +277,7 @@ class RemotePrint:
             raise ValueError("打印入口已更改，请使用当前的打印机器人。")
         return user
 
-    async def notify(self, source, owner, text, source_channel="", *, job=None):
+    async def notify(self, source, owner, text, source_channel="", *, job=None, message=None):
         if self.stopped:
             return
         try:
@@ -298,10 +289,12 @@ class RemotePrint:
                 await bot.send_message(int(owner.split(":", 1)[1]), text, parse_mode=None, **options)
             elif source == "wecom":
                 user = self.wecom_owner_allowed(owner, source_channel)
+                permission_check = lambda: self.wecom_owner_allowed(owner, source_channel)
                 if job and job["status"] == "pending":
                     try:
                         await self.wecom.send_print_card(user, {**job, "card_text": f"共 {job['pages']} 页。\n请选择打印份数，不想打印可点取消。"},
-                                                        action_buttons(job, self.config()["max_copies"]))
+                                                        action_buttons(job, self.config()["max_copies"]),
+                                                        permission_check=permission_check)
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
@@ -309,9 +302,16 @@ class RemotePrint:
                         # safe: neither message confirms or submits a print job.
                         self.ctx.log.warning("企业微信打印按钮未确认送达（%s），尝试发送文字说明", type(exc).__name__)
                         self.wecom_owner_allowed(owner, source_channel)
-                        await self.wecom.send(user, f"收到：{job['filename']}\n共 {job['pages']} 页。\n回复“打印”打印一份，回复“取消”不打印。\n按钮消息暂未确认送达，任务还没有打印。")
+                        instructions = f"收到：{job['filename']}\n共 {job['pages']} 页。\n回复“打印”打印一份，回复“取消”不打印。\n按钮消息暂未确认送达，任务还没有打印。"
+                        if message is not None:
+                            await message.reply(instructions)
+                        else:
+                            await self.wecom.send(user, instructions, permission_check=permission_check)
                 else:
-                    await self.wecom.send(user, text)
+                    if message is not None:
+                        await message.reply(text)
+                    else:
+                        await self.wecom.send(user, text, permission_check=permission_check)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -496,15 +496,18 @@ class RemotePrint:
             return job["filename"]
         await self.receive(job, download)
 
-    async def receive_wecom(self, job, media_id):
+    async def receive_wecom(self, job, message):
         async def download(path, maximum):
             self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
-            suggested = await self.wecom.download(media_id, path, maximum)
+            media = await message.download_media(max_bytes=min(maximum, 20 * 1024 * 1024))
             self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
-            return suggested or job["filename"]
-        await self.receive(job, download)
+            if not media.content or len(media.content) > job["size"]:
+                raise ValueError("文件为空或实际大小超过允许范围，请重新发送")
+            await asyncio.to_thread(path.write_bytes, media.content)
+            return safe_name(media.filename or job["filename"])
+        await self.receive(job, download, wecom_message=message)
 
-    async def receive(self, job, downloader):
+    async def receive(self, job, downloader, *, wecom_message=None):
         path = self.queue.file(job["id"])
         temporary = path.with_suffix(".part")
         try:
@@ -518,7 +521,7 @@ class RemotePrint:
                     permission_check = lambda: self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
                 job = await self.queue.finish(job["id"], metadata, permission_check=permission_check)
             await self.notify(job["source"], job["owner"], received_text(job), job.get("source_channel", ""),
-                              job=job if job["status"] == "pending" else None)
+                              job=job if job["status"] == "pending" else None, message=wecom_message)
             self.ctx.log.info("打印文件已收取：任务 %s，%s 页，状态=%s", job["id"], job["pages"], LABELS[job["status"]])
         except asyncio.CancelledError:
             raise
@@ -528,98 +531,95 @@ class RemotePrint:
                 await self.queue.fail_receive(job["id"], reason)
             except Exception:
                 self.ctx.log.error("打印任务保存失败，请重载插件后检查队列")
-            await self.notify(job["source"], job["owner"], f"任务 {job['id']} 未进入打印队列：{reason}", job.get("source_channel", ""))
+            await self.notify(job["source"], job["owner"], f"任务 {job['id']} 未进入打印队列：{reason}", job.get("source_channel", ""),
+                              message=wecom_message)
             self.ctx.log.warning("打印文件未入队：任务 %s（%s）", job["id"], type(exc).__name__)
         finally:
             self.receiving -= 1
             # 平台停用时不会继续处理业务，未完成收件由下次启用恢复为失败。
             await asyncio.to_thread(temporary.unlink, missing_ok=True)
 
-    async def wecom_callback(self, request):
+    async def wecom_message(self, message):
+        """Receive only platform-authenticated messages; persist before download."""
         cfg = self.config()
         try:
             channel = self.wecom_config()
         except ValueError:
-            return PlainTextResponse("disabled", status_code=503)
+            return
+        if (self.stopped or not cfg["enabled"] or message.channel_id != channel["wecom_channel_id"]
+                or message.corp_id != channel["wecom_corp_id"]
+                or message.agent_id != str(channel["wecom_agent_id"])):
+            return
+        identity = self.wecom_identity(channel)
+        user = message.user_id
+        owner = f"wecom:{identity}:{user}"
         try:
-            decrypted = await self.wecom.verify(request)
-            if request.method == "GET":
-                return PlainTextResponse(decrypted.decode("utf-8"))
-            if not cfg["enabled"]:
-                return PlainTextResponse("disabled", status_code=503)
-            message = self.wecom.parse(decrypted)
-            if message.get("ToUserName") != channel["wecom_corp_id"] or message.get("AgentID") != str(channel["wecom_agent_id"]):
-                return PlainTextResponse("forbidden", status_code=403)
-            user = message.get("FromUserName", "")
-            platform_users = {value.strip().casefold() for value in channel["wecom_callback_users"].split("|") if value.strip()}
-            if (not user or user.casefold() not in platform_users or user.casefold() not in {value.casefold() for value in members(cfg["wecom_users"])}
-                    or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user) or user.lower() == "@all"):
-                return PlainTextResponse("success")
-            identity = self.wecom_identity(channel)
-            owner = "wecom:" + identity + ":" + user
-            if message.get("MsgType") in {"file", "image"}:
+            self.wecom_owner_allowed(owner, identity)
+        except ValueError:
+            return
+        try:
+            if message.message_type in {"file", "image"}:
                 if self.receiving >= 4:
-                    return PlainTextResponse("busy", status_code=429)
-                media = message.get("MediaId", "")
-                if not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", media):
-                    raise ValueError("企业微信媒体 ID 无效")
-                source_key = f"wecom:{identity}:{user.casefold()}:{message.get('MsgId') or media}"
-                job = await self.queue.reserve(source_key, owner, safe_name(message.get("FileName") or "image"), "wecom", cfg["max_file_mb"] * 1024 * 1024,
+                    return "正在收取其他文件，本次未收取。请稍后重新发送。"
+                maximum = min(cfg["max_file_mb"], 20) * 1024 * 1024
+                if message.file_size is not None and not 0 < message.file_size <= maximum:
+                    return f"文件为空或超过 {min(cfg['max_file_mb'], 20)} MB，本次未收取。请压缩后重新发送。"
+                source_key = f"wecom:{identity}:{user.casefold()}:{message.message_id}"
+                job = await self.queue.reserve(source_key, owner, safe_name(message.file_name or "image"), "wecom", message.file_size or maximum,
                                                source_channel=identity)
                 if job is not None:
                     self.receiving += 1
                     try:
-                        self.spawn(self.receive_wecom(job, media), "print_wecom_download")
+                        self.spawn(self.receive_wecom(job, message), "print_wecom_download")
                     except BaseException:
                         self.receiving -= 1
                         await self.queue.fail_receive(job["id"], "下载任务未能启动，请重新发送")
                         raise
-            elif message.get("MsgType") == "text":
-                content = message.get("Content", "")
+            elif message.message_type == "text":
+                content = message.text
                 if is_mutating_text(content):
-                    message_id = message.get("MsgId", "")
-                    if not message_id or len(message_id) > 128:
-                        raise ValueError("企业微信操作消息缺少有效编号")
-                    if not await self.queue.claim_message(f"wx-action:{identity}:{user.casefold()}:{message_id}"):
-                        return PlainTextResponse("success")
-                self.spawn(self.wecom_command(owner, message.get("Content", "")), "print_wecom_command")
-            elif message.get("MsgType") == "event":
-                if message.get("Event") == "enter_agent":
-                    self.spawn(self.notify("wecom", owner, welcome_text(), identity), "print_wecom_welcome")
-                elif message.get("Event") == "template_card_event":
-                    action, job_id, _ = parse_action(message.get("EventKey", ""))
-                    if message.get("CardType") != "button_interaction" or message.get("TaskId") != "rp-" + job_id:
+                    if not await self.queue.claim_message(f"wx-action:{identity}:{user.casefold()}:{message.message_id}"):
+                        return "这条操作已经处理，不会重复打印。回复“进度”查看。"
+                await self.wecom_command(owner, content, message=message)
+            elif message.message_type == "event":
+                if message.event == "enter_agent":
+                    await message.reply(welcome_text())
+                elif message.event == "template_card_event":
+                    action, job_id, _ = parse_action(message.event_key)
+                    if message.fields.get("CardType") != "button_interaction" or message.fields.get("TaskId") != "rp-" + job_id:
                         raise ValueError("企业微信打印按钮与文件不匹配")
                     if action in {"print", "cancel"}:
-                        key = f"wx-button:{identity}:{user.casefold()}:{message['TaskId']}:{message['EventKey']}:{message.get('CreateTime', '')}"
+                        key = f"wx-button:{identity}:{user.casefold()}:{message.fields['TaskId']}:{message.event_key}:{message.create_time}"
                         if not await self.queue.claim_message(key):
-                            return PlainTextResponse("success")
-                    self.spawn(self.wecom_button(owner, identity, message["EventKey"]), "print_wecom_button")
-            return PlainTextResponse("success")
-        except ValueError:
-            return PlainTextResponse("invalid request", status_code=400)
+                            return "这条操作已经处理，不会重复打印。回复“进度”查看。"
+                    await self.wecom_button(owner, identity, message.event_key, message=message)
+        except ValueError as exc:
+            return str(exc)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.ctx.log.warning("企业微信打印请求失败（%s）", type(exc).__name__)
-            return PlainTextResponse("unavailable", status_code=503)
+            return "本次打印操作未完成，请查看“进度”；新文件未收取时请重新发送。"
 
-    async def wecom_command(self, owner, content):
+    async def wecom_command(self, owner, content, *, message):
         channel = owner.split(":", 2)[1]
         try:
             self.wecom_owner_allowed(owner, channel)
         except ValueError:
             return
-        await self.notify("wecom", owner, await self.command(owner, content, channel), channel)
+        text = await self.command(owner, content, channel)
+        self.wecom_owner_allowed(owner, channel)
+        await message.reply(text)
 
-    async def wecom_button(self, owner, channel, value):
+    async def wecom_button(self, owner, channel, value, *, message):
         try:
             self.wecom_owner_allowed(owner, channel)
             job = await self.button_action(owner, channel, value)
             text = status_text(job)
         except ValueError as exc:
             text = str(exc)
-        await self.notify("wecom", owner, text, channel)
+        self.wecom_owner_allowed(owner, channel)
+        await message.reply(text)
 
     def authorized_agent(self, request):
         cfg = self.config()
@@ -756,11 +756,15 @@ class RemotePrint:
     def urls(self):
         base = self.config()["public_base_url"].rstrip("/")
         if not base and self.config()["print_mode"] == "ipp":
-            return "Telegram / IPP 模式无需平台外网回调地址；企业微信接收文件需填写平台外网 HTTPS 地址。"
+            return "企业微信沿用平台统一回调；填写平台 HTTPS 访问地址后可查看完整 URL。仅 Telegram / IPP 模式无需填写。"
         parsed = urlsplit(base)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             return "请先设置正确的平台外网 HTTPS 地址。"
-        result = f"企业微信打印专用回调地址（填到企微后台“接收消息”）：\n{base}/api/plugin/remote_print/wecom"
+        try:
+            channel = self.wecom_config()
+            result = f"平台企业微信统一回调地址（填到企微后台“接收消息”）：\n{base}/api/wecom/callback/{channel['wecom_channel_id']}"
+        except ValueError as exc:
+            result = str(exc)
         if self.config()["print_mode"] == "agent":
             result += f"\n电脑端 server_url：\n{base}\n电脑端接口：\n{base}/api/plugin/remote_print/agent"
         return result
