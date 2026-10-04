@@ -113,10 +113,12 @@ class RemotePrint:
             config = self.wecom_config()
             return {"ok": True, "message": (
                 f"平台企业微信应用：{config.get('wecom_channel_name') or config['wecom_channel_id']}\n"
-                + self.urls() + "\n\n回调密钥已读取平台通知渠道，插件不会生成或保存另一套密钥。"
-                + "\nToken 和 EncodingAESKey 请到平台对应的企业微信渠道中查看，复制到企微后台。"
-                + "\n打印文件请使用上面的插件回调 URL；平台统一回调目前仅处理文字消息。"
-                + "\n每个应用只能填写一个接收 URL；使用打印回调后，该应用不会经过平台文字回调。")}
+                + self.urls()
+                + "\n\n填写位置：企业微信管理后台 → 应用管理 → 此自建应用 → 接收消息 → 设置 API 接收。"
+                + "\n将接收 URL 换为上面的打印专用地址；Token 和 EncodingAESKey 沿用平台对应通知渠道中的值，插件不另存密钥。"
+                + "\n不要填写 /api/wecom/callback/渠道ID：平台统一回调仅处理文字，图片和打印按钮不会进入本插件。"
+                + "\n每个应用只有一个接收 URL；改为打印入口后，该应用不再处理平台的 /插件、/运行 命令，要保留平台指令请使用另一个自建应用。"
+                + "\n设置好后开启插件的“接收打印文件”，并确保成员账号在平台回调名单和插件打印名单中均已授权。")}
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
 
@@ -758,7 +760,7 @@ class RemotePrint:
         parsed = urlsplit(base)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             return "请先设置正确的平台外网 HTTPS 地址。"
-        result = f"企微接收消息 URL：\n{base}/api/plugin/remote_print/wecom"
+        result = f"企业微信打印专用回调地址（填到企微后台“接收消息”）：\n{base}/api/plugin/remote_print/wecom"
         if self.config()["print_mode"] == "agent":
             result += f"\n电脑端 server_url：\n{base}\n电脑端接口：\n{base}/api/plugin/remote_print/agent"
         return result
