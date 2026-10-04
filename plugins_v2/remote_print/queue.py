@@ -394,7 +394,7 @@ class PrintQueue:
 
     @staticmethod
     def public(job):
-        result = {key: job.get(key) for key in ("id", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
+        result = {key: job.get(key) for key in ("id", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
         result["backend"] = job.get("backend", "agent")
         return result
 

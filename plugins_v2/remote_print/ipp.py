@@ -25,6 +25,11 @@ GET_PRINTER_ATTRIBUTES = 0x000B
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,127}$")
 _JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _GROUPS = {0x01, 0x02, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A}
+_JPEG_LIMITS = {
+    "jpeg-x-dimension-supported": "jpeg_x_dimension_supported",
+    "jpeg-y-dimension-supported": "jpeg_y_dimension_supported",
+    "jpeg-k-octets-supported": "jpeg_k_octets_supported",
+}
 _EXPECTED_TAGS = {
     "attributes-charset": {0x47}, "attributes-natural-language": {0x48},
     "printer-name": {0x42, 0x36}, "printer-uri-supported": {0x45},
@@ -286,6 +291,25 @@ def _single(attributes, name, default=None):
     return values[0] if values else default
 
 
+def _jpeg_range(value):
+    # Only rangeOfInteger (0x33) decodes as a two-integer tuple. Do not treat
+    # an integer, string, empty/out-of-band value or multi-value as a limit.
+    if (not isinstance(value, tuple) or len(value) != 2
+            or any(type(item) is not int for item in value)
+            or not 0 <= value[0] <= value[1] or value[1] < 1):
+        raise ValueError("打印机 JPEG 尺寸或文件大小能力无效，请发送 PDF")
+    return value
+
+
+def _jpeg_limits(capabilities):
+    if capabilities is None:
+        return {key: None for key in _JPEG_LIMITS.values()}
+    if not isinstance(capabilities, dict) or capabilities.get("jpeg_limits_error"):
+        raise ValueError("打印机 JPEG 尺寸或文件大小能力无效，请发送 PDF")
+    return {key: _jpeg_range(capabilities[key]) if capabilities.get(key) is not None else None
+            for key in _JPEG_LIMITS.values()}
+
+
 def _mime(format):
     if format == "pdf":
         return "application/pdf"
@@ -327,7 +351,7 @@ class IPPPrinter:
                 timeout=timeout, follow_redirects=False,
             )
             if response.status_code != 200:
-                raise ValueError("IPP HTTP 请求未得到成功响应")
+                raise ValueError(f"IPP HTTP 响应不是成功状态（HTTP {response.status_code}）")
             if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/ipp":
                 raise ValueError("IPP 响应类型无效")
             raw = response.content
@@ -344,17 +368,18 @@ class IPPPrinter:
         except asyncio.CancelledError:
             # The queue worker records unknown after its durable start marker.
             raise
-        except Exception:
+        except Exception as exc:
             if submitting:
                 raise IPPSubmissionUnknown("IPP 提交响应不确定，请核查打印机；不会自动重打") from None
-            raise ValueError("IPP 探测失败，请检查打印地址、FRP 连通性和打印机") from None
+            detail = str(exc) if isinstance(exc, ValueError) and str(exc).startswith("IPP ") else type(exc).__name__
+            raise ValueError(f"IPP 探测失败：{detail}。请检查打印地址及平台到打印机的网络") from None
 
     async def probe(self):
         url, initial_uri, timeout, override = self._settings()
         request_id = secrets.randbelow(0x7FFFFFFF) + 1
         requested = ["printer-name", "printer-uri-supported", "document-format-supported",
                      "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported",
-                     "print-scaling-supported", "print-scaling-default"]
+                     "print-scaling-supported", "print-scaling-default", *_JPEG_LIMITS]
         message = encode_request(GET_PRINTER_ATTRIBUTES, request_id,
                                  self._base_attributes(initial_uri) + [(0x44, "requested-attributes", requested)])
         result = await self._request(url, message, request_id, timeout)
@@ -391,6 +416,15 @@ class IPPPrinter:
                     or not _NAME.fullmatch(scaling_default)
                     or (scaling and scaling_default not in scaling)))):
             raise ValueError("打印机缩放能力无效")
+        jpeg_limits = {key: None for key in _JPEG_LIMITS.values()}
+        jpeg_limits_error = False
+        for name, key in _JPEG_LIMITS.items():
+            if name in attrs:
+                try:
+                    jpeg_limits[key] = _jpeg_range(_single(attrs, name))
+                except ValueError:
+                    # A bad JPEG-only capability must not disable native PDF.
+                    jpeg_limits_error = True
         state = _single(attrs, "printer-state")
         accepting = _single(attrs, "printer-is-accepting-jobs", False)
         name = _single(attrs, "printer-name", "IPP 打印机")
@@ -401,7 +435,8 @@ class IPPPrinter:
                 "formats": sorted(set(item.lower() for item in formats)), "state": state,
                 "accepting_jobs": accepting, "operations": sorted(set(operations)),
                 "copies_supported": ranges, "copies_max": max(upper for _, upper in ranges),
-                "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default}
+                "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default,
+                **jpeg_limits, "jpeg_limits_error": jpeg_limits_error}
 
     @staticmethod
     def validate_document(format, copies, capabilities):
@@ -411,6 +446,7 @@ class IPPPrinter:
                 raise ValueError("打印机不支持原生 PDF，请先导出为 JPG；不会静默丢失 PDF 页面")
             raise ValueError("打印机不支持 JPEG 图片打印，请发送其支持的 PDF")
         if mime == "image/jpeg":
+            _jpeg_limits(capabilities)
             scaling = capabilities.get("print_scaling_supported", [])
             if (not isinstance(scaling, list) or any(not isinstance(item, str) for item in scaling)
                     or "fit" not in scaling):
@@ -463,12 +499,12 @@ class IPPPrinter:
                 task.exception()
             raise
 
-    async def prepare(self, path, format, destination=None):
+    async def prepare(self, path, format, destination=None, *, capabilities=None):
         destination = Path(destination) if destination is not None else None
-        return await self._thread_call(self._prepare, Path(path), format, destination)
+        return await self._thread_call(self._prepare, Path(path), format, destination, capabilities)
 
     @staticmethod
-    def _prepare(path, format, destination=None):
+    def _prepare(path, format, destination=None, capabilities=None):
         mime = _mime(format)
         temporary = None
         try:
@@ -479,6 +515,7 @@ class IPPPrinter:
                     if not file.read(8).startswith(b"%PDF-"):
                         raise ValueError("PDF 文件内容无效")
                 return path, mime
+            limits = _jpeg_limits(capabilities)
             from PIL import Image, ImageOps
             expected = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP", "bmp": "BMP"}
             with warnings.catch_warnings():
@@ -488,13 +525,22 @@ class IPPPrinter:
                             or image.width * image.height > MAX_IMAGE_PIXELS or max(image.size) > 16000):
                         raise ValueError("IPP 图片格式、帧数或像素数量不符合限制")
                     image.load()  # Verify actual pixels, not just an image header.
-                    if format in ("jpg", "jpeg") and image.getexif().get(274, 1) == 1:
-                        return path, mime
                     destination = destination or path.with_suffix(".ipp.jpg")
                     if destination.resolve() == path.resolve():
                         raise ValueError("转换目标不能覆盖原始文件")
                     corrected = ImageOps.exif_transpose(image)
                     try:
+                        x_limit = limits["jpeg_x_dimension_supported"]
+                        y_limit = limits["jpeg_y_dimension_supported"]
+                        bounds = (x_limit[1] if x_limit else corrected.width,
+                                  y_limit[1] if y_limit else corrected.height)
+                        if corrected.width > bounds[0] or corrected.height > bounds[1]:
+                            # thumbnail fits the whole canvas while preserving
+                            # its aspect ratio; it never crops or enlarges it.
+                            corrected.thumbnail(bounds, Image.Resampling.LANCZOS)
+                        if ((x_limit and corrected.width < max(1, x_limit[0]))
+                                or (y_limit and corrected.height < max(1, y_limit[0]))):
+                            raise ValueError("图片等比缩放后无法满足打印机的最小 JPEG 尺寸，请发送 PDF")
                         rgba = corrected.convert("RGBA")
                         rgb = Image.new("RGB", corrected.size, "white")
                         try:
@@ -502,14 +548,18 @@ class IPPPrinter:
                             fd, name = tempfile.mkstemp(prefix=".ipp-", suffix=".jpg", dir=destination.parent)
                             temporary = Path(name)
                             with os.fdopen(fd, "wb") as file:
-                                rgb.save(file, format="JPEG", quality=95, dpi=(150, 150))
+                                rgb.save(file, format="JPEG", quality=95, dpi=(150, 150), progressive=False)
                         finally:
                             rgba.close()
                             rgb.close()
                     finally:
                         corrected.close()
-            if not 0 < temporary.stat().st_size <= MAX_FILE_BYTES:
+            prepared_size = temporary.stat().st_size
+            if not 0 < prepared_size <= MAX_FILE_BYTES:
                 raise ValueError("转换后的 JPEG 超过 25 MiB 上限，请缩小图片")
+            size_limit = limits["jpeg_k_octets_supported"]
+            if size_limit and not size_limit[0] <= (prepared_size + 1023) // 1024 <= size_limit[1]:
+                raise ValueError("转换后的 JPEG 文件大小超出打印机支持范围，请缩小图片或发送 PDF")
             os.replace(temporary, destination)
             temporary = None
             return destination, mime
@@ -561,7 +611,14 @@ class IPPPrinter:
         result = await self._request(url, message + document, request_id, timeout, submitting=True)
         status = result["status"]
         if 0x0400 <= status <= 0x05FF:
-            raise IPPRejected("打印机明确拒绝 IPP 任务，请检查格式、份数或打印机状态")
+            reasons = {0x0408: "文件超过打印机的大小限制", 0x040A: "打印机不支持此文档格式",
+                       0x040B: "打印机不支持请求的参数", 0x040E: "打印参数冲突",
+                       0x0411: "打印机无法解析文档", 0x0502: "打印服务暂不可用",
+                       0x0504: "打印机设备错误", 0x0506: "打印机当前不接受任务", 0x0507: "打印机忙碌"}
+            reason = reasons.get(status, "请检查格式、份数或打印机状态")
+            names = [name for name in _attributes(result, 0x05) if _NAME.fullmatch(name)][:8]
+            detail = "；不支持的参数：" + "、".join(names) if names else ""
+            raise IPPRejected(f"打印机明确拒绝 IPP 任务（0x{status:04X}）：{reason}{detail}")
         if status != 0:
             raise IPPSubmissionUnknown("打印机忽略或替换了请求参数，结果待核查；不会自动重打")
         try:

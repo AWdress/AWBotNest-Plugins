@@ -48,7 +48,8 @@ def inspect_file(path: Path, name: str, max_bytes: int, max_pages: int) -> dict:
                         raise ValueError("仅支持 PDF 和单张 JPG、PNG、WebP、BMP 图片")
                     if image.width * image.height > 25_000_000 or max(image.size) > 16_000:
                         raise ValueError("图片分辨率过大，请缩小后重试")
-                    image.verify()
+                    # JPEG verify() alone does not decode truncated pixel data.
+                    image.load()
             pages = 1
         except ValueError:
             raise
