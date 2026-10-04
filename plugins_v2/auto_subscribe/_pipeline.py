@@ -380,6 +380,9 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
         return STATUS_SUBSCRIBED_EXISTS, title, tag
 
     # 加订阅。
+    cancel_event = cfg.get("_cancel_event")
+    if cancel_event is not None and cancel_event.is_set():
+        return STATUS_ALREADY, title, "任务已取消，未新增订阅"
     ok, msg = client.add(tmdb_id, raw_type, season)
     if ok:
         _record(handled, key, title, STATUS_SUBSCRIBED, item, tmdb_id)
@@ -405,6 +408,9 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
     global_filters = _read_filters(cfg)
 
     for source_id, options in _source_options(cfg, result.nf_cache):
+        cancel_event = cfg.get("_cancel_event")
+        if cancel_event is not None and cancel_event.is_set():
+            break
         provider = get_provider(source_id)
         if provider is None:
             continue
@@ -412,6 +418,8 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
         src_stats: Dict[str, int] = {}
         try:
             for item in provider.fetch(options):
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 if not item.title:
                     continue
                 title, detail = item.title, ""

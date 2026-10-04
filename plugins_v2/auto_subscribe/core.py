@@ -12,6 +12,7 @@
 
 import asyncio
 import concurrent.futures
+import threading
 import traceback
 from datetime import datetime
 from typing import Optional
@@ -21,7 +22,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.1.1",
+    "version": "2.2.0",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -49,6 +50,8 @@ DEFAULTS = {
     "auto_fill_missing": False, "auto_fill_missing_limit": 20,
     # 缺集自动订阅不设每轮上限；保留旧字段仅为兼容历史配置。
     "auto_subscribe_missing": False, "auto_subscribe_missing_limit": 0,
+    "emby_server": "", "emby_api_key": "", "tmdb_key": "",
+    "missing_air_delay_days": 1,
     "min_year": 0, "min_vote": 0, "min_popularity": 0, "media_type": "all",
     # 豆瓣
     "douban_enabled": False, "douban_ranks": ["movie-hot-gaia", "tv-hot"],
@@ -100,6 +103,12 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
 
     if missing_subs is not None:
         m_parts = []
+        if "scanned" in missing_subs:
+            m_parts.append(f"Emby剧集{missing_subs['scanned']}")
+            m_parts.append(f"缺集剧集{missing_subs.get('checked', 0)}")
+            m_parts.append(f"缺{missing_subs.get('missing_episodes', 0)}集")
+        if missing_subs.get("unknown"):
+            m_parts.append(f"资料不全跳过{missing_subs['unknown']}")
         if missing_subs.get("error"):
             m_parts.append(f"查询/执行失败：{missing_subs['error']}")
         if missing_subs.get("checked"):
@@ -147,19 +156,39 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
 # 在 setup 内创建，避免模块级锁跨事件循环复用。
 _run_lock = None
 _state: dict = {}
-_storage_tasks: set[asyncio.Task] = set()
 _background_tasks: set[asyncio.Task] = set()
+_cancel_events: set[threading.Event] = set()
+
+
+async def _run_sync(func, *args, cancel_event):
+    """取消时停止后续写请求，等待当前请求结束后才释放整轮锁。"""
+    worker = asyncio.create_task(asyncio.to_thread(func, *args))
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        cancel_event.set()
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        # Retrieve any worker failure, without replacing the cancellation.
+        if worker.done() and not worker.cancelled():
+            worker.exception()
+        raise
 
 
 def _state_get(key, default=None):
     return _state.get(key, default)
 
 
-def _state_set(ctx, key, value) -> None:
+async def _state_set(ctx, key, value) -> None:
+    # KV writes are already asynchronous. Spawning one background task per key
+    # can exhaust the plugin's quota after subscriptions have succeeded.
+    await ctx.storage.set(key, value)
     _state[key] = value
-    task = ctx.create_task(ctx.storage.set(key, value), name=f"自动订阅存储:{key}")
-    _storage_tasks.add(task)
-    task.add_done_callback(_storage_tasks.discard)
 
 
 class _PlatformAIProxy:
@@ -281,10 +310,12 @@ def _has_missing_episodes(item: dict) -> bool:
     return str(item.get("status") or item.get("library_status") or "").lower() == "missing"
 
 
-def _fill_missing_round(cfg: dict, log=None) -> dict:
+def _fill_missing_round(cfg: dict, log=None, cancel_event=None) -> dict:
     """检查活跃剧集订阅，并只触发明确缺集的项目。"""
     client = _nf_client(cfg)
     stats = {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0, "unprocessed": 0, "error": "", "auth_error": ""}
+    if cancel_event is not None and cancel_event.is_set():
+        return stats
     if log:
         log.info("[自动订阅] 自动补缺：开始检查 NextFind 活跃剧集订阅...")
     try:
@@ -297,6 +328,8 @@ def _fill_missing_round(cfg: dict, log=None) -> dict:
     tv_items = list(by_id.values())
     stats["checked"] = len(tv_items)
     query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
+    if cancel_event is not None and cancel_event.is_set():
+        return stats
     try:
         details = _response_items(client.subscription_info(query), "订阅进度") if query else []
     except Exception as exc:
@@ -317,6 +350,9 @@ def _fill_missing_round(cfg: dict, log=None) -> dict:
                  len(tv_items), len(candidates), limit)
     selected = candidates[:limit]
     for index, item in enumerate(selected):
+        if cancel_event is not None and cancel_event.is_set():
+            stats["unprocessed"] = len(selected) - index
+            break
         tmdb_id = _tmdb_id(item)
         title = str(item.get("title") or "")
         try:
@@ -340,26 +376,19 @@ def _fill_missing_round(cfg: dict, log=None) -> dict:
     return stats
 
 
-def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
-    """从 NextFind 本地库缺集列表中订阅尚未订阅的媒体。"""
+def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None) -> tuple[dict, list]:
+    """只消费 Emby/TMDB 已确认的缺集候选，不调用 NextFind 本地库接口。"""
     client = _nf_client(cfg)
-    stats = {"checked": 0, "added": 0, "skipped": 0, "failed": 0, "unprocessed": 0, "error": "", "auth_error": ""}
-    if log:
-        log.info("[自动订阅] 缺集订阅：开始请求 NextFind 本地缺集列表...")
-    try:
-        items = _response_items(client.local_library_filter("missing"), "本地缺集列表")
-    except Exception as exc:
-        _round_error(stats, exc, "本地缺集列表查询（本轮未检查本地库）", log)
-        if log:
-            log.warning("[自动订阅] 未新增本地缺集订阅；订阅进度不能替代本地库缺集列表，请检查 NextFind 服务")
-        return stats, []
-
+    stats = {"checked": 0, "added": 0, "skipped": 0, "failed": 0, "unprocessed": 0, "error": "", "auth_error": "", "added_items": []}
     stats["checked"] = len(items)
     added_titles: list[str] = []
+    if cancel_event is not None and cancel_event.is_set():
+        stats["unprocessed"] = len(items)
+        return stats, added_titles
 
     if not items:
         if log:
-            log.info("[自动订阅] 缺集订阅：NextFind 本地库暂无缺集媒体")
+            log.info("[自动订阅] 本轮没有已确认的缺集候选")
         return stats, added_titles
 
     # A subscription list is necessary for reliable deduplication. Do not
@@ -400,6 +429,9 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
     # 缺集补订不再按每轮上限截断；开启该功能即一次处理当前返回的全部未订阅项目。
     attempted = set()
     for index, (item, tmdb_id, title, media_type) in enumerate(pending):
+        if cancel_event is not None and cancel_event.is_set():
+            stats["unprocessed"] = len(pending) - index
+            break
         key = (media_type, tmdb_id)
         if key in active_ids or key in attempted:
             stats["skipped"] += 1
@@ -410,6 +442,7 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
             if ok:
                 stats["added"] += 1
                 added_titles.append(f"{title}(缺集)")
+                stats["added_items"].append({"tmdb_id": tmdb_id, "media_type": media_type, "title": title})
                 active_ids.add(key)
             elif any(marker in str(message or "").lower() for marker in ("已订阅", "已存在", "already subscribed", "already exists", "subscription exists")):
                 # A concurrent/manual subscription may win after the pre-check.
@@ -434,6 +467,15 @@ def _subscribe_missing_round(cfg: dict, log=None) -> tuple[dict, list]:
 
 
 async def _run(ctx, label: str) -> str:
+    cancel_event = threading.Event()
+    _cancel_events.add(cancel_event)
+    try:
+        return await _run_round(ctx, label, cancel_event)
+    finally:
+        _cancel_events.discard(cancel_event)
+
+
+async def _run_round(ctx, label: str, cancel_event) -> str:
     """执行一轮：阻塞流水线跑在 to_thread，通知/kv 在事件循环。返回汇总文本。"""
     if _run_lock.locked():
         ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次运行(%s)", label)
@@ -445,7 +487,7 @@ async def _run(ctx, label: str) -> str:
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
         if not any(cfg.get(k) for k in _ENABLE_KEYS) and not cfg.get("auto_fill_missing") and not cfg.get("auto_subscribe_missing"):
-            msg = "未启用任何榜单源或自动补缺集，跳过"
+            msg = "未启用榜单、缺集订阅或自动补缺，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
             return msg
 
@@ -457,11 +499,12 @@ async def _run(ctx, label: str) -> str:
         if cfg.get("ai_assist_recognition"):
             cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop())
 
+        cfg["_cancel_event"] = cancel_event
         handled = _state_get("handled", {})
         nf_cache = _state_get("netflix_cache", {})
         ctx.log.info("[自动订阅] 开始运行(%s)", label)
         try:
-            result = await asyncio.to_thread(_pipeline.run, cfg, handled, nf_cache, ctx.log)
+            result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log, cancel_event=cancel_event)
         except Exception as e:  # noqa: BLE001
             ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
             if cfg.get("notify", True):
@@ -471,29 +514,62 @@ async def _run(ctx, label: str) -> str:
                 )
             return f"运行异常：{e}"
 
-        _state_set(ctx, "handled", result.handled)
-        _state_set(ctx, "netflix_cache", result.nf_cache)
+        await _state_set(ctx, "handled", result.handled)
+        await _state_set(ctx, "netflix_cache", result.nf_cache)
 
         missing_subs = None
         missing_added = []
         if cfg.get("auto_subscribe_missing") and not getattr(result, "auth_error", ""):
             try:
-                missing_subs, missing_added = await asyncio.to_thread(_subscribe_missing_round, cfg, ctx.log)
+                from ._emby_missing import scan_missing, LibraryScanError
+                scan = await scan_missing(cfg, ctx.http, ctx.log)
+                if scan.get("error"):
+                    missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1,
+                                    "unprocessed": 0, "error": scan["error"], "auth_error": ""}
+                    ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", scan["error"])
+                else:
+                    missing_subs, missing_added = await _run_sync(
+                        _subscribe_missing_round, cfg, scan["items"], ctx.log, cancel_event,
+                        cancel_event=cancel_event,
+                    )
+                for key in ("scanned", "matched", "complete", "unknown", "missing_episodes"):
+                    missing_subs[key] = scan.get(key, 0)
+                missing_subs["failed"] += scan.get("failed", 0)
+                missing_subs["scan_error"] = scan.get("error", "")
+                if missing_subs["scan_error"]:
+                    missing_subs["failed"] = max(1, missing_subs["failed"])
+                if missing_subs["scan_error"] and not missing_subs["error"]:
+                    missing_subs["error"] = missing_subs["scan_error"]
+            except asyncio.CancelledError:
+                cancel_event.set()
+                raise
             except Exception as exc:
-                missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 0, "error": "", "auth_error": ""}
-                _round_error(missing_subs, exc, "本地缺集订阅", ctx.log)
-            _state_set(ctx, "last_missing_subscription_stats", missing_subs)
+                from ._emby_missing import LibraryScanError
+                message = str(exc) if isinstance(exc, LibraryScanError) else f"缺集检查失败（{type(exc).__name__}）"
+                missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1, "unprocessed": 0, "error": message, "auth_error": ""}
+                ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", message)
+            if missing_subs.get("added_items"):
+                from ._models import make_history_key
+                for item in missing_subs.pop("added_items"):
+                    result.handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
+                        "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
+                        "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    }
+                await _state_set(ctx, "handled", result.handled)
+            await _state_set(ctx, "last_missing_subscription_stats", missing_subs)
             if missing_subs.get("auth_error"):
                 result.auth_error = missing_subs["auth_error"]
 
         fill_stats = None
         if cfg.get("auto_fill_missing") and not getattr(result, "auth_error", ""):
             try:
-                fill_stats = await asyncio.to_thread(_fill_missing_round, cfg, ctx.log)
+                fill_stats = await _run_sync(_fill_missing_round, cfg, ctx.log, cancel_event, cancel_event=cancel_event)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:  # noqa: BLE001
                 fill_stats = {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0, "error": "", "auth_error": ""}
                 _round_error(fill_stats, exc, "自动补缺集", ctx.log)
-            _state_set(ctx, "last_fill_missing_stats", fill_stats)
+            await _state_set(ctx, "last_fill_missing_stats", fill_stats)
             if fill_stats.get("auth_error"):
                 result.auth_error = fill_stats["auth_error"]
 
@@ -503,10 +579,15 @@ async def _run(ctx, label: str) -> str:
             for k, v in st.items():
                 agg[k] = agg.get(k, 0) + v
         if missing_subs:
+            agg["subscribed"] = agg.get("subscribed", 0) + missing_subs.get("added", 0)
+            agg["exists"] = agg.get("exists", 0) + missing_subs.get("skipped", 0)
             agg["missing_checked"] = missing_subs.get("checked", 0)
             agg["missing_added"] = missing_subs.get("added", 0)
             agg["missing_skipped"] = missing_subs.get("skipped", 0)
             agg["missing_failed"] = missing_subs.get("failed", 0)
+            agg["missing_scanned"] = missing_subs.get("scanned", 0)
+            agg["missing_episodes"] = missing_subs.get("missing_episodes", 0)
+            agg["missing_unknown"] = missing_subs.get("unknown", 0)
         if fill_stats:
             agg["fill_checked"] = fill_stats.get("checked", 0)
             agg["fill_triggered"] = fill_stats.get("triggered", 0)
@@ -516,8 +597,8 @@ async def _run(ctx, label: str) -> str:
             agg["error"] = agg.get("error", 0) + module_failures
         elif result.auth_error:
             agg["error"] = max(1, agg.get("error", 0))
-        _state_set(ctx, "last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        _state_set(ctx, "last_stats", agg)
+        await _state_set(ctx, "last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        await _state_set(ctx, "last_stats", agg)
 
         summary = _summary(result, label, missing_subs=missing_subs, fill_stats=fill_stats, extra_added=missing_added)
         has_err = bool(result.auth_error or result.errors or module_failures or agg.get("error"))
@@ -641,13 +722,15 @@ async def setup(ctx):
             data = await asyncio.to_thread(lambda: _nf_client(cfg).quota())
             return {"ok": True, "quota": data}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "message": str(e)}
+            return {"ok": False, "message": _request_error(e)}
 
     @ctx.on_api("/run", methods=["POST"])
     async def _api_run(req):
         # 整轮可能跑几分钟（抓榜 + 逐条搜索/订阅），同步等会让 HTTP 请求超时，
         # 前端就只看到无内容的 "Error"（而服务端其实还在跑）。故改为**后台任务**：
         # 立即返回，运行结果通过通知 + 写入「订阅历史」落地，异常记完整堆栈到日志。
+        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+            return {"ok": False, "message": "上一轮仍在运行，请等待完成后再试"}
         _spawn_run("手动")
         return {"ok": True, "started": True,
                 "message": "已在后台开始运行。完成后结果会推送通知并写入「订阅历史」，"
@@ -662,19 +745,31 @@ async def setup(ctx):
             "items": items,
             "last_run": _state_get("last_run", ""),
             "stats": _state_get("last_stats", {}),
+            "missing": _state_get("last_missing_subscription_stats", {}),
         }
+
+    @ctx.on_api("/test-library", methods=["GET"])
+    async def _api_test_library(req):
+        from ._emby_missing import test_connections, LibraryScanError
+        try:
+            result = await test_connections(_effective_cfg(ctx), ctx.http)
+            return {"ok": True, **result}
+        except LibraryScanError as exc:
+            return {"ok": False, "message": str(exc)}
+        except Exception as exc:
+            return {"ok": False, "message": f"连接检查失败（{type(exc).__name__}）"}
 
     @ctx.on_api("/history/delete", methods=["POST"])
     async def _api_history_delete(req):
         data = req.json or {}
         if data.get("clear"):
-            _state_set(ctx, "handled", {})
+            await _state_set(ctx, "handled", {})
             return {"ok": True, "cleared": True}
         handled = _state_get("handled", {})
         key = data.get("key")
         if key in handled:
             handled.pop(key)
-            _state_set(ctx, "handled", handled)
+            await _state_set(ctx, "handled", handled)
         return {"ok": True}
 
     @ctx.on_api("/subscriptions", methods=["GET"])
@@ -732,13 +827,13 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
+    for event in list(_cancel_events):
+        event.set()
     for task in list(_background_tasks):
         if not task.done():
             task.cancel()
     if _background_tasks:
         await asyncio.gather(*list(_background_tasks), return_exceptions=True)
     _background_tasks.clear()
-    if _storage_tasks:
-        await asyncio.gather(*list(_storage_tasks), return_exceptions=True)
-    _storage_tasks.clear()
+    _cancel_events.clear()
     _state.clear()

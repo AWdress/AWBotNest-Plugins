@@ -51,6 +51,7 @@ const STAT_CARDS = ['subscribed', 'in_library', 'exists', 'filtered', 'unrecogni
 // 配置分组（左侧导航）。en=对应启用开关键（有则显示启用小圆点）。
 const GROUPS = [
   { key: 'global', label: '全局设置' },
+  { key: 'missing', label: '本地缺集', en: 'auto_subscribe_missing' },
   { key: 'douban', label: '豆瓣榜单', en: 'douban_enabled' },
   { key: 'mikan', label: 'Mikan 新番', en: 'mikan_enabled' },
   { key: 'netflix', label: '奈飞榜单', en: 'netflix_enabled' },
@@ -62,6 +63,7 @@ const DEFAULTS = {
   api_url: '', api_key: '', schedule: '0 8 * * *', notify: true, ai_assist_recognition: false,
   auto_fill_missing: false, auto_fill_missing_limit: 20,
   auto_subscribe_missing: false, auto_subscribe_missing_limit: 0,
+  emby_server: '', emby_api_key: '', tmdb_key: '', missing_air_delay_days: 1,
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
   douban_enabled: false, douban_ranks: ['movie-hot-gaia', 'tv-hot'],
   douban_rsshub: 'https://rsshub.app', douban_rss_custom: '',
@@ -83,7 +85,11 @@ const loading = ref(true)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
-const secretVisible = reactive({ api_key: false })
+const secretVisible = reactive({ api_key: false, emby_api_key: false, tmdb_key: false })
+const secretLoading = reactive({ api_key: false, emby_api_key: false, tmdb_key: false })
+const libraryTesting = ref(false)
+const libraryTestOutput = ref('')
+const missingStats = ref({})
 const cfg = reactive({ ...DEFAULTS })
 const countries = ref([])
 const runOutput = ref('')
@@ -102,7 +108,6 @@ const enabledCount = computed(() => SOURCE_ENABLE_KEYS.filter(k => cfg[k]).lengt
 onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
-    if (saved?.api_key === '********') saved.api_key = await props.host.revealSecret('api_key')
     Object.assign(cfg, DEFAULTS, saved || {})
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
@@ -124,6 +129,12 @@ function toggle(arr, val) {
 async function save() {
   saving.value = true
   try {
+    if (cfg.auto_subscribe_missing && (!String(cfg.emby_server || '').trim() || !String(cfg.emby_api_key || '').trim() || !String(cfg.tmdb_key || '').trim())) {
+      throw new Error('请在「本地缺集」填写 Emby 地址、Emby API Key 和 TMDB 密钥')
+    }
+    if (!Number.isInteger(cfg.missing_air_delay_days) || cfg.missing_air_delay_days < 0 || cfg.missing_air_delay_days > 30) {
+      throw new Error('播出缓冲天数请填写 0～30 的整数')
+    }
     await props.host.saveConfig({ ...cfg })
     props.host.toast.success('配置已保存')
   } catch (e) {
@@ -131,6 +142,31 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+async function toggleSecret(key) {
+  if (secretLoading[key]) return
+  if (secretVisible[key]) { secretVisible[key] = false; return }
+  secretLoading[key] = true
+  try {
+    if (cfg[key] === '********') cfg[key] = await props.host.revealSecret(key)
+    secretVisible[key] = true
+  } catch (e) {
+    props.host.toast.error('读取密钥失败：' + (e.message || e))
+  } finally { secretLoading[key] = false }
+}
+
+async function testLibrary() {
+  libraryTesting.value = true
+  libraryTestOutput.value = '正在检查已保存的 Emby 和 TMDB 连接…'
+  try {
+    const r = await props.host.callApi('/test-library')
+    libraryTestOutput.value = r.message || (r.ok ? `连接正常，可读取 ${r.series_count || 0} 部 Emby 剧集` : '连接检查失败')
+    if (!r.ok) props.host.toast.error(libraryTestOutput.value)
+  } catch (e) {
+    libraryTestOutput.value = '连接检查失败：' + (e.message || e)
+    props.host.toast.error(libraryTestOutput.value)
+  } finally { libraryTesting.value = false }
 }
 
 async function testConn() {
@@ -170,6 +206,7 @@ async function loadHistory() {
     history.value = r.items || []
     lastRun.value = r.last_run || ''
     histStats.value = r.stats || {}
+    missingStats.value = r.missing || {}
   } catch (e) {
     props.host.toast.error('读取历史失败：' + (e.message || e))
   } finally {
@@ -262,7 +299,7 @@ function switchTab(t) {
                   <input v-model="cfg.api_url" class="inp" placeholder="https://你的域名/api/openapi" /></label>
                 <label class="row"><span>密钥</span><div class="secret-field">
                   <input v-model="cfg.api_key" class="inp" :type="secretVisible.api_key ? 'text' : 'password'" placeholder="X-API-Key" />
-                  <button type="button" :aria-label="secretVisible.api_key ? '隐藏密钥' : '显示密钥'" @click="secretVisible.api_key = !secretVisible.api_key">
+                  <button type="button" :disabled="secretLoading.api_key" :aria-label="secretVisible.api_key ? '隐藏密钥' : '显示密钥'" @click="toggleSecret('api_key')">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
                   </button></div></label>
               </div>
@@ -276,11 +313,10 @@ function switchTab(t) {
                 <label class="row switch"><input v-model="cfg.ai_assist_recognition" type="checkbox" /><span>平台 AI 辅助识别</span></label>
                 <label class="row switch"><input v-model="cfg.auto_fill_missing" type="checkbox" /><span>自动补缺集</span></label>
                 <label v-if="cfg.auto_fill_missing" class="row"><span>每轮补缺上限</span><input v-model.number="cfg.auto_fill_missing_limit" class="inp" type="number" min="1" max="100" /></label>
-                <label class="row switch"><input v-model="cfg.auto_subscribe_missing" type="checkbox" /><span>本地缺集自动订阅</span></label>
-                <div v-if="cfg.auto_subscribe_missing" class="hint flow-hint">一次订阅本地缺集列表中全部未订阅项目。已有订阅不会重复新增；需要补缺时请开启「自动补缺集」。本地缺集接口失败时会报告失败，不改用已有订阅列表。</div>
               </div>
               <div v-if="cfg.ai_assist_recognition" class="hint">仅在常规搜索无结果时调用平台 AI 清洗片名、判断电影/剧集及季号；识别结果仍须经 NextFind 核验，平台 AI 不可用时自动降级。</div>
               <div v-if="cfg.auto_fill_missing" class="hint flow-hint">检查已有剧集订阅的入库进度，将明确缺集的项目加入补缺队列，每轮按补缺上限处理。不新增订阅，也无需启用榜单源。</div>
+              <div class="hint flow-hint">本地缺集自动订阅请在左侧「本地缺集」设置。先保存配置，再测试连接或立即运行。</div>
               <div class="row">
                 <button class="btn primary" :disabled="running" @click="runNow">{{ running ? '运行中…' : '立即运行一次' }}</button>
               </div>
@@ -295,6 +331,40 @@ function switchTab(t) {
                 <label class="row"><span>媒体类型</span>
                   <select v-model="cfg.media_type" class="inp"><option v-for="o in MEDIA_TYPES" :key="o.v" :value="o.v">{{ o.l }}</option></select></label>
               </div>
+            </section>
+          </template>
+
+          <template v-else-if="group === 'missing'">
+            <h3 class="det-title">本地缺集</h3>
+            <section class="card">
+              <label class="row switch"><input v-model="cfg.auto_subscribe_missing" type="checkbox" /><span>本地缺集自动订阅</span></label>
+              <div class="hint flow-hint">从 Emby 读取本地剧集，按季号和集号对比 TMDB 已播集。一次订阅全部未订阅的缺集剧集；不再使用 NextFind 本地缺集接口，也不调用 AI。</div>
+              <div class="hint flow-hint">已有订阅不会重复新增。需要让 NextFind 搜索补缺时，请在「全局设置」开启「自动补缺集」。</div>
+            </section>
+            <section class="card">
+              <div class="card-h">Emby 与 TMDB 连接</div>
+              <label class="fld"><span class="lbl">Emby 服务地址</span>
+                <input v-model="cfg.emby_server" class="inp" placeholder="https://你的Emby域名" />
+              </label>
+              <div class="hint flow-hint">填写平台所在服务器能访问的 Emby 地址，支持反代域名和带 /emby 的地址。API Key 需能读取完整剧集库。</div>
+              <label class="fld"><span class="lbl">Emby API Key</span><div class="secret-field">
+                <input v-model="cfg.emby_api_key" class="inp" :type="secretVisible.emby_api_key ? 'text' : 'password'" autocomplete="off" placeholder="在 Emby 控制台 → 高级 → API 密钥中创建" />
+                <button type="button" :disabled="secretLoading.emby_api_key" :aria-label="secretVisible.emby_api_key ? '隐藏 Emby API Key' : '显示 Emby API Key'" @click="toggleSecret('emby_api_key')">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button></div>
+              </label>
+              <label class="fld"><span class="lbl">TMDB 密钥</span><div class="secret-field">
+                <input v-model="cfg.tmdb_key" class="inp" :type="secretVisible.tmdb_key ? 'text' : 'password'" autocomplete="off" placeholder="TMDB API Key 或 API Read Access Token" />
+                <button type="button" :disabled="secretLoading.tmdb_key" :aria-label="secretVisible.tmdb_key ? '隐藏 TMDB 密钥' : '显示 TMDB 密钥'" @click="toggleSecret('tmdb_key')">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button></div>
+              </label>
+              <div class="hint flow-hint">这些配置仅用于 NextFind 助手，不读取其他插件。仅检查 Emby 已有且带 TMDB ID 的剧集；电影、特别篇和季集号不明的条目不参与。</div>
+              <label class="row"><span>播出缓冲天数</span><input v-model.number="cfg.missing_air_delay_days" class="inp sm" type="number" min="0" max="30" /></label>
+              <div class="hint flow-hint">默认 1 天：按北京时间只核对截至昨天已播出的集，避免当天未放送就判缺集。填 0 包含今天；未来集或没有明确播出日期的集不计入。</div>
+              <div class="hint flow-hint">先保存，再测试连接。测试只读取 Emby 和 TMDB，不新增订阅、不补缺，也不修改 Emby。</div>
+              <div class="row"><button class="btn" :disabled="libraryTesting" @click="testLibrary">{{ libraryTesting ? '检查中…' : '测试 Emby / TMDB 连接' }}</button></div>
+              <pre v-if="libraryTestOutput" class="output" role="status" aria-live="polite">{{ libraryTestOutput }}</pre>
             </section>
           </template>
 
@@ -412,6 +482,10 @@ function switchTab(t) {
 
       <!-- ============ 历史 ============ -->
       <div v-show="tab === 'history'" class="pane">
+        <div v-if="Object.keys(missingStats).length" class="output" role="status">
+          <div>上轮本地缺集：Emby 剧集 {{ missingStats.scanned ?? '—' }} 部，缺集剧集 {{ missingStats.checked || 0 }} 部，缺 {{ missingStats.missing_episodes || 0 }} 集；新增 {{ missingStats.added || 0 }} 部，已订阅跳过 {{ missingStats.skipped || 0 }} 部，资料不全跳过 {{ missingStats.unknown || 0 }} 部，失败 {{ missingStats.failed || 0 }} 部。</div>
+          <div v-if="missingStats.error" class="muted err">{{ missingStats.error }}</div>
+        </div>
         <div class="stats">
           <div v-for="k in STAT_CARDS" :key="k" class="stat" :style="{ borderColor: STATUS_COLORS[k] + '55' }">
             <div class="stat-n" :style="{ color: STATUS_COLORS[k] }">{{ histStats[k] || 0 }}</div>
@@ -520,8 +594,9 @@ function switchTab(t) {
 .row.switch { justify-content: flex-start; }
 .row.switch span { min-width: 0; }
 .hint { min-width: 0 !important; font-size: 12px; color: var(--text-muted, #7a8291); white-space: nowrap; }
-.flow-hint { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; }
+.flow-hint { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; color: var(--text-secondary, #b9c0cc); }
 .secret-field { position: relative; flex: 1; min-width: 0; }
+.fld .secret-field { flex: auto; }
 .secret-field .inp { width: 100%; padding-right: 44px; }
 .secret-field button { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted, #7a8291); cursor: pointer; }
 .secret-field button:hover { color: var(--accent, #6ea8fe); background: var(--accent-dim, #1e3a5f); }
@@ -553,6 +628,7 @@ textarea.inp { resize: vertical; font-family: inherit; }
 .btn.lg { padding: 9px 22px; }
 .btn.xs { padding: 3px 9px; font-size: 12px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.inp:focus-visible, button:focus-visible { outline: 2px solid var(--accent, #6ea8fe); outline-offset: 2px; }
 .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding-top: 4px; }
 .output { margin: 0; padding: 10px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 

@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.1.1',
+ 'version': '2.2.0',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -96,6 +96,12 @@ __plugin__ = {'name': 'NextFind 助手',
                                'type': 'password',
                                'secret': True,
                                'default': ''},
+                   'emby_api_key': {'title': 'Emby API Key', 'type': 'password',
+                                    'secret': True, 'default': ''},
+                   'tmdb_key': {'title': 'TMDB 密钥', 'type': 'password',
+                                'secret': True, 'default': ''},
+                   'missing_air_delay_days': {'type': 'integer', 'default': 1,
+                                              'min': 0, 'max': 30, 'title': '播出缓冲天数'},
                    'schedule': {'type': 'string',
                                 'format': 'cron',
                                 'default': '0 8 * * *',
@@ -114,6 +120,11 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.0 本地缺集改由 Emby 与 TMDB 核对\n'
+    '- 独立配置 Emby 地址、Emby API Key 与 TMDB 密钥，支持受控显示和保存\n'
+    '- 按实际季集号核对已播集，合并多版本与多集文件，检测整季缺失\n'
+    '- 不再调用 NextFind 本地缺集接口，全部未订阅缺集剧集一次处理\n'
+    '- 扫描失败不当空库，未知编号跳过；停止任务不再继续新增订阅\n\n'
     'v2.1.1 修复无效缺集订阅降级与失败统计\n'
     '- 本地缺集接口失败时明确报告失败，不再用已有订阅列表冒充本地缺集列表\n'
     '- 按媒体类型和 TMDB ID 去重，处理重复候选和字符串布尔状态\n'
