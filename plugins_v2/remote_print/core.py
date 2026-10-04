@@ -134,13 +134,13 @@ class RemotePrint:
         self.ctx.action("archive_unknown", self.archive_unknown)
         self.ctx.action("test_ipp", self.test_ipp)
         self.ctx.action("show_wecom_setup", self.show_wecom_setup)
-        self.ctx.schedule_interval("print_cleanup", self.cleanup, seconds=60)
+        self.ctx.schedule_interval("打印文件清理", self.cleanup, seconds=60)
         if self.config()["print_mode"] == "ipp":
-            self.ctx.schedule_interval("ipp_dispatch", self.dispatch, seconds=3)
+            self.ctx.schedule_interval("打印任务处理", self.dispatch, seconds=3)
         await self.refresh_telegram()
         # Standalone plugins are not reloaded by the platform's Bot reconnect.
         # Check the read-only selection and restore a managed handler ourselves.
-        self.ctx.schedule_interval("print_telegram_binding", self.refresh_telegram, seconds=10)
+        self.ctx.schedule_interval("打印机器人连接检查", self.refresh_telegram, seconds=10)
         self.ctx.log.info("远程打印已就绪，方式=%s", "IPP / FRP 直连" if self.config()["print_mode"] == "ipp" else "Windows 打印端")
 
     def unbind_telegram(self):
