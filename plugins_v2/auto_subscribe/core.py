@@ -23,7 +23,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.1",
+    "version": "2.2.2",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -44,6 +44,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.2 修复 Emby 缺集扫描分页重复\n"
+    "- 使用创建时间优先排序、每页 1000 条，缩短全库读取窗口\n"
+    "- 保留重复编号、总数变化和漏页校验；不把未完成扫描显示为缺 0 集\n\n"
     "v2.2.1 修复奈飞榜单平台代理\n"
     "- 富元数据页面与全部 TSV 榜单使用 ctx.http，继承平台代理，不回退直连\n"
     "- 保留 HTTP 状态码、代理错误与超时原因，失败不再静默跳过或缓存空榜单\n"
@@ -114,8 +117,11 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
         m_parts = []
         if "scanned" in missing_subs:
             m_parts.append(f"Emby剧集{missing_subs['scanned']}")
-            m_parts.append(f"缺集剧集{missing_subs.get('checked', 0)}")
-            m_parts.append(f"缺{missing_subs.get('missing_episodes', 0)}集")
+            if missing_subs.get("scan_error"):
+                m_parts.append("扫描未完成，未执行缺集订阅")
+            else:
+                m_parts.append(f"缺集剧集{missing_subs.get('checked', 0)}")
+                m_parts.append(f"缺{missing_subs.get('missing_episodes', 0)}集")
         if missing_subs.get("unknown"):
             m_parts.append(f"资料不全跳过{missing_subs['unknown']}")
         if missing_subs.get("error"):

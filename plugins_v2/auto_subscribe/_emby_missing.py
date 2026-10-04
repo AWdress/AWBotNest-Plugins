@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 
-_PAGE_SIZE = 200
+_PAGE_SIZE = 1000
 _MAX_PAGES = 5000
 _TMDB_BASE = "https://api.themoviedb.org/3"
 _SHANGHAI = timezone(timedelta(hours=8))
@@ -96,7 +96,10 @@ async def _emby_items(http, base, key, item_type):
             headers={"X-Emby-Token": key, "Accept": "application/json"},
             params={"Recursive": "true", "IncludeItemTypes": item_type,
                     "Fields": fields, "StartIndex": start, "Limit": _PAGE_SIZE,
-                    "EnableTotalRecordCount": "true", "SortBy": "SortName",
+                    # SortName-first ordering can overlap pages even with a
+                    # secondary key. Creation-first reduces those ties; the
+                    # unique-ID and total checks below must still remain.
+                    "EnableTotalRecordCount": "true", "SortBy": "DateCreated,SortName",
                     "SortOrder": "Ascending"},
         )
         page = data.get("Items")
