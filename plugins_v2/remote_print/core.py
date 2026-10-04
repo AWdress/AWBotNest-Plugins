@@ -122,6 +122,7 @@ class RemotePrint:
 
     async def setup(self):
         self.remove_obsolete_channel_config()
+        self.seed_config_defaults()
         await self.queue.open()
         self.ctx.on_webhook("wecom", self.wecom_callback)
         self.ctx.on_webhook("agent", self.agent)
@@ -141,7 +142,17 @@ class RemotePrint:
         # Standalone plugins are not reloaded by the platform's Bot reconnect.
         # Check the read-only selection and restore a managed handler ourselves.
         self.ctx.schedule_interval("打印机器人连接检查", self.refresh_telegram, seconds=10)
-        self.ctx.log.info("远程打印已就绪，方式=%s", "IPP / FRP 直连" if self.config()["print_mode"] == "ipp" else "Windows 打印端")
+        self.ctx.log.info("远程打印已就绪，方式=%s", "直接连接网络打印机" if self.config()["print_mode"] == "ipp" else "通过 Windows 电脑打印")
+
+    def seed_config_defaults(self):
+        # The native form reads saved values, not schema defaults. Fill only this
+        # plugin's missing fields; an explicitly saved empty/false value is kept.
+        current = dict(self.ctx.config)
+        missing = {key: copy.deepcopy(spec["default"])
+                   for key, spec in __plugin__["config_schema"].items()
+                   if "default" in spec and spec["type"] not in {"info", "action"} and key not in current}
+        if missing:
+            self.ctx.update_config(missing)
 
     def unbind_telegram(self):
         self.telegram_binding = None
@@ -462,11 +473,11 @@ class RemotePrint:
     def device_text(self):
         if self.config()["print_mode"] == "ipp":
             if not self.ipp_status:
-                return "IPP / FRP 直连模式。请先填写 IPP 访问地址，点击“测试 IPP 连接（不打印）”。"
+                return "直接连接网络打印机。请先填写打印机访问地址，保存后点击“检查能否连接打印机（不打印）”。"
             return self.ipp_text(self.ipp_status)
         device = self.queue.device
         if not device:
-            return "电脑端尚未连接。请在 Windows 电脑配置并运行 agent 打印端。"
+            return "电脑端尚未连接。请在连接打印机的 Windows 电脑上配置并运行配套打印程序。"
         online = time.time() - device.get("last_seen", 0) < 60
         return ("电脑端在线" if online else "电脑端离线（以下为上次报告）") + "\n允许的打印机：\n" + ("\n".join(device.get("printers", [])) or "无") + "\n默认打印机：" + (device.get("default_printer") or "未设置")
 
