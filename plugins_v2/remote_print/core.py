@@ -14,7 +14,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from . import __plugin__
 from .channels import PlatformChannels
-from .chat import action_buttons, is_mutating_text, parse_action, received_text, simple_command, status_text, welcome_text
+from .chat import action_buttons, is_mutating_text, parse_action, received_text, simple_command, status_text, wecom_received_text, welcome_text
 from .files import inspect_file, safe_name
 from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
@@ -291,6 +291,14 @@ class RemotePrint:
                 user = self.wecom_owner_allowed(owner, source_channel)
                 permission_check = lambda: self.wecom_owner_allowed(owner, source_channel)
                 if job and job["status"] == "pending":
+                    # WeChat's micro-workbench does not display template cards,
+                    # even when the send API succeeds. Always send usable text
+                    # first; a failed SDK reply must not bypass its permissions.
+                    instructions = wecom_received_text(job, self.config()["max_copies"])
+                    if message is not None:
+                        await message.reply(instructions)
+                    else:
+                        await self.wecom.send(user, instructions, permission_check=permission_check)
                     try:
                         await self.wecom.send_print_card(user, {**job, "card_text": f"共 {job['pages']} 页。\n请选择打印份数，不想打印可点取消。"},
                                                         action_buttons(job, self.config()["max_copies"]),
@@ -298,15 +306,7 @@ class RemotePrint:
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        # Sending instructions after an uncertain card response is
-                        # safe: neither message confirms or submits a print job.
-                        self.ctx.log.warning("企业微信打印按钮未确认送达（%s），尝试发送文字说明", type(exc).__name__)
-                        self.wecom_owner_allowed(owner, source_channel)
-                        instructions = f"收到：{job['filename']}\n共 {job['pages']} 页。\n回复“打印”打印一份，回复“取消”不打印。\n按钮消息暂未确认送达，任务还没有打印。"
-                        if message is not None:
-                            await message.reply(instructions)
-                        else:
-                            await self.wecom.send(user, instructions, permission_check=permission_check)
+                        self.ctx.log.warning("企业微信打印按钮未确认送达（%s），可使用已发送的文字指令操作", type(exc).__name__)
                 else:
                     if message is not None:
                         await message.reply(text)
@@ -403,7 +403,7 @@ class RemotePrint:
                 await event.reply(str(exc), parse_mode=None)
             return
         text = str(getattr(message, "raw_text", "") or "").strip()
-        if simple_command(text) or re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|任务|取消|帮助|你好|开始)", text):
+        if simple_command(text) or re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|任务|取消|进度|帮助|你好|开始)", text):
             channel = str(getattr(self.ctx, "bot_id", "") or "")
             if is_mutating_text(text) and not await self.queue.claim_message(f"tg-action:{channel}:{event.chat_id}:{message.id}"):
                 await event.reply("这条操作已经处理，不会重复打印。回复“进度”查看。", parse_mode=None)
@@ -451,6 +451,10 @@ class RemotePrint:
                 return status_text(job)
             if command in {"/print_jobs", "任务"}:
                 return self.jobs_text(await self.queue.jobs(owner))
+            if command == "进度" and argument.strip():
+                job = await self.queue.get_job(argument.strip(), owner, source_channel=source_channel,
+                                               permission_check=permission_check)
+                return status_text(job)
             if command in {"/printers", "打印机"}:
                 if self.config()["print_mode"] == "ipp":
                     await self.refresh_ipp()

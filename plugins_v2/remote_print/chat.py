@@ -41,10 +41,23 @@ def received_text(job):
             "也可以回复“打印”或“取消”。")
 
 
+def wecom_received_text(job, max_copies):
+    """A complete confirmation that also works in WeChat's micro-workbench."""
+    if job["status"] != "pending":
+        return status_text(job)
+    copies = "，回复“打印两份”打两份" if max_copies >= 2 else ""
+    numbered_copies = f"打印 {job['id']} 2\n" if max_copies >= 2 else ""
+    return (f"收到：{job['filename']}\n共 {job['pages']} 页，还没开始打印。\n"
+            f"回复“打印”打一份{copies}。\n"
+            "不想打印回复“取消”，查看状态回复“进度”。\n"
+            "有多个待处理文件时，请复制对应命令发送：\n"
+            f"打印 {job['id']} 1\n{numbered_copies}取消 {job['id']}\n进度 {job['id']}")
+
+
 def status_text(job):
     phrases = {
         "receiving": "正在收文件，请稍等。",
-        "pending": "还没开始打印。点“打印一份”即可。",
+        "pending": "还没开始打印。回复“打印”或点“打印一份”即可。",
         "queued": f"已确认打印 {job['copies']} 份，正在等待打印机。\n先不要重复发送文件。",
         "leased": "正在准备打印，请稍等。",
         "started": "正在发送到打印机，请稍等，不要重复操作。",
@@ -59,7 +72,7 @@ def status_text(job):
 
 def welcome_text():
     return ("把照片或 PDF 文件发给我。\n"
-            "收到后点“打印一份”即可。\n"
+            "收到提示后回复“打印”，或点“打印一份”即可。\n"
             "不想打印回复“取消”，想看进度回复“进度”。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 
