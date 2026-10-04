@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 const props = defineProps({
   result: { type: Object, required: true },
@@ -8,9 +8,11 @@ const props = defineProps({
 const area = ref(null)
 const panel = ref(null)
 const copyNotice = ref('')
+const rows = computed(() => Math.max(2, Math.min(10,
+  String(props.result.message).split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 70)), 0))))
 let mounted = true
 onBeforeUnmount(() => { mounted = false })
-onMounted(() => panel.value?.scrollIntoView?.({ block: 'nearest' }))
+onMounted(() => panel.value?.scrollIntoView?.({ block: 'center' }))
 
 async function copy() {
   try {
@@ -33,22 +35,22 @@ async function copy() {
       <button type="button" class="button" :disabled="busy" @click="copy">复制结果</button>
     </div>
     <label class="sr-only" for="rp-tool-result">工具执行结果，可选中复制</label>
-    <textarea id="rp-tool-result" ref="area" class="result-text" rows="12" readonly :value="result.message" />
+    <textarea id="rp-tool-result" ref="area" class="result-text" :rows="rows" readonly :value="result.message" />
     <p class="sr-only" role="status">{{ busy ? '正在执行，请稍候。' : result.ok ? '操作已完成，详细结果可在下方查看或复制。' : result.message }}</p>
     <p v-if="copyNotice" class="help" role="status">{{ copyNotice }}</p>
   </section>
 </template>
 
 <style scoped>
-.result { min-width: 0; margin-top: 14px; padding: 16px; border: 1px solid var(--border, #394153); border-radius: var(--radius-sm, 8px); }
+.result { min-width: 0; padding-top: 20px; border-top: 1px solid var(--border-light, #2a3c52); scroll-margin-block: 96px; }
 .result-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 h4, p { margin: 0; }
 h4 { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .result-error .result-head { color: var(--danger, #ff8e96); }
-.button { min-height: 42px; padding: 8px 14px; border: 1px solid var(--border, #394153); border-radius: var(--radius-sm, 8px); background: var(--bg-elevated, #202633); color: var(--text-primary, #e8eaf0); font: inherit; cursor: pointer; flex-shrink: 0; }
+.button { min-height: 44px; padding: 10px 16px; border: 1px solid var(--border-light, #2a3c52); border-radius: var(--radius-sm, 8px); background: var(--bg-elevated, #172131); color: var(--text-primary, #eef1f7); font: inherit; cursor: pointer; flex-shrink: 0; }
 .button:hover:not(:disabled) { border-color: var(--accent, #82aaff); }
 .button:disabled { opacity: .58; cursor: not-allowed; }
-.result-text { box-sizing: border-box; width: 100%; min-height: 180px; border: 1px solid var(--border, #394153); border-radius: var(--radius-sm, 8px); background: var(--bg-elevated, #202633); color: var(--text-primary, #e8eaf0); padding: 9px 12px; font: inherit; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; resize: vertical; caret-color: var(--accent, #82aaff); }
+.result-text { box-sizing: border-box; width: 100%; min-height: 64px; max-height: 320px; border: 1px solid var(--border-light, #2a3c52); border-radius: var(--radius-sm, 8px); background: var(--bg-elevated, #172131); color: var(--text-primary, #eef1f7); padding: 10px 12px; font: inherit; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; resize: vertical; caret-color: var(--accent, #3080f0); scrollbar-color: var(--border-light, #2a3c52) var(--bg-elevated, #172131); scrollbar-width: thin; }
 button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent, #82aaff); outline-offset: 3px; }
 .help { font-size: 13px; line-height: 1.65; margin-top: 7px; color: var(--text-secondary, #b6bdcd); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
