@@ -66,9 +66,11 @@ class PlatformChannels:
             "wecom_agent_id": config["agentid"],
             "wecom_secret": config["secret"],
             "wecom_api_base": normalize_api_base(config.get("proxy")),
+            "wecom_callback_enabled": config.get("callback_enabled") is True,
+            "wecom_callback_users": str(config.get("callback_users") or ""),
         }
-        token = config.get("callback_token") or config.get("token")
-        aes_key = config.get("encoding_aes_key")
+        token = config.get("callback_token")
+        aes_key = config.get("callback_aes_key")
         if token:
             result["wecom_token"] = str(token).strip()
         if aes_key:

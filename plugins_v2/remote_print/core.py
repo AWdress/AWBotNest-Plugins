@@ -36,8 +36,6 @@ class RemotePrint:
         self.ctx = ctx
         self.queue = PrintQueue(ctx, self.config)
         self.channels = PlatformChannels(ctx)
-        self.callback_keys = {}
-        self.callback_lock = asyncio.Lock()
         self.wecom = WeCom(ctx, self.wecom_config)
         self.ipp = IPPPrinter(ctx, self.config)
         self.ipp_status = {}
@@ -93,52 +91,37 @@ class RemotePrint:
         config = self.channels.wecom_config()
         if not config:
             raise ValueError("请先在平台配置企业微信自建应用；群机器人不能接收文件")
-        supplied = (config.get("wecom_token"), config.get("wecom_encoding_aes_key"))
-        if any(supplied):
-            if not all(supplied):
-                raise ValueError("平台企业微信回调密钥不完整，请检查平台渠道配置")
-            return config
-        keys = self.callback_keys.get(self.wecom_identity(config))
-        if not isinstance(keys, dict):
-            raise ValueError("请先点击“查看企业微信接收配置”，生成回调密钥")
-        if (not re.fullmatch(r"[A-Za-z0-9]{32}", str(keys.get("token") or ""))
-                or not re.fullmatch(r"[A-Za-z0-9+/]{43}", str(keys.get("aes_key") or ""))):
-            raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
-        return {**config, "wecom_token": keys["token"], "wecom_encoding_aes_key": keys["aes_key"]}
+        if config.get("wecom_callback_enabled") is not True:
+            raise ValueError("请先在平台企业微信自建应用中开启消息回调")
+        token = config.get("wecom_token", "")
+        key = config.get("wecom_encoding_aes_key", "")
+        if not token or not key:
+            raise ValueError("请在平台企业微信自建应用中填写回调 Token 和 EncodingAESKey；插件不另行生成密钥")
+        if (token == "********" or len(token) > 128
+                or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in token)):
+            raise ValueError("平台企业微信回调 Token 格式不正确")
+        if not re.fullmatch(r"[A-Za-z0-9+/]{43}", key):
+            raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
+        decoded = base64.b64decode(key + "=", validate=True)
+        if len(decoded) != 32 or base64.b64encode(decoded).decode("ascii").rstrip("=") != key:
+            raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
+        return config
 
     async def show_wecom_setup(self, payload=None):
         try:
-            async with self.callback_lock:
-                # A cancelled storage write may already have committed. Re-read
-                # before generation so a later action never replaces that pair.
-                stored = await self.ctx.storage.get("wecom_callback_keys_v1", {})
-                if not isinstance(stored, dict):
-                    raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
-                self.callback_keys = stored
-                config = self.channels.wecom_config()
-                if not config:
-                    raise ValueError("请先在平台配置企业微信自建应用；群机器人不能接收文件")
-                identity = self.wecom_identity(config)
-                if not (config.get("wecom_token") or config.get("wecom_encoding_aes_key")) and identity not in self.callback_keys:
-                    keys = {"token": secrets.token_hex(16), "aes_key": base64.b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")}
-                    snapshot = {**self.callback_keys, identity: keys}
-                    await self.ctx.storage.set("wecom_callback_keys_v1", snapshot)
-                    self.callback_keys = snapshot
-                config = self.wecom_config()
-                return {"ok": True, "message": (
-                    f"平台企业微信应用：{config.get('wecom_channel_name') or config['wecom_channel_id']}\n"
-                    + self.urls() + "\n\n请将以下两项复制到企业微信后台的“接收消息”配置；重载插件不会更换密钥。"
-                    + f"\nToken：{config['wecom_token']}\nEncodingAESKey：{config['wecom_encoding_aes_key']}"
-                    + "\n不要分享这些密钥。插件不会修改平台的企业微信配置。")}
+            config = self.wecom_config()
+            return {"ok": True, "message": (
+                f"平台企业微信应用：{config.get('wecom_channel_name') or config['wecom_channel_id']}\n"
+                + self.urls() + "\n\n回调密钥已读取平台通知渠道，插件不会生成或保存另一套密钥。"
+                + "\nToken 和 EncodingAESKey 请到平台对应的企业微信渠道中查看，复制到企微后台。"
+                + "\n打印文件请使用上面的插件回调 URL；平台统一回调目前仅处理文字消息。"
+                + "\n每个应用只能填写一个接收 URL；使用打印回调后，该应用不会经过平台文字回调。")}
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
 
     async def setup(self):
         self.remove_obsolete_channel_config()
         await self.queue.open()
-        self.callback_keys = await self.ctx.storage.get("wecom_callback_keys_v1", {})
-        if not isinstance(self.callback_keys, dict):
-            raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
         self.ctx.on_webhook("wecom", self.wecom_callback)
         self.ctx.on_webhook("agent", self.agent)
         self.ctx.on_webhook("agent_file", self.agent_file)
@@ -425,7 +408,9 @@ class RemotePrint:
             if message.get("ToUserName") != channel["wecom_corp_id"] or message.get("AgentID") != str(channel["wecom_agent_id"]):
                 return PlainTextResponse("forbidden", status_code=403)
             user = message.get("FromUserName", "")
-            if not user or user not in members(cfg["wecom_users"]) or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", user) or user.lower() == "@all":
+            platform_users = {value.strip() for value in channel["wecom_callback_users"].split("|") if value.strip()}
+            if (not user or user not in platform_users or user not in members(cfg["wecom_users"])
+                    or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user) or user.lower() == "@all"):
                 return PlainTextResponse("success")
             identity = self.wecom_identity(channel)
             owner = "wecom:" + identity + ":" + user
