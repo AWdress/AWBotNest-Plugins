@@ -11,12 +11,14 @@ from __future__ import annotations
 
 import re
 import xml.dom.minidom
+from xml.parsers.expat import ExpatError
 from typing import Iterator, List, Optional
 
 import httpx
 
 from ._base import DEFAULT_TIMEOUT, RankProvider, register
 from ._models import RankMediaItem
+from ._http_errors import request_error, safe_url
 
 # 默认 RSSHub 基址；被墙/SNI 封锁时可在配置里改为自建实例。
 DEFAULT_RSSHUB_BASE = "https://rsshub.app"
@@ -90,13 +92,22 @@ class DoubanRankProvider(RankProvider):
         return base
 
     def _fetch_addr(self, addr: str) -> Iterator[RankMediaItem]:
-        with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(addr)
-            resp.raise_for_status()
-            text = resp.text
-        root = xml.dom.minidom.parseString(text).documentElement
-        if root is None:
-            return
+        try:
+            with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client:
+                resp = client.get(addr)
+                resp.raise_for_status()
+                text = resp.text
+        except httpx.HTTPError as exc:
+            raise RuntimeError(request_error(exc, "RSS 请求")) from None
+        location = safe_url(addr)
+        if text.lstrip().lower().startswith(("<!doctype html", "<html")):
+            raise RuntimeError(f"RSS 地址返回 HTML 网页而非 RSS，请检查 RSSHub 地址：{location}")
+        try:
+            root = xml.dom.minidom.parseString(text).documentElement
+        except ExpatError:
+            raise RuntimeError(f"RSS 内容无法解析，请检查 RSSHub 地址：{location}") from None
+        if root is None or root.localName not in ("rss", "RDF") or not root.getElementsByTagName("channel"):
+            raise RuntimeError(f"地址没有返回有效 RSS，请检查 RSSHub 地址：{location}")
         for item in root.getElementsByTagName("item"):
             try:
                 media_item = self._parse_item(item)

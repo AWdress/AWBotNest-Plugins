@@ -26,6 +26,7 @@ from ._models import (
 )
 from ._nextfind import NextFindAuthError, NextFindClient
 from ._bangumi import subject_titles
+from ._http_errors import request_error
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -273,7 +274,7 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
         return best, query, season
     except Exception as exc:  # noqa: BLE001 - AI 是可选降级能力
         if log:
-            log.warning("[自动订阅] AI 辅助识别失败，按未识别处理 · %s: %r", item.title, exc)
+            log.warning("[自动订阅] AI 辅助识别失败，按未识别处理 · %s: %s", item.title, request_error(exc))
         return None, "", item.season
 
 
@@ -433,9 +434,9 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                         log.error("[自动订阅] %s，已中止本轮", exc)
                     break
                 except Exception as exc:  # noqa: BLE001 - 单条兜底
-                    status, detail = STATUS_ERROR, repr(exc)
+                    status, detail = STATUS_ERROR, request_error(exc)
                     if log:
-                        log.error("[自动订阅] %s 处理条目失败: %r", source_id, exc)
+                        log.error("[自动订阅] %s 处理条目失败: %s", source_id, detail)
                 src_stats[status] = src_stats.get(status, 0) + 1
                 # 逐条写运行日志，便于查「哪条被过滤/未识别/订阅了、原因是什么」。
                 if log:
@@ -446,9 +447,9 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
         except NextFindAuthError as exc:
             result.auth_error = str(exc)
         except Exception as exc:  # noqa: BLE001 - 整源抓取失败兜底
-            result.errors[source_id] = str(exc)
+            result.errors[source_id] = request_error(exc)
             if log:
-                log.error("[自动订阅] %s 抓取失败: %r", source_id, exc)
+                log.error("[自动订阅] %s 抓取失败: %s", source_id, result.errors[source_id])
         result.stats[source_id] = src_stats
         if result.auth_error:
             break  # 中止后续来源

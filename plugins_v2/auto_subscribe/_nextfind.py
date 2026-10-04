@@ -42,6 +42,16 @@ class NextFindServerError(NextFindError):
         super().__init__(f"NextFind 服务端接口异常（HTTP {self.status_code}）：{self.path}")
 
 
+class NextFindHTTPError(NextFindError):
+    """其他非成功 HTTP 响应；保留失败接口，不携带请求查询参数。"""
+
+    def __init__(self, status_code: int, path: str):
+        self.status_code = int(status_code)
+        self.path = str(path)
+        reason = "，接口不存在，请检查服务版本与 API 地址" if self.status_code == 404 else ""
+        super().__init__(f"NextFind 请求失败（HTTP {self.status_code}{reason}）：{self.path}")
+
+
 class NextFindClient:
     """NextFind OpenAPI 轻客户端（同步，直连不走代理）。"""
 
@@ -60,12 +70,13 @@ class NextFindClient:
 
     @staticmethod
     def _check(resp, path: str = "") -> None:
-        """把鉴权和服务端错误转换为短消息，避免日志输出整段 URL/堆栈。"""
+        """所有非成功响应都转换为短消息，不能把 HTTPX 帮助链接写进通知。"""
         if resp.status_code in (401, 403):
             raise NextFindAuthError(f"NextFind 鉴权失败（HTTP {resp.status_code}）：API 密钥无效或已过期")
         if 500 <= resp.status_code < 600:
             raise NextFindServerError(resp.status_code, path)
-        resp.raise_for_status()
+        if not 200 <= resp.status_code < 300:
+            raise NextFindHTTPError(resp.status_code, path)
 
     def _get(self, path: str, params: dict) -> dict:
         with self._client() as client:

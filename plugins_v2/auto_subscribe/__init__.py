@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.2',
+ 'version': '2.2.3',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -120,6 +120,9 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.3 修复请求错误通知与无效 RSS 识别\n'
+    '- HTTP 404 等失败保留状态与接口，移除英文帮助链接及地址中的凭据\n'
+    '- 豆瓣地址返回 HTML 或无效 RSS 时明确报错，不再当作正常空榜单\n\n'
     'v2.2.2 修复 Emby 缺集扫描分页重复\n'
     '- 使用创建时间优先排序、每页 1000 条，缩短全库读取窗口\n'
     '- 保留重复编号、总数变化和漏页校验；不把未完成扫描显示为缺 0 集\n\n'

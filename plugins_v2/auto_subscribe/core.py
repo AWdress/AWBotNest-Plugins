@@ -19,11 +19,12 @@ from datetime import datetime
 from typing import Optional
 
 from ._models import STATUS_LABELS
+from ._http_errors import one_line, request_error
 
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.2",
+    "version": "2.2.3",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -44,6 +45,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.3 修复请求错误通知与无效 RSS 识别\n"
+    "- HTTP 404 等失败保留状态与接口，移除英文帮助链接及地址中的凭据\n"
+    "- 豆瓣地址返回 HTML 或无效 RSS 时明确报错，不再当作正常空榜单\n\n"
     "v2.2.2 修复 Emby 缺集扫描分页重复\n"
     "- 使用创建时间优先排序、每页 1000 条，缩短全库读取窗口\n"
     "- 保留重复编号、总数变化和漏页校验；不把未完成扫描显示为缺 0 集\n\n"
@@ -111,7 +115,7 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
         parts = [f"{STATUS_LABELS.get(k, k)}{v}" for k, v in st.items() if v]
         lines.append(f"[{SOURCE_NAMES.get(src, src)}] " + ("，".join(parts) if parts else "无产出"))
     for src, err in getattr(result, "errors", {}).items():
-        lines.append(f"⚠️ {SOURCE_NAMES.get(src, src)} 抓取失败：{str(err)[:240]}")
+        lines.append(f"⚠️ {SOURCE_NAMES.get(src, src)} 抓取失败：{one_line(err)}")
 
     if missing_subs is not None:
         m_parts = []
@@ -304,13 +308,8 @@ def _media_key(item: dict) -> tuple[str, str]:
 def _request_error(exc: Exception) -> str:
     from ._nextfind import NextFindError
     if isinstance(exc, NextFindError):
-        return str(exc)
-    status = getattr(getattr(exc, "response", None), "status_code", None)
-    if status:
-        return f"NextFind 请求失败（HTTP {status}）"
-    if isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__:
-        return "NextFind 请求超时"
-    return f"NextFind 请求失败（{type(exc).__name__}）"
+        return one_line(exc)
+    return request_error(exc, "NextFind 请求")
 
 
 def _round_error(stats: dict, exc: Exception, operation: str, log=None) -> None:
@@ -572,13 +571,14 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
         try:
             result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log, cancel_event=cancel_event)
         except Exception as e:  # noqa: BLE001
-            ctx.log.error("[自动订阅] 运行异常：%s\n%s", e, traceback.format_exc())
+            message = request_error(e)
+            ctx.log.error("[自动订阅] 运行异常：%s", message)
             if cfg.get("notify", True):
                 await ctx.notify(
-                    {"状态": "运行异常", "详情": str(e)},
+                    {"状态": "运行异常", "详情": message},
                     level="error", category="自动订阅",
                 )
-            return f"运行异常：{e}"
+            return f"运行异常：{message}"
 
         await _state_set(ctx, "handled", result.handled)
         await _state_set(ctx, "netflix_cache", result.nf_cache)
@@ -847,7 +847,7 @@ async def setup(ctx):
             data = await asyncio.to_thread(lambda: _nf_client(cfg).list_subscriptions())
             return {"items": data}
         except Exception as e:  # noqa: BLE001
-            return {"items": [], "error": str(e)}
+            return {"items": [], "error": _request_error(e)}
 
     @ctx.on_api("/subscriptions/remove", methods=["POST"])
     async def _api_subscriptions_remove(req):
@@ -860,7 +860,7 @@ async def setup(ctx):
             ok, msg = await asyncio.to_thread(lambda: _nf_client(cfg).remove(tmdb_id, media_type))
             return {"ok": ok, "message": msg}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "message": str(e)}
+            return {"ok": False, "message": _request_error(e)}
 
     # ── 定时任务（cron 无效时仅告警，手动运行仍可用）──
     # 回调只负责投递后台任务并立即返回，避免平台 scheduler 对长流水线触发 TimeoutError。
