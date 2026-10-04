@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.0',
+ 'version': '2.2.1',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'lxml>=5.0'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -120,6 +120,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.1 修复奈飞榜单平台代理\n'
+    '- 富元数据页面与全部 TSV 榜单使用 ctx.http，继承平台代理，不回退直连\n'
+    '- 保留 HTTP 状态码、代理错误与超时原因，失败不再静默跳过或缓存空榜单\n'
+    '- 更新后重新抓取旧缓存；停用时取消进行中的榜单请求\n\n'
     'v2.2.0 本地缺集改由 Emby 与 TMDB 核对\n'
     '- 独立配置 Emby 地址、Emby API Key 与 TMDB 密钥，支持受控显示和保存\n'
     '- 按实际季集号核对已播集，合并多版本与多集文件，检测整季缺失\n'

@@ -13,6 +13,7 @@
 import asyncio
 import concurrent.futures
 import threading
+import time
 import traceback
 from datetime import datetime
 from typing import Optional
@@ -22,7 +23,7 @@ from ._models import STATUS_LABELS
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -41,6 +42,14 @@ __plugin__ = {
         "recovery_seconds": 60,
     },
 }
+
+__plugin__["changelog"] = (
+    "v2.2.1 修复奈飞榜单平台代理\n"
+    "- 富元数据页面与全部 TSV 榜单使用 ctx.http，继承平台代理，不回退直连\n"
+    "- 保留 HTTP 状态码、代理错误与超时原因，失败不再静默跳过或缓存空榜单\n"
+    "- 更新后重新抓取旧缓存；停用时取消进行中的榜单请求\n\n"
+    + __plugin__["changelog"]
+)
 
 # 配置默认值（vue 模式无 config_schema，默认值集中在此，供定时任务/后端读取；
 # 前端 Config.vue 也用同一套默认初始化表单）。
@@ -99,7 +108,7 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
         parts = [f"{STATUS_LABELS.get(k, k)}{v}" for k, v in st.items() if v]
         lines.append(f"[{SOURCE_NAMES.get(src, src)}] " + ("，".join(parts) if parts else "无产出"))
     for src, err in getattr(result, "errors", {}).items():
-        lines.append(f"⚠️ {SOURCE_NAMES.get(src, src)} 抓取失败：{str(err)[:80]}")
+        lines.append(f"⚠️ {SOURCE_NAMES.get(src, src)} 抓取失败：{str(err)[:240]}")
 
     if missing_subs is not None:
         m_parts = []
@@ -189,6 +198,54 @@ async def _state_set(ctx, key, value) -> None:
     # can exhaust the plugin's quota after subscriptions have succeeded.
     await ctx.storage.set(key, value)
     _state[key] = value
+
+
+class _PlatformHttpProxy:
+    """同步榜单在线程中调用 ctx.http，继承平台代理并支持取消。"""
+
+    def __init__(self, ctx, loop, cancel_event):
+        self._http = ctx.http
+        self._loop = loop
+        self._cancel_event = cancel_event
+
+    def get(self, url: str, **kwargs):
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is self._loop:
+            raise RuntimeError("同步榜单请求不能在平台事件循环中执行")
+        if not self._loop.is_running() or self._loop.is_closed():
+            raise RuntimeError("平台 HTTP 服务已停止")
+        if self._cancel_event.is_set():
+            raise RuntimeError("榜单请求已取消")
+
+        # HTTPX 的 timeout 限制每个网络阶段；同时限制整次等待，避免停用时遗留线程。
+        deadline = time.monotonic() + float(kwargs.get("timeout", 30)) + 5
+        request = self._http.get(url, **kwargs)
+        try:
+            future = asyncio.run_coroutine_threadsafe(request, self._loop)
+        except Exception:
+            request.close()
+            raise
+        try:
+            while True:
+                if self._cancel_event.is_set():
+                    raise RuntimeError("榜单请求已取消")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("平台 HTTP 请求超时")
+                try:
+                    return future.result(timeout=min(0.2, remaining))
+                except concurrent.futures.TimeoutError:
+                    # 服务本身也可能抛 TimeoutError，不能把已完成的异常误当轮询超时。
+                    if future.done():
+                        return future.result()
+                except concurrent.futures.CancelledError as exc:
+                    raise RuntimeError("榜单请求已取消") from exc
+        finally:
+            if not future.done():
+                future.cancel()
 
 
 class _PlatformAIProxy:
@@ -498,6 +555,9 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
             cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
         if cfg.get("ai_assist_recognition"):
             cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop())
+
+        if cfg.get("netflix_enabled"):
+            cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event)
 
         cfg["_cancel_event"] = cancel_event
         handled = _state_get("handled", {})

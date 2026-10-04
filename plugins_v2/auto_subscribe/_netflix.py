@@ -3,7 +3,7 @@
 #
 # 抓官方 Tudum Top10 公开 TSV（GET 无鉴权）。移植自原 MoviePilot 版，做了两处裁剪：
 #   1) 只做**全球榜**（most-popular / all-weeks-global），国家榜（94 国、约 30MB）延后；
-#   2) RequestUtils -> httpx（默认走平台代理，Netflix 境内直连不通）。
+#   2) RequestUtils -> ctx.http（通过同步桥接继承平台代理，不自行直连）。
 # 富元数据模式（rich_metadata）保留：抓 Tudum 榜单页内嵌 GraphQL，比 TSV 多带**年份**
 # （Netflix TSV 无年份，年份能大幅提升 NextFind /search 消歧命中率），仅全球英语两类有富页。
 #
@@ -98,6 +98,7 @@ _PUBLISH_LAG_DAYS = 9
 _PUBLISH_HOUR_UTC = 12
 _MIN_RECHECK_SECONDS = 12 * 3600
 _FALLBACK_TTL_SECONDS = 6 * 24 * 3600
+_CACHE_VERSION = 2
 
 
 @register
@@ -116,17 +117,21 @@ class NetflixRankProvider(RankProvider):
         if use_cache:
             key = self._cache_key(options)
             entry = cache.get(key)
-            if entry and now < entry.get("valid_until", 0):
+            if (isinstance(entry, dict) and entry.get("version") == _CACHE_VERSION
+                    and entry.get("items") and now < entry.get("valid_until", 0)):
                 for d in entry.get("items", []):
                     yield RankMediaItem.from_dict(d)
                 return
+            # 旧版可能把富页失败后的空榜单/部分榜单缓存为成功，更新后重新抓取一次。
+            cache.pop(key, None)
 
         items = self._collect(options)
 
-        if use_cache:
+        if use_cache and items:
             week = self._latest_week(items)
             key = self._cache_key(options)
             cache[key] = {
+                "version": _CACHE_VERSION,
                 "items": [it.to_dict() for it in items],
                 "week": week,
                 "valid_until": self._valid_until(week, now),
@@ -144,6 +149,7 @@ class NetflixRankProvider(RankProvider):
         seen: set = set()
         rich = bool(options.get("rich_metadata", False))
         items: List[RankMediaItem] = []
+        http = options.get("_http")
 
         # 全球榜。
         global_on = bool(options.get("global", True))
@@ -154,14 +160,14 @@ class NetflixRankProvider(RankProvider):
                 # 富模式：英语两类走富页（带年份），非英语两类回退 TSV。
                 for cat in [c for c in global_cats if c in _GLOBAL_ENGLISH_RICH]:
                     items.extend(self._fetch_rich_path(
-                        _GLOBAL_ENGLISH_RICH[cat], _GLOBAL_ENGLISH_RICH[cat], limit, seen))
+                        _GLOBAL_ENGLISH_RICH[cat], _GLOBAL_ENGLISH_RICH[cat], limit, seen, http=http))
                 non_english = [c for c in global_cats if c in _GLOBAL_NON_ENGLISH]
                 if non_english:
                     dataset = str(options.get("global_dataset") or DATASET_WEEKLY).strip()
-                    items.extend(self._fetch_global(dataset, non_english, limit, seen))
+                    items.extend(self._fetch_global(dataset, non_english, limit, seen, http=http))
             else:
                 dataset = str(options.get("global_dataset") or DATASET_WEEKLY).strip()
-                items.extend(self._fetch_global(dataset, global_cats, limit, seen))
+                items.extend(self._fetch_global(dataset, global_cats, limit, seen, http=http))
 
         # 国家榜（与全球榜互不冲突，可同时启用）。所选国家 × 所选类型（笛卡尔积）。
         countries = [c for c in self.as_list(options.get("countries")) if c in COUNTRIES]
@@ -169,15 +175,17 @@ class NetflixRankProvider(RankProvider):
                         if c in {x["value"] for x in COUNTRY_CATEGORIES}]
         if countries and country_cats:
             if rich:
-                items.extend(self._fetch_countries_rich(countries, country_cats, limit, seen))
+                items.extend(self._fetch_countries_rich(countries, country_cats, limit, seen, http=http))
             else:
-                items.extend(self._fetch_countries(countries, country_cats, limit, seen))
+                items.extend(self._fetch_countries(countries, country_cats, limit, seen, http=http))
+        if not items and (global_cats or (countries and country_cats)):
+            raise RuntimeError("所选奈飞榜单没有有效条目，请检查分类设置或返回数据")
         return items
 
     def _fetch_countries(self, countries: List[str], categories: List[str], limit: int,
-                         seen: set) -> Iterator[RankMediaItem]:
+                         seen: set, *, http) -> Iterator[RankMediaItem]:
         """国家榜(TSV)：取最新周，对每个「国家 × 类型」按 weekly_rank 升序取前 limit。"""
-        rows = self._latest_week_rows(self._load_tsv(ALL_WEEKS_COUNTRIES_URL))
+        rows = self._latest_week_rows(self._load_tsv(ALL_WEEKS_COUNTRIES_URL, http=http))
         for iso2 in countries:
             country_rows = [r for r in rows if r.get("country_iso2") == iso2]
             for category in categories:
@@ -186,7 +194,7 @@ class NetflixRankProvider(RankProvider):
                 yield from self._emit(cat_rows, category, seen)
 
     def _fetch_countries_rich(self, countries: List[str], categories: List[str], limit: int,
-                              seen: set) -> Iterator[RankMediaItem]:
+                              seen: set, *, http) -> Iterator[RankMediaItem]:
         """国家榜(富页)：/tudum/top10/{slug}/{films|tv}，带年份/干净剧名。"""
         for iso2 in countries:
             name = COUNTRIES.get(iso2)
@@ -195,12 +203,12 @@ class NetflixRankProvider(RankProvider):
             slug = self._country_slug(name)
             for category in categories:
                 suffix = "films" if category == "Films" else "tv"
-                yield from self._fetch_rich_path(f"{slug}/{suffix}", suffix, limit, seen)
+                yield from self._fetch_rich_path(f"{slug}/{suffix}", suffix, limit, seen, http=http)
 
     def _fetch_global(self, dataset: str, categories: List[str], limit: int,
-                      seen: set) -> Iterator[RankMediaItem]:
+                      seen: set, *, http) -> Iterator[RankMediaItem]:
         url = MOST_POPULAR_URL if dataset == DATASET_POPULAR else ALL_WEEKS_GLOBAL_URL
-        rows = self._load_tsv(url)
+        rows = self._load_tsv(url, http=http)
         if dataset != DATASET_POPULAR:
             rows = self._latest_week_rows(rows)
         for category in categories:
@@ -239,13 +247,10 @@ class NetflixRankProvider(RankProvider):
 
     # ---- 富元数据模式 ----
     def _fetch_rich_path(self, path: str, kind: str, limit: int,
-                         seen: set) -> Iterator[RankMediaItem]:
+                         seen: set, *, http) -> Iterator[RankMediaItem]:
         """抓一个富页（path 为 base 之后的相对路径，如 films / south-korea/tv），kind 定类型。"""
         url = f"{_TUDUM_TOP10_BASE}/{path}"
-        try:
-            entries = self._load_rich_page(url)
-        except Exception:  # noqa: BLE001 - 单页失败跳过
-            return
+        entries = self._load_rich_page(url, http=http)
         top = sorted(entries, key=lambda e: e.get("rank") or _RANK_FALLBACK)[:limit]
         for entry in top:
             try:
@@ -280,14 +285,34 @@ class NetflixRankProvider(RankProvider):
             unique_seed=f"{type_value}_{title_used}",
         )
 
-    def _load_rich_page(self, url: str) -> List[dict]:
-        with httpx.Client(timeout=_RICH_TIMEOUT, follow_redirects=True,
-                          headers={"User-Agent": _RICH_UA}) as client:
-            resp = client.get(url)
-            if resp.status_code != 200 or not resp.text:
-                raise RuntimeError(f"获取 {url} 失败或响应为空")
-            html = resp.text
-        return self._parse_rich_store(self._decode_graphql(html))
+    @staticmethod
+    def _get(http, url: str, *, timeout: int, **kwargs):
+        if http is None:
+            raise RuntimeError("未接入平台 HTTP 服务，无法抓取奈飞榜单")
+        try:
+            resp = http.get(url, timeout=timeout, **kwargs)
+        except (httpx.TimeoutException, TimeoutError) as exc:
+            raise RuntimeError(f"请求超时（{timeout} 秒）：{url}") from exc
+        except httpx.ProxyError as exc:
+            raise RuntimeError(f"平台代理连接失败（ProxyError）：{url}") from exc
+        except (httpx.RequestError, ValueError) as exc:
+            # 不输出底层异常文本，其中可能含代理用户名、密码或内网地址。
+            raise RuntimeError(f"网络请求失败（{type(exc).__name__}）：{url}") from exc
+        if resp.status_code != 200:
+            raise RuntimeError(f"HTTP {resp.status_code}：{url}")
+        if not resp.content or not resp.content.strip():
+            raise RuntimeError(f"响应为空（HTTP 200）：{url}")
+        return resp
+
+    def _load_rich_page(self, url: str, *, http) -> List[dict]:
+        resp = self._get(http, url, timeout=_RICH_TIMEOUT, headers={"User-Agent": _RICH_UA})
+        try:
+            entries = self._parse_rich_store(self._decode_graphql(resp.text))
+        except (RuntimeError, ValueError, TypeError, AttributeError) as exc:
+            raise RuntimeError(f"榜单页面数据解析失败：{url}") from exc
+        if not entries:
+            raise RuntimeError(f"榜单页面没有有效条目：{url}")
+        return entries
 
     @classmethod
     def _decode_graphql(cls, html: str) -> dict:
@@ -359,14 +384,17 @@ class NetflixRankProvider(RankProvider):
         return entries
 
     # ---- TSV / 缓存辅助 ----
-    def _load_tsv(self, url: str) -> List[dict]:
-        with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client:
-            resp = client.get(url)
-            if resp.status_code != 200 or not resp.content:
-                raise RuntimeError(f"获取 {url} 失败或响应为空")
-            # 强制按 UTF-8 从原始字节解码（Netflix TSV 头不带 charset，避免 Latin-1 误解码）。
-            text = resp.content.decode("utf-8", errors="replace")
-        return self._parse_tsv(text)
+    def _load_tsv(self, url: str, *, http) -> List[dict]:
+        resp = self._get(http, url, timeout=_REQUEST_TIMEOUT)
+        # 强制按 UTF-8 从原始字节解码（Netflix TSV 头不带 charset，避免 Latin-1 误解码）。
+        text = resp.content.decode("utf-8-sig", errors="replace")
+        header = set(text.partition("\n")[0].strip().split("\t"))
+        if not {"category", "show_title"}.issubset(header) or not {"rank", "weekly_rank"} & header:
+            raise RuntimeError(f"榜单 TSV 格式不正确：{url}")
+        rows = self._parse_tsv(text)
+        if not rows:
+            raise RuntimeError(f"榜单 TSV 没有有效条目：{url}")
+        return rows
 
     @staticmethod
     def _parse_tsv(text: str) -> List[dict]:

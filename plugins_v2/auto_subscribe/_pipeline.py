@@ -79,6 +79,7 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "rich_metadata": cfg.get("netflix_rich", False),
             "use_cache": True,
             "_cache": nf_cache,
+            "_http": cfg.get("_platform_http"),
         }))
     if cfg.get("maoyan_enabled"):
         out.append(("maoyan", {
