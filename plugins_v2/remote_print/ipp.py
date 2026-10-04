@@ -32,6 +32,8 @@ _EXPECTED_TAGS = {
     "printer-is-accepting-jobs": {0x22}, "operations-supported": {0x23},
     "copies-supported": {0x33, 0x21}, "job-id": {0x21}, "copies": {0x21},
     "document-format": {0x49},
+    "print-scaling-supported": {0x44}, "print-scaling-default": {0x44},
+    "print-scaling": {0x44},
 }
 
 
@@ -351,7 +353,8 @@ class IPPPrinter:
         url, initial_uri, timeout, override = self._settings()
         request_id = secrets.randbelow(0x7FFFFFFF) + 1
         requested = ["printer-name", "printer-uri-supported", "document-format-supported",
-                     "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported"]
+                     "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported",
+                     "print-scaling-supported", "print-scaling-default"]
         message = encode_request(GET_PRINTER_ATTRIBUTES, request_id,
                                  self._base_attributes(initial_uri) + [(0x44, "requested-attributes", requested)])
         result = await self._request(url, message, request_id, timeout)
@@ -381,6 +384,13 @@ class IPPPrinter:
             else:
                 raise ValueError("打印机份数能力无效")
         ranges = ranges or [(1, 1)]
+        scaling = attrs.get("print-scaling-supported", [])
+        scaling_default = _single(attrs, "print-scaling-default")
+        if (any(not isinstance(item, str) or not _NAME.fullmatch(item) for item in scaling)
+                or (scaling_default is not None and (not isinstance(scaling_default, str)
+                    or not _NAME.fullmatch(scaling_default)
+                    or (scaling and scaling_default not in scaling)))):
+            raise ValueError("打印机缩放能力无效")
         state = _single(attrs, "printer-state")
         accepting = _single(attrs, "printer-is-accepting-jobs", False)
         name = _single(attrs, "printer-name", "IPP 打印机")
@@ -390,7 +400,8 @@ class IPPPrinter:
         return {"name": name, "uri": uri, "transport_url": url, "timeout_seconds": timeout,
                 "formats": sorted(set(item.lower() for item in formats)), "state": state,
                 "accepting_jobs": accepting, "operations": sorted(set(operations)),
-                "copies_supported": ranges, "copies_max": max(upper for _, upper in ranges)}
+                "copies_supported": ranges, "copies_max": max(upper for _, upper in ranges),
+                "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default}
 
     @staticmethod
     def validate_document(format, copies, capabilities):
@@ -399,6 +410,11 @@ class IPPPrinter:
             if mime == "application/pdf":
                 raise ValueError("打印机不支持原生 PDF，请先导出为 JPG；不会静默丢失 PDF 页面")
             raise ValueError("打印机不支持 JPEG 图片打印，请发送其支持的 PDF")
+        if mime == "image/jpeg":
+            scaling = capabilities.get("print_scaling_supported", [])
+            if (not isinstance(scaling, list) or any(not isinstance(item, str) for item in scaling)
+                    or "fit" not in scaling):
+                raise ValueError("打印机未声明支持完整等比缩放（fit），无法保证图片不裁切；请发送 PDF")
         if PRINT_JOB not in capabilities.get("operations", []):
             raise ValueError("打印机未声明支持 IPP Print-Job")
         if capabilities.get("accepting_jobs") is not True or capabilities.get("state") not in (3, 4):
@@ -536,7 +552,12 @@ class IPPPrinter:
             (0x22, "ipp-attribute-fidelity", True),
             (0x49, "document-format", mime),
         ]
-        message = encode_request(PRINT_JOB, request_id, attributes, [(0x21, "copies", copies)])
+        job_attributes = [(0x21, "copies", copies)]
+        if mime == "image/jpeg":
+            # IPP fit preserves the whole image and its aspect ratio within the
+            # printable area; a device default such as auto/fill may crop it.
+            job_attributes.append((0x44, "print-scaling", "fit"))
+        message = encode_request(PRINT_JOB, request_id, attributes, job_attributes)
         result = await self._request(url, message + document, request_id, timeout, submitting=True)
         status = result["status"]
         if 0x0400 <= status <= 0x05FF:
@@ -546,7 +567,8 @@ class IPPPrinter:
         try:
             job_attrs = _attributes(result, 0x02)
             if (_attributes(result, 0x05) or _single(job_attrs, "copies", copies) != copies
-                    or _single(job_attrs, "document-format", mime) != mime):
+                    or _single(job_attrs, "document-format", mime) != mime
+                    or (mime == "image/jpeg" and _single(job_attrs, "print-scaling", "fit") != "fit")):
                 raise ValueError
             spool_id = _single(job_attrs, "job-id")
             if type(spool_id) is not int or not 1 <= spool_id <= 0x7FFFFFFF:

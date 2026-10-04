@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlencode, urlsplit
+from urllib.parse import unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from defusedxml.ElementTree import fromstring
@@ -25,6 +25,28 @@ _MESSAGE_FIELDS = {
     "MsgType", "FromUserName", "ToUserName", "AgentID", "MsgId",
     "MediaId", "FileName", "Content", "CreateTime",
 }
+
+
+def normalize_api_base(value: Any = None) -> str:
+    """Validate the platform-owned API relay root; never accept caller URLs."""
+    base = str(value or "https://qyapi.weixin.qq.com").strip().rstrip("/")
+    if (not base or len(base) > 2048 or any(character in base for character in "\\?#")
+            or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in base)):
+        raise ValueError("平台企业微信代理地址无效")
+    if base.startswith("//"):
+        base = "https:" + base
+    elif "://" not in base:
+        base = "https://" + base
+    try:
+        parsed = urlsplit(base)
+        if (parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment or parsed.port == 0):
+            raise ValueError
+        # Accessing port above also rejects malformed or out-of-range ports.
+        return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path.rstrip("/"), "", ""))
+    except ValueError:
+        raise ValueError("平台企业微信代理地址无效") from None
 
 
 def _xml(body: bytes):
@@ -67,14 +89,22 @@ def _filename(headers: Mapping[str, str]) -> str:
     return "media" + suffix if suffix else ""
 
 
-def _safe_media_redirect(url: str) -> bool:
+def _safe_media_redirect(url: str, api_base: str | None = None) -> bool:
     try:
         parsed = urlsplit(url)
         host = (parsed.hostname or "").lower()
-        return (
+        official = (
             parsed.scheme == "https" and not parsed.username and not parsed.password
             and parsed.port in {None, 443}
             and (host == "qyapi.weixin.qq.com" or host == "wework.qpic.cn")
+        )
+        if official:
+            return True
+        if api_base is None or parsed.username is not None or parsed.password is not None or parsed.fragment:
+            return False
+        configured = urlsplit(normalize_api_base(api_base) + "/cgi-bin/media/get")
+        return (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path) == (
+            configured.scheme.lower(), configured.netloc.lower(), configured.path,
         )
     except ValueError:
         return False
@@ -89,13 +119,13 @@ class WeCom:
         self._token_lock = asyncio.Lock()
         self._access_token = ""
         self._token_until = 0.0
-        self._token_credentials: tuple[str, str] | None = None
+        self._token_credentials: tuple[str, str, str] | None = None
 
     def _config(self) -> Mapping[str, Any]:
         config = self.config_getter()
         if not isinstance(config, Mapping):
             raise ValueError("企业微信配置无效")
-        return config
+        return dict(config)
 
     @staticmethod
     def _setting(config: Mapping[str, Any], key: str) -> str:
@@ -190,10 +220,11 @@ class WeCom:
             result[child.tag] = child.text or ""
         return result
 
-    async def _request(self, method: str, endpoint: str, **kwargs: Any) -> Any:
+    async def _request(self, method: str, endpoint: str, *, api_base: str | None = None, **kwargs: Any) -> Any:
+        base = normalize_api_base(api_base if api_base is not None else self._config().get("wecom_api_base"))
         try:
             response = await self.ctx.http.request(
-                method, _API + endpoint, timeout=30, follow_redirects=False, **kwargs,
+                method, base + "/cgi-bin/" + endpoint, timeout=30, follow_redirects=False, **kwargs,
             )
         except asyncio.CancelledError:
             raise
@@ -217,15 +248,16 @@ class WeCom:
         except (TypeError, ValueError, OverflowError):
             raise ValueError("企业微信接口响应无效") from None
 
-    async def _token(self) -> str:
-        config = self._config()
+    async def _token(self, config: Mapping[str, Any] | None = None) -> str:
+        config = self._config() if config is None else config
         credentials = (
             self._setting(config, "wecom_corp_id"), self._setting(config, "wecom_secret"),
+            normalize_api_base(config.get("wecom_api_base")),
         )
         async with self._token_lock:
             if credentials == self._token_credentials and self._access_token and time.monotonic() < self._token_until:
                 return self._access_token
-            result = await self._request("GET", "gettoken", params={
+            result = await self._request("GET", "gettoken", api_base=credentials[2], params={
                 "corpid": credentials[0], "corpsecret": credentials[1],
             })
             access_token = result.get("access_token")
@@ -247,7 +279,7 @@ class WeCom:
             if hmac.compare_digest(self._access_token, access_token):
                 self._token_until = 0.0
 
-    async def _media_headers(self, url: str, max_bytes: int) -> Mapping[str, str]:
+    async def _media_headers(self, url: str, max_bytes: int, *, api_base: str | None = None) -> Mapping[str, str]:
         """HEAD is optional metadata; never fetch a complete media body here."""
         try:
             response = await self.ctx.http.request("HEAD", url, timeout=30, follow_redirects=False)
@@ -256,7 +288,8 @@ class WeCom:
         except Exception:
             return {}
         if response.status_code in {301, 302, 303, 307, 308}:
-            if not _safe_media_redirect(str(response.headers.get("location", ""))):
+            location = str(response.headers.get("location", ""))
+            if not location or not _safe_media_redirect(urljoin(url, location), api_base):
                 raise ValueError("企业微信媒体跳转地址无效")
             return {}
         if not 200 <= response.status_code < 300:
@@ -271,10 +304,10 @@ class WeCom:
         return response.headers
 
     async def download(self, media_id: str, path: str | Path, max_bytes: int) -> str:
-        """Download a fixed official API resource; return sanitized filename metadata.
+        """Download the selected platform API resource; return safe filename metadata.
 
         The platform's download facade bounds streaming bytes and handles its proxy.
-        It follows redirects internally. Only the trusted official media/get endpoint
+        It follows redirects internally. Only the trusted platform media/get endpoint
         receives a validated opaque ID; callers cannot supply a download URL.
         """
         if not isinstance(media_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", media_id):
@@ -282,10 +315,12 @@ class WeCom:
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 0 < max_bytes <= 25 * 1024 * 1024:
             raise ValueError("企业微信媒体大小限制无效")
         target = Path(path)
+        config = self._config()
+        api_base = normalize_api_base(config.get("wecom_api_base"))
         for attempt in range(2):
-            access_token = await self._token()
-            url = _API + "media/get?" + urlencode({"access_token": access_token, "media_id": media_id})
-            headers = await self._media_headers(url, max_bytes)
+            access_token = await self._token(config)
+            url = api_base + "/cgi-bin/media/get?" + urlencode({"access_token": access_token, "media_id": media_id})
+            headers = await self._media_headers(url, max_bytes, api_base=api_base)
             try:
                 await self.ctx.http.download(url, target, max_bytes=max_bytes)
                 if not target.is_file() or target.stat().st_size == 0 or target.stat().st_size > max_bytes:
@@ -326,9 +361,11 @@ class WeCom:
         content = str(text).encode("utf-8")[:2048].decode("utf-8", errors="ignore")
         if not content:
             return
+        api_base = normalize_api_base(config.get("wecom_api_base"))
         for attempt in range(2):
-            access_token = await self._token()
-            result = await self._request("POST", "message/send", params={"access_token": access_token}, json={
+            access_token = await self._token(config)
+            result = await self._request("POST", "message/send", api_base=api_base,
+                                         params={"access_token": access_token}, json={
                 "touser": user, "msgtype": "text", "agentid": agent_id,
                 "text": {"content": content}, "safe": 0,
             })

@@ -135,7 +135,7 @@ class PrintQueue:
             raise ValueError("没有找到你的打印任务")
         return job
 
-    async def reserve(self, source_key, owner, filename, source, allocation):
+    async def reserve(self, source_key, owner, filename, source, allocation, *, source_channel=""):
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
@@ -155,7 +155,7 @@ class PrintQueue:
             if total + allocation > cfg["max_storage_mb"] * 1024 * 1024:
                 raise ValueError("文件存储空间达到上限，请清理已结束任务")
             job_id = secrets.token_hex(8)
-            snapshot["jobs"][job_id] = {"id": job_id, "owner": owner, "source": source,
+            snapshot["jobs"][job_id] = {"id": job_id, "owner": owner, "source": source, "source_channel": str(source_channel),
                 "filename": filename, "status": "receiving", "created": now, "updated": now,
                 "copies": min(cfg["default_copies"], cfg["max_copies"]), "printer": "IPP" if cfg.get("print_mode") == "ipp" else cfg["printer_name"],
                 "device_id": cfg["device_id"], "size": allocation, "file_present": True,

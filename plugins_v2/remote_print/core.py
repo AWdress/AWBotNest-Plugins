@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
+import hashlib
 import hmac
 import re
 import secrets
@@ -12,6 +14,7 @@ from urllib.parse import urlsplit
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from . import __plugin__
+from .channels import PlatformChannels
 from .files import inspect_file, safe_name
 from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
@@ -22,21 +25,33 @@ def members(value):
     return set(re.split(r"[\s,，;；]+", str(value or "").strip())) - {""}
 
 
+OBSOLETE_CHANNEL_FIELDS = {
+    "telegram_enabled", "wecom_enabled", "wecom_corp_id", "wecom_agent_id",
+    "wecom_secret", "wecom_token", "wecom_encoding_aes_key",
+}
+
+
 class RemotePrint:
     def __init__(self, ctx):
         self.ctx = ctx
         self.queue = PrintQueue(ctx, self.config)
-        self.wecom = WeCom(ctx, self.config)
+        self.channels = PlatformChannels(ctx)
+        self.callback_keys = {}
+        self.callback_lock = asyncio.Lock()
+        self.wecom = WeCom(ctx, self.wecom_config)
         self.ipp = IPPPrinter(ctx, self.config)
         self.ipp_status = {}
         self.dispatch_lock = asyncio.Lock()
         self.downloads = asyncio.Semaphore(2)
         self.receiving = 0
         self.stopped = False
+        self.telegram_binding = None
+        self.telegram_handlers = []
+        self.telegram_connection_issue = ""
 
     def config(self):
         cfg = {key: copy.deepcopy(field["default"]) for key, field in __plugin__["config_schema"].items() if "default" in field and field["type"] != "info"}
-        cfg.update(dict(self.ctx.config))
+        cfg.update({key: value for key, value in dict(self.ctx.config).items() if key in cfg})
         for key, limits in {"default_copies": (1, 5), "max_copies": (1, 5), "max_pages": (1, 50), "max_file_mb": (1, 25),
                             "max_queue": (1, 100), "max_storage_mb": (25, 1000), "retention_hours": (1, 168), "ipp_timeout_seconds": (5, 120)}.items():
             try:
@@ -44,7 +59,7 @@ class RemotePrint:
             except (ValueError, TypeError, OverflowError):
                 number = __plugin__["config_schema"][key]["default"]
             cfg[key] = max(limits[0], min(limits[1], number))
-        for key in ("enabled", "telegram_enabled", "wecom_enabled", "auto_print"):
+        for key in ("enabled", "auto_print"):
             cfg[key] = cfg[key] is True
         for key in ("device_id", "device_token", "printer_name", "public_base_url", "ipp_url", "ipp_printer_uri"):
             cfg[key] = str(cfg[key] or "").strip()
@@ -52,8 +67,78 @@ class RemotePrint:
             cfg["print_mode"] = "ipp"
         return cfg
 
+    def remove_obsolete_channel_config(self):
+        # Only this plugin's former channel fields are removed. Platform channel
+        # settings are never changed or copied into plugin configuration.
+        settings = getattr(self.ctx, "settings", None)
+        configs = getattr(settings, "plugin_config", None)
+        if not isinstance(configs, dict):
+            return
+        current = configs.get("remote_print", {})
+        if not isinstance(current, dict) or not OBSOLETE_CHANNEL_FIELDS.intersection(current):
+            return
+        configs["remote_print"] = {key: value for key, value in current.items() if key not in OBSOLETE_CHANNEL_FIELDS}
+        try:
+            self.ctx.update_config({})
+        except BaseException:
+            configs["remote_print"] = current
+            raise
+
+    @staticmethod
+    def wecom_identity(config):
+        return hashlib.sha256("\0".join(str(config.get(key) or "") for key in
+            ("wecom_channel_id", "wecom_corp_id", "wecom_agent_id")).encode("utf-8")).hexdigest()
+
+    def wecom_config(self):
+        config = self.channels.wecom_config()
+        if not config:
+            raise ValueError("请先在平台配置企业微信自建应用；群机器人不能接收文件")
+        supplied = (config.get("wecom_token"), config.get("wecom_encoding_aes_key"))
+        if any(supplied):
+            if not all(supplied):
+                raise ValueError("平台企业微信回调密钥不完整，请检查平台渠道配置")
+            return config
+        keys = self.callback_keys.get(self.wecom_identity(config))
+        if not isinstance(keys, dict):
+            raise ValueError("请先点击“查看企业微信接收配置”，生成回调密钥")
+        if (not re.fullmatch(r"[A-Za-z0-9]{32}", str(keys.get("token") or ""))
+                or not re.fullmatch(r"[A-Za-z0-9+/]{43}", str(keys.get("aes_key") or ""))):
+            raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
+        return {**config, "wecom_token": keys["token"], "wecom_encoding_aes_key": keys["aes_key"]}
+
+    async def show_wecom_setup(self, payload=None):
+        try:
+            async with self.callback_lock:
+                # A cancelled storage write may already have committed. Re-read
+                # before generation so a later action never replaces that pair.
+                stored = await self.ctx.storage.get("wecom_callback_keys_v1", {})
+                if not isinstance(stored, dict):
+                    raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
+                self.callback_keys = stored
+                config = self.channels.wecom_config()
+                if not config:
+                    raise ValueError("请先在平台配置企业微信自建应用；群机器人不能接收文件")
+                identity = self.wecom_identity(config)
+                if not (config.get("wecom_token") or config.get("wecom_encoding_aes_key")) and identity not in self.callback_keys:
+                    keys = {"token": secrets.token_hex(16), "aes_key": base64.b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")}
+                    snapshot = {**self.callback_keys, identity: keys}
+                    await self.ctx.storage.set("wecom_callback_keys_v1", snapshot)
+                    self.callback_keys = snapshot
+                config = self.wecom_config()
+                return {"ok": True, "message": (
+                    f"平台企业微信应用：{config.get('wecom_channel_name') or config['wecom_channel_id']}\n"
+                    + self.urls() + "\n\n请将以下两项复制到企业微信后台的“接收消息”配置；重载插件不会更换密钥。"
+                    + f"\nToken：{config['wecom_token']}\nEncodingAESKey：{config['wecom_encoding_aes_key']}"
+                    + "\n不要分享这些密钥。插件不会修改平台的企业微信配置。")}
+        except ValueError as exc:
+            return {"ok": False, "message": str(exc)}
+
     async def setup(self):
+        self.remove_obsolete_channel_config()
         await self.queue.open()
+        self.callback_keys = await self.ctx.storage.get("wecom_callback_keys_v1", {})
+        if not isinstance(self.callback_keys, dict):
+            raise ValueError("企业微信回调密钥记录损坏，请先备份并检查插件数据")
         self.ctx.on_webhook("wecom", self.wecom_callback)
         self.ctx.on_webhook("agent", self.agent)
         self.ctx.on_webhook("agent_file", self.agent_file)
@@ -64,15 +149,86 @@ class RemotePrint:
         self.ctx.action("cleanup_files", self.cleanup_files)
         self.ctx.action("archive_unknown", self.archive_unknown)
         self.ctx.action("test_ipp", self.test_ipp)
+        self.ctx.action("show_wecom_setup", self.show_wecom_setup)
         self.ctx.schedule_interval("print_cleanup", self.cleanup, seconds=60)
         if self.config()["print_mode"] == "ipp":
             self.ctx.schedule_interval("ipp_dispatch", self.dispatch, seconds=3)
-        if self.config()["telegram_enabled"]:
-            if self.ctx.bot is None:
-                self.ctx.log.warning("Telegram 打印未接入：请先连接平台 Bot；企业微信不受影响")
-            else:
-                self.ctx.on_message(incoming=True, outgoing=False)(self.telegram)
+        await self.refresh_telegram()
+        # Standalone plugins are not reloaded by the platform's Bot reconnect.
+        # Check the read-only selection and restore a managed handler ourselves.
+        self.ctx.schedule_interval("print_telegram_binding", self.refresh_telegram, seconds=10)
         self.ctx.log.info("远程打印已就绪，方式=%s", "IPP / FRP 直连" if self.config()["print_mode"] == "ipp" else "Windows 打印端")
+
+    def unbind_telegram(self):
+        self.telegram_binding = None
+        for entry in self.telegram_handlers:
+            client, callback, builder = entry
+            try:
+                client.remove_event_handler(callback, builder)
+            except Exception:
+                # The inactive binding also gates this handler. Keep the SDK's
+                # record so normal context teardown can retry its removal.
+                continue
+            handlers = getattr(self.ctx, "_handlers", None)
+            if isinstance(handlers, list):
+                handlers[:] = [item for item in handlers if item is not entry]
+        self.telegram_handlers = []
+
+    async def refresh_telegram(self):
+        if self.stopped:
+            return
+        try:
+            selected = self.channels.telegram_bot_id()
+            client = self.ctx.get_bot(selected)
+            if client is None:
+                raise ValueError("平台选定的 Telegram Bot 当前不可用")
+        except ValueError as exc:
+            self.unbind_telegram()
+            issue = str(exc)
+            if issue != self.telegram_connection_issue and members(self.config()["telegram_users"]):
+                self.ctx.log.warning("Telegram 打印未接入：%s；恢复后自动接入，其他打印渠道不受影响", issue)
+            self.telegram_connection_issue = issue
+            return
+        if self.telegram_binding and self.telegram_binding[:2] == (selected, client):
+            return
+        self.unbind_telegram()
+        binding = (selected, client, object())
+
+        async def receive(event):
+            if self.stopped or self.telegram_binding is not binding:
+                return
+            try:
+                # Route changes must reject old-client events even before the
+                # next interval runs. Never substitute an unrelated online Bot.
+                if (self.channels.telegram_bot_id() != selected or self.ctx.get_bot(selected) is not client
+                        or event.client is not client):
+                    return
+            except ValueError:
+                return
+            await self.telegram(event)
+
+        original_scope = getattr(self.ctx, "scope", "standalone")
+        handlers = getattr(self.ctx, "_handlers", [])
+        previous = {id(item) for item in handlers}
+        self.ctx.bot_id = selected
+        self.ctx.scope = "bot"
+        try:
+            self.ctx.on_message(incoming=True, outgoing=False)(receive)
+            self.telegram_binding = binding
+        except Exception as exc:
+            issue = "处理器注册失败（" + type(exc).__name__ + "）"
+            if issue != self.telegram_connection_issue and members(self.config()["telegram_users"]):
+                self.ctx.log.warning("Telegram 打印未接入：%s；稍后自动重试", issue)
+            self.telegram_connection_issue = issue
+        finally:
+            self.ctx.scope = original_scope
+            self.telegram_handlers = [item for item in getattr(self.ctx, "_handlers", []) if id(item) not in previous]
+        if self.telegram_binding is None:
+            self.unbind_telegram()
+        else:
+            if self.telegram_connection_issue and members(self.config()["telegram_users"]):
+                self.ctx.log.info("Telegram 打印已重新接入平台 Bot")
+            self.telegram_connection_issue = ""
 
     def spawn(self, coroutine, name):
         if self.stopped:
@@ -84,16 +240,21 @@ class RemotePrint:
             coroutine.close()
             raise
 
-    async def notify(self, source, owner, text):
+    async def notify(self, source, owner, text, source_channel=""):
         if self.stopped:
             return
         try:
             if source == "telegram":
-                if self.ctx.bot is None:
+                bot = self.ctx.get_bot(source_channel) if source_channel else self.ctx.bot
+                if bot is None:
                     raise ValueError("Bot 未连接")
-                await self.ctx.bot.send_message(int(owner.split(":", 1)[1]), text, parse_mode=None)
+                await bot.send_message(int(owner.split(":", 1)[1]), text, parse_mode=None)
             elif source == "wecom":
-                await self.wecom.send(owner.split(":", 1)[1], text)
+                config = self.wecom_config()
+                identity = self.wecom_identity(config)
+                if source_channel != identity or not owner.startswith("wecom:" + identity + ":"):
+                    raise ValueError("企业微信应用已更换，未将旧任务回执发送到其他应用")
+                await self.wecom.send(owner.rsplit(":", 1)[1], text)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -103,11 +264,11 @@ class RemotePrint:
         text = f"打印任务 {job['id']}\n{job['filename']}\n状态：{LABELS[job['status']]}"
         if job.get("message"):
             text += "\n" + job["message"]
-        await self.notify(job["source"], job["owner"], text)
+        await self.notify(job["source"], job["owner"], text, job.get("source_channel", ""))
 
     async def telegram(self, event):
         cfg = self.config()
-        if not cfg["enabled"] or not cfg["telegram_enabled"] or not event.is_private:
+        if not cfg["enabled"] or not event.is_private:
             return
         sender = str(event.sender_id)
         if sender not in members(cfg["telegram_users"]) or not sender.isdecimal():
@@ -126,7 +287,9 @@ class RemotePrint:
                 await event.reply("文件为空或超过大小上限。", parse_mode=None)
                 return
             try:
-                job = await self.queue.reserve(f"telegram:{event.chat_id}:{message.id}", owner, name, "telegram", size)
+                bot_id = str(getattr(self.ctx, "bot_id", "") or "")
+                job = await self.queue.reserve(f"telegram:{bot_id}:{event.chat_id}:{message.id}", owner, name, "telegram", size,
+                                               source_channel=bot_id)
                 if job is None:
                     return
                 self.receiving += 1
@@ -210,6 +373,8 @@ class RemotePrint:
 
     async def receive_wecom(self, job, media_id):
         async def download(path, maximum):
+            if job.get("source_channel") != self.wecom_identity(self.wecom_config()):
+                raise ValueError("企业微信应用已更换，请在当前应用重新发送文件")
             suggested = await self.wecom.download(media_id, path, maximum)
             return suggested or job["filename"]
         await self.receive(job, download)
@@ -227,7 +392,7 @@ class RemotePrint:
             text = f"收到：{job['filename']}\n任务：{job['id']}\n{job['pages']} 页，{job['copies']} 份\n状态：{LABELS[job['status']]}"
             if job["status"] == "pending":
                 text += f"\n发送“打印 {job['id']}”确认；也可“取消 {job['id']}”。"
-            await self.notify(job["source"], job["owner"], text)
+            await self.notify(job["source"], job["owner"], text, job.get("source_channel", ""))
             self.ctx.log.info("打印文件已收取：任务 %s，%s 页，状态=%s", job["id"], job["pages"], LABELS[job["status"]])
         except asyncio.CancelledError:
             raise
@@ -237,7 +402,7 @@ class RemotePrint:
                 await self.queue.fail_receive(job["id"], reason)
             except Exception:
                 self.ctx.log.error("打印任务保存失败，请重载插件后检查队列")
-            await self.notify(job["source"], job["owner"], f"任务 {job['id']} 未进入打印队列：{reason}")
+            await self.notify(job["source"], job["owner"], f"任务 {job['id']} 未进入打印队列：{reason}", job.get("source_channel", ""))
             self.ctx.log.warning("打印文件未入队：任务 %s（%s）", job["id"], type(exc).__name__)
         finally:
             self.receiving -= 1
@@ -246,7 +411,9 @@ class RemotePrint:
 
     async def wecom_callback(self, request):
         cfg = self.config()
-        if not cfg["wecom_enabled"]:
+        try:
+            channel = self.wecom_config()
+        except ValueError:
             return PlainTextResponse("disabled", status_code=503)
         try:
             decrypted = await self.wecom.verify(request)
@@ -255,20 +422,22 @@ class RemotePrint:
             if not cfg["enabled"]:
                 return PlainTextResponse("disabled", status_code=503)
             message = self.wecom.parse(decrypted)
-            if message.get("ToUserName") != cfg["wecom_corp_id"] or message.get("AgentID") != str(cfg["wecom_agent_id"]):
+            if message.get("ToUserName") != channel["wecom_corp_id"] or message.get("AgentID") != str(channel["wecom_agent_id"]):
                 return PlainTextResponse("forbidden", status_code=403)
             user = message.get("FromUserName", "")
             if not user or user not in members(cfg["wecom_users"]) or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", user) or user.lower() == "@all":
                 return PlainTextResponse("success")
-            owner = "wecom:" + user
+            identity = self.wecom_identity(channel)
+            owner = "wecom:" + identity + ":" + user
             if message.get("MsgType") in {"file", "image"}:
                 if self.receiving >= 4:
                     return PlainTextResponse("busy", status_code=429)
                 media = message.get("MediaId", "")
                 if not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", media):
                     raise ValueError("企业微信媒体 ID 无效")
-                source_key = f"wecom:{user}:{message.get('MsgId') or media}"
-                job = await self.queue.reserve(source_key, owner, safe_name(message.get("FileName") or "image"), "wecom", cfg["max_file_mb"] * 1024 * 1024)
+                source_key = f"wecom:{identity}:{user}:{message.get('MsgId') or media}"
+                job = await self.queue.reserve(source_key, owner, safe_name(message.get("FileName") or "image"), "wecom", cfg["max_file_mb"] * 1024 * 1024,
+                                               source_channel=identity)
                 if job is not None:
                     self.receiving += 1
                     try:
@@ -289,7 +458,7 @@ class RemotePrint:
             return PlainTextResponse("unavailable", status_code=503)
 
     async def wecom_command(self, owner, content):
-        await self.notify("wecom", owner, await self.command(owner, content))
+        await self.notify("wecom", owner, await self.command(owner, content), owner.split(":", 2)[1])
 
     def authorized_agent(self, request):
         cfg = self.config()
@@ -352,7 +521,9 @@ class RemotePrint:
         states = {3: "空闲", 4: "正在处理", 5: "已停止"}
         return (f"IPP 打印机：{caps.get('name') or '未提供名称'}\n状态：{states.get(caps.get('state'), '未知')}"
                 + f"\n接受任务：{'是' if caps.get('accepting_jobs') else '否'}"
-                + "\n支持格式：" + "、".join(caps.get("formats", [])))
+                + "\n支持格式：" + "、".join(caps.get("formats", []))
+                + ("\n图片排版：完整等比缩放，不裁切" if "fit" in caps.get("print_scaling_supported", [])
+                   else "\n图片排版：设备未声明完整缩放能力，图片任务不会提交"))
 
     async def refresh_ipp(self):
         caps = await self.ipp.probe()
@@ -423,8 +594,8 @@ class RemotePrint:
 
     def urls(self):
         base = self.config()["public_base_url"].rstrip("/")
-        if not base and self.config()["print_mode"] == "ipp" and not self.config()["wecom_enabled"]:
-            return "Telegram / IPP 模式无需平台外网回调地址；使用企业微信时请设置平台外网 HTTPS 地址。"
+        if not base and self.config()["print_mode"] == "ipp":
+            return "Telegram / IPP 模式无需平台外网回调地址；企业微信接收文件需填写平台外网 HTTPS 地址。"
         parsed = urlsplit(base)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
             return "请先设置正确的平台外网 HTTPS 地址。"
