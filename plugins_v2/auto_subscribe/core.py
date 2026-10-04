@@ -24,7 +24,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.3",
+    "version": "2.2.4",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -45,6 +45,11 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.4 修复蜜柑解析与订阅流程\n"
+    "- 蜜柑使用内置解析器，不再依赖 lxml；全部榜单与 Bangumi 继承平台代理\n"
+    "- 严格校验搜索、额度、媒体类型和布尔标记，鉴权失败中止本轮\n"
+    "- 请求失败不当作空榜单；运行中保护历史记录，停用时可取消 AI 请求\n"
+    "- 配置读取失败禁止覆盖保存，缺集扫描未完成时明确提示\n\n"
     "v2.2.3 修复请求错误通知与无效 RSS 识别\n"
     "- HTTP 404 等失败保留状态与接口，移除英文帮助链接及地址中的凭据\n"
     "- 豆瓣地址返回 HTML 或无效 RSS 时明确报错，不再当作正常空榜单\n\n"
@@ -261,9 +266,10 @@ class _PlatformHttpProxy:
 class _PlatformAIProxy:
     """让同步榜单流水线安全调用平台异步 AI。"""
 
-    def __init__(self, ctx, loop):
+    def __init__(self, ctx, loop, cancel_event=None):
         self._ai = ctx.ai
         self._loop = loop
+        self._cancel_event = cancel_event if cancel_event is not None else threading.Event()
 
     def is_available(self, capability: str = "text") -> bool:
         checker = getattr(self._ai, "is_available", None)
@@ -272,14 +278,41 @@ class _PlatformAIProxy:
         return bool(getattr(self._ai, "available", False))
 
     def chat(self, prompt: str, **kwargs) -> str:
-        future = asyncio.run_coroutine_threadsafe(
-            self._ai.chat(prompt=prompt, **kwargs),
-            self._loop,
-        )
         try:
-            return str(future.result())
-        except concurrent.futures.CancelledError as exc:
-            raise RuntimeError("平台 AI 请求已取消") from exc
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+        if running_loop is self._loop:
+            raise RuntimeError("同步 AI 请求不能在平台事件循环中执行")
+        if not self._loop.is_running() or self._loop.is_closed():
+            raise RuntimeError("平台 AI 服务已停止")
+        if self._cancel_event.is_set():
+            raise RuntimeError("AI 请求已取消")
+        # 平台文本 AI 最大网络超时为 300 秒；额外覆盖排队及桥接等待。
+        deadline = time.monotonic() + 330
+        request = self._ai.chat(prompt=prompt, **kwargs)
+        try:
+            future = asyncio.run_coroutine_threadsafe(request, self._loop)
+        except Exception:
+            request.close()
+            raise
+        try:
+            while True:
+                if self._cancel_event.is_set():
+                    raise RuntimeError("AI 请求已取消")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("平台 AI 请求超时")
+                try:
+                    return str(future.result(timeout=min(0.2, remaining)))
+                except concurrent.futures.TimeoutError:
+                    if future.done():
+                        return str(future.result())
+                except concurrent.futures.CancelledError as exc:
+                    raise RuntimeError("平台 AI 请求已取消") from exc
+        finally:
+            if not future.done():
+                future.cancel()
 
 
 def _tmdb_id(item: dict) -> str:
@@ -559,9 +592,9 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
         if cfg.get("maoyan_enabled"):
             cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
         if cfg.get("ai_assist_recognition"):
-            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop())
+            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event)
 
-        if cfg.get("netflix_enabled"):
+        if any(cfg.get(k) for k in _ENABLE_KEYS):
             cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event)
 
         cfg["_cancel_event"] = cancel_event
@@ -828,15 +861,22 @@ async def setup(ctx):
     @ctx.on_api("/history/delete", methods=["POST"])
     async def _api_history_delete(req):
         data = req.json or {}
-        if data.get("clear"):
-            await _state_set(ctx, "handled", {})
-            return {"ok": True, "cleared": True}
-        handled = _state_get("handled", {})
-        key = data.get("key")
-        if key in handled:
-            handled.pop(key)
-            await _state_set(ctx, "handled", handled)
-        return {"ok": True}
+        if not isinstance(data, dict):
+            return {"ok": False, "message": "请求数据必须是对象"}
+        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+            return {"ok": False, "message": "订阅任务正在运行，请完成后再修改历史"}
+        async with _run_lock:
+            if _flag_true(data.get("clear")):
+                await _state_set(ctx, "handled", {})
+                return {"ok": True, "cleared": True}
+            key = data.get("key")
+            if not isinstance(key, str) or not key:
+                return {"ok": False, "message": "请提供要删除的历史记录"}
+            handled = dict(_state_get("handled", {}))
+            if key in handled:
+                handled.pop(key)
+                await _state_set(ctx, "handled", handled)
+            return {"ok": True}
 
     @ctx.on_api("/subscriptions", methods=["GET"])
     async def _api_subscriptions(req):
@@ -852,12 +892,20 @@ async def setup(ctx):
     @ctx.on_api("/subscriptions/remove", methods=["POST"])
     async def _api_subscriptions_remove(req):
         data = req.json or {}
+        if not isinstance(data, dict):
+            return {"ok": False, "message": "请求数据必须是对象"}
         cfg = _effective_cfg(ctx)
         tmdb_id, media_type = data.get("tmdb_id"), data.get("media_type")
-        if not tmdb_id or not media_type:
-            return {"ok": False, "message": "缺少 tmdb_id 或 media_type"}
+        identity = str(tmdb_id or "").strip()
         try:
-            ok, msg = await asyncio.to_thread(lambda: _nf_client(cfg).remove(tmdb_id, media_type))
+            valid_id = (not isinstance(tmdb_id, bool) and identity.isdecimal() and int(identity) > 0)
+        except ValueError:
+            valid_id = False
+        media_type = str(media_type or "").strip().lower()
+        if not valid_id or media_type not in ("movie", "tv"):
+            return {"ok": False, "message": "请提供有效的 TMDB ID 和媒体类型（movie/tv）"}
+        try:
+            ok, msg = await asyncio.to_thread(lambda: _nf_client(cfg).remove(identity, media_type))
             return {"ok": ok, "message": msg}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": _request_error(e)}

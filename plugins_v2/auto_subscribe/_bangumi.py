@@ -21,7 +21,7 @@ def _append_unique(output: list[str], value) -> None:
         output.append(text)
 
 
-def subject_titles(subject_id: int, timeout: int = 12) -> list[str]:
+def subject_titles(subject_id: int, timeout: int = 12, *, http=None) -> list[str]:
     """返回中文名、原名及 infobox 别名；失败安全返回空列表。"""
     try:
         subject_id = int(subject_id)
@@ -37,7 +37,8 @@ def subject_titles(subject_id: int, timeout: int = 12) -> list[str]:
 
     titles: list[str] = []
     try:
-        response = httpx.get(
+        getter = http.get if http is not None else httpx.get
+        response = getter(
             _API.format(subject_id=subject_id),
             headers={"User-Agent": _UA, "Accept": "application/json"},
             timeout=max(3, min(int(timeout or 12), 30)),
@@ -58,7 +59,7 @@ def subject_titles(subject_id: int, timeout: int = 12) -> list[str]:
                         _append_unique(titles, item.get("v") or item.get("value"))
                     else:
                         _append_unique(titles, item)
-    except (httpx.HTTPError, ValueError, TypeError):
+    except (httpx.HTTPError, ValueError, TypeError, RuntimeError, TimeoutError):
         titles = []
 
     with _lock:

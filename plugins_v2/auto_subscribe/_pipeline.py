@@ -24,7 +24,7 @@ from ._models import (
     STATUS_LABELS, STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
     TERMINAL_STATUSES, make_history_key,
 )
-from ._nextfind import NextFindAuthError, NextFindClient
+from ._nextfind import NextFindAuthError, NextFindClient, _true_flag
 from ._bangumi import subject_titles
 from ._http_errors import request_error
 
@@ -62,12 +62,14 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "ranks": cfg.get("douban_ranks"),
             "rsshub_base": cfg.get("douban_rsshub"),
             "rss_addrs": cfg.get("douban_rss_custom"),
+            "_http": cfg.get("_platform_http"),
         }))
     if cfg.get("mikan_enabled"):
         out.append(("mikan", {
             "year": cfg.get("mikan_year"),
             "season": cfg.get("mikan_season"),
             "resolve_bangumi_id": cfg.get("mikan_resolve_detail", True),
+            "_http": cfg.get("_platform_http"),
         }))
     if cfg.get("netflix_enabled"):
         out.append(("netflix", {
@@ -90,6 +92,7 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "num": cfg.get("maoyan_num", 10),
             # Cookie 由 __init__ 经 ctx.browser 预取后放进 cfg["maoyan_cookies"]。
             "cookies": cfg.get("maoyan_cookies"),
+            "_http": cfg.get("_platform_http"),
         }))
     return out
 
@@ -226,6 +229,8 @@ def _parse_ai_media(text: str) -> Optional[dict]:
         data = json.loads(raw)
     except (TypeError, ValueError):
         return None
+    if not isinstance(data, dict):
+        return None
     title = re.sub(r"\s+", " ", str(data.get("title") or "")).strip()
     media_type = str(data.get("media_type") or "").strip().lower()
     if not title or len(title) > 200 or media_type not in ("movie", "tv"):
@@ -272,17 +277,20 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
         if best and log:
             log.info("[自动订阅] AI 辅助识别 · %s → %s（%s）", item.title, query, parsed["media_type"])
         return best, query, season
+    except NextFindAuthError:
+        # AI 生成搜索词后的 NextFind 鉴权失败也必须中止整轮。
+        raise
     except Exception as exc:  # noqa: BLE001 - AI 是可选降级能力
         if log:
             log.warning("[自动订阅] AI 辅助识别失败，按未识别处理 · %s: %s", item.title, request_error(exc))
         return None, "", item.season
 
 
-def _bangumi_assisted_search(client: NextFindClient, item, log=None):
+def _bangumi_assisted_search(client: NextFindClient, item, log=None, http=None):
     """根据蜜柑提供的 Bangumi ID 搜索标准中日文名和别名。"""
     if not item.source_meta.get("mikan_id") or not item.bangumi_id:
         return None, "", item.season
-    titles = subject_titles(item.bangumi_id)
+    titles = subject_titles(item.bangumi_id, http=http)
     for title in titles:
         assisted = replace(item, title=title, type_hint="tv")
         best, query, season = _search_best(client, assisted)
@@ -294,14 +302,16 @@ def _bangumi_assisted_search(client: NextFindClient, item, log=None):
 
 
 def _pick_best(results: List[dict], item) -> Optional[dict]:
-    """从 /search 候选里挑最佳匹配：优先类型一致，再按年份就近。"""
+    """从 /search 候选里挑最佳匹配：类型明确时须一致，再按年份就近。"""
     if not results:
         return None
-    # 类型过滤：type_hint 明确时优先同类型候选，无同类型再放开。
+    # 不把同名电影当成剧集订阅，反之亦然。
     candidates = results
     if item.type_hint in ("movie", "tv"):
         typed = [r for r in results if str(r.get("raw_type") or "").lower() == item.type_hint]
-        candidates = typed or results
+        if not typed:
+            return None
+        candidates = typed
     want_year = _year_int(item.year)
     if want_year:
         exact = [r for r in candidates if _year_int(r.get("year")) == want_year]
@@ -335,7 +345,9 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
     best, matched_query, detected_season = _search_best(client, item)
     assisted_by = ""
     if not best:
-        best, matched_query, detected_season = _bangumi_assisted_search(client, item, log)
+        best, matched_query, detected_season = _bangumi_assisted_search(
+            client, item, log, http=cfg.get("_platform_http"),
+        )
         assisted_by = "Bangumi别名" if best else ""
     if not best:
         best, matched_query, detected_season = _ai_assisted_search(client, item, cfg, log)
@@ -374,10 +386,10 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
         return STATUS_ALREADY, title, f"已处理过（{STATUS_LABELS.get(prev.get('status'), prev.get('status'))}）"
 
     # 库/订阅判定（来自 /search，无需额外请求）。
-    if best.get("is_in_library"):
+    if _true_flag(best.get("is_in_library")):
         _record(handled, key, title, STATUS_IN_LIBRARY, item, tmdb_id)
         return STATUS_IN_LIBRARY, title, tag
-    if best.get("is_subscribed"):
+    if _true_flag(best.get("is_subscribed")):
         _record(handled, key, title, STATUS_SUBSCRIBED_EXISTS, item, tmdb_id)
         return STATUS_SUBSCRIBED_EXISTS, title, tag
 

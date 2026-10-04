@@ -21,6 +21,13 @@ _TYPE_PARAM = {"movie": "电影", "tv": "剧集"}
 VALID_MEDIA_TYPES = ("movie", "tv")
 
 
+def _true_flag(value) -> bool:
+    """API 布尔标志只接受明确的 true/1。"""
+    return value is True or value == 1 or (
+        isinstance(value, str) and value.strip().lower() in ("true", "1")
+    )
+
+
 class NextFindError(Exception):
     """NextFind 请求/响应异常。"""
 
@@ -99,19 +106,22 @@ class NextFindClient:
     @staticmethod
     def _true_flag(value) -> bool:
         """成功标志只接受明确的 true/1，不能把字符串 false 当作成功。"""
-        return value is True or value == 1 or (
-            isinstance(value, str) and value.strip().lower() in ("true", "1")
-        )
+        return _true_flag(value)
 
     @classmethod
-    def _list_data(cls, payload, path: str) -> List[dict]:
-        """查询失败或包装损坏必须报错；只有有效列表才能代表查询成功。"""
+    def _check_payload(cls, payload, path: str) -> None:
+        """成功 HTTP 状态不代表查询成功，还需检查数据包装。"""
         if not isinstance(payload, dict):
             raise NextFindResponseError(f"NextFind 响应格式异常：{path}（缺少数据包装）")
         if "status" in payload and str(payload["status"]).strip().lower() not in ("success", "ok"):
             raise NextFindResponseError(f"NextFind 响应表示失败：{path}（status）")
         if "success" in payload and not cls._true_flag(payload["success"]):
             raise NextFindResponseError(f"NextFind 响应表示失败：{path}（success）")
+
+    @classmethod
+    def _list_data(cls, payload, path: str) -> List[dict]:
+        """查询失败或包装损坏必须报错；只有有效列表才能代表查询成功。"""
+        cls._check_payload(payload, path)
         data = payload.get("data")
         if isinstance(data, dict):
             for key in ("items", "results", "subscriptions"):
@@ -151,8 +161,7 @@ class NextFindClient:
             return []
         type_param = _TYPE_PARAM.get(str(media_type or "").lower(), "全部")
         payload = self._get("/search", {"query": query, "type": type_param})
-        data = (payload or {}).get("data")
-        return data if isinstance(data, list) else []
+        return self._list_data(payload, "/search")
 
     def list_subscriptions(self) -> List[dict]:
         """活跃订阅列表（本插件主要靠 /search 的 is_subscribed 去重，此处备用）。"""
@@ -167,7 +176,11 @@ class NextFindClient:
     def quota(self) -> dict:
         """查询额度/积分（供「测试连接」动作）。"""
         payload = self._get("/quota", {})
-        return (payload or {}).get("data") or {}
+        self._check_payload(payload, "/quota")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise NextFindResponseError("NextFind 响应格式异常：/quota（缺少额度对象）")
+        return data
 
     # Extended NextFind OpenAPI helpers.  These remain thin wrappers so the V1
     # plugin can expose new server capabilities without duplicating HTTP logic.
@@ -235,8 +248,7 @@ class NextFindClient:
         """取消订阅（本次不接入 UI，保留供将来用）。"""
         body = {"tmdb_id": str(tmdb_id), "media_type": str(media_type).lower()}
         payload = self._post("/subscriptions/remove", body)
-        status = str((payload or {}).get("status") or "").lower()
-        return status == "success", str((payload or {}).get("message") or "")
+        return self._mutation_result(payload, "/subscriptions/remove")
 
     def fill_missing(self, tmdb_id, media_type: str, title: str = "") -> Tuple[bool, str]:
         """把存在缺集的订阅推入 NextFind 高优补缺队列。"""

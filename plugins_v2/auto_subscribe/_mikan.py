@@ -2,7 +2,7 @@
 # auto_subscribe 私有辅助：Mikan(蜜柑计划) 季度新番来源
 #
 # 抓蜜柑季度番剧列表页（div.sk-bangumi li），可选逐条抓详情补真实放送年。
-# 移植自原 MoviePilot 版：RequestUtils -> httpx（默认走平台代理），bs4 解析不变。
+# 出站继承平台代理；bs4 使用 Python 内置解析器，不依赖 lxml 的原生扩展。
 # 番剧统一 type_hint="tv"，落地时按标题 + 年份走 NextFind /search 识别。
 # =============================================================================
 
@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 
 from ._base import RankProvider, register
 from ._models import RankMediaItem
+from ._http_errors import request_error, safe_url
 
 # 蜜柑计划基址（主 + 备），逐个尝试。
 MIKAN_URLS = ["https://mikanani.me", "https://mikanime.tv"]
@@ -51,19 +52,29 @@ def _to_int(value) -> int:
 class MikanApi:
     """蜜柑计划轻客户端：季度列表 + 详情页 bgm id / 放送年 提取。"""
 
+    def __init__(self, http=None):
+        self._http = http
+
     def _get(self, path: str) -> Optional[Tuple[str, str]]:
-        """按主/备基址依次 GET，返回 (HTML, 命中的基址)；全部失败返回 None。"""
+        """主/备基址都失败时报告错误，不能冒充正常空榜单。"""
+        errors = []
         for base in MIKAN_URLS:
             url = f"{base}{path}"
             try:
-                with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True,
-                                  headers={"User-Agent": MIKAN_UA}) as client:
-                    resp = client.get(url)
-                    if resp.status_code == 200 and resp.text:
-                        return resp.text, base
-            except Exception:  # noqa: BLE001 - 单个基址失败则尝试备用
-                continue
-        return None
+                if self._http is not None:
+                    resp = self._http.get(url, timeout=_REQUEST_TIMEOUT, follow_redirects=True,
+                                          headers={"User-Agent": MIKAN_UA})
+                else:  # 独立只读工具可使用原生客户端；平台运行始终注入 ctx.http。
+                    with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True,
+                                      headers={"User-Agent": MIKAN_UA}) as client:
+                        resp = client.get(url)
+                resp.raise_for_status()
+                if resp.text:
+                    return resp.text, base
+                errors.append(f"蜜柑响应为空：{safe_url(url)}")
+            except Exception as exc:  # noqa: BLE001 - 单个基址失败则尝试备用
+                errors.append(request_error(exc, "蜜柑请求"))
+        raise RuntimeError("；".join(errors))
 
     def season(self, year, season_str: str) -> List[dict]:
         """GET 季度新番列表并解析，产出 [{mikan_id, title, cover, week}]。"""
@@ -86,7 +97,7 @@ class MikanApi:
 
     @staticmethod
     def _parse_season(html: str, base: str) -> List[dict]:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         results: List[dict] = []
         seen: set = set()
         for group in soup.select("div.sk-bangumi"):
@@ -116,7 +127,7 @@ class MikanApi:
 
     @classmethod
     def _parse_detail(cls, html: str) -> dict:
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "html.parser")
         nodes = soup.select("p.bangumi-info") or soup.select(".bangumi-info")
         more: dict = {}
         for node in nodes:
@@ -163,7 +174,7 @@ class MikanRankProvider(RankProvider):
         season_str = self._resolve_season(options.get("season"))
         resolve_bgm = bool(options.get("resolve_bangumi_id", True))
 
-        api = MikanApi()
+        api = MikanApi(http=options.get("_http"))
         entries = api.season(year, season_str)
         config_year = str(year)
         for entry in entries:

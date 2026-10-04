@@ -4,7 +4,7 @@
 # 移植自原 MoviePilot 版。Cookie 由 __init__ 用平台 ctx.browser（CloakBrowser/
 # Playwright）在事件循环里预取后经 options["cookies"] 注入（本 provider 跑在
 # asyncio.to_thread 里、不能直接 await 浏览器）。取不到 Cookie 时自动降级无 Cookie
-# 请求（多数榜仍可返回，个别受风控为空则当无结果跳过）。
+# 请求；请求失败或风控页面必须明确报错，不能当作正常空榜单。
 # 网络电影因数据源停更已移除。年份由 releaseInfo（距今天数）反推。
 # =============================================================================
 
@@ -19,6 +19,7 @@ import httpx
 
 from ._base import RankProvider, register
 from ._models import RankMediaItem
+from ._http_errors import request_error
 
 MAOYAN_URL = "https://piaofang.maoyan.com"
 
@@ -63,6 +64,7 @@ class MaoyanRankProvider(RankProvider):
         headers = {"User-Agent": random.choice(_USER_AGENTS)}
         # Cookie 由 __init__ 经 ctx.browser 预取后注入（dict {name: value}）；无则降级。
         self._cookies = options.get("cookies") or None
+        self._http = options.get("_http")
         seen: set = set()
 
         if bool(options.get("movie_box", True)):
@@ -79,7 +81,7 @@ class MaoyanRankProvider(RankProvider):
     def _fetch_movie_box(self, headers: dict, num: int, seen: set) -> Iterator[RankMediaItem]:
         """电影票房榜：/dashboard-ajax/movie。"""
         payload = self._request_json(f"{MAOYAN_URL}/dashboard-ajax/movie", headers)
-        data = ((payload or {}).get("movieList") or {}).get("list") or []
+        data = self._ranking_list(payload, "movieList")
         for entry in data[:num]:
             try:
                 info = entry.get("movieInfo") or {}
@@ -93,7 +95,7 @@ class MaoyanRankProvider(RankProvider):
         url = (f"{MAOYAN_URL}/dashboard/webHeatData"
                f"?seriesType={series_type}&platformType={platform_type}&showDate=2")
         payload = self._request_json(url, headers)
-        data = ((payload or {}).get("dataList") or {}).get("list") or []
+        data = self._ranking_list(payload, "dataList")
         for entry in data[:num]:
             try:
                 info = entry.get("seriesInfo") or {}
@@ -132,18 +134,41 @@ class MaoyanRankProvider(RankProvider):
         except (OverflowError, ValueError):
             return None
 
-    def _request_json(self, url: str, headers: dict) -> Optional[dict]:
-        """GET 并解析 JSON；无响应/解析失败返回 None（受风控为空当无结果）。
+    @staticmethod
+    def _ranking_list(payload: dict, key: str) -> List[dict]:
+        container = payload.get(key)
+        data = container.get("list") if isinstance(container, dict) else None
+        if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+            raise RuntimeError(f"猫眼榜单响应格式无效（缺少有效 {key}.list），请检查站点是否要求验证")
+        return data
+
+    def _request_json(self, url: str, headers: dict) -> dict:
+        """GET 并解析 JSON；失败向上报告，只有合法空列表代表空榜单。
 
         带上 __init__ 经 ctx.browser 预取注入的 Cookie（self._cookies，可能为 None）。
         """
         cookies = getattr(self, "_cookies", None)
         try:
-            with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True,
-                              headers=headers, cookies=cookies) as client:
-                resp = client.get(url)
-                if resp.status_code != 200 or not resp.text:
-                    return None
-                return resp.json()
-        except Exception:  # noqa: BLE001 - 风控/网络失败当无结果
-            return None
+            http = getattr(self, "_http", None)
+            if http is not None:
+                resp = http.get(url, timeout=_REQUEST_TIMEOUT, follow_redirects=True,
+                                headers=headers, cookies=cookies)
+            else:
+                with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True,
+                                  headers=headers, cookies=cookies) as client:
+                    resp = client.get(url)
+            resp.raise_for_status()
+            try:
+                payload = resp.json()
+            except ValueError:
+                raise RuntimeError("猫眼榜单没有返回有效 JSON，请检查站点是否要求验证") from None
+        except httpx.HTTPError as exc:
+            raise RuntimeError(request_error(exc, "猫眼请求")) from None
+        if not isinstance(payload, dict):
+            raise RuntimeError("猫眼榜单响应格式无效（缺少数据对象）")
+        if "success" in payload and not (
+            payload["success"] is True or payload["success"] == 1
+            or str(payload["success"]).strip().lower() in ("true", "1")
+        ):
+            raise RuntimeError("猫眼榜单返回失败，请检查站点是否要求验证")
+        return payload

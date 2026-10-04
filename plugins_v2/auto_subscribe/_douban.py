@@ -2,8 +2,8 @@
 # auto_subscribe 私有辅助：豆瓣榜单来源（RSSHub RSS）
 #
 # 解析 RSSHub 的豆瓣榜单 RSS，产出标准化条目。抓取逻辑移植自原 MoviePilot 版，
-# 把 RequestUtils 换成 httpx（默认 trust_env=True，走平台代理——rsshub.app 常被
-# SNI 黑名单封锁），DOM 解析用 stdlib xml.dom.minidom。豆瓣评分/季号等在
+# 平台运行时通过注入的 HTTP 服务继承平台代理；独立调用保留 httpx。
+# DOM 解析用 stdlib xml.dom.minidom。豆瓣评分/季号等在
 # 落地阶段由 NextFind /search 提供，故此处不解析评分。
 # =============================================================================
 
@@ -79,7 +79,7 @@ class DoubanRankProvider(RankProvider):
             f"{base}{DOUBAN_ADDRESS[rank]}" for rank in ranks if rank in DOUBAN_ADDRESS
         ]
         for addr in addr_list:
-            yield from self._fetch_addr(addr)
+            yield from self._fetch_addr(addr, http=options.get("_http"))
 
     @staticmethod
     def _normalize_base(raw) -> str:
@@ -91,12 +91,15 @@ class DoubanRankProvider(RankProvider):
             base = f"https://{base}"
         return base
 
-    def _fetch_addr(self, addr: str) -> Iterator[RankMediaItem]:
+    def _fetch_addr(self, addr: str, http=None) -> Iterator[RankMediaItem]:
         try:
-            with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client:
-                resp = client.get(addr)
-                resp.raise_for_status()
-                text = resp.text
+            if http is not None:
+                resp = http.get(addr, timeout=_REQUEST_TIMEOUT, follow_redirects=True)
+            else:
+                with httpx.Client(timeout=_REQUEST_TIMEOUT, follow_redirects=True) as client:
+                    resp = client.get(addr)
+            resp.raise_for_status()
+            text = resp.text
         except httpx.HTTPError as exc:
             raise RuntimeError(request_error(exc, "RSS 请求")) from None
         location = safe_url(addr)

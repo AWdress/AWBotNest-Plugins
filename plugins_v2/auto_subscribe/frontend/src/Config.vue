@@ -82,6 +82,7 @@ const DEFAULTS = {
 const tab = ref('settings')
 const group = ref('global')
 const loading = ref(true)
+const configReady = ref(false)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
@@ -109,6 +110,7 @@ onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, DEFAULTS, saved || {})
+    configReady.value = true
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
@@ -127,6 +129,10 @@ function toggle(arr, val) {
 }
 
 async function save() {
+  if (!configReady.value || saving.value) {
+    if (!configReady.value) props.host.toast.error('配置未成功读取，请重新打开配置页后再保存')
+    return
+  }
   saving.value = true
   try {
     if (cfg.auto_subscribe_missing && (!String(cfg.emby_server || '').trim() || !String(cfg.emby_api_key || '').trim() || !String(cfg.tmdb_key || '').trim())) {
@@ -219,14 +225,16 @@ const filteredHistory = computed(() =>
 function typeOfKey(key) { return String(key || '').startsWith('tv:') ? '剧集' : '电影' }
 async function delHistory(key) {
   try {
-    await props.host.callApi('/history/delete', { method: 'POST', body: { key } })
+    const r = await props.host.callApi('/history/delete', { method: 'POST', body: { key } })
+    if (r.ok === false) throw new Error(r.message || '历史记录未删除')
     history.value = history.value.filter(h => h.key !== key)
   } catch (e) { props.host.toast.error('删除失败：' + (e.message || e)) }
 }
 async function clearHistory() {
   if (!confirm('确定清空全部处理历史？(不影响已在 NextFind 的订阅)')) return
   try {
-    await props.host.callApi('/history/delete', { method: 'POST', body: { clear: true } })
+    const r = await props.host.callApi('/history/delete', { method: 'POST', body: { clear: true } })
+    if (r.ok === false) throw new Error(r.message || '历史记录未清空')
     history.value = []
     props.host.toast.success('已清空历史')
   } catch (e) { props.host.toast.error('清空失败：' + (e.message || e)) }
@@ -270,6 +278,7 @@ function switchTab(t) {
   <div class="asub">
     <div v-if="loading" class="muted">加载配置…</div>
     <template v-else>
+      <div v-if="!configReady" class="muted err" role="alert">配置读取失败，已禁止保存以保护已有配置。请重新打开配置页重试。</div>
       <div class="tabs">
         <button :class="['tab', { on: tab === 'settings' }]" @click="switchTab('settings')">⚙ 订阅配置</button>
         <button :class="['tab', { on: tab === 'history' }]" @click="switchTab('history')">↻ 订阅历史</button>
@@ -476,14 +485,15 @@ function switchTab(t) {
             </section>
           </template>
 
-          <div class="savebar"><button class="btn primary lg" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
+          <div class="savebar"><button class="btn primary lg" :disabled="saving || !configReady" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
         </div>
       </div>
 
       <!-- ============ 历史 ============ -->
       <div v-show="tab === 'history'" class="pane">
         <div v-if="Object.keys(missingStats).length" class="output" role="status">
-          <div>上轮本地缺集：Emby 剧集 {{ missingStats.scanned ?? '—' }} 部，缺集剧集 {{ missingStats.checked || 0 }} 部，缺 {{ missingStats.missing_episodes || 0 }} 集；新增 {{ missingStats.added || 0 }} 部，已订阅跳过 {{ missingStats.skipped || 0 }} 部，资料不全跳过 {{ missingStats.unknown || 0 }} 部，失败 {{ missingStats.failed || 0 }} 部。</div>
+          <div v-if="missingStats.scan_error">上轮本地缺集：已读取 Emby 剧集 {{ missingStats.scanned ?? '—' }} 部。扫描未完成，未执行缺集订阅。</div>
+          <div v-else>上轮本地缺集：Emby 剧集 {{ missingStats.scanned ?? '—' }} 部，缺集剧集 {{ missingStats.checked || 0 }} 部，缺 {{ missingStats.missing_episodes || 0 }} 集；新增 {{ missingStats.added || 0 }} 部，已订阅跳过 {{ missingStats.skipped || 0 }} 部，资料不全跳过 {{ missingStats.unknown || 0 }} 部，失败 {{ missingStats.failed || 0 }} 部。</div>
           <div v-if="missingStats.error" class="muted err">{{ missingStats.error }}</div>
         </div>
         <div class="stats">
