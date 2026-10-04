@@ -5,6 +5,7 @@ import asyncio
 import copy
 import hmac
 import hashlib
+import inspect
 import json
 import re
 import secrets
@@ -129,18 +130,110 @@ class PrintQueue:
             self.faulted = True
             raise
 
-    def _find(self, state, job_id, owner=None):
+    @staticmethod
+    def _same_owner(actual, requested):
+        # WeCom member IDs are case-insensitive. Preserve their original spelling
+        # in saved jobs and receipts; Telegram identifiers remain exact matches.
+        if (isinstance(actual, str) and isinstance(requested, str)
+                and actual.startswith("wecom:") and requested.startswith("wecom:")):
+            return actual.casefold() == requested.casefold()
+        return actual == requested
+
+    def _find(self, state, job_id, owner=None, *, source_channel=None):
         job = state["jobs"].get(str(job_id))
-        if job is None or (owner is not None and job["owner"] != owner):
+        if (job is None or (owner is not None and not self._same_owner(job["owner"], owner))
+                or (source_channel is not None and job.get("source_channel", "") != source_channel)):
             raise ValueError("没有找到你的打印任务")
         return job
 
+    @staticmethod
+    def _permission(permission_check):
+        if permission_check is None:
+            return
+        if not callable(permission_check):
+            raise ValueError("打印权限检查无效")
+        result = permission_check()
+        if inspect.isawaitable(result):
+            # Authorization must be checked without yielding while holding the
+            # queue lock; an accidentally async checker is rejected, not skipped.
+            if hasattr(result, "close"):
+                result.close()
+            raise ValueError("打印权限检查必须同步执行")
+        if result is False:
+            raise ValueError("打印权限或消息渠道已更改，请重新发送文件。")
+
+    async def get_job(self, job_id, owner, *, source_channel, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            return copy.deepcopy(self._find(self.state, job_id, owner, source_channel=source_channel))
+
+    @classmethod
+    def _owned_jobs(cls, state, owner, source_channel):
+        # Selection must inspect the complete queue, not the recent-20 display.
+        # A Telegram user's files from two different Bots are separate sessions.
+        return [job for job in state["jobs"].values()
+                if cls._same_owner(job["owner"], owner) and job.get("source_channel", "") == source_channel]
+
+    @staticmethod
+    def _latest_job(jobs):
+        if not jobs:
+            raise ValueError("请先发送照片或 PDF。")
+        return max(jobs, key=lambda job: (job.get("created", 0), job.get("updated", 0), job["id"]))
+
+    @staticmethod
+    def _source_key(source_key):
+        if not isinstance(source_key, str) or not source_key or len(source_key) > 2048:
+            raise ValueError("消息标识无效")
+        parts = source_key.split(":", 3)
+        if len(parts) == 4 and parts[0] in {"wecom", "wx-action", "wx-button"}:
+            # The user is case-insensitive, but media and event identifiers are
+            # opaque case-sensitive values. Never lowercase the entire key.
+            parts[2] = parts[2].casefold()
+            return ":".join(parts)
+        return source_key
+
+    @classmethod
+    def _recent_seen(cls, seen, now):
+        result = {}
+        for key, stamp in seen.items():
+            if now - stamp < 86400:
+                normalized = cls._source_key(key)
+                result[normalized] = max(result.get(normalized, stamp), stamp)
+        return result
+
+    async def claim_message(self, source_key):
+        """Persist a text-message receipt before any action it could trigger.
+
+        Replayed WeCom callbacks or Telegram events must not confirm a different
+        file that arrived after the first copy of the same command was handled.
+        Only opaque source identifiers are stored, never the message body.
+        """
+        source_key = self._source_key(source_key)
+        async with self.lock:
+            self._check()
+            snapshot = copy.deepcopy(self.state)
+            now = time.time()
+            snapshot["seen"] = self._recent_seen(snapshot["seen"], now)
+            if source_key in snapshot["seen"]:
+                if snapshot != self.state:
+                    await self._commit(snapshot)
+                return False
+            if len(snapshot["seen"]) >= 2000:
+                raise ValueError("今日收件数量达到上限")
+            snapshot["seen"][source_key] = now
+            await self._commit(snapshot)
+            return True
+
     async def reserve(self, source_key, owner, filename, source, allocation, *, source_channel=""):
+        source_key = self._source_key(source_key)
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
             now, cfg = time.time(), self.config()
+            snapshot["seen"] = self._recent_seen(snapshot["seen"], now)
             if source_key in snapshot["seen"]:
+                if snapshot != self.state:
+                    await self._commit(snapshot)
                 return None
             if sum(job["status"] == "receiving" for job in snapshot["jobs"].values()) >= 4:
                 raise ValueError("正在收取其他文件，请稍后重发")
@@ -163,14 +256,14 @@ class PrintQueue:
                 "ipp_target": self.target_key(cfg) if cfg.get("print_mode") == "ipp" else ""}
             snapshot["seen"][source_key] = now
             # 去重缓存有硬上限；满额时拒绝而非移除仍可能被重放的记录。
-            snapshot["seen"] = {key: stamp for key, stamp in snapshot["seen"].items() if now - stamp < 86400}
             if len(snapshot["seen"]) > 2000:
                 raise ValueError("今日收件数量达到上限")
             await self._commit(snapshot)
             return copy.deepcopy(snapshot["jobs"][job_id])
 
-    async def finish(self, job_id, metadata):
+    async def finish(self, job_id, metadata, *, permission_check=None):
         async with self.lock:
+            self._permission(permission_check)
             self._check()
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id)
@@ -203,45 +296,101 @@ class PrintQueue:
             self.faulted = True
             raise
 
-    async def confirm(self, job_id, owner, copies=None, printer=None):
+    def _confirm(self, job, copies=None, printer=None):
+        if job["status"] != "pending":
+            raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
+        cfg = self.config()
+        if not self.route_matches(job):
+            raise ValueError("打印连接方式或目标已更改，请取消旧任务并重新发送文件")
+        value = job["copies"] if copies is None else copies
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= cfg["max_copies"]:
+            raise ValueError(f"打印份数必须是 1～{cfg['max_copies']} 的整数")
+        target = job["printer"] if printer is None else str(printer).strip()
+        if len(target) > 200 or any(ord(char) < 32 for char in target):
+            raise ValueError("打印机名称无效")
+        if job.get("backend", "agent") == "ipp" and printer is not None:
+            raise ValueError("IPP 模式使用配置中的固定打印机，请不要在命令中另指定打印机")
+        if job.get("backend", "agent") == "agent" and target and self.device and target not in self.device.get("printers", []):
+            raise ValueError("该打印机不在电脑端允许列表内，请先发送 /printers 查看")
+        job.update(status="queued", copies=value, printer=target, updated=time.time())
+
+    async def confirm(self, job_id, owner, copies=None, printer=None, *, source_channel=None, permission_check=None):
         async with self.lock:
+            self._permission(permission_check)
             self._check()
             snapshot = copy.deepcopy(self.state)
-            job = self._find(snapshot, job_id, owner)
-            if job["status"] != "pending":
-                raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
-            cfg = self.config()
-            if not self.route_matches(job):
-                raise ValueError("打印连接方式或目标已更改，请取消旧任务并重新发送文件")
-            value = job["copies"] if copies is None else copies
-            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= cfg["max_copies"]:
-                raise ValueError(f"打印份数必须是 1～{cfg['max_copies']} 的整数")
-            target = job["printer"] if printer is None else str(printer).strip()
-            if len(target) > 200 or any(ord(char) < 32 for char in target):
-                raise ValueError("打印机名称无效")
-            if job.get("backend", "agent") == "ipp" and printer is not None:
-                raise ValueError("IPP 模式使用配置中的固定打印机，请不要在命令中另指定打印机")
-            if job.get("backend", "agent") == "agent" and target and self.device and target not in self.device.get("printers", []):
-                raise ValueError("该打印机不在电脑端允许列表内，请先发送 /printers 查看")
-            job.update(status="queued", copies=value, printer=target, updated=time.time())
+            job = self._find(snapshot, job_id, owner, source_channel=source_channel)
+            self._confirm(job, copies, printer)
             await self._commit(snapshot)
             return copy.deepcopy(job)
 
-    async def cancel(self, job_id, owner):
+    async def confirm_single(self, owner, source_channel, copies=None, printer=None, *, permission_check=None):
         async with self.lock:
+            self._permission(permission_check)
             self._check()
             snapshot = copy.deepcopy(self.state)
-            job = self._find(snapshot, job_id, owner)
-            if job["status"] not in {"receiving", "pending", "queued", "leased"}:
-                raise ValueError("任务已开始或已结束，不能保证取消；请在打印机或系统打印队列中查看")
-            job.update(status="cancelled", updated=time.time())
+            jobs = self._owned_jobs(snapshot, owner, source_channel)
+            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            if len(candidates) > 1:
+                raise ValueError("有多个文件，请按对应文件的按钮或任务编号选择，不会自动选一个打印。")
+            if not candidates:
+                return copy.deepcopy(self._latest_job(jobs))
+            job = candidates[0]
+            if job["status"] == "receiving":
+                raise ValueError("文件还在接收，请等收到文件的提示后再打印。")
+            if job["status"] != "pending":
+                return copy.deepcopy(job)
+            self._confirm(job, copies, printer)
             await self._commit(snapshot)
             return copy.deepcopy(job)
+
+    @staticmethod
+    def _cancel(job):
+        if job["status"] not in {"receiving", "pending", "queued", "leased"}:
+            raise ValueError("任务已开始或已结束，不能保证取消；请在打印机或系统打印队列中查看")
+        job.update(status="cancelled", updated=time.time())
+
+    async def cancel(self, job_id, owner, *, source_channel=None, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            snapshot = copy.deepcopy(self.state)
+            job = self._find(snapshot, job_id, owner, source_channel=source_channel)
+            self._cancel(job)
+            await self._commit(snapshot)
+            return copy.deepcopy(job)
+
+    async def cancel_single(self, owner, source_channel, *, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            snapshot = copy.deepcopy(self.state)
+            jobs = self._owned_jobs(snapshot, owner, source_channel)
+            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            if len(candidates) > 1:
+                raise ValueError("有多个文件，请按对应文件的按钮或任务编号选择，不会自动选一个取消。")
+            if not candidates:
+                return copy.deepcopy(self._latest_job(jobs))
+            job = candidates[0]
+            if job["status"] not in {"receiving", "pending", "queued", "leased"}:
+                return copy.deepcopy(job)
+            self._cancel(job)
+            await self._commit(snapshot)
+            return copy.deepcopy(job)
+
+    async def status_single(self, owner, source_channel, *, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            jobs = self._owned_jobs(self.state, owner, source_channel)
+            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            if len(candidates) > 1:
+                raise ValueError("有多个文件，请按对应文件的按钮或任务编号查看进度。")
+            return copy.deepcopy(candidates[0] if candidates else self._latest_job(jobs))
 
     async def jobs(self, owner=None):
         async with self.lock:
             return [self.public(job) for job in sorted(self.state["jobs"].values(), key=lambda j: j["created"], reverse=True)
-                    if owner is None or job["owner"] == owner][:20]
+                    if owner is None or self._same_owner(job["owner"], owner)][:20]
 
     @staticmethod
     def public(job):

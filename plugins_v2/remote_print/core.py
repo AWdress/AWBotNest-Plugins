@@ -15,6 +15,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from . import __plugin__
 from .channels import PlatformChannels
+from .chat import action_buttons, is_mutating_text, parse_action, received_text, simple_command, status_text, welcome_text
 from .files import inspect_file, safe_name
 from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
@@ -103,7 +104,7 @@ class RemotePrint:
         if not re.fullmatch(r"[A-Za-z0-9+/]{43}", key):
             raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
         decoded = base64.b64decode(key + "=", validate=True)
-        if len(decoded) != 32 or base64.b64encode(decoded).decode("ascii").rstrip("=") != key:
+        if len(decoded) != 32:
             raise ValueError("平台企业微信 EncodingAESKey 格式不正确")
         return config
 
@@ -190,6 +191,17 @@ class RemotePrint:
                 return
             await self.telegram(event)
 
+        async def clicked(event):
+            if self.stopped or self.telegram_binding is not binding:
+                return
+            try:
+                if (self.channels.telegram_bot_id() != selected or self.ctx.get_bot(selected) is not client
+                        or event.client is not client):
+                    return
+            except ValueError:
+                return
+            await self.telegram_callback(event)
+
         original_scope = getattr(self.ctx, "scope", "standalone")
         handlers = getattr(self.ctx, "_handlers", [])
         previous = {id(item) for item in handlers}
@@ -197,6 +209,7 @@ class RemotePrint:
         self.ctx.scope = "bot"
         try:
             self.ctx.on_message(incoming=True, outgoing=False)(receive)
+            self.ctx.on_callback(pattern=rb"^rp:")(clicked)
             self.telegram_binding = binding
         except Exception as exc:
             issue = "处理器注册失败（" + type(exc).__name__ + "）"
@@ -223,7 +236,44 @@ class RemotePrint:
             coroutine.close()
             raise
 
-    async def notify(self, source, owner, text, source_channel=""):
+    @staticmethod
+    def telegram_buttons(job, max_copies):
+        from telethon import Button
+        actions = action_buttons(job, max_copies)
+        primary = [Button.inline(item["text"], item["key"].encode("ascii"))
+                   for item in actions if item["key"].startswith("rp:print:")]
+        secondary = [Button.inline(item["text"], item["key"].encode("ascii"))
+                     for item in actions if not item["key"].startswith("rp:print:")]
+        return [row for row in (primary, secondary) if row]
+
+    def wecom_owner_allowed(self, owner, source_channel):
+        config = self.wecom_config()
+        identity = self.wecom_identity(config)
+        user = owner.rsplit(":", 1)[-1]
+        platform_users = {value.strip().casefold() for value in config["wecom_callback_users"].split("|") if value.strip()}
+        if (self.stopped or not self.config()["enabled"] or source_channel != identity
+                or owner != f"wecom:{identity}:{user}" or user.casefold() not in platform_users
+                or user.casefold() not in {value.casefold() for value in members(self.config()["wecom_users"])}
+                or user.lower() == "@all"):
+            raise ValueError("打印权限已更改，请联系家人或管理员。")
+        return user
+
+    def owner_allowed(self, owner, source_channel, *, client=None, binding=None):
+        if owner.startswith("wecom:"):
+            return self.wecom_owner_allowed(owner, source_channel)
+        cfg = self.config()
+        user = owner.removeprefix("telegram:")
+        if (self.stopped or not cfg["enabled"] or not owner.startswith("telegram:")
+                or not user.isdecimal() or user not in members(cfg["telegram_users"])):
+            raise ValueError("打印权限已更改，请联系家人或管理员。")
+        selected = self.channels.telegram_bot_id()
+        bot = self.ctx.get_bot(selected)
+        if (selected != source_channel or bot is None or (client is not None and bot is not client)
+                or (binding is not None and self.telegram_binding is not binding)):
+            raise ValueError("打印入口已更改，请使用当前的打印机器人。")
+        return user
+
+    async def notify(self, source, owner, text, source_channel="", *, job=None):
         if self.stopped:
             return
         try:
@@ -231,23 +281,77 @@ class RemotePrint:
                 bot = self.ctx.get_bot(source_channel) if source_channel else self.ctx.bot
                 if bot is None:
                     raise ValueError("Bot 未连接")
-                await bot.send_message(int(owner.split(":", 1)[1]), text, parse_mode=None)
+                options = {"buttons": self.telegram_buttons(job, self.config()["max_copies"])} if job else {}
+                await bot.send_message(int(owner.split(":", 1)[1]), text, parse_mode=None, **options)
             elif source == "wecom":
-                config = self.wecom_config()
-                identity = self.wecom_identity(config)
-                if source_channel != identity or not owner.startswith("wecom:" + identity + ":"):
-                    raise ValueError("企业微信应用已更换，未将旧任务回执发送到其他应用")
-                await self.wecom.send(owner.rsplit(":", 1)[1], text)
+                user = self.wecom_owner_allowed(owner, source_channel)
+                if job and job["status"] == "pending":
+                    try:
+                        await self.wecom.send_print_card(user, {**job, "card_text": f"共 {job['pages']} 页。\n请选择打印份数，不想打印可点取消。"},
+                                                        action_buttons(job, self.config()["max_copies"]))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        # Sending instructions after an uncertain card response is
+                        # safe: neither message confirms or submits a print job.
+                        self.ctx.log.warning("企业微信打印按钮未确认送达（%s），尝试发送文字说明", type(exc).__name__)
+                        self.wecom_owner_allowed(owner, source_channel)
+                        await self.wecom.send(user, f"收到：{job['filename']}\n共 {job['pages']} 页。\n回复“打印”打印一份，回复“取消”不打印。\n按钮消息暂未确认送达，任务还没有打印。")
+                else:
+                    await self.wecom.send(user, text)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.ctx.log.warning("打印回执发送失败（%s），任务状态已保存", type(exc).__name__)
 
     async def notify_job(self, job):
-        text = f"打印任务 {job['id']}\n{job['filename']}\n状态：{LABELS[job['status']]}"
-        if job.get("message"):
-            text += "\n" + job["message"]
-        await self.notify(job["source"], job["owner"], text, job.get("source_channel", ""))
+        await self.notify(job["source"], job["owner"], status_text(job), job.get("source_channel", ""))
+
+    async def button_action(self, owner, source_channel, value, *, permission_check=None):
+        permission_check = permission_check or (lambda: self.owner_allowed(owner, source_channel))
+        action, job_id, copies = parse_action(value)
+        job = await self.queue.get_job(job_id, owner, source_channel=source_channel, permission_check=permission_check)
+        try:
+            if action == "print" and job["status"] == "pending":
+                return await self.queue.confirm(job_id, owner, copies, source_channel=source_channel, permission_check=permission_check)
+            if action == "cancel" and job["status"] in {"receiving", "pending", "queued", "leased"}:
+                return await self.queue.cancel(job_id, owner, source_channel=source_channel, permission_check=permission_check)
+        except ValueError:
+            latest = await self.queue.get_job(job_id, owner, source_channel=source_channel, permission_check=permission_check)
+            if latest["status"] == job["status"]:
+                raise
+            return latest
+        return job
+
+    async def telegram_callback(self, event):
+        cfg = self.config()
+        sender = str(event.sender_id)
+        if self.stopped or not cfg["enabled"]:
+            await event.answer("打印服务已关闭，请联系家人。", alert=True)
+            return
+        if not event.is_private or sender not in members(cfg["telegram_users"]) or not sender.isdecimal():
+            await event.answer("你没有打印权限，请联系家人。", alert=True)
+            return
+        try:
+            selected = self.channels.telegram_bot_id()
+            if event.client is not self.ctx.get_bot(selected):
+                await event.answer("这个打印入口已更改，请使用当前的打印机器人。", alert=True)
+                return
+            owner, binding = "telegram:" + sender, self.telegram_binding
+            permission_check = lambda: self.owner_allowed(owner, selected, client=event.client, binding=binding)
+            job = await self.button_action(owner, selected, event.data, permission_check=permission_check)
+        except ValueError as exc:
+            await event.answer(str(exc)[:160], alert=True)
+            return
+        await event.answer("已取消" if job["status"] == "cancelled" else "已确认" if job["status"] == "queued" else "状态已更新")
+        try:
+            await event.edit(status_text(job), parse_mode=None, buttons=self.telegram_buttons(job, self.config()["max_copies"]))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Editing an old Telegram message is cosmetic, never a reason to
+            # roll back a durable confirmation or resubmit the file.
+            await self.notify("telegram", job["owner"], status_text(job), selected)
 
     async def telegram(self, event):
         cfg = self.config()
@@ -286,40 +390,65 @@ class RemotePrint:
                 await event.reply(str(exc), parse_mode=None)
             return
         text = str(getattr(message, "raw_text", "") or "").strip()
-        if re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|任务|取消|帮助)", text):
-            answer = await self.command(owner, text)
+        if simple_command(text) or re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|任务|取消|帮助|你好|开始)", text):
+            channel = str(getattr(self.ctx, "bot_id", "") or "")
+            if is_mutating_text(text) and not await self.queue.claim_message(f"tg-action:{channel}:{event.chat_id}:{message.id}"):
+                await event.reply("这条操作已经处理，不会重复打印。回复“进度”查看。", parse_mode=None)
+                return
+            binding = self.telegram_binding
+            permission_check = lambda: self.owner_allowed(owner, channel, client=event.client, binding=binding)
+            answer = await self.command(owner, text, channel, permission_check=permission_check)
             await event.reply(answer, parse_mode=None)
 
-    async def command(self, owner, text):
+    async def command(self, owner, text, source_channel=None, *, permission_check=None):
         parts = text.split(maxsplit=1)
         if not parts:
             return ""
         command, argument = parts[0].split("@", 1)[0].lower(), parts[1] if len(parts) == 2 else ""
         try:
+            if permission_check is None and source_channel is not None:
+                permission_check = lambda: self.owner_allowed(owner, source_channel)
+            if permission_check is not None:
+                permission_check()
+            simple = simple_command(text)
+            if simple:
+                channel = source_channel if source_channel is not None else (
+                    owner.split(":", 2)[1] if owner.startswith("wecom:") else str(getattr(self.ctx, "bot_id", "") or ""))
+                if simple[0] == "print":
+                    job = await self.queue.confirm_single(owner, channel, copies=simple[1], permission_check=permission_check)
+                elif simple[0] == "cancel":
+                    job = await self.queue.cancel_single(owner, channel, permission_check=permission_check)
+                else:
+                    job = await self.queue.status_single(owner, channel, permission_check=permission_check)
+                return status_text(job)
             if command in {"/print", "打印"}:
                 values = argument.split(maxsplit=2)
                 if not values:
-                    return self.help()
+                    job = await self.queue.confirm_single(owner, source_channel or "", copies=1, permission_check=permission_check)
+                    return status_text(job)
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
-                job = await self.queue.confirm(values[0], owner, copies, printer)
-                if job.get("backend") == "ipp":
-                    return f"已确认任务 {job['id']}：{job['copies']} 份。等待服务器通过 IPP 提交打印。"
-                return f"已确认任务 {job['id']}：{job['copies']} 份。等待电脑端提交打印；电脑离线时会排队。"
+                job = await self.queue.confirm(values[0], owner, copies, printer, source_channel=source_channel, permission_check=permission_check)
+                return status_text(job)
             if command in {"/print_cancel", "取消"}:
-                job = await self.queue.cancel(argument.strip(), owner)
-                return f"任务 {job['id']} 已取消。"
+                if not argument.strip():
+                    job = await self.queue.cancel_single(owner, source_channel or "", permission_check=permission_check)
+                else:
+                    job = await self.queue.cancel(argument.strip(), owner, source_channel=source_channel, permission_check=permission_check)
+                return status_text(job)
             if command in {"/print_jobs", "任务"}:
                 return self.jobs_text(await self.queue.jobs(owner))
             if command in {"/printers", "打印机"}:
                 if self.config()["print_mode"] == "ipp":
                     await self.refresh_ipp()
                 return self.device_text()
-            return self.help()
+            return self.help(advanced=command == "/print_help")
         except ValueError as exc:
             return str(exc) if str(exc) != "invalid literal for int() with base 10" and not str(exc).startswith("invalid literal") else "份数必须是整数。"
 
-    def help(self):
+    def help(self, *, advanced=False):
+        if not advanced:
+            return welcome_text()
         printer = " [打印机完整名称]" if self.config()["print_mode"] == "agent" else ""
         return (f"先发送 PDF 或图片。\n打印 任务ID [份数]{printer}\n取消 任务ID\n任务：查看你的最近任务\n打印机：查看设备状态"
                 + "\nTelegram 仅接受私聊，支持 /print、/print_cancel、/print_jobs、/printers。\n已提交仅表示打印队列接收，不保证实际出纸。")
@@ -356,9 +485,9 @@ class RemotePrint:
 
     async def receive_wecom(self, job, media_id):
         async def download(path, maximum):
-            if job.get("source_channel") != self.wecom_identity(self.wecom_config()):
-                raise ValueError("企业微信应用已更换，请在当前应用重新发送文件")
+            self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
             suggested = await self.wecom.download(media_id, path, maximum)
+            self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
             return suggested or job["filename"]
         await self.receive(job, download)
 
@@ -371,11 +500,12 @@ class RemotePrint:
                 name = await asyncio.wait_for(downloader(temporary, cfg["max_file_mb"] * 1024 * 1024), timeout=150)
                 metadata = await asyncio.to_thread(inspect_file, temporary, name, cfg["max_file_mb"] * 1024 * 1024, cfg["max_pages"])
                 await asyncio.to_thread(temporary.replace, path)
-                job = await self.queue.finish(job["id"], metadata)
-            text = f"收到：{job['filename']}\n任务：{job['id']}\n{job['pages']} 页，{job['copies']} 份\n状态：{LABELS[job['status']]}"
-            if job["status"] == "pending":
-                text += f"\n发送“打印 {job['id']}”确认；也可“取消 {job['id']}”。"
-            await self.notify(job["source"], job["owner"], text, job.get("source_channel", ""))
+                permission_check = None
+                if job["source"] == "wecom":
+                    permission_check = lambda: self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
+                job = await self.queue.finish(job["id"], metadata, permission_check=permission_check)
+            await self.notify(job["source"], job["owner"], received_text(job), job.get("source_channel", ""),
+                              job=job if job["status"] == "pending" else None)
             self.ctx.log.info("打印文件已收取：任务 %s，%s 页，状态=%s", job["id"], job["pages"], LABELS[job["status"]])
         except asyncio.CancelledError:
             raise
@@ -408,8 +538,8 @@ class RemotePrint:
             if message.get("ToUserName") != channel["wecom_corp_id"] or message.get("AgentID") != str(channel["wecom_agent_id"]):
                 return PlainTextResponse("forbidden", status_code=403)
             user = message.get("FromUserName", "")
-            platform_users = {value.strip() for value in channel["wecom_callback_users"].split("|") if value.strip()}
-            if (not user or user not in platform_users or user not in members(cfg["wecom_users"])
+            platform_users = {value.strip().casefold() for value in channel["wecom_callback_users"].split("|") if value.strip()}
+            if (not user or user.casefold() not in platform_users or user.casefold() not in {value.casefold() for value in members(cfg["wecom_users"])}
                     or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,64}", user) or user.lower() == "@all"):
                 return PlainTextResponse("success")
             identity = self.wecom_identity(channel)
@@ -420,7 +550,7 @@ class RemotePrint:
                 media = message.get("MediaId", "")
                 if not re.fullmatch(r"[A-Za-z0-9_-]{1,512}", media):
                     raise ValueError("企业微信媒体 ID 无效")
-                source_key = f"wecom:{identity}:{user}:{message.get('MsgId') or media}"
+                source_key = f"wecom:{identity}:{user.casefold()}:{message.get('MsgId') or media}"
                 job = await self.queue.reserve(source_key, owner, safe_name(message.get("FileName") or "image"), "wecom", cfg["max_file_mb"] * 1024 * 1024,
                                                source_channel=identity)
                 if job is not None:
@@ -432,7 +562,26 @@ class RemotePrint:
                         await self.queue.fail_receive(job["id"], "下载任务未能启动，请重新发送")
                         raise
             elif message.get("MsgType") == "text":
+                content = message.get("Content", "")
+                if is_mutating_text(content):
+                    message_id = message.get("MsgId", "")
+                    if not message_id or len(message_id) > 128:
+                        raise ValueError("企业微信操作消息缺少有效编号")
+                    if not await self.queue.claim_message(f"wx-action:{identity}:{user.casefold()}:{message_id}"):
+                        return PlainTextResponse("success")
                 self.spawn(self.wecom_command(owner, message.get("Content", "")), "print_wecom_command")
+            elif message.get("MsgType") == "event":
+                if message.get("Event") == "enter_agent":
+                    self.spawn(self.notify("wecom", owner, welcome_text(), identity), "print_wecom_welcome")
+                elif message.get("Event") == "template_card_event":
+                    action, job_id, _ = parse_action(message.get("EventKey", ""))
+                    if message.get("CardType") != "button_interaction" or message.get("TaskId") != "rp-" + job_id:
+                        raise ValueError("企业微信打印按钮与文件不匹配")
+                    if action in {"print", "cancel"}:
+                        key = f"wx-button:{identity}:{user.casefold()}:{message['TaskId']}:{message['EventKey']}:{message.get('CreateTime', '')}"
+                        if not await self.queue.claim_message(key):
+                            return PlainTextResponse("success")
+                    self.spawn(self.wecom_button(owner, identity, message["EventKey"]), "print_wecom_button")
             return PlainTextResponse("success")
         except ValueError:
             return PlainTextResponse("invalid request", status_code=400)
@@ -443,7 +592,21 @@ class RemotePrint:
             return PlainTextResponse("unavailable", status_code=503)
 
     async def wecom_command(self, owner, content):
-        await self.notify("wecom", owner, await self.command(owner, content), owner.split(":", 2)[1])
+        channel = owner.split(":", 2)[1]
+        try:
+            self.wecom_owner_allowed(owner, channel)
+        except ValueError:
+            return
+        await self.notify("wecom", owner, await self.command(owner, content, channel), channel)
+
+    async def wecom_button(self, owner, channel, value):
+        try:
+            self.wecom_owner_allowed(owner, channel)
+            job = await self.button_action(owner, channel, value)
+            text = status_text(job)
+        except ValueError as exc:
+            text = str(exc)
+        await self.notify("wecom", owner, text, channel)
 
     def authorized_agent(self, request):
         cfg = self.config()

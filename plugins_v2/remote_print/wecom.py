@@ -24,6 +24,7 @@ _EXPIRED_TOKEN_CODES = {40001, 40014, 42001}
 _MESSAGE_FIELDS = {
     "MsgType", "FromUserName", "ToUserName", "AgentID", "MsgId",
     "MediaId", "FileName", "Content", "CreateTime",
+    "Event", "EventKey", "TaskId", "CardType", "ResponseCode",
 }
 
 
@@ -348,27 +349,33 @@ class WeCom:
             return _filename(headers)
         raise ValueError("企业微信媒体访问凭据已失效")
 
-    async def send(self, user: str, text: str) -> None:
+    @staticmethod
+    def _recipient(user: str) -> str:
         if not isinstance(user, str) or user.lower() == "@all" or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,128}", user):
             raise ValueError("企业微信通知用户无效")
-        config = self._config()
+        return user
+
+    @staticmethod
+    def _agent_id(config: Mapping[str, Any]) -> int:
         try:
             agent_id = int(config.get("wecom_agent_id", 0))
             if isinstance(config.get("wecom_agent_id"), bool) or not 0 < agent_id < 2 ** 31:
                 raise ValueError
         except (TypeError, ValueError, OverflowError):
             raise ValueError("企业微信应用 AgentID 无效") from None
-        content = str(text).encode("utf-8")[:2048].decode("utf-8", errors="ignore")
-        if not content:
-            return
+        return agent_id
+
+    async def _send_message(self, user: str, message: Mapping[str, Any]) -> None:
+        """Freeze the platform application for a single delivery and token retry."""
+        user = self._recipient(user)
+        config = self._config()
+        payload = dict(message)
+        payload.update(touser=user, agentid=self._agent_id(config))
         api_base = normalize_api_base(config.get("wecom_api_base"))
         for attempt in range(2):
             access_token = await self._token(config)
             result = await self._request("POST", "message/send", api_base=api_base,
-                                         params={"access_token": access_token}, json={
-                "touser": user, "msgtype": "text", "agentid": agent_id,
-                "text": {"content": content}, "safe": 0,
-            })
+                                         params={"access_token": access_token}, json=payload)
             code = self._error_code(result)
             if code in _EXPIRED_TOKEN_CODES and not attempt:
                 await self._invalidate(access_token)
@@ -377,3 +384,90 @@ class WeCom:
                 raise ValueError("企业微信通知发送失败，请检查应用可见范围")
             return
         raise ValueError("企业微信通知访问凭据已失效")
+
+    async def send(self, user: str, text: str) -> None:
+        self._recipient(user)
+        content = str(text).encode("utf-8")[:2048].decode("utf-8", errors="ignore")
+        if not content:
+            return
+        await self._send_message(user, {"msgtype": "text", "text": {"content": content}, "safe": 0})
+
+    async def send_card(self, user: str, card: Mapping[str, Any]) -> None:
+        """Send one native print card, never a broadcast or a silent text fallback.
+
+        Keys carry the exact queue job ID. Ownership, source application, current
+        state and copy limits must still be checked again by the callback handler.
+        """
+        self._recipient(user)
+        if not isinstance(card, Mapping) or card.get("card_type") != "button_interaction":
+            raise ValueError("企业微信打印卡片无效")
+        task_id = str(card.get("task_id") or "")
+        if not re.fullmatch(r"rp-[a-f0-9]{16}", task_id):
+            raise ValueError("企业微信打印卡片任务无效")
+        job_id = task_id[3:]
+        main_title = card.get("main_title")
+        buttons = card.get("button_list")
+        if (not isinstance(main_title, Mapping) or not isinstance(main_title.get("title"), str)
+                or not main_title["title"] or len(main_title["title"]) > 36
+                or not isinstance(buttons, (list, tuple)) or not 1 <= len(buttons) <= 6):
+            raise ValueError("企业微信打印卡片内容无效")
+        keys = set()
+        normalized_buttons = []
+        for button in buttons:
+            if not isinstance(button, Mapping):
+                raise ValueError("企业微信打印卡片按钮无效")
+            key = button.get("key")
+            label = button.get("text")
+            style = button.get("style", 1)
+            if (not isinstance(key, str) or key in keys
+                    or not re.fullmatch(rf"rp:(?:print:{job_id}:[1-9][0-9]?|(?:cancel|status):{job_id})", key)
+                    or not isinstance(label, str) or not label or len(label) > 10
+                    or button.get("type", 0) != 0 or isinstance(style, bool)
+                    or not isinstance(style, int) or not 1 <= style <= 4):
+                raise ValueError("企业微信打印卡片按钮无效")
+            keys.add(key)
+            normalized_buttons.append({"type": 0, "text": label, "key": key, "style": style})
+        # Build an allowlisted payload: no caller-supplied navigation, recipients
+        # or ID-transformation syntax can escape this single-job confirmation.
+        normalized = {
+            "card_type": "button_interaction", "task_id": task_id,
+            "main_title": {"title": main_title["title"]}, "button_list": normalized_buttons,
+        }
+        for field, maximum in (("desc", 44),):
+            value = main_title.get(field)
+            if value is not None:
+                if not isinstance(value, str) or len(value) > maximum:
+                    raise ValueError("企业微信打印卡片内容无效")
+                normalized["main_title"][field] = value
+        subtitle = card.get("sub_title_text")
+        if subtitle is not None:
+            if not isinstance(subtitle, str) or len(subtitle) > 160:
+                raise ValueError("企业微信打印卡片内容无效")
+            normalized["sub_title_text"] = subtitle
+        await self._send_message(user, {
+            "msgtype": "template_card", "template_card": normalized,
+            "enable_id_trans": 0, "enable_duplicate_check": 1, "duplicate_check_interval": 600,
+        })
+
+    async def send_print_card(self, user: str, job: Mapping[str, Any], actions=None) -> None:
+        """One file, one confirmation card; callers should not resend its task ID."""
+        if not isinstance(job, Mapping) or not re.fullmatch(r"[a-f0-9]{16}", str(job.get("id", ""))):
+            raise ValueError("企业微信打印卡片任务无效")
+        job_id = job["id"]
+        if actions is None:
+            actions = [
+                {"text": "打印1份", "key": f"rp:print:{job_id}:1", "style": 1},
+                {"text": "打印2份", "key": f"rp:print:{job_id}:2", "style": 1},
+                {"text": "取消", "key": f"rp:cancel:{job_id}", "style": 4},
+                {"text": "查看进度", "key": f"rp:status:{job_id}", "style": 2},
+            ]
+        filename = str(job.get("filename") or "收到的文件")
+        description = filename.encode("utf-8")[:128].decode("utf-8", errors="ignore")[:44]
+        page_hint = f"共 {job['pages']} 页。" if job.get("pages") else ""
+        card_text = str(job.get("card_text") or f"{page_hint}点击按钮开始打印。照片会完整缩放，不会裁切。")[:160]
+        await self.send_card(user, {
+            "card_type": "button_interaction", "task_id": f"rp-{job_id}",
+            "main_title": {"title": "文件已收到", "desc": description},
+            "sub_title_text": card_text,
+            "button_list": actions,
+        })
