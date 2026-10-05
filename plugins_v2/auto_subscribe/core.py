@@ -16,6 +16,7 @@ import threading
 import time
 import traceback
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Optional
 
 from ._models import STATUS_LABELS
@@ -24,7 +25,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.5",
+    "version": "2.2.6",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -45,6 +46,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.6 优化大库缺集扫描\n"
+    "- 缺集优先执行，批量获取季详情并缓存已验证的 TMDB 元数据\n"
+    "- 超时保留核对进度，下轮优先处理未完成剧集，库存始终重新读取\n"
+    "- 猫眼取 Cookie 改为异步限时回调，已知旧年份提前过滤\n\n"
     "v2.2.5 修复长任务卡住\n"
     "- 整轮运行与网络请求使用实际截止时间，取消时中断请求并停止后续订阅\n"
     "- 缺集扫描及时显示低频进度，超时明确记录未处理项目\n"
@@ -239,7 +244,9 @@ def _state_get(key, default=None):
 async def _state_set(ctx, key, value) -> None:
     # KV writes are already asynchronous. Spawning one background task per key
     # can exhaust the plugin's quota after subscriptions have succeeded.
-    await ctx.storage.set(key, value)
+    storage = getattr(ctx, "storage", None)
+    if storage is not None:
+        await storage.set(key, value)
     _state[key] = value
 
 
@@ -599,18 +606,25 @@ def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None
     return stats, added_titles
 
 
+def _merge_missing_history(handled, stats):
+    """Merge only confirmed missing subscriptions; keep evidence for cancellation."""
+    from ._models import make_history_key
+    handled = dict(handled or {})
+    for item in (stats or {}).get("added_items", []):
+        handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
+            "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
+            "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    return handled
+
+
 async def _save_interrupted(ctx, progress, message):
     """Persist confirmed results only; an interrupted round is never completed."""
     result = progress.get("result")
     if result is not None:
-        handled = dict(result.handled)
+        handled = {**dict(_state_get("handled", {}) or {}), **dict(result.handled)}
         missing = progress.get("missing_subs") or {}
-        from ._models import make_history_key
-        for item in missing.get("added_items", []):
-            handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
-                "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
-                "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
+        handled = _merge_missing_history(handled, missing)
         await _state_set(ctx, "handled", handled)
         await _state_set(ctx, "netflix_cache", result.nf_cache)
     for key, name in (("missing_subs", "last_missing_subscription_stats"),
@@ -654,6 +668,48 @@ def _merge_scan_stats(stats, scan):
         stats["failed"] = max(1, stats["failed"])
         stats["error"] = stats.get("error") or stats["scan_error"]
     return stats
+
+
+async def _run_missing_phase(ctx, cfg, cancel_event, deadline, progress):
+    """Finish the local-library phase before any optional ranking/browser work."""
+    from ._emby_missing import scan_missing, LibraryScanError
+    missing_added = []
+    progress["phase"] = "Emby/TMDB 缺集核对"
+    progress["missing_subs"] = {
+        "checked": 0, "added": 0, "skipped": 0, "failed": 1,
+        "unprocessed": 0, "error": "扫描未完成，未执行缺集订阅", "scan_error": "扫描未完成",
+    }
+    try:
+        scan = await scan_missing(cfg, ctx.http, ctx.log, storage=getattr(ctx, "storage", None))
+        if scan.get("error"):
+            stats = {"checked": 0, "added": 0, "skipped": 0, "failed": 1,
+                     "unprocessed": 0, "error": scan["error"], "auth_error": ""}
+            _merge_scan_stats(stats, scan)
+            ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", scan["error"])
+        else:
+            _check_round_running(cancel_event, deadline)
+            progress["phase"] = "缺集订阅"
+            stats, missing_added = await _run_sync(
+                _subscribe_missing_round, cfg, scan["items"], ctx.log, cancel_event,
+                cancel_event=cancel_event,
+                on_result=lambda value: progress.update(missing_subs=_merge_scan_stats(value[0], scan)),
+            )
+            # The callback also runs when a cancelled worker drains. Keep
+            # added_items in progress until finalization has persisted history.
+    except asyncio.CancelledError:
+        cancel_event.set()
+        raise
+    except Exception as exc:
+        message = str(exc) if isinstance(exc, LibraryScanError) else f"缺集检查失败（{type(exc).__name__}）"
+        stats = {"checked": 0, "added": 0, "skipped": 0, "failed": 1,
+                 "unprocessed": 0, "error": message, "auth_error": ""}
+        from ._nextfind import NextFindAuthError
+        if isinstance(exc, NextFindAuthError):
+            stats["error"] = stats["auth_error"] = _request_error(exc)
+        ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", message)
+    progress["missing_subs"] = stats
+    _check_round_running(cancel_event, deadline)
+    return stats, missing_added
 
 
 async def _run(ctx, label: str) -> str:
@@ -720,87 +776,69 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
             return msg
 
         from . import _pipeline
-
-        # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
-        if cfg.get("maoyan_enabled"):
-            progress["phase"] = "猫眼浏览器"
-            cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
-        if cfg.get("ai_assist_recognition"):
-            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
-
-        if any(cfg.get(k) for k in _ENABLE_KEYS):
-            cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
-
-        handled = _state_get("handled", {})
-        nf_cache = _state_get("netflix_cache", {})
+        handled = dict(_state_get("handled", {}) or {})
+        nf_cache = dict(_state_get("netflix_cache", {}) or {})
+        # A seed checkpoint exists before scanning so cancellation during the
+        # first phase can preserve already-confirmed local subscription writes.
+        result = SimpleNamespace(stats={}, errors={}, added=[], handled=handled,
+                                 nf_cache=nf_cache, auth_error="", interrupted="")
+        progress["result"] = result
         ctx.log.info("[自动订阅] 开始运行(%s)", label)
-        progress["phase"] = "榜单查询与订阅"
-        try:
-            result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log, cancel_event=cancel_event,
-                                     on_result=lambda value: progress.update(result=value))
-        except Exception as e:  # noqa: BLE001
-            message = request_error(e)
-            ctx.log.error("[自动订阅] 运行异常：%s", message)
-            if cfg.get("notify", True):
-                await ctx.notify(
-                    {"状态": "运行异常", "详情": message},
-                    level="error", category="自动订阅",
-                )
-            return f"运行异常：{message}"
-
-        await _state_set(ctx, "handled", result.handled)
-        await _state_set(ctx, "netflix_cache", result.nf_cache)
-        _check_round_running(cancel_event, deadline)
-        if getattr(result, "interrupted", ""):
-            raise asyncio.CancelledError
-
         missing_subs = None
         missing_added = []
-        if cfg.get("auto_subscribe_missing") and not getattr(result, "auth_error", ""):
-            try:
-                from ._emby_missing import scan_missing, LibraryScanError
-                progress["phase"] = "Emby/TMDB 缺集核对"
-                progress["missing_subs"] = {
-                    "checked": 0, "added": 0, "skipped": 0, "failed": 1,
-                    "unprocessed": 0, "error": "扫描未完成，未执行缺集订阅", "scan_error": "扫描未完成",
-                }
-                scan = await scan_missing(cfg, ctx.http, ctx.log)
-                if scan.get("error"):
-                    missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1,
-                                    "unprocessed": 0, "error": scan["error"], "auth_error": ""}
-                    ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", scan["error"])
-                else:
-                    progress["phase"] = "缺集订阅"
-                    missing_subs, missing_added = await _run_sync(
-                        _subscribe_missing_round, cfg, scan["items"], ctx.log, cancel_event,
-                        cancel_event=cancel_event,
-                        on_result=lambda value: progress.update(missing_subs=_merge_scan_stats(value[0], scan)),
-                    )
-                    # The callback also runs when cancellation drains a worker,
-                    # so its confirmed results already carry scan diagnostics.
-                if scan.get("error"):
-                    _merge_scan_stats(missing_subs, scan)
-            except asyncio.CancelledError:
-                cancel_event.set()
-                raise
-            except Exception as exc:
-                from ._emby_missing import LibraryScanError
-                message = str(exc) if isinstance(exc, LibraryScanError) else f"缺集检查失败（{type(exc).__name__}）"
-                missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1, "unprocessed": 0, "error": message, "auth_error": ""}
-                ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", message)
+        if cfg.get("auto_subscribe_missing"):
+            missing_subs, missing_added = await _run_missing_phase(
+                ctx, cfg, cancel_event, deadline, progress)
+            handled = _merge_missing_history(handled, missing_subs)
+            result.handled = handled
+            await _state_set(ctx, "handled", handled)
+            await _state_set(ctx, "last_missing_subscription_stats",
+                             {k: v for k, v in missing_subs.items() if k != "added_items"})
             _check_round_running(cancel_event, deadline)
-            if missing_subs.get("added_items"):
-                from ._models import make_history_key
-                for item in missing_subs.pop("added_items"):
-                    result.handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
-                        "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
-                        "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    }
-                await _state_set(ctx, "handled", result.handled)
-            progress["missing_subs"] = missing_subs
-            await _state_set(ctx, "last_missing_subscription_stats", missing_subs)
             if missing_subs.get("auth_error"):
                 result.auth_error = missing_subs["auth_error"]
+
+        if not result.auth_error:
+            # Local missing subscriptions take priority over optional cookies,
+            # provider fetches and title recognition within the same deadline.
+            _check_round_running(cancel_event, deadline)
+            if cfg.get("maoyan_enabled"):
+                progress["phase"] = "猫眼浏览器"
+                cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
+                _check_round_running(cancel_event, deadline)
+            if cfg.get("ai_assist_recognition"):
+                cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
+            if any(cfg.get(k) for k in _ENABLE_KEYS):
+                cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
+
+            def remember_pipeline(value):
+                # A provider result must not overwrite subscriptions confirmed
+                # in the earlier phase, even if its handled snapshot is stale.
+                value.handled = _merge_missing_history(
+                    {**handled, **dict(value.handled)}, missing_subs)
+                progress["result"] = value
+
+            progress["phase"] = "榜单查询与订阅"
+            try:
+                # Still run the empty pipeline when sources are disabled: this
+                # keeps its result contract and existing isolated SDK fixtures.
+                result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log,
+                                         cancel_event=cancel_event, on_result=remember_pipeline)
+            except Exception as e:  # noqa: BLE001
+                message = request_error(e)
+                ctx.log.error("[自动订阅] 运行异常：%s", message)
+                if missing_subs is not None:
+                    await _save_interrupted(ctx, progress, f"榜单运行异常：{message}")
+                if cfg.get("notify", True):
+                    await ctx.notify({"状态": "运行异常", "详情": message},
+                                     level="error", category="自动订阅")
+                return f"运行异常：{message}"
+
+            await _state_set(ctx, "handled", result.handled)
+            await _state_set(ctx, "netflix_cache", result.nf_cache)
+            _check_round_running(cancel_event, deadline)
+            if getattr(result, "interrupted", ""):
+                raise asyncio.CancelledError
 
         fill_stats = None
         if cfg.get("auto_fill_missing") and not getattr(result, "auth_error", ""):
@@ -888,23 +926,35 @@ def _nf_client(cfg):
                           cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
 
 
-async def _fetch_maoyan_cookies(ctx) -> dict:
+async def _fetch_maoyan_cookies(ctx, *, timeout_seconds: float = 35.0) -> dict:
     """用平台 ctx.browser 预取猫眼 Cookie（{name: value}）；失败降级空 dict（无 Cookie）。
 
     provider 跑在 to_thread 里不能直接 await 浏览器，故在事件循环里先取好再注入 cfg。
-    首次调用会触发平台下载浏览器内核（之后有缓存）。
+    异步 Page 回调避免 SDK 的同步线程分支在取消后无限等待；整次浏览器阶段
+    共用截止时间，启动、导航和 Cookie 读取不各自重新获得完整预算。
+    SDK 首次同步下载内核等阻塞代码仍无法由 asyncio 取消强停。
     """
     from ._maoyan import MAOYAN_URL
 
-    def _grab(page):
+    async def _grab(page):
         try:
-            return {c["name"]: c["value"] for c in page.context.cookies()}
+            return {c["name"]: c["value"] for c in await page.context.cookies()}
         except Exception:  # noqa: BLE001 - 引擎不支持 context.cookies 时降级
             return {}
     try:
-        return await ctx.browser.run(MAOYAN_URL, _grab, headless=True, timeout=30) or {}
+        # Let the SDK retain ownership of Page/context/browser cleanup. Its
+        # async branch also navigates before invoking _grab, so do not goto twice.
+        async with asyncio.timeout(timeout_seconds):
+            return await ctx.browser.run(MAOYAN_URL, _grab, headless=True, timeout=30) or {}
+    except asyncio.CancelledError:
+        # Stop/unload and the enclosing round deadline must not become a
+        # successful no-Cookie fallback that continues the ranking pipeline.
+        raise
+    except TimeoutError:
+        ctx.log.warning("[自动订阅] 猫眼 Cookie 阶段超过 %g 秒，降级无 Cookie", timeout_seconds)
+        return {}
     except Exception as e:  # noqa: BLE001 - 浏览器不可用/超时降级无 Cookie
-        ctx.log.warning("[自动订阅] 猫眼 Cookie 获取失败，降级无 Cookie：%r", e)
+        ctx.log.warning("[自动订阅] 猫眼 Cookie 获取失败，降级无 Cookie：%s", request_error(e))
         return {}
 
 
@@ -929,7 +979,22 @@ async def setup(ctx):
     global _run_lock
     _run_lock = asyncio.Lock()
     _state.clear()
-    _state.update(dict(await ctx.storage.items()))
+    runtime_keys = ("last_run", "last_stats", "last_missing_subscription_stats", "last_fill_missing_stats")
+    state_keys = ("handled", "netflix_cache", *runtime_keys)
+    storage = getattr(ctx, "storage", None)
+    if storage is not None:
+        getter = getattr(storage, "get", None)
+        if callable(getter):
+            absent = object()
+            for key in state_keys:
+                value = await getter(key, absent)
+                if value is not absent:
+                    _state[key] = value
+        else:
+            # Compatibility for minimal test/legacy facades exposing items()
+            # only. Never retain TMDB metadata caches or unrelated KV in state.
+            values = dict(await storage.items())
+            _state.update({key: values[key] for key in state_keys if key in values})
 
     # 调度器回调受平台治理超时约束，不能直接等待抓榜/逐条订阅这种分钟级流水线。
     # 所有手动和定时运行统一交给平台托管的后台任务，回调本身立即返回。
@@ -948,12 +1013,10 @@ async def setup(ctx):
         task.add_done_callback(_background_tasks.discard)
         return task
     # 旧版曾把只读运行统计写进可编辑配置；迁入 KV 后从配置中清理，避免“后端使用但页面不显示”。
-    runtime_keys=("last_run","last_stats","last_missing_subscription_stats","last_fill_missing_stats")
-    legacy=ctx.config
+    legacy=ctx.config or {}
     for key in runtime_keys:
         if key in legacy and key not in _state:
-            _state[key]=legacy[key]
-            await ctx.storage.set(key,legacy[key])
+            await _state_set(ctx, key, legacy[key])
     settings=getattr(ctx,"settings",None)
     plugin_config=getattr(settings,"plugin_config",None)
     saved=plugin_config.get("auto_subscribe") if isinstance(plugin_config,dict) else None

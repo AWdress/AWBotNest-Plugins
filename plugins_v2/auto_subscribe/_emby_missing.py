@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import math
 from datetime import date, datetime, timedelta, timezone
 from time import monotonic
 from urllib.parse import urlsplit, urlunsplit
+
+from ._tmdb_cache import TmdbCache
 
 
 _PAGE_SIZE = 1000
@@ -16,10 +19,19 @@ _SCAN_TIMEOUT_SECONDS = 1500.0
 _PROGRESS_LOG_INTERVAL_SECONDS = 60.0
 _TMDB_BASE = "https://api.themoviedb.org/3"
 _SHANGHAI = timezone(timedelta(hours=8))
+_TV_CACHE_TTL = 6 * 3600
+_ENDED_TV_CACHE_TTL = 24 * 3600
+_SEASON_CACHE_TTL = 7 * 86400
+_APPEND_BATCH_SIZE = 20
+_FINALIZE_TIMEOUT_SECONDS = 5.0
 
 
 class LibraryScanError(Exception):
     """A short diagnostic which never contains credentials or response bodies."""
+
+    def __init__(self, message, *, status_code=None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _now_date() -> date:
@@ -81,7 +93,8 @@ async def _get_json(http, url, *, service, params=None, headers=None):
         raise LibraryScanError(f"{service} {kind}") from None
     status = getattr(response, "status_code", 0)
     if not isinstance(status, int) or not 200 <= status < 300:
-        raise LibraryScanError(f"{service} 请求失败（HTTP {status if isinstance(status, int) else '未知'}）")
+        raise LibraryScanError(f"{service} 请求失败（HTTP {status if isinstance(status, int) else '未知'}）",
+                               status_code=status if isinstance(status, int) else None)
     try:
         payload = response.json()
     except Exception:
@@ -203,11 +216,13 @@ def _local_groups(series, episodes):
     return groups, unknown
 
 
-async def _tmdb_get(http, key, path):
+async def _tmdb_get(http, key, path, *, append=None):
     if key.startswith("eyJ"):
         params, headers = {"language": "zh-CN"}, {"Authorization": f"Bearer {key}"}
     else:
         params, headers = {"language": "zh-CN", "api_key": key}, {}
+    if append:
+        params["append_to_response"] = ",".join(f"season/{number}" for number in append)
     return await _get_json(http, f"{_TMDB_BASE}{path}", service="TMDB", params=params, headers=headers)
 
 
@@ -221,36 +236,166 @@ def _air_date(value):
         return None
 
 
-async def _expected_episodes(http, key, tmdb_id, cutoff):
-    detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}")
+def _detail_meta(detail, tmdb_id):
+    """Keep public identifiers/counts/dates, never a raw appended response."""
     if _integer(detail.get("id"), 1) != int(tmdb_id) or not isinstance(detail.get("seasons"), list):
         raise LibraryScanError("TMDB 剧集详情格式无效")
-    seasons = set()
+    seasons = {}
     for season in detail["seasons"]:
         number = _integer(season.get("season_number")) if isinstance(season, dict) else None
         if number is None:
             raise LibraryScanError("TMDB 季号格式无效")
         if number > 0:
-            seasons.add(number)
-    expected = {}
-    for number in sorted(seasons):
-        data = await _tmdb_get(http, key, f"/tv/{tmdb_id}/season/{number}")
-        if _integer(data.get("season_number")) != number or not isinstance(data.get("episodes"), list):
-            raise LibraryScanError("TMDB 季详情格式无效")
-        by_number = {}
-        for episode in data["episodes"]:
-            if not isinstance(episode, dict):
-                raise LibraryScanError("TMDB 单集详情格式无效")
-            episode_number = _integer(episode.get("episode_number"), 1)
-            if (episode_number is None
-                    or ("season_number" in episode and _integer(episode["season_number"]) != number)):
-                raise LibraryScanError("TMDB 单集编号格式无效")
-            air_date = _air_date(episode.get("air_date"))
-            if episode_number in by_number and by_number[episode_number] != air_date:
-                raise LibraryScanError("TMDB 单集编号重复且播出日期冲突")
-            by_number[episode_number] = air_date
-        expected[number] = {ep for ep, aired in by_number.items() if aired is not None and aired <= cutoff}
-    return expected
+            count = _integer(season.get("episode_count")) if "episode_count" in season else None
+            if season.get("episode_count") is not None and count is None:
+                raise LibraryScanError("TMDB 季集数格式无效")
+            aired = _air_date(season.get("air_date"))
+            entry = {"season_number": number, "episode_count": count,
+                     "air_date": aired.isoformat() if aired else None}
+            if number in seasons and seasons[number] != entry:
+                raise LibraryScanError("TMDB 季号重复且资料冲突")
+            seasons[number] = entry
+    return {"id": int(tmdb_id), "status": str(detail.get("status") or ""),
+            "seasons": [seasons[number] for number in sorted(seasons)]}
+
+
+def _season_meta(data, number, expected_count=None):
+    if (not isinstance(data, dict) or _integer(data.get("season_number")) != number
+            or not isinstance(data.get("episodes"), list)):
+        raise LibraryScanError("TMDB 季详情格式无效")
+    by_number = {}
+    for episode in data["episodes"]:
+        if not isinstance(episode, dict):
+            raise LibraryScanError("TMDB 单集详情格式无效")
+        episode_number = _integer(episode.get("episode_number"), 1)
+        if (episode_number is None
+                or ("season_number" in episode and _integer(episode["season_number"]) != number)):
+            raise LibraryScanError("TMDB 单集编号格式无效")
+        aired = _air_date(episode.get("air_date"))
+        aired = aired.isoformat() if aired else None
+        if episode_number in by_number and by_number[episode_number] != aired:
+            raise LibraryScanError("TMDB 单集编号重复且播出日期冲突")
+        by_number[episode_number] = aired
+    if expected_count is not None and len(by_number) != expected_count:
+        raise LibraryScanError("TMDB 季集数与完整单集列表不一致")
+    return {"season_number": number,
+            "episodes": [[episode, by_number[episode]] for episode in sorted(by_number)]}
+
+
+def _cached_season(data, number, expected_count):
+    if (not isinstance(data, dict) or _integer(data.get("season_number")) != number
+            or not isinstance(data.get("episodes"), list)):
+        return None
+    rows, seen = [], set()
+    for row in data["episodes"]:
+        if not isinstance(row, list) or len(row) != 2:
+            return None
+        episode = _integer(row[0], 1)
+        if episode is None or episode in seen or (row[1] is not None and _air_date(row[1]) is None):
+            return None
+        seen.add(episode)
+        rows.append([episode, row[1]])
+    if expected_count is not None and len(rows) != expected_count:
+        return None
+    return {"season_number": number, "episodes": rows}
+
+
+def _season_ttl(detail, data, today):
+    """Only demonstrably old, finished seasons get a long lifetime."""
+    dates = [_air_date(row[1]) for row in data["episodes"]]
+    historical = (dates and all(aired is not None and aired <= today - timedelta(days=30) for aired in dates))
+    finished = (detail["status"].lower() in ("ended", "canceled", "cancelled")
+                or any(row["season_number"] > data["season_number"] for row in detail["seasons"]))
+    return _SEASON_CACHE_TTL if historical and finished else _TV_CACHE_TTL
+
+
+def _detail_ttl(detail):
+    # Six-hour scheduled runs must be able to reuse stable ended-show details;
+    # new/recent/unknown shows remain on a conservative six-hour lifetime.
+    return (_ENDED_TV_CACHE_TTL if detail["status"].lower() in ("ended", "canceled", "cancelled")
+            else _TV_CACHE_TTL)
+
+
+async def _fetch_detail(http, key, tmdb_id, append):
+    try:
+        detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}", append=append)
+    except LibraryScanError as exc:
+        if exc.status_code != 400 or not append:
+            raise
+        # Some shows lack season 1, or reject an appended resource. One plain
+        # retry discovers the authoritative season list without a retry loop.
+        detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}")
+    return _detail_meta(detail, tmdb_id), detail
+
+
+async def _expected_episodes(http, key, tmdb_id, cutoff, cache=None):
+    cache = cache or TmdbCache()
+    tv_key = f"tmdb_meta:v1:tv:{tmdb_id}"
+    detail = await cache.get(tv_key)
+    if detail is not None:
+        try:
+            # Compact TV metadata uses the same public-field validator.
+            detail = _detail_meta(detail, tmdb_id)
+        except (LibraryScanError, AttributeError, TypeError):
+            detail = None
+    appended = {}
+    first_append = False
+    if detail is None:
+        cached_first = _cached_season(await cache.get(f"tmdb_meta:v1:season:{tmdb_id}:1"), 1, None)
+        first_append = cached_first is None
+        detail, appended = await _fetch_detail(http, key, tmdb_id, [1] if first_append else None)
+        await cache.put(tv_key, detail, _detail_ttl(detail))
+    seasons = {row["season_number"]: row for row in detail["seasons"]}
+    season_meta = {}
+    today = _now_date()
+
+    async def load_cached():
+        for number, row in seasons.items():
+            if number in season_meta:
+                if _cached_season(season_meta[number], number, row["episode_count"]) is not None:
+                    continue
+                season_meta.pop(number)
+            value = await cache.get(f"tmdb_meta:v1:season:{tmdb_id}:{number}")
+            value = _cached_season(value, number, row["episode_count"])
+            if value is not None:
+                season_meta[number] = value
+
+    async def consume(number, payload):
+        row = seasons[number]
+        try:
+            data = _season_meta(payload.get(f"season/{number}"), number, row["episode_count"])
+        except LibraryScanError:
+            # Missing/malformed appended children never mean an empty season.
+            data = _season_meta(await _tmdb_get(http, key, f"/tv/{tmdb_id}/season/{number}"),
+                                number, row["episode_count"])
+        season_meta[number] = data
+        await cache.put(f"tmdb_meta:v1:season:{tmdb_id}:{number}", data,
+                        _season_ttl(detail, data, today))
+
+    await load_cached()
+    if first_append and 1 in seasons and 1 not in season_meta:
+        await consume(1, appended)
+    changes = 0
+    while missing := sorted(seasons.keys() - season_meta.keys()):
+        batch = missing[:_APPEND_BATCH_SIZE]
+        refreshed, payload = await _fetch_detail(http, key, tmdb_id, batch)
+        if refreshed["seasons"] != detail["seasons"]:
+            changes += 1
+            if changes > 2:
+                raise LibraryScanError("TMDB 季列表持续变化，请稍后重新核对")
+        detail = refreshed
+        seasons = {row["season_number"]: row for row in detail["seasons"]}
+        season_meta = {number: data for number, data in season_meta.items() if number in seasons}
+        await cache.put(tv_key, detail, _detail_ttl(detail))
+        await load_cached()
+        for number in batch:
+            if number in seasons and number not in season_meta:
+                await consume(number, payload)
+    # Always apply the current cutoff to original dates. Cache entries contain
+    # neither local inventory nor the previous run's missing judgments.
+    return {number: {ep for ep, raw in data["episodes"]
+                     if (aired := _air_date(raw)) is not None and aired <= cutoff}
+            for number, data in season_meta.items()}
 
 
 def _safe_log(log, level, message, *args):
@@ -261,6 +406,10 @@ def _safe_log(log, level, message, *args):
 def _record_comparison(result, state, comparison):
     tmdb_id, group, missing, error = comparison
     state["processed"] += 1
+    if error:
+        state["done_ids"].discard(tmdb_id)
+    else:
+        state["done_ids"].add(tmdb_id)
     if error:
         result["failed"] += 1
         detail = f"剧集 {tmdb_id}：{error}"
@@ -290,7 +439,7 @@ def _report_progress(result, state, log, *, level="info", label="进度"):
     state["details"].clear()
 
 
-async def _scan_missing(cfg, http, log, result, state):
+async def _scan_missing(cfg, http, log, result, state, cache):
     try:
         base, emby_key, tmdb_key, delay = _settings(cfg)
         _safe_log(log, "info", "[自动订阅] Emby 缺集检查：开始完整读取剧集与单集库存")
@@ -314,6 +463,16 @@ async def _scan_missing(cfg, http, log, result, state):
     result["unknown"] = unknown + sum(group["unknown"] for group in groups.values())
     state["inventory_complete"] = True
     state["eligible"] = sum(not group["unknown"] for group in groups.values())
+    # No tokens or credentials enter a checkpoint, not even as fingerprints.
+    # Ordering survives date changes but is isolated by relevant settings.
+    scope = hashlib.sha256(f"v1|{base}|{delay}|{_TMDB_BASE}|zh-CN".encode()).hexdigest()
+    eligible_ids = {identity for identity, group in groups.items() if not group["unknown"]}
+    state["done_ids"] = (await cache.load_checkpoint(scope)) & eligible_ids
+    state["scope"] = scope
+    resumed = len(state["done_ids"])
+    if resumed:
+        _safe_log(log, "info", "[自动订阅] 缺集核对恢复排序：优先核对尚未完成的 %d 部，之前完成的 %d 部仍会重新核对",
+                  state["eligible"] - resumed, resumed)
     _safe_log(log, "info", "[自动订阅] Emby 库存读取完成：剧集 %d 条，单集 %d 条，待核对 TMDB 剧集 %d 部，资料不全跳过 %d",
               len(series), len(episodes), state["eligible"], result["unknown"])
     cutoff = _now_date() - timedelta(days=delay)
@@ -322,16 +481,18 @@ async def _scan_missing(cfg, http, log, result, state):
     async def compare(tmdb_id, group):
         async with semaphore:
             try:
-                expected = await _expected_episodes(http, tmdb_key, tmdb_id, cutoff)
+                expected = await _expected_episodes(http, tmdb_key, tmdb_id, cutoff, cache)
             except LibraryScanError as exc:
                 return tmdb_id, group, None, str(exc)
             missing = {season: sorted(numbers - group["local"].get(season, set()))
                        for season, numbers in expected.items()}
             return tmdb_id, group, {s: eps for s, eps in missing.items() if eps}, ""
 
-    tasks = [asyncio.create_task(compare(tmdb_id, group)) for tmdb_id, group in groups.items() if not group["unknown"]]
+    ordered_ids = sorted(eligible_ids, key=lambda identity: (identity in state["done_ids"], int(identity)))
+    tasks = [asyncio.create_task(compare(tmdb_id, groups[tmdb_id])) for tmdb_id in ordered_ids]
     pending = set(tasks)
     last_progress = monotonic()
+    last_checkpoint, checkpoint_processed = monotonic(), 0
     try:
         while pending:
             remaining_interval = max(0.001, _PROGRESS_LOG_INTERVAL_SECONDS - (monotonic() - last_progress))
@@ -341,6 +502,10 @@ async def _scan_missing(cfg, http, log, result, state):
             first_result = state["processed"] == 0 and bool(done)
             for task in done:
                 _record_comparison(result, state, task.result())
+            if (state["processed"] - checkpoint_processed >= 50
+                    or monotonic() - last_checkpoint >= _PROGRESS_LOG_INTERVAL_SECONDS):
+                await cache.save_checkpoint(scope, state["done_ids"])
+                checkpoint_processed, last_checkpoint = state["processed"], monotonic()
             if first_result or monotonic() - last_progress >= _PROGRESS_LOG_INTERVAL_SECONDS:
                 _report_progress(result, state, log)
                 last_progress = monotonic()
@@ -355,7 +520,7 @@ async def _scan_missing(cfg, http, log, result, state):
     return result
 
 
-async def scan_missing(cfg, http, log=None) -> dict:
+async def scan_missing(cfg, http, log=None, storage=None) -> dict:
     """Return completed comparisons within a bounded, cancellable scan.
 
     An incomplete Emby inventory is fatal and yields no candidates. Once the
@@ -365,13 +530,15 @@ async def scan_missing(cfg, http, log=None) -> dict:
     result = {"items": [], "scanned": 0, "matched": 0, "complete": 0,
               "unknown": 0, "failed": 0, "missing_episodes": 0, "error": "",
               "unprocessed": 0, "timed_out": False}
-    state = {"inventory_complete": False, "eligible": 0, "processed": 0, "details": []}
+    state = {"inventory_complete": False, "eligible": 0, "processed": 0, "details": [],
+             "scope": "", "done_ids": set()}
+    cache = TmdbCache(storage, log)
     budget = _SCAN_TIMEOUT_SECONDS
     deadline = cfg.get("_run_deadline")
     if isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and math.isfinite(deadline):
         budget = max(0.0, min(budget, deadline - monotonic()))
     try:
-        await asyncio.wait_for(_scan_missing(cfg, http, log, result, state), timeout=budget)
+        await asyncio.wait_for(_scan_missing(cfg, http, log, result, state, cache), timeout=budget)
     except TimeoutError:
         result["timed_out"] = True
         if not state["inventory_complete"]:
@@ -385,6 +552,30 @@ async def scan_missing(cfg, http, log=None) -> dict:
             _report_progress(result, state, log, level="warning", label="达到时间上限")
             _safe_log(log, "warning", "[自动订阅] 已保留 %d 部完整核对的缺集结果，另有 %d 部未核对",
                       len(result["items"]), result["unprocessed"])
+    finally:
+        async def finalize():
+            if state["inventory_complete"] and state["scope"]:
+                await cache.save_checkpoint(state["scope"], state["done_ids"],
+                                            complete=state["processed"] == state["eligible"])
+            await cache.flush()
+
+        async def bounded_finalize():
+            try:
+                await asyncio.wait_for(finalize(), timeout=_FINALIZE_TIMEOUT_SECONDS)
+            except TimeoutError:
+                cache.warn("TMDB 缓存收尾达到时间上限，已保留完成的核对结果")
+
+        # Preserve completed checkpoints on timeout/stop. A second stop still
+        # cancels and drains this bounded task; no background worker escapes.
+        final_task = asyncio.create_task(bounded_finalize())
+        try:
+            await asyncio.shield(final_task)
+        except asyncio.CancelledError:
+            final_task.cancel()
+            await asyncio.gather(final_task, return_exceptions=True)
+            raise
+        _safe_log(log, "info", "[自动订阅] TMDB 元数据缓存：命中 %d，未命中 %d，写入 %d；Emby 库存每轮实时读取",
+                  cache.hits, cache.misses, cache.writes)
     result["items"].sort(key=lambda item: int(item["tmdb_id"]))
     return result
 

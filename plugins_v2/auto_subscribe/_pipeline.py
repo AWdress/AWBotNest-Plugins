@@ -351,6 +351,12 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
     """处理单条，返回 (status, title, detail)。detail 为可读原因（供运行日志逐条展示）。
     终态写入 handled（跨轮去重）。"""
     title = item.title
+    # A source-supplied year already takes precedence over the search year
+    # below. Rejecting that same known year before searching avoids spending
+    # NextFind requests on entries which cannot pass this source's filter.
+    known_year = _year_int(item.year)
+    if filters.min_year and known_year and known_year < filters.min_year:
+        return STATUS_FILTERED, title, f"年份 {known_year} < {filters.min_year}"
     # pre 过滤：热度（豆瓣 source_meta.count，无则跳过该过滤）。
     if filters.min_popularity:
         count = item.source_meta.get("count")

@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.5',
+ 'version': '2.2.6',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -120,6 +120,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.6 优化大库缺集扫描\n'
+    '- 缺集优先执行，批量获取季详情并缓存已验证的 TMDB 元数据\n'
+    '- 超时保留核对进度，下轮优先处理未完成剧集，库存始终重新读取\n'
+    '- 猫眼取 Cookie 改为异步限时回调，已知旧年份提前过滤\n\n'
     'v2.2.5 修复长任务卡住\n'
     '- 整轮运行与网络请求使用实际截止时间，取消时中断请求并停止后续订阅\n'
     '- 缺集扫描及时显示低频进度，超时明确记录未处理项目\n'
