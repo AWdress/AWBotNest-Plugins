@@ -40,6 +40,7 @@ class RemotePrint:
         self.ipp = IPPPrinter(ctx, self.config)
         self.ipp_status = {}
         self.dispatch_lock = asyncio.Lock()
+        self.dispatch_task = None
         self.downloads = asyncio.Semaphore(2)
         self.receiving = 0
         self.stopped = False
@@ -134,13 +135,14 @@ class RemotePrint:
         self.ctx.action("archive_unknown", self.archive_unknown)
         self.ctx.action("test_ipp", self.test_ipp)
         self.ctx.action("show_wecom_setup", self.show_wecom_setup)
-        self.ctx.schedule_interval("打印文件清理", self.cleanup, seconds=60)
+        self.ctx.schedule_interval("打印文件清理", self.cleanup, seconds=900)
         if self.config()["print_mode"] == "ipp":
-            self.ctx.schedule_interval("打印任务处理", self.dispatch, seconds=3)
+            self.ctx.schedule_interval("打印队列兜底检查", self.check_queue, seconds=300)
         await self.refresh_telegram()
         # Standalone plugins are not reloaded by the platform's Bot reconnect.
         # Check the read-only selection and restore a managed handler ourselves.
-        self.ctx.schedule_interval("打印机器人连接检查", self.refresh_telegram, seconds=10)
+        self.ctx.schedule_interval("打印机器人连接检查", self.refresh_telegram, seconds=300)
+        self.request_dispatch()
         self.ctx.log.info("远程打印已就绪，方式=%s", "直接连接网络打印机" if self.config()["print_mode"] == "ipp" else "通过 Windows 电脑打印")
 
     def seed_config_defaults(self):
@@ -322,7 +324,9 @@ class RemotePrint:
         job = await self.queue.get_job(job_id, owner, source_channel=source_channel, permission_check=permission_check)
         try:
             if action == "print" and job["status"] == "pending":
-                return await self.queue.confirm(job_id, owner, copies, source_channel=source_channel, permission_check=permission_check)
+                job = await self.queue.confirm(job_id, owner, copies, source_channel=source_channel, permission_check=permission_check)
+                self.request_dispatch()
+                return job
             if action == "cancel" and job["status"] in {"receiving", "pending", "queued", "leased"}:
                 return await self.queue.cancel(job_id, owner, source_channel=source_channel, permission_check=permission_check)
         except ValueError:
@@ -425,6 +429,7 @@ class RemotePrint:
                     owner.split(":", 2)[1] if owner.startswith("wecom:") else str(getattr(self.ctx, "bot_id", "") or ""))
                 if simple[0] == "print":
                     job = await self.queue.confirm_single(owner, channel, copies=simple[1], permission_check=permission_check)
+                    self.request_dispatch()
                 elif simple[0] == "cancel":
                     job = await self.queue.cancel_single(owner, channel, permission_check=permission_check)
                 else:
@@ -434,10 +439,12 @@ class RemotePrint:
                 values = argument.split(maxsplit=2)
                 if not values:
                     job = await self.queue.confirm_single(owner, source_channel or "", copies=1, permission_check=permission_check)
+                    self.request_dispatch()
                     return status_text(job)
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
                 job = await self.queue.confirm(values[0], owner, copies, printer, source_channel=source_channel, permission_check=permission_check)
+                self.request_dispatch()
                 return status_text(job)
             if command in {"/print_cancel", "取消"}:
                 if not argument.strip():
@@ -528,6 +535,7 @@ class RemotePrint:
                 if job["source"] == "wecom":
                     permission_check = lambda: self.wecom_owner_allowed(job["owner"], job.get("source_channel", ""))
                 job = await self.queue.finish(job["id"], metadata, permission_check=permission_check)
+            self.request_dispatch()
             await self.notify(job["source"], job["owner"], received_text(job), job.get("source_channel", ""),
                               job=job if job["status"] == "pending" else None, message=wecom_message)
             self.ctx.log.info("打印文件已收取：任务 %s，%s 页，状态=%s", job["id"], job["pages"], LABELS[job["status"]])
@@ -706,14 +714,46 @@ class RemotePrint:
         except ValueError as exc:
             return {"ok": False, "message": str(exc)}
 
+    async def check_queue(self):
+        # The platform runs synchronous scheduled callbacks in a thread;
+        # worker creation must stay on the event loop.
+        self.request_dispatch()
+
+    def request_dispatch(self):
+        """Wake one managed worker only when there are queued IPP jobs."""
+        cfg = self.config()
+        if self.stopped or not cfg["enabled"] or cfg["print_mode"] != "ipp":
+            return
+        if self.dispatch_task is not None and not self.dispatch_task.done():
+            return
+        if not any(job["status"] == "queued" and job.get("backend") == "ipp"
+                   for job in self.queue.state["jobs"].values()):
+            return
+        try:
+            self.dispatch_task = self.spawn(self.dispatch_pending(), "print_ipp_dispatch")
+        except Exception as exc:
+            # A durable confirmation must not be reported as failed merely
+            # because the worker could not start. The slow fallback can retry
+            # queued jobs, never submitted or ambiguous jobs.
+            self.ctx.log.warning("打印处理暂未启动（%s），已确认任务保留，稍后检查", type(exc).__name__)
+
+    async def dispatch_pending(self):
+        # Keep long queues outside the scheduler callback's time limit. Each
+        # job still uses the persistent poll/start/result submission guards.
+        # Reconcile expired leases when real work arrives; low-frequency file
+        # cleanup must not leave a stale reservation blocking a new print.
+        await self.cleanup()
+        while await self.dispatch():
+            pass
+
     async def dispatch(self):
         cfg = self.config()
         if self.stopped or not cfg["enabled"] or cfg["print_mode"] != "ipp" or self.dispatch_lock.locked():
-            return
+            return False
         async with self.dispatch_lock:
             grant = (await self.queue.poll("ipp"))["job"]
             if grant is None:
-                return
+                return False
             job_id, claim = grant["id"], grant["claim_token"]
             original = self.queue.file(job_id)
             converted = original.with_suffix(".ipp.jpg")
@@ -729,11 +769,16 @@ class RemotePrint:
                 self.ipp.validate_document(grant["format"], grant["copies"], caps)
                 prepared, mime = await self.ipp.prepare(original, grant["format"], capabilities=caps)
                 latest = self.config()
-                if self.stopped or not latest["enabled"] or grant["copies"] > latest["max_copies"]:
-                    raise ValueError("打印已关闭或份数上限已更改，未提交任务")
+                if self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp" or grant["copies"] > latest["max_copies"]:
+                    raise ValueError("打印已关闭、连接方式或份数上限已更改，未提交任务")
                 permission = await self.queue.start(job_id, claim)
                 if not permission["proceed"]:
-                    return
+                    return True
+                latest = self.config()
+                if (self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp"
+                        or grant["copies"] > latest["max_copies"]
+                        or not self.queue.route_matches(self.queue.state["jobs"][job_id])):
+                    raise ValueError("打印设置在准备期间已更改，未提交任务")
                 started = True
                 receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps)
                 spool_id, status = receipt["spool_id"], "submitted"
@@ -763,6 +808,7 @@ class RemotePrint:
                 else:
                     self.ctx.log.info("IPP 打印任务 %s：%s", job_id, LABELS[status])
                 await self.notify_job(result)
+            return True
 
     def urls(self):
         base = self.config()["public_base_url"].rstrip("/")

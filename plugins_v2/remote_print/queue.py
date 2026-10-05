@@ -300,6 +300,8 @@ class PrintQueue:
         if job["status"] != "pending":
             raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
         cfg = self.config()
+        if time.time() - job["created"] > cfg["retention_hours"] * 3600:
+            raise ValueError("打印任务已过期，请重新发送文件")
         if not self.route_matches(job):
             raise ValueError("打印连接方式或目标已更改，请取消旧任务并重新发送文件")
         value = job["copies"] if copies is None else copies
@@ -423,6 +425,8 @@ class PrintQueue:
             for job in snapshot["jobs"].values():
                 if job["status"] != "queued" or not self.route_matches(job):
                     continue
+                if now - job["created"] > cfg["retention_hours"] * 3600:
+                    continue  # Slow cleanup must not make expired files printable.
                 if backend == "agent" and job.get("format") not in self.device.get("formats", []):
                     continue
                 job.update(status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
@@ -455,6 +459,8 @@ class PrintQueue:
             job = self._claim(snapshot, job_id, token)
             if job["status"] != "leased" or time.time() > job.get("lease_until", 0):
                 return {"ok": True, "proceed": False}
+            if time.time() - job["created"] > self.config()["retention_hours"] * 3600:
+                raise ValueError("打印任务已过期，未提交打印，请重新发送文件")
             job.update(status="started", updated=time.time())
             await self._commit(snapshot)
             return {"ok": True, "proceed": True}
