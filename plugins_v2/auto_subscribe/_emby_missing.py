@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import date, datetime, timedelta, timezone
+from time import monotonic
 from urllib.parse import urlsplit, urlunsplit
 
 
 _PAGE_SIZE = 1000
 _MAX_PAGES = 5000
+_HTTP_TIMEOUT_SECONDS = 35.0
+_SCAN_TIMEOUT_SECONDS = 1500.0
+_PROGRESS_LOG_INTERVAL_SECONDS = 60.0
 _TMDB_BASE = "https://api.themoviedb.org/3"
 _SHANGHAI = timezone(timedelta(hours=8))
 
@@ -62,12 +67,15 @@ async def _get_json(http, url, *, service, params=None, headers=None):
     try:
         # Use the host HTTP service so its proxy, timeout and request governance
         # remain in effect. Never redirect a request carrying a private token.
-        response = await http.get(
-            url, params=params or {}, headers=headers or {}, timeout=30,
-            follow_redirects=False,
+        response = await asyncio.wait_for(
+            http.get(url, params=params or {}, headers=headers or {}, timeout=30,
+                     follow_redirects=False),
+            timeout=_HTTP_TIMEOUT_SECONDS,
         )
     except asyncio.CancelledError:
         raise
+    except TimeoutError:
+        raise LibraryScanError(f"{service} 请求超时（整次请求限时 {_HTTP_TIMEOUT_SECONDS:g} 秒）") from None
     except Exception as exc:
         kind = "请求超时" if "timeout" in type(exc).__name__.lower() else "连接失败"
         raise LibraryScanError(f"{service} {kind}") from None
@@ -83,13 +91,14 @@ async def _get_json(http, url, *, service, params=None, headers=None):
     return payload
 
 
-async def _emby_items(http, base, key, item_type):
+async def _emby_items(http, base, key, item_type, log=None):
     """Read every page; a short page alone never proves completeness."""
     fields = "ProviderIds,Path,SeriesId,ParentIndexNumber,IndexNumber,IndexNumberEnd,LocationType,IsMissing,IsVirtualItem"
     rows, seen = [], set()
     start = 0
     total = None
     total_present = None
+    last_progress = monotonic()
     for _ in range(_MAX_PAGES):
         data = await _get_json(
             http, f"{base}/Items", service="Emby",
@@ -128,6 +137,11 @@ async def _emby_items(http, base, key, item_type):
             seen.add(item_id)
             rows.append(row)
         start += len(page)
+        if monotonic() - last_progress >= _PROGRESS_LOG_INTERVAL_SECONDS:
+            _safe_log(log, "info", "[自动订阅] Emby %s 读取进度：%d/%s 条",
+                      "剧集" if item_type == "Series" else "单集", start,
+                      str(total) if total is not None else "总数待确认")
+            last_progress = monotonic()
         if total is not None and start == total:
             return rows
     raise LibraryScanError("Emby 分页超过安全范围，无法确认媒体库完整性")
@@ -244,17 +258,48 @@ def _safe_log(log, level, message, *args):
         getattr(log, level)(message, *args)
 
 
-async def scan_missing(cfg, http, log=None) -> dict:
-    """Return confirmed candidates; never subscribe or alter Emby metadata."""
-    result = {"items": [], "scanned": 0, "matched": 0, "complete": 0,
-              "unknown": 0, "failed": 0, "missing_episodes": 0, "error": ""}
+def _record_comparison(result, state, comparison):
+    tmdb_id, group, missing, error = comparison
+    state["processed"] += 1
+    if error:
+        result["failed"] += 1
+        detail = f"剧集 {tmdb_id}：{error}"
+    elif missing:
+        result["items"].append({"tmdb_id": tmdb_id, "media_type": "tv", "title": group["title"], "missing_by_season": missing})
+        count = sum(map(len, missing.values()))
+        result["missing_episodes"] += count
+        episodes = "；".join(f"S{season:02d}: " + ",".join(f"E{ep:02d}" for ep in eps) for season, eps in missing.items())
+        if len(episodes) > 80:
+            episodes = episodes[:80] + "…"
+        detail = f"剧集 {tmdb_id} 缺 {count} 集（{episodes}）"
+    else:
+        result["complete"] += 1
+        detail = ""
+    # Keep progress informative without flooding a large library's logs.
+    if detail and len(state["details"]) < 3:
+        state["details"].append(detail)
+
+
+def _report_progress(result, state, log, *, level="info", label="进度"):
+    details = "；".join(state["details"])
+    _safe_log(log, level, "[自动订阅] TMDB 缺集核对%s：已核对 %d/%d 部，完整 %d，缺集 %d，失败 %d，未核对 %d%s",
+              label, state["processed"], state["eligible"], result["complete"],
+              len(result["items"]), result["failed"],
+              max(0, state["eligible"] - state["processed"]),
+              f"；{details}" if details else "")
+    state["details"].clear()
+
+
+async def _scan_missing(cfg, http, log, result, state):
     try:
         base, emby_key, tmdb_key, delay = _settings(cfg)
-        series = await _emby_items(http, base, emby_key, "Series")
+        _safe_log(log, "info", "[自动订阅] Emby 缺集检查：开始完整读取剧集与单集库存")
+        series = await _emby_items(http, base, emby_key, "Series", log)
         result["scanned"] = len(series)
+        _safe_log(log, "info", "[自动订阅] Emby 剧集读取完成：%d 条，开始读取单集", len(series))
         # Inventory completion precedes all comparisons, so an interrupted
         # Episode page can never turn partially collected coverage into gaps.
-        episodes = await _emby_items(http, base, emby_key, "Episode") if series else []
+        episodes = await _emby_items(http, base, emby_key, "Episode", log) if series else []
     except LibraryScanError as exc:
         result["error"] = str(exc)
         _safe_log(log, "warning", "[自动订阅] Emby 缺集检查失败：%s", result["error"])
@@ -267,6 +312,10 @@ async def scan_missing(cfg, http, log=None) -> dict:
         return result
     result["matched"] = len(groups)
     result["unknown"] = unknown + sum(group["unknown"] for group in groups.values())
+    state["inventory_complete"] = True
+    state["eligible"] = sum(not group["unknown"] for group in groups.values())
+    _safe_log(log, "info", "[自动订阅] Emby 库存读取完成：剧集 %d 条，单集 %d 条，待核对 TMDB 剧集 %d 部，资料不全跳过 %d",
+              len(series), len(episodes), state["eligible"], result["unknown"])
     cutoff = _now_date() - timedelta(days=delay)
     semaphore = asyncio.Semaphore(4)
 
@@ -281,8 +330,20 @@ async def scan_missing(cfg, http, log=None) -> dict:
             return tmdb_id, group, {s: eps for s, eps in missing.items() if eps}, ""
 
     tasks = [asyncio.create_task(compare(tmdb_id, group)) for tmdb_id, group in groups.items() if not group["unknown"]]
+    pending = set(tasks)
+    last_progress = monotonic()
     try:
-        comparisons = await asyncio.gather(*tasks)
+        while pending:
+            remaining_interval = max(0.001, _PROGRESS_LOG_INTERVAL_SECONDS - (monotonic() - last_progress))
+            done, pending = await asyncio.wait(
+                pending, timeout=remaining_interval, return_when=asyncio.FIRST_COMPLETED,
+            )
+            first_result = state["processed"] == 0 and bool(done)
+            for task in done:
+                _record_comparison(result, state, task.result())
+            if first_result or monotonic() - last_progress >= _PROGRESS_LOG_INTERVAL_SECONDS:
+                _report_progress(result, state, log)
+                last_progress = monotonic()
     finally:
         # Cancellation must not leave HTTP workers running after plugin stop.
         for task in tasks:
@@ -290,20 +351,41 @@ async def scan_missing(cfg, http, log=None) -> dict:
                 task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-    for tmdb_id, group, missing, error in comparisons:
-        if error:
-            result["failed"] += 1
-            _safe_log(log, "warning", "[自动订阅] TMDB 缺集检查跳过剧集 %s：%s", tmdb_id, error)
-        elif missing:
-            result["items"].append({"tmdb_id": tmdb_id, "media_type": "tv", "title": group["title"], "missing_by_season": missing})
-            count = sum(map(len, missing.values()))
-            result["missing_episodes"] += count
-            details = "；".join(f"S{season:02d}: " + ",".join(f"E{ep:02d}" for ep in eps) for season, eps in missing.items())
-            if len(details) > 400:
-                details = details[:400] + "…"
-            _safe_log(log, "info", "[自动订阅] Emby 剧集 %s 缺 %d 集：%s", tmdb_id, count, details)
+    _report_progress(result, state, log, level="warning" if result["failed"] else "info", label="结束")
+    return result
+
+
+async def scan_missing(cfg, http, log=None) -> dict:
+    """Return completed comparisons within a bounded, cancellable scan.
+
+    An incomplete Emby inventory is fatal and yields no candidates. Once the
+    inventory is complete, a time limit retains fully compared shows while
+    explicitly marking the rest unprocessed; ``error`` remains fatal-only.
+    """
+    result = {"items": [], "scanned": 0, "matched": 0, "complete": 0,
+              "unknown": 0, "failed": 0, "missing_episodes": 0, "error": "",
+              "unprocessed": 0, "timed_out": False}
+    state = {"inventory_complete": False, "eligible": 0, "processed": 0, "details": []}
+    budget = _SCAN_TIMEOUT_SECONDS
+    deadline = cfg.get("_run_deadline")
+    if isinstance(deadline, (int, float)) and not isinstance(deadline, bool) and math.isfinite(deadline):
+        budget = max(0.0, min(budget, deadline - monotonic()))
+    try:
+        await asyncio.wait_for(_scan_missing(cfg, http, log, result, state), timeout=budget)
+    except TimeoutError:
+        result["timed_out"] = True
+        if not state["inventory_complete"]:
+            result["error"] = "缺集检查达到时间上限，Emby 库存尚未完整读取，本轮未新增缺集订阅"
+            result["items"].clear()
+            result["missing_episodes"] = 0
+            _safe_log(log, "warning", "[自动订阅] %s", result["error"])
         else:
-            result["complete"] += 1
+            result["unprocessed"] = max(0, state["eligible"] - state["processed"])
+            result["failed"] += result["unprocessed"]
+            _report_progress(result, state, log, level="warning", label="达到时间上限")
+            _safe_log(log, "warning", "[自动订阅] 已保留 %d 部完整核对的缺集结果，另有 %d 部未核对",
+                      len(result["items"]), result["unprocessed"])
+    result["items"].sort(key=lambda item: int(item["tmdb_id"]))
     return result
 
 

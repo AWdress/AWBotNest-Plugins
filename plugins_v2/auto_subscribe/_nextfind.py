@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import math
+import time
 from typing import List, Optional, Tuple
 
 import httpx
@@ -40,6 +43,18 @@ class NextFindResponseError(NextFindError):
     """HTTP 成功但响应无法作为可靠查询结果使用。"""
 
 
+class NextFindTimeoutError(NextFindError):
+    """整次请求超过墙钟截止时间，已停止底层网络任务。"""
+
+
+class NextFindDeadlineError(NextFindTimeoutError):
+    """整轮截止时间已到，不能继续发出其他请求。"""
+
+
+class NextFindCancelledError(NextFindError):
+    """调用方取消了运行，底层请求已关闭。"""
+
+
 class NextFindServerError(NextFindError):
     """NextFind 服务端 5xx；插件可以选择稳定接口继续工作。"""
 
@@ -62,18 +77,100 @@ class NextFindHTTPError(NextFindError):
 class NextFindClient:
     """NextFind OpenAPI 轻客户端（同步，直连不走代理）。"""
 
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: str, timeout: float = 30, *,
+                 cancel_event=None, deadline: Optional[float] = None):
         self.base_url = str(base_url or "").strip().rstrip("/")
         self.api_key = str(api_key or "").strip()
-        self.timeout = timeout
+        try:
+            self.timeout = float(timeout)
+            self.deadline = float(deadline) if deadline is not None else None
+        except (TypeError, ValueError):
+            raise NextFindError("NextFind 请求超时或截止时间设置无效") from None
+        if (not math.isfinite(self.timeout) or self.timeout <= 0
+                or (self.deadline is not None and not math.isfinite(self.deadline))):
+            raise NextFindError("NextFind 请求超时或截止时间设置无效")
+        self.cancel_event = cancel_event
 
-    def _client(self) -> httpx.Client:
+    def _client(self) -> httpx.AsyncClient:
         # 自建服务：trust_env=False 直连，绕过平台注入的境外代理。
-        return httpx.Client(
+        return httpx.AsyncClient(
             timeout=self.timeout,
             trust_env=False,
+            follow_redirects=False,
             headers={"X-API-Key": self.api_key},
         )
+
+    def _check_running(self, request_deadline: float, path: str) -> None:
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            raise NextFindCancelledError(f"NextFind 请求已取消：{path}")
+        now = time.monotonic()
+        if self.deadline is not None and now >= self.deadline:
+            if self.cancel_event is not None:
+                self.cancel_event.set()
+            raise NextFindDeadlineError(f"NextFind 整轮截止时间已到：{path}")
+        if now >= request_deadline:
+            raise NextFindTimeoutError(f"NextFind 请求超时：{path}")
+
+    async def _request_async(self, method: str, path: str, kwargs: dict,
+                             request_deadline: float):
+        async def receive():
+            self._check_running(request_deadline, path)
+            async with self._client() as client:
+                # Client initialization may consume time too. Do not send a
+                # mutation if its deadline expired while preparing the client.
+                self._check_running(request_deadline, path)
+                async with client.stream(method, f"{self.base_url}{path}", **kwargs) as response:
+                    self._check_running(request_deadline, path)
+                    self._check(response, path)
+                    await response.aread()
+                    self._check_running(request_deadline, path)
+                    try:
+                        return response.json()
+                    except ValueError:
+                        raise NextFindResponseError(f"NextFind 响应不是有效 JSON：{path}") from None
+
+        request = asyncio.create_task(receive())
+        try:
+            # A network-phase timeout alone permits an endless trickle of
+            # response bytes. This deadline covers connection, headers and the
+            # entire body, and the Event also stops a blocked network await.
+            while True:
+                self._check_running(request_deadline, path)
+                done, _ = await asyncio.wait({request}, timeout=min(0.05, request_deadline - time.monotonic()))
+                if done:
+                    self._check_running(request_deadline, path)
+                    return await request
+        finally:
+            if not request.done():
+                request.cancel()
+            # Return only after the actual AsyncClient request/context has
+            # unwound and closed its stream. No orphaned writer is left behind.
+            await asyncio.gather(request, return_exceptions=True)
+
+    def _request(self, method: str, path: str, **kwargs):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise NextFindError("同步 NextFind 请求须在线程中执行")
+        request_deadline = time.monotonic() + self.timeout
+        if self.deadline is not None:
+            request_deadline = min(request_deadline, self.deadline)
+        self._check_running(request_deadline, path)
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(self._request_async(method, path, kwargs, request_deadline))
+        except httpx.TimeoutException:
+            raise NextFindTimeoutError(f"NextFind 请求超时：{path}") from None
+        except httpx.RequestError:
+            raise NextFindError(f"NextFind 连接失败：{path}") from None
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            # Cancelling a DNS lookup prevents its coroutine from proceeding to
+            # connect/send. Do not wait indefinitely for an OS DNS worker here.
+            # loop.close() shuts down its executor without waiting for that worker.
+            loop.close()
 
     @staticmethod
     def _check(resp, path: str = "") -> None:
@@ -86,22 +183,12 @@ class NextFindClient:
             raise NextFindHTTPError(resp.status_code, path)
 
     def _get(self, path: str, params: dict) -> dict:
-        with self._client() as client:
-            resp = client.get(f"{self.base_url}{path}", params=params)
-            self._check(resp, path)
-            try:
-                return resp.json()
-            except ValueError:
-                raise NextFindResponseError(f"NextFind 响应不是有效 JSON：{path}") from None
+        return self._request("GET", path, params=params)
 
     def _post(self, path: str, body: dict) -> dict:
-        with self._client() as client:
-            resp = client.post(f"{self.base_url}{path}", json=body)
-            self._check(resp, path)
-            try:
-                return resp.json()
-            except ValueError:
-                raise NextFindResponseError(f"NextFind 响应不是有效 JSON：{path}") from None
+        # Never retry a mutation: after a timeout its server-side outcome may
+        # already be committed, even though no response reached the client.
+        return self._request("POST", path, json=body)
 
     @staticmethod
     def _true_flag(value) -> bool:
@@ -219,10 +306,7 @@ class NextFindClient:
         return self._request_delete(path, params)
 
     def _request_delete(self, path: str, params: dict):
-        with self._client() as client:
-            resp = client.delete(f"{self.base_url}{path}", params=params)
-            self._check(resp, path)
-            return resp.json()
+        return self._request("DELETE", path, params=params)
 
     def settings(self, name: str):
         return self._get(f"/settings/{name}", {})

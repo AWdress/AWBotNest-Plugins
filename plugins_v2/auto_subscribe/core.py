@@ -24,7 +24,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.4",
+    "version": "2.2.5",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -45,6 +45,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.5 修复长任务卡住\n"
+    "- 整轮运行与网络请求使用实际截止时间，取消时中断请求并停止后续订阅\n"
+    "- 缺集扫描及时显示低频进度，超时明确记录未处理项目\n"
+    "- 保留运行互斥与已完成结果，不通过强制清锁启动重复任务\n\n"
     "v2.2.4 修复蜜柑解析与订阅流程\n"
     "- 蜜柑使用内置解析器，不再依赖 lxml；全部榜单与 Bangumi 继承平台代理\n"
     "- 严格校验搜索、额度、媒体类型和布尔标记，鉴权失败中止本轮\n"
@@ -145,6 +149,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
             m_parts.append(f"失败{missing_subs['failed']}")
         if missing_subs.get("unprocessed"):
             m_parts.append(f"未处理{missing_subs['unprocessed']}")
+        if missing_subs.get("scan_timed_out"):
+            m_parts.append(f"扫描超时，未核对{missing_subs.get('scan_unprocessed', 0)}部")
         lines.append("[缺集订阅] " + ("，".join(m_parts) if m_parts else "无缺集项目"))
 
     if fill_stats is not None:
@@ -182,25 +188,47 @@ _run_lock = None
 _state: dict = {}
 _background_tasks: set[asyncio.Task] = set()
 _cancel_events: set[threading.Event] = set()
+_sync_workers: set[asyncio.Task] = set()
+_RUN_TIMEOUT_SECONDS = 1800.0
+_CANCEL_GRACE_SECONDS = 5.0
+_FINALIZE_TIMEOUT_SECONDS = 10.0
 
 
-async def _run_sync(func, *args, cancel_event):
-    """取消时停止后续写请求，等待当前请求结束后才释放整轮锁。"""
+def _worker_done(worker):
+    _sync_workers.discard(worker)
+    if not worker.cancelled():
+        worker.exception()
+
+
+def _is_running(ignore_task=None):
+    return ((_run_lock is not None and _run_lock.locked())
+            or any(task is not ignore_task and not task.done() for task in _background_tasks)
+            or any(not task.done() for task in _sync_workers))
+
+
+async def _run_sync(func, *args, cancel_event, on_result=None):
+    """取消在途请求并短暂等待退出；异常慢的线程仍阻止新轮次。"""
     worker = asyncio.create_task(asyncio.to_thread(func, *args))
+    _sync_workers.add(worker)
+    worker.add_done_callback(_worker_done)
     try:
-        return await asyncio.shield(worker)
+        value = await asyncio.shield(worker)
+        if on_result is not None:
+            on_result(value)
+        return value
     except asyncio.CancelledError:
         cancel_event.set()
-        while not worker.done():
+        deadline = time.monotonic() + _CANCEL_GRACE_SECONDS
+        while not worker.done() and time.monotonic() < deadline:
             try:
-                await asyncio.shield(worker)
+                await asyncio.wait({worker}, timeout=max(0, deadline - time.monotonic()))
             except asyncio.CancelledError:
                 continue
-            except Exception:
-                break
-        # Retrieve any worker failure, without replacing the cancellation.
+        # Do not cancel the to_thread task: cancellation cannot kill its thread,
+        # and losing that handle would allow a new round to race old writes.
         if worker.done() and not worker.cancelled():
-            worker.exception()
+            if worker.exception() is None and on_result is not None:
+                on_result(worker.result())
         raise
 
 
@@ -218,10 +246,11 @@ async def _state_set(ctx, key, value) -> None:
 class _PlatformHttpProxy:
     """同步榜单在线程中调用 ctx.http，继承平台代理并支持取消。"""
 
-    def __init__(self, ctx, loop, cancel_event):
+    def __init__(self, ctx, loop, cancel_event, deadline=None):
         self._http = ctx.http
         self._loop = loop
         self._cancel_event = cancel_event
+        self._deadline = deadline
 
     def get(self, url: str, **kwargs):
         try:
@@ -237,6 +266,10 @@ class _PlatformHttpProxy:
 
         # HTTPX 的 timeout 限制每个网络阶段；同时限制整次等待，避免停用时遗留线程。
         deadline = time.monotonic() + float(kwargs.get("timeout", 30)) + 5
+        if self._deadline is not None:
+            deadline = min(deadline, self._deadline)
+        if deadline <= time.monotonic():
+            raise TimeoutError("本轮运行已超时")
         request = self._http.get(url, **kwargs)
         try:
             future = asyncio.run_coroutine_threadsafe(request, self._loop)
@@ -266,10 +299,11 @@ class _PlatformHttpProxy:
 class _PlatformAIProxy:
     """让同步榜单流水线安全调用平台异步 AI。"""
 
-    def __init__(self, ctx, loop, cancel_event=None):
+    def __init__(self, ctx, loop, cancel_event=None, deadline=None):
         self._ai = ctx.ai
         self._loop = loop
         self._cancel_event = cancel_event if cancel_event is not None else threading.Event()
+        self._deadline = deadline
 
     def is_available(self, capability: str = "text") -> bool:
         checker = getattr(self._ai, "is_available", None)
@@ -290,6 +324,10 @@ class _PlatformAIProxy:
             raise RuntimeError("AI 请求已取消")
         # 平台文本 AI 最大网络超时为 300 秒；额外覆盖排队及桥接等待。
         deadline = time.monotonic() + 330
+        if self._deadline is not None:
+            deadline = min(deadline, self._deadline)
+        if deadline <= time.monotonic():
+            raise TimeoutError("本轮运行已超时")
         request = self._ai.chat(prompt=prompt, **kwargs)
         try:
             future = asyncio.run_coroutine_threadsafe(request, self._loop)
@@ -561,22 +599,117 @@ def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None
     return stats, added_titles
 
 
+async def _save_interrupted(ctx, progress, message):
+    """Persist confirmed results only; an interrupted round is never completed."""
+    result = progress.get("result")
+    if result is not None:
+        handled = dict(result.handled)
+        missing = progress.get("missing_subs") or {}
+        from ._models import make_history_key
+        for item in missing.get("added_items", []):
+            handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
+                "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
+                "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        await _state_set(ctx, "handled", handled)
+        await _state_set(ctx, "netflix_cache", result.nf_cache)
+    for key, name in (("missing_subs", "last_missing_subscription_stats"),
+                      ("fill_stats", "last_fill_missing_stats")):
+        stats = progress.get(key)
+        if stats is not None:
+            await _state_set(ctx, name, {k: v for k, v in stats.items() if k != "added_items"})
+    agg = {}
+    if result is not None:
+        for stats in result.stats.values():
+            for key, count in stats.items():
+                agg[key] = agg.get(key, 0) + count
+    agg.update({"interrupted": 1, "error": max(1, agg.get("error", 0)),
+                "message": message, "phase": progress["phase"]})
+    if progress.get("missing_subs"):
+        agg["missing_added"] = progress["missing_subs"].get("added", 0)
+        agg["missing_unprocessed"] = (progress["missing_subs"].get("unprocessed", 0)
+                                      + progress["missing_subs"].get("scan_unprocessed", 0))
+        agg["missing_scan_timed_out"] = int(bool(progress["missing_subs"].get("scan_timed_out")))
+        agg["subscribed"] = agg.get("subscribed", 0) + agg["missing_added"]
+    await _state_set(ctx, "last_stats", agg)
+    await _state_set(ctx, "last_run", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+
+def _check_round_running(cancel_event, deadline):
+    if deadline is not None and time.monotonic() >= deadline:
+        cancel_event.set()
+        raise TimeoutError("本轮运行已超时")
+    if cancel_event.is_set():
+        raise asyncio.CancelledError
+
+
+def _merge_scan_stats(stats, scan):
+    for key in ("scanned", "matched", "complete", "unknown", "missing_episodes"):
+        stats[key] = scan.get(key, 0)
+    stats["failed"] += scan.get("failed", 0)
+    stats["scan_unprocessed"] = scan.get("unprocessed", 0)
+    stats["scan_timed_out"] = scan.get("timed_out", False)
+    stats["scan_error"] = scan.get("error", "")
+    if stats["scan_error"]:
+        stats["failed"] = max(1, stats["failed"])
+        stats["error"] = stats.get("error") or stats["scan_error"]
+    return stats
+
+
 async def _run(ctx, label: str) -> str:
+    if _is_running(ignore_task=asyncio.current_task()):
+        ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次运行(%s)", label)
+        return "上一轮仍在运行，已跳过"
     cancel_event = threading.Event()
+    progress = {"phase": "准备", "result": None, "missing_subs": None, "fill_stats": None}
     _cancel_events.add(cancel_event)
     try:
-        return await _run_round(ctx, label, cancel_event)
+        deadline = time.monotonic() + _RUN_TIMEOUT_SECONDS
+        try:
+            async with asyncio.timeout(_RUN_TIMEOUT_SECONDS) as timeout_scope:
+                return await _run_round(ctx, label, cancel_event, deadline=deadline, progress=progress)
+        except TimeoutError:
+            if not timeout_scope.expired() and time.monotonic() < deadline:
+                raise
+            cancel_event.set()
+            message = f"本轮运行超过 {int(_RUN_TIMEOUT_SECONDS / 60)} 分钟，已停止（阶段：{progress['phase']}）"
+            ctx.log.error("[自动订阅] %s", message)
+            if any(not worker.done() for worker in _sync_workers):
+                ctx.log.error("[自动订阅] 旧工作线程尚未退出，已阻止新轮次，避免重复订阅")
+            try:
+                async with asyncio.timeout(_FINALIZE_TIMEOUT_SECONDS):
+                    await _save_interrupted(ctx, progress, message)
+                    if _effective_cfg(ctx).get("notify", True):
+                        await ctx.notify({"状态": "运行超时", "详情": message,
+                                          "处理结果": "已完成的订阅保留，未处理项目留待下一轮"},
+                                         level="error", category="自动订阅")
+            except Exception as exc:
+                ctx.log.warning("[自动订阅] 超时结果保存或通知失败：%s", request_error(exc))
+            return message
+        except asyncio.CancelledError:
+            cancel_event.set()
+            # A stopped/reloaded plugin must not send another notification.
+            try:
+                if any(progress.get(key) is not None for key in ("result", "missing_subs", "fill_stats")):
+                    async with asyncio.timeout(_FINALIZE_TIMEOUT_SECONDS):
+                        await _save_interrupted(ctx, progress, f"任务已取消（阶段：{progress['phase']}）")
+            except (Exception, asyncio.CancelledError):
+                pass
+            raise
     finally:
         _cancel_events.discard(cancel_event)
 
 
-async def _run_round(ctx, label: str, cancel_event) -> str:
+async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=None) -> str:
     """执行一轮：阻塞流水线跑在 to_thread，通知/kv 在事件循环。返回汇总文本。"""
-    if _run_lock.locked():
+    if _run_lock.locked() or any(not worker.done() for worker in _sync_workers):
         ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次运行(%s)", label)
         return "上一轮仍在运行，已跳过"
     async with _run_lock:
         cfg = _effective_cfg(ctx)
+        cfg["_cancel_event"] = cancel_event
+        cfg["_run_deadline"] = deadline
+        progress = progress if progress is not None else {"phase": "准备"}
         if not cfg.get("api_url") or not cfg.get("api_key"):
             msg = "未配置 NextFind 地址或密钥，跳过"
             ctx.log.warning("[自动订阅] %s", msg)
@@ -590,19 +723,21 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
 
         # 猫眼启用时先在事件循环里用平台浏览器取 Cookie，注入 cfg 供流水线（跑在线程里）用。
         if cfg.get("maoyan_enabled"):
+            progress["phase"] = "猫眼浏览器"
             cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
         if cfg.get("ai_assist_recognition"):
-            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event)
+            cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
 
         if any(cfg.get(k) for k in _ENABLE_KEYS):
-            cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event)
+            cfg["_platform_http"] = _PlatformHttpProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
 
-        cfg["_cancel_event"] = cancel_event
         handled = _state_get("handled", {})
         nf_cache = _state_get("netflix_cache", {})
         ctx.log.info("[自动订阅] 开始运行(%s)", label)
+        progress["phase"] = "榜单查询与订阅"
         try:
-            result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log, cancel_event=cancel_event)
+            result = await _run_sync(_pipeline.run, cfg, handled, nf_cache, ctx.log, cancel_event=cancel_event,
+                                     on_result=lambda value: progress.update(result=value))
         except Exception as e:  # noqa: BLE001
             message = request_error(e)
             ctx.log.error("[自动订阅] 运行异常：%s", message)
@@ -615,30 +750,36 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
 
         await _state_set(ctx, "handled", result.handled)
         await _state_set(ctx, "netflix_cache", result.nf_cache)
+        _check_round_running(cancel_event, deadline)
+        if getattr(result, "interrupted", ""):
+            raise asyncio.CancelledError
 
         missing_subs = None
         missing_added = []
         if cfg.get("auto_subscribe_missing") and not getattr(result, "auth_error", ""):
             try:
                 from ._emby_missing import scan_missing, LibraryScanError
+                progress["phase"] = "Emby/TMDB 缺集核对"
+                progress["missing_subs"] = {
+                    "checked": 0, "added": 0, "skipped": 0, "failed": 1,
+                    "unprocessed": 0, "error": "扫描未完成，未执行缺集订阅", "scan_error": "扫描未完成",
+                }
                 scan = await scan_missing(cfg, ctx.http, ctx.log)
                 if scan.get("error"):
                     missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1,
                                     "unprocessed": 0, "error": scan["error"], "auth_error": ""}
                     ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", scan["error"])
                 else:
+                    progress["phase"] = "缺集订阅"
                     missing_subs, missing_added = await _run_sync(
                         _subscribe_missing_round, cfg, scan["items"], ctx.log, cancel_event,
                         cancel_event=cancel_event,
+                        on_result=lambda value: progress.update(missing_subs=_merge_scan_stats(value[0], scan)),
                     )
-                for key in ("scanned", "matched", "complete", "unknown", "missing_episodes"):
-                    missing_subs[key] = scan.get(key, 0)
-                missing_subs["failed"] += scan.get("failed", 0)
-                missing_subs["scan_error"] = scan.get("error", "")
-                if missing_subs["scan_error"]:
-                    missing_subs["failed"] = max(1, missing_subs["failed"])
-                if missing_subs["scan_error"] and not missing_subs["error"]:
-                    missing_subs["error"] = missing_subs["scan_error"]
+                    # The callback also runs when cancellation drains a worker,
+                    # so its confirmed results already carry scan diagnostics.
+                if scan.get("error"):
+                    _merge_scan_stats(missing_subs, scan)
             except asyncio.CancelledError:
                 cancel_event.set()
                 raise
@@ -647,6 +788,7 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
                 message = str(exc) if isinstance(exc, LibraryScanError) else f"缺集检查失败（{type(exc).__name__}）"
                 missing_subs = {"checked": 0, "added": 0, "skipped": 0, "failed": 1, "unprocessed": 0, "error": message, "auth_error": ""}
                 ctx.log.error("[自动订阅] %s，本轮未新增缺集订阅", message)
+            _check_round_running(cancel_event, deadline)
             if missing_subs.get("added_items"):
                 from ._models import make_history_key
                 for item in missing_subs.pop("added_items"):
@@ -655,6 +797,7 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
                         "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
                 await _state_set(ctx, "handled", result.handled)
+            progress["missing_subs"] = missing_subs
             await _state_set(ctx, "last_missing_subscription_stats", missing_subs)
             if missing_subs.get("auth_error"):
                 result.auth_error = missing_subs["auth_error"]
@@ -662,17 +805,23 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
         fill_stats = None
         if cfg.get("auto_fill_missing") and not getattr(result, "auth_error", ""):
             try:
-                fill_stats = await _run_sync(_fill_missing_round, cfg, ctx.log, cancel_event, cancel_event=cancel_event)
+                progress["phase"] = "活跃订阅补缺"
+                fill_stats = await _run_sync(_fill_missing_round, cfg, ctx.log, cancel_event, cancel_event=cancel_event,
+                                            on_result=lambda value: progress.update(fill_stats=value))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
                 fill_stats = {"checked": 0, "missing": 0, "triggered": 0, "failed": 0, "limited": 0, "error": "", "auth_error": ""}
                 _round_error(fill_stats, exc, "自动补缺集", ctx.log)
+            _check_round_running(cancel_event, deadline)
+            progress["fill_stats"] = fill_stats
             await _state_set(ctx, "last_fill_missing_stats", fill_stats)
             if fill_stats.get("auth_error"):
                 result.auth_error = fill_stats["auth_error"]
 
         # 汇总本轮各状态计数（跨来源相加），供前端「订阅历史」顶部统计卡展示。
+        progress["phase"] = "结果保存与通知"
+        _check_round_running(cancel_event, deadline)
         agg: dict = {}
         for st in result.stats.values():
             for k, v in st.items():
@@ -687,6 +836,8 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
             agg["missing_scanned"] = missing_subs.get("scanned", 0)
             agg["missing_episodes"] = missing_subs.get("missing_episodes", 0)
             agg["missing_unknown"] = missing_subs.get("unknown", 0)
+            agg["missing_unprocessed"] = missing_subs.get("unprocessed", 0) + missing_subs.get("scan_unprocessed", 0)
+            agg["missing_scan_timed_out"] = int(bool(missing_subs.get("scan_timed_out")))
         if fill_stats:
             agg["fill_checked"] = fill_stats.get("checked", 0)
             agg["fill_triggered"] = fill_stats.get("triggered", 0)
@@ -721,6 +872,7 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
             except Exception as e:  # noqa: BLE001 - 通知失败不影响运行结果
                 ctx.log.warning("[自动订阅] 结果通知投递失败（不影响运行）：%r", e)
         total_added_count = len(result.added) + len(missing_added)
+        _check_round_running(cancel_event, deadline)
         log_round = ctx.log.warning if has_err else ctx.log.info
         log_round("[自动订阅] %s(%s)：新增 %d 部（榜单 %d，缺集 %d），触发补缺 %d 部",
                   "本轮存在失败" if has_err else "完成", label,
@@ -732,7 +884,8 @@ async def _run_round(ctx, label: str, cancel_event) -> str:
 def _nf_client(cfg):
     """构造 NextFind 客户端（局部 import 避免顶层依赖）。"""
     from ._nextfind import NextFindClient
-    return NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""))
+    return NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""),
+                          cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
 
 
 async def _fetch_maoyan_cookies(ctx) -> dict:
@@ -786,7 +939,7 @@ async def setup(ctx):
                 await _run(ctx, label)
             except asyncio.CancelledError:
                 # 停用/重载时平台会取消后台任务；这是正常生命周期事件，不输出异常堆栈。
-                ctx.log.warning("[自动订阅] %s任务已取消（插件停用、重载或治理超时）", label)
+                ctx.log.warning("[自动订阅] %s任务已取消", label)
             except Exception as exc:  # noqa: BLE001
                 ctx.log.error("[自动订阅] %s运行后台异常：%s\n%s", label, exc, traceback.format_exc())
 
@@ -828,7 +981,7 @@ async def setup(ctx):
         # 整轮可能跑几分钟（抓榜 + 逐条搜索/订阅），同步等会让 HTTP 请求超时，
         # 前端就只看到无内容的 "Error"（而服务端其实还在跑）。故改为**后台任务**：
         # 立即返回，运行结果通过通知 + 写入「订阅历史」落地，异常记完整堆栈到日志。
-        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+        if _is_running():
             return {"ok": False, "message": "上一轮仍在运行，请等待完成后再试"}
         _spawn_run("手动")
         return {"ok": True, "started": True,
@@ -863,7 +1016,7 @@ async def setup(ctx):
         data = req.json or {}
         if not isinstance(data, dict):
             return {"ok": False, "message": "请求数据必须是对象"}
-        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+        if _is_running():
             return {"ok": False, "message": "订阅任务正在运行，请完成后再修改历史"}
         async with _run_lock:
             if _flag_true(data.get("clear")):
@@ -913,7 +1066,7 @@ async def setup(ctx):
     # ── 定时任务（cron 无效时仅告警，手动运行仍可用）──
     # 回调只负责投递后台任务并立即返回，避免平台 scheduler 对长流水线触发 TimeoutError。
     async def _scheduled_run():
-        if _run_lock.locked() or any(not task.done() for task in _background_tasks):
+        if _is_running():
             ctx.log.warning("[自动订阅] 上一轮仍在运行，跳过本次定时触发")
             return
         _spawn_run("定时")

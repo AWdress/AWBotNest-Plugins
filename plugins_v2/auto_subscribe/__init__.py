@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.4',
+ 'version': '2.2.5',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -120,6 +120,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.5 修复长任务卡住\n'
+    '- 整轮运行与网络请求使用实际截止时间，取消时中断请求并停止后续订阅\n'
+    '- 缺集扫描及时显示低频进度，超时明确记录未处理项目\n'
+    '- 保留运行互斥与已完成结果，不通过强制清锁启动重复任务\n\n'
     'v2.2.4 修复蜜柑解析与订阅流程\n'
     '- 蜜柑使用内置解析器，不再依赖 lxml；全部榜单与 Bangumi 继承平台代理\n'
     '- 严格校验搜索、额度、媒体类型和布尔标记，鉴权失败中止本轮\n'

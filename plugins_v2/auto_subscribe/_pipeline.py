@@ -14,6 +14,7 @@ from dataclasses import replace
 from datetime import datetime
 import json
 import re
+import time
 from typing import Dict, List, Optional
 
 from ._base import get_provider
@@ -24,7 +25,8 @@ from ._models import (
     STATUS_LABELS, STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
     TERMINAL_STATUSES, make_history_key,
 )
-from ._nextfind import NextFindAuthError, NextFindClient, _true_flag
+from ._nextfind import (NextFindAuthError, NextFindClient, NextFindCancelledError,
+                        NextFindDeadlineError, _true_flag)
 from ._bangumi import subject_titles
 from ._http_errors import request_error
 
@@ -51,6 +53,19 @@ class RunResult:
     handled: Dict[str, dict] = field(default_factory=dict)          # 历史（写回 kv）
     nf_cache: dict = field(default_factory=dict)                    # netflix 周更缓存（写回 kv）
     auth_error: str = ""                                            # NextFind 鉴权失败则中止整轮并记此
+    interrupted: str = ""
+
+
+def _check_cancelled(cfg):
+    cfg = cfg or {}
+    event = cfg.get("_cancel_event")
+    deadline = cfg.get("_run_deadline")
+    if deadline is not None and time.monotonic() >= deadline:
+        if event is not None:
+            event.set()
+        raise NextFindDeadlineError("本轮运行已超时")
+    if event is not None and event.is_set():
+        raise NextFindCancelledError("任务已取消，未继续搜索或订阅")
 
 
 # 各来源的 options 构建器：从扁平 cfg 取出该来源需要的字段。
@@ -205,10 +220,11 @@ def _title_queries(item) -> tuple[List[str], Optional[int]]:
     return queries, season
 
 
-def _search_best(client: NextFindClient, item):
+def _search_best(client: NextFindClient, item, cfg=None):
     """依次搜索原题和安全回退标题，返回候选、实际查询词和识别出的季号。"""
     queries, season = _title_queries(item)
     for query in queries:
+        _check_cancelled(cfg)
         best = _pick_best(client.search(query, item.type_hint), item)
         if best:
             return best, query, season
@@ -249,6 +265,7 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
     ai = cfg.get("_platform_ai")
     if not cfg.get("ai_assist_recognition") or ai is None:
         return None, "", item.season
+    _check_cancelled(cfg)
     try:
         if not ai.is_available("text"):
             if log:
@@ -265,6 +282,7 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
             f"原季号：{item.season if item.season is not None else '未知'}"
         )
         parsed = _parse_ai_media(ai.chat(prompt=prompt, temperature=0))
+        _check_cancelled(cfg)
         if not parsed:
             return None, "", item.season
         assisted = replace(
@@ -273,11 +291,11 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
             type_hint=parsed["media_type"],
             season=parsed["season"] if parsed["season"] is not None else item.season,
         )
-        best, query, season = _search_best(client, assisted)
+        best, query, season = _search_best(client, assisted, cfg)
         if best and log:
             log.info("[自动订阅] AI 辅助识别 · %s → %s（%s）", item.title, query, parsed["media_type"])
         return best, query, season
-    except NextFindAuthError:
+    except (NextFindAuthError, NextFindCancelledError, NextFindDeadlineError):
         # AI 生成搜索词后的 NextFind 鉴权失败也必须中止整轮。
         raise
     except Exception as exc:  # noqa: BLE001 - AI 是可选降级能力
@@ -286,14 +304,16 @@ def _ai_assisted_search(client: NextFindClient, item, cfg: dict, log=None):
         return None, "", item.season
 
 
-def _bangumi_assisted_search(client: NextFindClient, item, log=None, http=None):
+def _bangumi_assisted_search(client: NextFindClient, item, log=None, http=None, cfg=None):
     """根据蜜柑提供的 Bangumi ID 搜索标准中日文名和别名。"""
     if not item.source_meta.get("mikan_id") or not item.bangumi_id:
         return None, "", item.season
+    _check_cancelled(cfg)
     titles = subject_titles(item.bangumi_id, http=http)
     for title in titles:
+        _check_cancelled(cfg)
         assisted = replace(item, title=title, type_hint="tv")
-        best, query, season = _search_best(client, assisted)
+        best, query, season = _search_best(client, assisted, cfg)
         if best:
             if log:
                 log.info("[自动订阅] Bangumi 别名识别 · %s → %s", item.title, query)
@@ -342,11 +362,11 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
                 pass
 
     # 解析：NextFind /search。
-    best, matched_query, detected_season = _search_best(client, item)
+    best, matched_query, detected_season = _search_best(client, item, cfg)
     assisted_by = ""
     if not best:
         best, matched_query, detected_season = _bangumi_assisted_search(
-            client, item, log, http=cfg.get("_platform_http"),
+            client, item, log, http=cfg.get("_platform_http"), cfg=cfg,
         )
         assisted_by = "Bangumi别名" if best else ""
     if not best:
@@ -394,9 +414,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
         return STATUS_SUBSCRIBED_EXISTS, title, tag
 
     # 加订阅。
-    cancel_event = cfg.get("_cancel_event")
-    if cancel_event is not None and cancel_event.is_set():
-        return STATUS_ALREADY, title, "任务已取消，未新增订阅"
+    _check_cancelled(cfg)
     ok, msg = client.add(tmdb_id, raw_type, season)
     if ok:
         _record(handled, key, title, STATUS_SUBSCRIBED, item, tmdb_id)
@@ -418,12 +436,15 @@ def _record(handled: dict, key: str, title: str, status: str, item, tmdb_id) -> 
 def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
     """执行一轮：遍历启用来源，逐条落地。返回汇总（handled/nf_cache 已更新，供写回 kv）。"""
     result = RunResult(handled=dict(handled or {}), nf_cache=dict(nf_cache or {}))
-    client = NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""))
+    client = NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""),
+                            cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
     global_filters = _read_filters(cfg)
 
     for source_id, options in _source_options(cfg, result.nf_cache):
-        cancel_event = cfg.get("_cancel_event")
-        if cancel_event is not None and cancel_event.is_set():
+        try:
+            _check_cancelled(cfg)
+        except (NextFindCancelledError, NextFindDeadlineError) as exc:
+            result.interrupted = str(exc)
             break
         provider = get_provider(source_id)
         if provider is None:
@@ -432,13 +453,15 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
         src_stats: Dict[str, int] = {}
         try:
             for item in provider.fetch(options):
-                if cancel_event is not None and cancel_event.is_set():
-                    break
+                _check_cancelled(cfg)
                 if not item.title:
                     continue
                 title, detail = item.title, ""
                 try:
                     status, title, detail = _process_item(client, item, filters, result.handled, cfg, log)
+                except (NextFindCancelledError, NextFindDeadlineError) as exc:
+                    result.interrupted = str(exc)
+                    break
                 except NextFindAuthError as exc:
                     # 密钥无效/过期：继续跑只会每条都 401，立即中止整轮并明确报因。
                     result.auth_error = str(exc)
@@ -458,11 +481,13 @@ def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
                     result.added.append(f"{provider.provider_name}·{item.title}")
         except NextFindAuthError as exc:
             result.auth_error = str(exc)
+        except (NextFindCancelledError, NextFindDeadlineError) as exc:
+            result.interrupted = str(exc)
         except Exception as exc:  # noqa: BLE001 - 整源抓取失败兜底
             result.errors[source_id] = request_error(exc)
             if log:
                 log.error("[自动订阅] %s 抓取失败: %s", source_id, result.errors[source_id])
         result.stats[source_id] = src_stats
-        if result.auth_error:
+        if result.auth_error or result.interrupted:
             break  # 中止后续来源
     return result
