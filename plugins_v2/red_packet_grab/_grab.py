@@ -26,6 +26,17 @@ def extract_text(message) -> str:
     return (getattr(message, "raw_text", None) or getattr(message, "text", None) or "").strip()
 
 
+def prepare_answer_text(code: str) -> str:
+    """斜杠口令插入零宽空格，保留显示内容但打断普通命令匹配。
+
+    实际文本会变化：严格匹配原文的红包可能拒收；移除零宽字符的
+    机器人仍可能执行命令。不能在失败后补发没有保护的原始命令。
+    """
+    if code.startswith("/") and not code.startswith("/\u200b"):
+        return "/\u200b" + code[1:]
+    return code
+
+
 def extract_plaintext_command(text: str) -> str:
     """提取正文拼手气红包中的固定口令或动态财富密码。"""
     if not text or "拼手气红包" not in text:
@@ -322,8 +333,13 @@ class Grabber:
         if delay > 0:
             await asyncio.sleep(delay)
 
+        answer_text = prepare_answer_text(code)
         try:
-            sent = await client.send_message(pkt.group_id, code)
+            if code.startswith("/"):
+                # 禁用 Markdown，确保口令中的标点和零宽保护原样发送。
+                sent = await client.send_message(pkt.group_id, answer_text, parse_mode=None)
+            else:
+                sent = await client.send_message(pkt.group_id, answer_text)
             pkt.our_sent_id = sent.id if sent else 0
         except Exception as e:  # noqa: BLE001
             self._log.error("[自动抢红包] 发送口令失败: %r", e)

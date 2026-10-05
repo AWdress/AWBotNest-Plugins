@@ -9,13 +9,13 @@ except ImportError:
 
 __plugin__ = {'name': '自动抢红包',
  'id': 'red_packet_grab',
- 'version': '2.0.4',
+ 'version': '2.0.5',
  'author': 'AWdress',
  'scope': 'user',
  'requirements': ['Pillow>=10.0', 'ddddocr>=1.5'],
  'description': '自动参与口令红包：支持正文直接口令、图片财富密码、OCR 验证码识别及中奖确认复制兜底。可按发包人/群组限制范围，自带 Vue 配置界面与抢包记录。',
  'icon': 'https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png',
- 'changelog': 'v2.0.4 新增消息链接\n- 抢包和中奖通知增加对应红包消息链接\n- 消息链接移到通知表格外，方便手机直接点击打开\n\nv2.0.3 修复多行通知显示\n- 抢包结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
+ 'changelog': 'v2.0.5 斜杠口令零宽保护\n- / 开头的口令在斜杠后加入零宽空格，显示不变，普通口令不变\n- 发送失败不补发未保护的原始命令；日志和记录保留原口令\n- 严格匹配原文的红包可能拒收，主动移除零宽字符的机器人仍可能触发\n\nv2.0.4 新增消息链接\n- 抢包和中奖通知增加对应红包消息链接\n- 消息链接移到通知表格外，方便手机直接点击打开\n\nv2.0.3 修复多行通知显示\n- 抢包结果按状态、详情拆分为独立表格行\n- 避免完整正文挤入单个单元格导致裁切或显示不全\n\n'
               'v2.0.2 统一富文本表格通知\n- 抢包结果改为平台结构化表格\n\n'
               'v2.0.1 修复会话名称实体解析\n'
               '- 管理接口改用 Telethon get_entity，保留失败时的 ID 回退\n'
