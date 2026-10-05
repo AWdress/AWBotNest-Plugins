@@ -19,6 +19,7 @@ import html
 import random
 import re
 import time as _time
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 
@@ -26,20 +27,53 @@ def extract_text(message) -> str:
     return (getattr(message, "raw_text", None) or getattr(message, "text", None) or "").strip()
 
 
-def prepare_answer_text(code: str) -> str:
+def prepare_answer_text(code: str, protect: bool = True) -> str:
     """斜杠口令插入零宽空格，保留显示内容但打断普通命令匹配。
 
     实际文本会变化：严格匹配原文的红包可能拒收；移除零宽字符的
     机器人仍可能执行命令。不能在失败后补发没有保护的原始命令。
     """
-    if code.startswith("/") and not code.startswith("/\u200b"):
+    if protect and code.startswith("/") and not code.startswith("/\u200b"):
         return "/\u200b" + code[1:]
     return code
 
 
+def extract_packet_total(text: str) -> Optional[Decimal]:
+    """仅提取明确标注的红包总额，不拿单份、剩余或中奖金额代替。"""
+    totals = []
+    labels = r"(?m)^[^\w\n]*(?:红包[ \t]*总额|总金额|总额)(?:[ \t]*[:：][ \t]*|[ \t]+)([^\n]*)"
+    for label in re.finditer(labels, text or ""):
+        matched = re.match(r"([+\-]?\d[\d,，.]*)(?:\s*([万亿]))?", label.group(1))
+        if matched is None:
+            return None
+        token, unit = matched.groups()
+        # 千分位必须完整；不允许把 1,,000、100.5.6 等截成较小金额。
+        if not re.fullmatch(r"(?:\d+(?:\.\d+)?|\d{1,3}(?:[,，]\d{3})+(?:\.\d+)?)", token):
+            return None
+        tail = label.group(1)[matched.end():].lstrip()
+        if re.match(r"(?:[\d./,%+\-]|[千百万亿]|[eE][+\-]?\d)", tail):
+            return None
+        # 未知字母后缀不能作为币种截掉；已知 UCoin 等单位允许。
+        if re.match(r"[A-Za-z]", tail) and not re.match(
+            r"(?:UCoins?|RMB|CNY|USD|USDT|EUR|JPY|points?)(?=$|[^A-Za-z0-9])", tail, re.IGNORECASE,
+        ):
+            return None
+        suffix = re.match(r"[\u4e00-\u9fff]+", tail)
+        if suffix and any(char in suffix.group() for char in "千百万亿"):
+            return None
+        try:
+            value = Decimal(token.replace(",", "").replace("，", ""))
+        except InvalidOperation:
+            return None
+        if unit:
+            value *= Decimal("10000" if unit == "万" else "100000000")
+        totals.append(value)
+    return totals[0] if totals and all(value == totals[0] for value in totals) else None
+
+
 def extract_plaintext_command(text: str) -> str:
     """提取正文拼手气红包中的固定口令或动态财富密码。"""
-    if not text or "拼手气红包" not in text:
+    if not text or "拼手气红包" not in text or not packet_has_remaining(text):
         return ""
 
     # 新格式直接把动态密码放在正文中；领取后机器人会编辑原消息并更新此行。
@@ -55,7 +89,8 @@ def extract_plaintext_command(text: str) -> str:
     if re.search(r"红包\s*ID", text, re.IGNORECASE) is None:
         return ""
 
-    marker = re.search(r"发送下方口令领取\s*[：:]?", text)
+    marker = (re.search(r"发送下方口令领取\s*[：:]?", text)
+              or re.search(r"(?m)^\s*口令\s*[：:]", text))
     if marker is None:
         return ""
 
@@ -79,7 +114,9 @@ def is_rotating_password_packet(text: str) -> bool:
 
 
 def packet_has_remaining(text: str) -> bool:
-    """红包明确给出剩余数量时，只允许仍有余额的消息进入 OCR。"""
+    """只参与未明确结束、仍有剩余份额的红包。"""
+    if re.search(r"红包\s*(?:已被抢完|已抢完|已领完|已领取完毕|已过期|已结束)", text or ""):
+        return False
     matched = re.search(r"剩余\s*[：:]\s*(\d+)\s*/\s*(\d+)", text or "")
     return matched is None or int(matched.group(1)) > 0
 
@@ -99,6 +136,7 @@ class _Packet:
     __slots__ = (
         "group_id", "packet_id", "sender_id", "sender_name",
         "answered", "our_sent_id", "our_code", "mode", "expires_at",
+        "total_amount",
     )
 
     def __init__(self, group_id, packet_id, sender_id, sender_name, ttl_secs):
@@ -111,6 +149,7 @@ class _Packet:
         self.our_code = ""             # 我们发出的口令
         self.mode = ""                 # OCR / 复制
         self.expires_at = _time.monotonic() + ttl_secs
+        self.total_amount: Optional[Decimal] = None
 
 
 class Grabber:
@@ -153,10 +192,11 @@ class Grabber:
 
         self._sweep_expired()
         pkt = _Packet(group_id, packet_id, sender_id, sender_name, ttl_secs)
+        pkt.total_amount = extract_packet_total(extract_text(message))
         pkt.mode = "正文口令"
         self._active[(group_id, packet_id)] = pkt
         self._log.info(
-            "[自动抢红包] 识别到正文拼手气红包 %s msg=%s，立即发送口令",
+            "[自动抢红包] 识别到正文拼手气红包 %s msg=%s",
             chat_label, packet_id,
         )
         await self._send_answer(client, pkt, command, join_delay, notify)
@@ -192,6 +232,8 @@ class Grabber:
             self._records.mark_handled(packet_key)
             pkt = _Packet(group_id, packet_id, sender_id, sender_name, ttl_secs)
             self._active[active_key] = pkt
+
+        pkt.total_amount = extract_packet_total(extract_text(message))
 
         # 路径 1：OCR 识别
         code = ""
@@ -322,9 +364,33 @@ class Grabber:
         await self._send_answer(client, pkt, code, join_delay, notify)
 
     # —— 发送口令参与 ——
+    def _amount_allowed(self, pkt: _Packet, code: str) -> bool:
+        if not code.startswith("/"):
+            return True
+        raw = (self._ctx.config or {}).get("slash_min_total", 0)
+        try:
+            minimum = Decimal(str(raw))
+        except (InvalidOperation, ValueError):
+            minimum = Decimal("NaN")
+        if not minimum.is_finite() or minimum < 0:
+            self._log.warning("[自动抢红包] 斜杠口令最低总额设置无效，跳过 msg=%s", pkt.packet_id)
+            return False
+        if minimum == 0:
+            return True
+        if pkt.total_amount is None:
+            self._log.info("[自动抢红包] 未识别红包总额，跳过斜杠口令 msg=%s", pkt.packet_id)
+            return False
+        if pkt.total_amount < minimum:
+            self._log.info("[自动抢红包] 红包总额 %s 低于最低总额 %s，跳过斜杠口令 msg=%s",
+                           pkt.total_amount, minimum, pkt.packet_id)
+            return False
+        return True
+
     async def _send_answer(self, client, pkt: _Packet, code: str,
                            join_delay: float, notify: bool) -> None:
         if pkt.answered:
+            return
+        if not self._amount_allowed(pkt, code):
             return
         pkt.answered = True
         pkt.our_code = code
@@ -333,7 +399,14 @@ class Grabber:
         if delay > 0:
             await asyncio.sleep(delay)
 
-        answer_text = prepare_answer_text(code)
+        # 等待期间用户可调整门槛，提交前再次按当前配置检查。
+        if not self._amount_allowed(pkt, code):
+            pkt.answered = False
+            return
+        protection = (self._ctx.config or {}).get("slash_command_protection", True)
+        protected = not (protection is False or protection == 0 or
+                         isinstance(protection, str) and protection.strip().lower() in ("false", "0"))
+        answer_text = prepare_answer_text(code, protect=protected)
         try:
             if code.startswith("/"):
                 # 禁用 Markdown，确保口令中的标点和零宽保护原样发送。
