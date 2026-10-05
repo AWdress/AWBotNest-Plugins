@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.6',
+ 'version': '2.2.7',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -120,6 +120,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.2.7 提升大库扫描速度并修复猫眼网播榜单\n'
+    '- Emby 使用 5000 条大页并关闭图片和用户状态字段，完整读取校验不变\n'
+    '- 服务器 TMDB 核对并发提升至 12，Windows 保持稳定并发；统一限速并遵守服务端等待\n'
+    '- 猫眼网播通过平台浏览器的同一网页会话读取新接口，保留媒体与平台筛选并明确报告失败\n\n'
     'v2.2.6 优化大库缺集扫描\n'
     '- 缺集优先执行，批量获取季详情并缓存已验证的 TMDB 元数据\n'
     '- 超时保留核对进度，下轮优先处理未完成剧集，库存始终重新读取\n'

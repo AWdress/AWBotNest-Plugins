@@ -105,8 +105,10 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "web_platforms": cfg.get("maoyan_web_platforms"),
             "web_types": cfg.get("maoyan_web_types"),
             "num": cfg.get("maoyan_num", 10),
-            # Cookie 由 __init__ 经 ctx.browser 预取后放进 cfg["maoyan_cookies"]。
+            # 网播 JSON 由 core 在同一 ctx.browser 网页会话读取；Cookie 仅用于电影票房。
             "cookies": cfg.get("maoyan_cookies"),
+            "web_data": cfg.get("maoyan_web_data"),
+            "web_errors": cfg.get("maoyan_web_errors"),
             "_http": cfg.get("_platform_http"),
         }))
     return out

@@ -7,11 +7,12 @@
 #
 # 迁移自 MoviePilot 插件 automaticsubscriptionassistant（Aqr-K）。落地后端改为 NextFind：
 # 一次 /search 即得 tmdb/类型/年份/评分/是否已订阅/是否入库，识别+去重+库查重+评分合并为一步。
-# popular 源依赖 MoviePilot 自建统计服务器，未迁；猫眼用平台 ctx.browser 预取 Cookie（取不到降级）。
+# popular 源依赖 MoviePilot 自建统计服务器，未迁；猫眼网播榜通过平台浏览器读取网页签名请求。
 # =============================================================================
 
 import asyncio
 import concurrent.futures
+import math
 import threading
 import time
 import traceback
@@ -25,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.6",
+    "version": "2.2.7",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -46,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.2.7 提升大库扫描速度并修复猫眼网播榜单\n"
+    "- Emby 使用 5000 条大页并关闭图片和用户状态字段，完整读取校验不变\n"
+    "- 服务器 TMDB 核对并发提升至 12，Windows 保持稳定并发；统一限速并遵守服务端等待\n"
+    "- 猫眼网播通过平台浏览器的同一网页会话读取新接口，保留媒体与平台筛选并明确报告失败\n\n"
     "v2.2.6 优化大库缺集扫描\n"
     "- 缺集优先执行，批量获取季详情并缓存已验证的 TMDB 元数据\n"
     "- 超时保留核对进度，下轮优先处理未完成剧集，库存始终重新读取\n"
@@ -799,12 +804,19 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
                 result.auth_error = missing_subs["auth_error"]
 
         if not result.auth_error:
-            # Local missing subscriptions take priority over optional cookies,
+            # Local missing subscriptions take priority over ranking browsers,
             # provider fetches and title recognition within the same deadline.
             _check_round_running(cancel_event, deadline)
             if cfg.get("maoyan_enabled"):
                 progress["phase"] = "猫眼浏览器"
-                cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
+                from ._maoyan_browser import ranking_keys
+                if ranking_keys(cfg):
+                    session = await _fetch_maoyan_session(ctx, cfg)
+                    cfg["maoyan_cookies"] = session["cookies"]
+                    cfg["maoyan_web_data"] = session["web_data"]
+                    cfg["maoyan_web_errors"] = session["web_errors"]
+                else:
+                    cfg["maoyan_cookies"] = await _fetch_maoyan_cookies(ctx)
                 _check_round_running(cancel_event, deadline)
             if cfg.get("ai_assist_recognition"):
                 cfg["_platform_ai"] = _PlatformAIProxy(ctx, asyncio.get_running_loop(), cancel_event, deadline)
@@ -924,6 +936,49 @@ def _nf_client(cfg):
     from ._nextfind import NextFindClient
     return NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""),
                           cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
+
+
+async def _fetch_maoyan_session(ctx, cfg, *, timeout_seconds: float = 75.0) -> dict:
+    """Read signed public web rankings in one configured, host-owned session."""
+    from ._maoyan_browser import MAOYAN_WEB_URL, collect_web_rankings, ranking_keys
+
+    expected = ranking_keys(cfg)
+    empty = {"cookies": {}, "web_data": {}, "web_errors": {}}
+    if not expected:
+        return empty
+    round_deadline = cfg.get("_run_deadline")
+    if (isinstance(round_deadline, (int, float)) and not isinstance(round_deadline, bool)
+            and math.isfinite(round_deadline)):
+        timeout_seconds = min(timeout_seconds, max(0.0, round_deadline - time.monotonic()))
+    deadline = time.monotonic() + timeout_seconds
+
+    async def collect(page):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        return await collect_web_rankings(page, cfg, timeout_seconds=min(45.0, remaining))
+
+    def failed(message):
+        # Browser errors may embed headers or licensing credentials. Only
+        # controlled messages enter the provider, notification or logs.
+        ctx.log.warning("[自动订阅] %s", message)
+        return {"cookies": {}, "web_data": {}, "web_errors": dict.fromkeys(expected, message)}
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            value = await ctx.browser.run(MAOYAN_WEB_URL, collect, headless=True,
+                                          timeout=min(60.0, max(0.01, timeout_seconds)))
+        if (not isinstance(value, dict)
+                or any(not isinstance(value.get(key), dict) for key in empty)):
+            return failed("猫眼网播浏览器返回无效结果")
+        ctx.log.info("[自动订阅] 猫眼网播读取：成功 %d/%d 个榜单", len(value["web_data"]), len(expected))
+        return {key: value[key] for key in empty}
+    except asyncio.CancelledError:
+        raise
+    except TimeoutError:
+        return failed(f"猫眼网播读取超过 {timeout_seconds:g} 秒，未完成的榜单本轮跳过")
+    except Exception as exc:
+        return failed(f"猫眼网播浏览器读取失败（{type(exc).__name__}）")
 
 
 async def _fetch_maoyan_cookies(ctx, *, timeout_seconds: float = 35.0) -> dict:

@@ -1,10 +1,9 @@
 # =============================================================================
 # auto_subscribe 私有辅助：猫眼榜单来源（票房 + 网播热度）
 #
-# 移植自原 MoviePilot 版。Cookie 由 __init__ 用平台 ctx.browser（CloakBrowser/
-# Playwright）在事件循环里预取后经 options["cookies"] 注入（本 provider 跑在
-# asyncio.to_thread 里、不能直接 await 浏览器）。取不到 Cookie 时自动降级无 Cookie
-# 请求；请求失败或风控页面必须明确报错，不能当作正常空榜单。
+# 票房仍走平台 HTTP。网播榜单由平台 ctx.browser 在同一网页会话读取现代接口，
+# 经 options["web_data"] 注入本同步 provider；Cookie 只可供票房接口使用。
+# 网播浏览器失败必须明确报错，不能回退旧 403 接口或当作正常空榜单。
 # 网络电影因数据源停更已移除。年份由 releaseInfo（距今天数）反推。
 # =============================================================================
 
@@ -19,7 +18,7 @@ import httpx
 
 from ._base import RankProvider, register
 from ._models import RankMediaItem
-from ._http_errors import request_error
+from ._http_errors import one_line, request_error
 
 MAOYAN_URL = "https://piaofang.maoyan.com"
 
@@ -51,9 +50,27 @@ _DEFAULT_NUM = 10
 _REQUEST_TIMEOUT = 30
 
 
+def validate_web_payload(payload):
+    """Only a successful genuine web ranking (including []) is valid."""
+    if not isinstance(payload, dict):
+        raise RuntimeError("猫眼网播响应格式无效（缺少数据对象）")
+    status = payload.get("status")
+    if not (status is True or status == 1 or str(status).strip().lower() in ("true", "1")):
+        raise RuntimeError("猫眼网播返回失败，请检查站点验证或网络状态")
+    container = payload.get("dataList")
+    rows = container.get("list") if isinstance(container, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError("猫眼网播响应格式无效（缺少有效 dataList.list）")
+    for row in rows:
+        info = row.get("seriesInfo") if isinstance(row, dict) else None
+        if not isinstance(info, dict) or not isinstance(info.get("name"), str) or not info["name"].strip():
+            raise RuntimeError("猫眼网播响应格式无效（缺少有效剧集名称）")
+    return payload
+
+
 @register
 class MaoyanRankProvider(RankProvider):
-    """猫眼榜单来源：电影票房 + 网播热度（无 Cookie 降级）。"""
+    """猫眼榜单来源：电影票房 + 同浏览器会话网播热度。"""
 
     provider_id = "maoyan"
     provider_name = "猫眼榜单"
@@ -62,9 +79,11 @@ class MaoyanRankProvider(RankProvider):
         options = options or {}
         num = self.to_int(options.get("num"), _DEFAULT_NUM)
         headers = {"User-Agent": random.choice(_USER_AGENTS)}
-        # Cookie 由 __init__ 经 ctx.browser 预取后注入（dict {name: value}）；无则降级。
+        # Optional browser cookies apply only to the independent movie endpoint.
         self._cookies = options.get("cookies") or None
         self._http = options.get("_http")
+        self._web_data = options.get("web_data") if isinstance(options.get("web_data"), dict) else {}
+        self._web_errors = options.get("web_errors") if isinstance(options.get("web_errors"), dict) else {}
         seen: set = set()
 
         if bool(options.get("movie_box", True)):
@@ -72,11 +91,25 @@ class MaoyanRankProvider(RankProvider):
 
         platforms = [p for p in self.as_list(options.get("web_platforms")) if p in PLATFORM_TYPE]
         media_types = [m for m in self.as_list(options.get("web_types")) if m in SERIES_TYPE]
+        web_errors, web_success = [], 0
         for platform in platforms:
             platform_type = PLATFORM_TYPE.get(platform, "")
             for media in media_types:
-                yield from self._fetch_web_heat_one(SERIES_TYPE[media], platform_type,
-                                                    headers, num, seen)
+                try:
+                    yield from self._fetch_web_heat_one(SERIES_TYPE[media], platform_type,
+                                                        headers, num, seen)
+                    web_success += 1
+                except RuntimeError as exc:
+                    # Keep later confirmed combinations even if an earlier
+                    # one failed. The final error remains visible to pipeline
+                    # reporting; this is never a silent successful empty source.
+                    web_errors.append(f"{PLATFORM_LABELS[platform]}/{MEDIA_LABELS[media]}：{one_line(exc)}")
+        if web_errors:
+            detail = "；".join(web_errors[:3])
+            if len(web_errors) > 3:
+                detail += f"；另有 {len(web_errors) - 3} 个榜单失败"
+            label = "部分榜单失败" if web_success else "榜单读取失败"
+            raise RuntimeError(f"猫眼网播{label}：{detail}")
 
     def _fetch_movie_box(self, headers: dict, num: int, seen: set) -> Iterator[RankMediaItem]:
         """电影票房榜：/dashboard-ajax/movie。"""
@@ -91,10 +124,13 @@ class MaoyanRankProvider(RankProvider):
 
     def _fetch_web_heat_one(self, series_type: str, platform_type: str,
                             headers: dict, num: int, seen: set) -> Iterator[RankMediaItem]:
-        """网播热度单榜：/dashboard/webHeatData。"""
-        url = (f"{MAOYAN_URL}/dashboard/webHeatData"
-               f"?seriesType={series_type}&platformType={platform_type}&showDate=2")
-        payload = self._request_json(url, headers)
+        """Consume the same-browser modern web ranking; never the old API."""
+        key = f"{series_type}|{platform_type}"
+        if self._web_errors.get(key):
+            raise RuntimeError(str(self._web_errors[key]))
+        if key not in self._web_data:
+            raise RuntimeError("猫眼网播缺少浏览器榜单结果，请检查浏览器初始化或站点验证")
+        payload = validate_web_payload(self._web_data[key])
         data = self._ranking_list(payload, "dataList")
         for entry in data[:num]:
             try:

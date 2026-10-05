@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import math
+import os
 from datetime import date, datetime, timedelta, timezone
 from time import monotonic
 from urllib.parse import urlsplit, urlunsplit
 
 from ._tmdb_cache import TmdbCache
+from ._scan_http import ScanHttp
 
 
-_PAGE_SIZE = 1000
+_PAGE_SIZE = 5000
 _MAX_PAGES = 5000
 _HTTP_TIMEOUT_SECONDS = 35.0
 _SCAN_TIMEOUT_SECONDS = 1500.0
@@ -23,6 +25,10 @@ _TV_CACHE_TTL = 6 * 3600
 _ENDED_TV_CACHE_TTL = 24 * 3600
 _SEASON_CACHE_TTL = 7 * 86400
 _APPEND_BATCH_SIZE = 20
+# The current host HTTP SDK initializes TLS synchronously. On Windows a large
+# burst stalls handshakes without increasing throughput; keep its known-safe
+# limit. Linux/server hosts can overlap more of the actual network waiting.
+_TMDB_CONCURRENCY = 4 if os.name == "nt" else 12
 _FINALIZE_TIMEOUT_SECONDS = 5.0
 
 
@@ -122,7 +128,7 @@ async def _emby_items(http, base, key, item_type, log=None):
                     # secondary key. Creation-first reduces those ties; the
                     # unique-ID and total checks below must still remain.
                     "EnableTotalRecordCount": "true", "SortBy": "DateCreated,SortName",
-                    "SortOrder": "Ascending"},
+                    "SortOrder": "Ascending", "EnableImages": "false", "EnableUserData": "false"},
         )
         page = data.get("Items")
         if not isinstance(page, list):
@@ -149,6 +155,8 @@ async def _emby_items(http, base, key, item_type, log=None):
                 raise LibraryScanError("Emby 分页重复，无法确认媒体库完整性")
             seen.add(item_id)
             rows.append(row)
+        # A server may cap a requested 5000-row page. Advance by its actual
+        # length, never by the requested limit or a guessed fixed stride.
         start += len(page)
         if monotonic() - last_progress >= _PROGRESS_LOG_INTERVAL_SECONDS:
             _safe_log(log, "info", "[自动订阅] Emby %s 读取进度：%d/%s 条",
@@ -476,12 +484,13 @@ async def _scan_missing(cfg, http, log, result, state, cache):
     _safe_log(log, "info", "[自动订阅] Emby 库存读取完成：剧集 %d 条，单集 %d 条，待核对 TMDB 剧集 %d 部，资料不全跳过 %d",
               len(series), len(episodes), state["eligible"], result["unknown"])
     cutoff = _now_date() - timedelta(days=delay)
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(_TMDB_CONCURRENCY)
+    tmdb_http = ScanHttp(http)
 
     async def compare(tmdb_id, group):
         async with semaphore:
             try:
-                expected = await _expected_episodes(http, tmdb_key, tmdb_id, cutoff, cache)
+                expected = await _expected_episodes(tmdb_http, tmdb_key, tmdb_id, cutoff, cache)
             except LibraryScanError as exc:
                 return tmdb_id, group, None, str(exc)
             missing = {season: sorted(numbers - group["local"].get(season, set()))
