@@ -40,6 +40,10 @@ class LibraryScanError(Exception):
         self.status_code = status_code
 
 
+class TmdbSeriesNotFound(LibraryScanError):
+    """Only a confirmed missing plain TMDB TV entry is an expected skip."""
+
+
 def _now_date() -> date:
     return datetime.now(_SHANGHAI).date()
 
@@ -328,11 +332,18 @@ async def _fetch_detail(http, key, tmdb_id, append):
     try:
         detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}", append=append)
     except LibraryScanError as exc:
-        if exc.status_code != 400 or not append:
+        if exc.status_code == 404 and not append:
+            raise TmdbSeriesNotFound("TMDB 无此剧集，跳过", status_code=404) from None
+        if exc.status_code not in (400, 404) or not append:
             raise
         # Some shows lack season 1, or reject an appended resource. One plain
         # retry discovers the authoritative season list without a retry loop.
-        detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}")
+        try:
+            detail = await _tmdb_get(http, key, f"/tv/{tmdb_id}")
+        except LibraryScanError as plain_error:
+            if plain_error.status_code == 404:
+                raise TmdbSeriesNotFound("TMDB 无此剧集，跳过", status_code=404) from None
+            raise
     return _detail_meta(detail, tmdb_id), detail
 
 
@@ -414,13 +425,22 @@ def _safe_log(log, level, message, *args):
 def _record_comparison(result, state, comparison):
     tmdb_id, group, missing, error = comparison
     state["processed"] += 1
-    if error:
+    unavailable = isinstance(error, TmdbSeriesNotFound)
+    if error and not unavailable:
         state["done_ids"].discard(tmdb_id)
     else:
         state["done_ids"].add(tmdb_id)
-    if error:
+    if unavailable:
+        result["tmdb_unavailable"] += 1
+        detail = ""
+    elif error:
         result["failed"] += 1
         detail = f"剧集 {tmdb_id}：{error}"
+        if len(result["scan_errors"]) < 10:
+            result["scan_errors"].append({"tmdb_id": tmdb_id, "reason": str(error)[:160]})
+        errors = state.setdefault("error_details", [])
+        if len(errors) < 10:
+            errors.append(detail)
     elif missing:
         result["items"].append({"tmdb_id": tmdb_id, "media_type": "tv", "title": group["title"], "missing_by_season": missing})
         count = sum(map(len, missing.values()))
@@ -433,18 +453,19 @@ def _record_comparison(result, state, comparison):
         result["complete"] += 1
         detail = ""
     # Keep progress informative without flooding a large library's logs.
-    if detail and len(state["details"]) < 3:
+    if detail and not error and len(state["details"]) < 3:
         state["details"].append(detail)
 
 
 def _report_progress(result, state, log, *, level="info", label="进度"):
-    details = "；".join(state["details"])
-    _safe_log(log, level, "[自动订阅] TMDB 缺集核对%s：已核对 %d/%d 部，完整 %d，缺集 %d，失败 %d，未核对 %d%s",
+    details = "；".join(state.get("error_details", []) + state["details"])
+    _safe_log(log, level, "[自动订阅] TMDB 缺集核对%s：已核对 %d/%d 部，完整 %d，缺集 %d，无条目跳过 %d，失败 %d，未核对 %d%s",
               label, state["processed"], state["eligible"], result["complete"],
-              len(result["items"]), result["failed"],
+              len(result["items"]), result["tmdb_unavailable"], result["failed"],
               max(0, state["eligible"] - state["processed"]),
               f"；{details}" if details else "")
     state["details"].clear()
+    state.setdefault("error_details", []).clear()
 
 
 async def _scan_missing(cfg, http, log, result, state, cache):
@@ -492,7 +513,7 @@ async def _scan_missing(cfg, http, log, result, state, cache):
             try:
                 expected = await _expected_episodes(tmdb_http, tmdb_key, tmdb_id, cutoff, cache)
             except LibraryScanError as exc:
-                return tmdb_id, group, None, str(exc)
+                return tmdb_id, group, None, exc
             missing = {season: sorted(numbers - group["local"].get(season, set()))
                        for season, numbers in expected.items()}
             return tmdb_id, group, {s: eps for s, eps in missing.items() if eps}, ""
@@ -538,7 +559,7 @@ async def scan_missing(cfg, http, log=None, storage=None) -> dict:
     """
     result = {"items": [], "scanned": 0, "matched": 0, "complete": 0,
               "unknown": 0, "failed": 0, "missing_episodes": 0, "error": "",
-              "unprocessed": 0, "timed_out": False}
+              "unprocessed": 0, "timed_out": False, "tmdb_unavailable": 0, "scan_errors": []}
     state = {"inventory_complete": False, "eligible": 0, "processed": 0, "details": [],
              "scope": "", "done_ids": set()}
     cache = TmdbCache(storage, log)

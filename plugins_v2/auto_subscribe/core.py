@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.3",
+    "version": "2.3.4",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.4 修正缺集核对与整轮结果\n"
+    "- 已订阅、库中完整和规则过滤均算正常处理，无新增时不因个别异常误报整轮失败\n"
+    "- TMDB 普通剧集详情确认不存在时正常跳过，季数据异常及真实请求失败仍保留\n"
+    "- 核对异常与缺集示例分开记录，通知和历史保留具体原因\n\n"
     "v2.3.3 支持 Forward 同步移除订阅\n"
     "- 接入按 TMDB 编号和订阅 ID 查询、取消订阅，只取消追更，不删除媒体文件\n"
     "- 取消后核对 NextFind 活跃列表；拒绝媒体类型歧义，单季操作需明确允许整部处理\n"
@@ -165,7 +169,19 @@ def _notification_outcome(result, missing_subs=None, fill_stats=None, extra_adde
     if getattr(result, "auth_error", "") and not any(st.get("auth_error") for st in modules):
         failed += 1
     succeeded = subscribed + triggered
-    level = ("warning" if succeeded else "error") if failed else ("success" if succeeded else "info")
+    # No new subscription can be the correct outcome: existing subscriptions,
+    # complete shows and intentionally filtered works are completed checks.
+    # Do not mistake a whole inventory/request attempt for completed work.
+    completed = sum(count(st.get(key)) for st in stats.values() for key in (
+        "exists", "in_library", "already_handled", "filtered", "unrecognized"))
+    if not (missing_subs or {}).get("scan_error"):
+        completed += sum(count((missing_subs or {}).get(key)) for key in ("complete", "skipped", "tmdb_unavailable"))
+        if not ((missing_subs or {}).get("error") or (missing_subs or {}).get("auth_error")):
+            completed += count((missing_subs or {}).get("unknown"))
+    fill = fill_stats or {}
+    if "unprocessed" in fill or not (fill.get("error") or fill.get("auth_error")):
+        completed += max(0, count(fill.get("checked")) - count(fill.get("failed")) - count(fill.get("unprocessed")))
+    level = ("warning" if succeeded or completed else "error") if failed else ("success" if succeeded else "info")
     return {"level": level, "subscribed": subscribed, "triggered": triggered,
             "succeeded": succeeded, "failed": failed}
 
@@ -176,7 +192,16 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
     lines = [f"📥 自动订阅 · {label}"]
     outcome = _notification_outcome(result, missing_subs, fill_stats, extra_added)
     if outcome["failed"]:
-        state = "⚠️ 本轮部分成功" if outcome["succeeded"] else "❌ 本轮失败"
+        if outcome["level"] == "error":
+            state = "❌ 本轮失败"
+        elif outcome["succeeded"]:
+            state = "⚠️ 本轮部分成功"
+        elif (getattr(result, "auth_error", "") or any(
+                st and any(st.get(key) for key in ("error", "auth_error", "scan_error", "unprocessed", "scan_unprocessed", "scan_timed_out"))
+                for st in (missing_subs, fill_stats))):
+            state = "⚠️ 本轮部分完成"
+        else:
+            state = "⚠️ 本轮完成，部分项目异常"
     else:
         state = "✅ 本轮成功" if outcome["succeeded"] else "本轮完成，无新增"
     lines.append(f"{state}：新增订阅{outcome['subscribed']}部，补缺触发{outcome['triggered']}部，失败{outcome['failed']}项")
@@ -199,6 +224,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
                 m_parts.append(f"缺{missing_subs.get('missing_episodes', 0)}集")
         if missing_subs.get("unknown"):
             m_parts.append(f"资料不全跳过{missing_subs['unknown']}")
+        if missing_subs.get("tmdb_unavailable"):
+            m_parts.append(f"TMDB无条目跳过{missing_subs['tmdb_unavailable']}")
         if missing_subs.get("error"):
             m_parts.append(f"查询/执行失败：{missing_subs['error']}")
         if missing_subs.get("checked"):
@@ -214,6 +241,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
         if missing_subs.get("scan_timed_out"):
             m_parts.append(f"扫描超时，未核对{missing_subs.get('scan_unprocessed', 0)}部")
         lines.append("[缺集订阅] " + ("，".join(m_parts) if m_parts else "无缺集项目"))
+        for error in (missing_subs.get("scan_errors") or [])[:3]:
+            lines.append(f"[缺集核对] TMDB {error['tmdb_id']}：{one_line(error['reason'])}")
 
     if fill_stats is not None:
         f_parts = [
@@ -717,8 +746,9 @@ def _check_round_running(cancel_event, deadline):
 
 
 def _merge_scan_stats(stats, scan):
-    for key in ("scanned", "matched", "complete", "unknown", "missing_episodes"):
+    for key in ("scanned", "matched", "complete", "unknown", "missing_episodes", "tmdb_unavailable"):
         stats[key] = scan.get(key, 0)
+    stats["scan_errors"] = list(scan.get("scan_errors") or [])[:10]
     stats["failed"] += scan.get("failed", 0)
     stats["scan_unprocessed"] = scan.get("unprocessed", 0)
     stats["scan_timed_out"] = scan.get("timed_out", False)
@@ -947,6 +977,7 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
             agg["missing_scanned"] = missing_subs.get("scanned", 0)
             agg["missing_episodes"] = missing_subs.get("missing_episodes", 0)
             agg["missing_unknown"] = missing_subs.get("unknown", 0)
+            agg["missing_tmdb_unavailable"] = missing_subs.get("tmdb_unavailable", 0)
             agg["missing_unprocessed"] = missing_subs.get("unprocessed", 0) + missing_subs.get("scan_unprocessed", 0)
             agg["missing_scan_timed_out"] = int(bool(missing_subs.get("scan_timed_out")))
         if fill_stats:
@@ -986,7 +1017,7 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
         _check_round_running(cancel_event, deadline)
         log_round = ctx.log.warning if has_err else ctx.log.info
         log_round("[自动订阅] %s(%s)：新增 %d 部（榜单 %d，缺集 %d），触发补缺 %d 部",
-                  "本轮存在失败" if has_err else "完成", label,
+                  ("本轮失败" if outcome["level"] == "error" else "本轮存在项目异常") if has_err else "完成", label,
                   total_added_count, len(result.added), len(missing_added),
                   fill_stats.get("triggered", 0) if fill_stats else 0)
         return summary

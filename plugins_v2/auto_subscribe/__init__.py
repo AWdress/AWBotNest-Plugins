@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.3.3',
+ 'version': '2.3.4',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'python-multipart>=0.0.20'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -122,6 +122,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.3.4 修正缺集核对与整轮结果\n'
+    '- 已订阅、库中完整和规则过滤均算正常处理，无新增时不因个别异常误报整轮失败\n'
+    '- TMDB 普通剧集详情确认不存在时正常跳过，季数据异常及真实请求失败仍保留\n'
+    '- 核对异常与缺集示例分开记录，通知和历史保留具体原因\n\n'
     'v2.3.3 支持 Forward 同步移除订阅\n'
     '- 接入按 TMDB 编号和订阅 ID 查询、取消订阅，只取消追更，不删除媒体文件\n'
     '- 取消后核对 NextFind 活跃列表；拒绝媒体类型歧义，单季操作需明确允许整部处理\n'
