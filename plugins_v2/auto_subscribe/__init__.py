@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.2.7',
+ 'version': '2.3.0',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -100,6 +100,8 @@ __plugin__ = {'name': 'NextFind 助手',
                                     'secret': True, 'default': ''},
                    'tmdb_key': {'title': 'TMDB 密钥', 'type': 'password',
                                 'secret': True, 'default': ''},
+                   'mp_api_key': {'title': 'MoviePilot 接口专用密码', 'type': 'password',
+                                  'secret': True, 'default': ''},
                    'missing_air_delay_days': {'type': 'integer', 'default': 1,
                                               'min': 0, 'max': 30, 'title': '播出缓冲天数'},
                    'schedule': {'type': 'string',
@@ -120,6 +122,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.3.0 新增 MoviePilot 订阅接口并修正通知状态\n'
+    '- 提供独立密码登录、订阅新增与查询，将 MoviePilot v2 风格请求转交 NextFind\n'
+    '- 指定季请求默认拒绝，可明确允许转为整部订阅；不支持删除和高级限制\n'
+    '- 已有成功订阅但部分检查失败时显示部分成功，不再标为整轮失败\n\n'
     'v2.2.7 提升大库扫描速度并修复猫眼网播榜单\n'
     '- Emby 使用 5000 条大页并关闭图片和用户状态字段，完整读取校验不变\n'
     '- 服务器 TMDB 核对并发提升至 12，Windows 保持稳定并发；统一限速并遵守服务端等待\n'

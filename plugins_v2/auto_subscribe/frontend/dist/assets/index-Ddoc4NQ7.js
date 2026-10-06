@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BTjc-wXP.js';
+import Config from './__federation_expose_Config-DCrv7xwh.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -55,11 +55,17 @@ let store = {
 const mockHost = {
   pluginId: 'auto_subscribe',
   token: 'dev',
+  ui: { CronInput: { props: ['modelValue'], emits: ['update:modelValue'],
+    render() { return h('input', { class: 'inp', value: this.modelValue,
+      'aria-label': '定时执行（本地预览）', onInput: event => this.$emit('update:modelValue', event.target.value) }) } } },
+  async revealSecret(key) { return store[key] || '' },
   async getConfig() { return { ...store } },
   async saveConfig(values) { store = { ...store, ...values }; console.log('[mock] save', store); },
   async callApi(path, opts = {}) {
     console.log('[mock] callApi', path, opts);
     if (path === '/test') return { ok: true, quota: { hdhive: 'DEV 1000次/2000积分' } }
+    if (path === '/meta') return { countries: [], mp_base_path: '/api/plugin/auto_subscribe/mp', mp_username: 'forward' }
+    if (path === '/mp/key') return { key: 'preview-only-password-not-a-real-secret' }
     if (path === '/run') return { ok: true, summary: '📥 自动订阅 · 手动\n[豆瓣榜单] 新增订阅2，已订阅3\n✅ 新增订阅：豆瓣榜单·沙丘、豆瓣榜单·某剧' }
     if (path === '/history') return {
       last_run: '2026-07-15 08:00:00',

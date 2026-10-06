@@ -52,6 +52,7 @@ const STAT_CARDS = ['subscribed', 'in_library', 'exists', 'filtered', 'unrecogni
 const GROUPS = [
   { key: 'global', label: '全局设置' },
   { key: 'missing', label: '本地缺集', en: 'auto_subscribe_missing' },
+  { key: 'moviepilot', label: 'MoviePilot 接口', en: 'mp_api_enabled' },
   { key: 'douban', label: '豆瓣榜单', en: 'douban_enabled' },
   { key: 'mikan', label: 'Mikan 新番', en: 'mikan_enabled' },
   { key: 'netflix', label: '奈飞榜单', en: 'netflix_enabled' },
@@ -61,6 +62,7 @@ const SOURCE_ENABLE_KEYS = ['douban_enabled', 'mikan_enabled', 'netflix_enabled'
 
 const DEFAULTS = {
   api_url: '', api_key: '', schedule: '0 8 * * *', notify: true, ai_assist_recognition: false,
+  mp_api_enabled: false, mp_api_key: '', mp_whole_series: false,
   auto_fill_missing: false, auto_fill_missing_limit: 20,
   auto_subscribe_missing: false, auto_subscribe_missing_limit: 0,
   emby_server: '', emby_api_key: '', tmdb_key: '', missing_air_delay_days: 1,
@@ -86,8 +88,12 @@ const configReady = ref(false)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
-const secretVisible = reactive({ api_key: false, emby_api_key: false, tmdb_key: false })
-const secretLoading = reactive({ api_key: false, emby_api_key: false, tmdb_key: false })
+const secretVisible = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false })
+const secretLoading = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false })
+const mpGenerating = ref(false)
+const mpBasePath = ref('/api/plugin/auto_subscribe/mp')
+const mpUsername = ref('forward')
+const mpAddress = computed(() => `${globalThis.location?.origin || ''}${mpBasePath.value}`)
 const libraryTesting = ref(false)
 const libraryTestOutput = ref('')
 const missingStats = ref({})
@@ -119,6 +125,8 @@ onMounted(async () => {
   try {
     const meta = await props.host.callApi('/meta')
     countries.value = meta.countries || []
+    mpBasePath.value = meta.mp_base_path || mpBasePath.value
+    mpUsername.value = meta.mp_username || mpUsername.value
   } catch (e) { /* 国家选项拉取失败不致命 */ }
 })
 
@@ -141,6 +149,9 @@ async function save() {
     if (!Number.isInteger(cfg.missing_air_delay_days) || cfg.missing_air_delay_days < 0 || cfg.missing_air_delay_days > 30) {
       throw new Error('播出缓冲天数请填写 0～30 的整数')
     }
+    if (cfg.mp_api_enabled && cfg.mp_api_key !== '********' && !/^[A-Za-z0-9._~-]{32,256}$/.test(cfg.mp_api_key)) {
+      throw new Error('请在「MoviePilot 接口」生成专用密码，再保存配置')
+    }
     await props.host.saveConfig({ ...cfg })
     props.host.toast.success('配置已保存')
   } catch (e) {
@@ -160,6 +171,20 @@ async function toggleSecret(key) {
   } catch (e) {
     props.host.toast.error('读取密钥失败：' + (e.message || e))
   } finally { secretLoading[key] = false }
+}
+
+async function generateMpKey() {
+  if (mpGenerating.value || !configReady.value) return
+  mpGenerating.value = true
+  try {
+    const result = await props.host.callApi('/mp/key', { method: 'POST', body: {} })
+    if (!/^[A-Za-z0-9._~-]{32,256}$/.test(result.key || '')) throw new Error('返回的密码格式无效')
+    cfg.mp_api_key = result.key
+    secretVisible.mp_api_key = false
+    props.host.toast.success('专用密码已生成，请保存配置；更换后需在 Forward 更新密码并重新登录')
+  } catch (e) {
+    props.host.toast.error('生成密码失败：' + (e.message || e))
+  } finally { mpGenerating.value = false }
 }
 
 async function testLibrary() {
@@ -374,6 +399,33 @@ function switchTab(t) {
               <div class="hint flow-hint">先保存，再测试连接。测试只读取 Emby 和 TMDB，不新增订阅、不补缺，也不修改 Emby。</div>
               <div class="row"><button class="btn" :disabled="libraryTesting" @click="testLibrary">{{ libraryTesting ? '检查中…' : '测试 Emby / TMDB 连接' }}</button></div>
               <pre v-if="libraryTestOutput" class="output" role="status" aria-live="polite">{{ libraryTestOutput }}</pre>
+            </section>
+          </template>
+
+          <template v-else-if="group === 'moviepilot'">
+            <h3 class="det-title">MoviePilot 订阅接口</h3>
+            <section class="card">
+              <label class="row switch"><input v-model="cfg.mp_api_enabled" type="checkbox" /><span>接收第三方订阅，转交 NextFind（默认关闭）</span></label>
+              <div class="hint flow-hint">提供 MoviePilot v2 风格的登录、新增订阅和订阅列表接口。使用上方「全局设置」中已保存的 NextFind 连接；不需要安装 MoviePilot。</div>
+              <div class="hint flow-hint">NextFind 按整部作品订阅，不按季限制。默认拒绝指定季的请求；如果接受追整部剧，请开启下方选项。画质、站点、下载目录等 MoviePilot 专属筛选不支持，不能把它当作完整 MoviePilot 服务。</div>
+              <label class="row switch"><input v-model="cfg.mp_whole_series" type="checkbox" /><span>允许把指定季的请求转为整部剧订阅（默认关闭）</span></label>
+              <div class="hint flow-hint">开启后，Forward 例如“只订阅第 2 季”的请求也会订阅整部剧；关闭时会明确拒绝，不会悄悄扩大范围。</div>
+              <label class="fld"><span class="lbl">接口专用密码 / API Key</span><div class="secret-field">
+                <input v-model="cfg.mp_api_key" class="inp" :type="secretVisible.mp_api_key ? 'text' : 'password'" autocomplete="new-password" placeholder="点击下方按钮生成；不是平台登录密码或 NextFind 密钥" />
+                <button type="button" :disabled="secretLoading.mp_api_key" :aria-label="secretVisible.mp_api_key ? '隐藏接口专用密码' : '显示接口专用密码'" @click="toggleSecret('mp_api_key')">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button></div>
+              </label>
+              <div class="row"><button type="button" class="btn" :disabled="mpGenerating || !configReady" @click="generateMpKey">{{ mpGenerating ? '生成中…' : (cfg.mp_api_key ? '生成新的专用密码' : '生成专用密码') }}</button></div>
+              <div class="hint flow-hint">先生成密码，再启用并保存。密码默认隐藏，点眼睛查看和复制。更换后旧登录凭据立即失效，Forward 需要更新密码并重新登录。</div>
+            </section>
+            <section class="card">
+              <div class="card-h">Forward 怎么填写</div>
+              <label class="fld"><span class="lbl">MoviePilot 服务器地址</span><input class="inp" :value="mpAddress" readonly aria-label="Forward MoviePilot 服务器地址" /></label>
+              <div class="hint flow-hint">在 Forward「设置 → 服务 → 服务器订阅」填写这个完整地址，不再追加 /api/v1。请从你服务器的域名打开平台，再复制地址；手机须能访问该地址，外网请使用 HTTPS。</div>
+              <label class="row"><span>用户名</span><input class="inp" :value="mpUsername" readonly aria-label="Forward 用户名" /></label>
+              <div class="hint flow-hint">开启「是否需要登录」。用户名填上面的值，密码填本页的接口专用密码。关闭「同步移除订阅」：此入口只新增和查询，不删除 NextFind 订阅。</div>
+              <div class="hint flow-hint">已按 MoviePilot 官方源码校验协议；Forward 内置客户端未公开源码，仍需在你的设备点「测试连接」确认。若它请求了其他接口，请提供报错或请求日志，不会伪造未支持接口的成功结果。</div>
             </section>
           </template>
 
@@ -607,7 +659,7 @@ function switchTab(t) {
 .flow-hint { white-space: normal; line-height: 1.6; overflow-wrap: anywhere; color: var(--text-secondary, #b9c0cc); }
 .secret-field { position: relative; flex: 1; min-width: 0; }
 .fld .secret-field { flex: auto; }
-.secret-field .inp { width: 100%; padding-right: 44px; }
+.secret-field .inp { width: 100%; box-sizing: border-box; padding-right: 44px; }
 .secret-field button { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted, #7a8291); cursor: pointer; }
 .secret-field button:hover { color: var(--accent, #6ea8fe); background: var(--accent-dim, #1e3a5f); }
 .secret-field svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }

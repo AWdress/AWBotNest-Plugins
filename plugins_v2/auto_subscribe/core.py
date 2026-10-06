@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.2.7",
+    "version": "2.3.0",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.0 新增 MoviePilot 订阅接口并修正通知状态\n"
+    "- 提供独立密码登录、订阅新增与查询，将 MoviePilot v2 风格请求转交 NextFind\n"
+    "- 指定季请求默认拒绝，可明确允许转为整部订阅；不支持删除和高级限制\n"
+    "- 已有成功订阅但部分检查失败时显示部分成功，不再标为整轮失败\n\n"
     "v2.2.7 提升大库扫描速度并修复猫眼网播榜单\n"
     "- Emby 使用 5000 条大页并关闭图片和用户状态字段，完整读取校验不变\n"
     "- 服务器 TMDB 核对并发提升至 12，Windows 保持稳定并发；统一限速并遵守服务端等待\n"
@@ -81,6 +85,7 @@ __plugin__["changelog"] = (
 # 前端 Config.vue 也用同一套默认初始化表单）。
 DEFAULTS = {
     "api_url": "", "api_key": "",
+    "mp_api_enabled": False, "mp_api_key": "", "mp_whole_series": False,
     "schedule": "0 8 * * *", "notify": True, "ai_assist_recognition": False,
     "auto_fill_missing": False, "auto_fill_missing_limit": 20,
     # 缺集自动订阅不设每轮上限；保留旧字段仅为兼容历史配置。
@@ -124,10 +129,46 @@ def _effective_cfg(ctx) -> dict:
     return {**DEFAULTS, **dict(ctx.config or {})}
 
 
+def _notification_outcome(result, missing_subs=None, fill_stats=None, extra_added=None):
+    """Classify this round's confirmed work without rewriting history counts."""
+    def count(value):
+        try:
+            return max(0, int(value or 0)) if not isinstance(value, bool) else 0
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    stats = getattr(result, "stats", {}) or {}
+    modules = [st for st in (missing_subs, fill_stats) if st]
+    rank_added = max(sum(count(st.get("subscribed")) for st in stats.values()),
+                     len(getattr(result, "added", []) or []))
+    missing_added = max(count((missing_subs or {}).get("added")), len(extra_added or []))
+    subscribed = rank_added + missing_added
+    triggered = count((fill_stats or {}).get("triggered"))
+    failed = sum(count(st.get("error")) for st in stats.values())
+    failed += sum(bool(error) for error in (getattr(result, "errors", {}) or {}).values())
+    for st in modules:
+        known_failed = count(st.get("failed"))
+        failed += known_failed or int(bool(st.get("error") or st.get("auth_error") or st.get("scan_error")))
+    # Module auth errors already contribute to their failure count. Ranking
+    # auth stops before the item status is recorded and needs its own count.
+    if getattr(result, "auth_error", "") and not any(st.get("auth_error") for st in modules):
+        failed += 1
+    succeeded = subscribed + triggered
+    level = ("warning" if succeeded else "error") if failed else ("success" if succeeded else "info")
+    return {"level": level, "subscribed": subscribed, "triggered": triggered,
+            "succeeded": succeeded, "failed": failed}
+
+
 def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats: Optional[dict] = None, extra_added: Optional[list] = None) -> str:
     """把一轮结果格式化成通知/返回文本。"""
     # 鉴权失败：一目了然地报因，别淹没在一堆「失败N」里。
     lines = [f"📥 自动订阅 · {label}"]
+    outcome = _notification_outcome(result, missing_subs, fill_stats, extra_added)
+    if outcome["failed"]:
+        state = "⚠️ 本轮部分成功" if outcome["succeeded"] else "❌ 本轮失败"
+    else:
+        state = "✅ 本轮成功" if outcome["succeeded"] else "本轮完成，无新增"
+    lines.append(f"{state}：新增订阅{outcome['subscribed']}部，补缺触发{outcome['triggered']}部，失败{outcome['failed']}项")
     if getattr(result, "auth_error", ""):
         lines.extend([f"❌ {result.auth_error}", "请更新 NextFind API 密钥后重试。"])
     for src, st in getattr(result, "stats", {}).items():
@@ -187,6 +228,8 @@ def _summary(result, label: str, missing_subs: Optional[dict] = None, fill_stats
         shown = "、".join(all_added[:15])
         more = f" 等 {len(all_added)} 部" if len(all_added) > 15 else ""
         lines.append(f"✅ 新增订阅：{shown}{more}")
+    elif outcome["subscribed"]:
+        lines.append(f"✅ 本轮新增订阅{outcome['subscribed']}部")
     else:
         lines.append("本轮无新增订阅")
     return "\n".join(lines)
@@ -741,9 +784,13 @@ async def _run(ctx, label: str) -> str:
                 async with asyncio.timeout(_FINALIZE_TIMEOUT_SECONDS):
                     await _save_interrupted(ctx, progress, message)
                     if _effective_cfg(ctx).get("notify", True):
-                        await ctx.notify({"状态": "运行超时", "详情": message,
+                        outcome = _notification_outcome(progress.get("result"), progress.get("missing_subs"),
+                                                        progress.get("fill_stats"))
+                        await ctx.notify({"状态": "部分成功，运行超时" if outcome["succeeded"] else "运行超时", "详情": message,
+                                          "已完成": f"新增订阅{outcome['subscribed']}部，补缺触发{outcome['triggered']}部",
+                                          "失败": f"本轮未完成；已记录项目失败{outcome['failed']}项",
                                           "处理结果": "已完成的订阅保留，未处理项目留待下一轮"},
-                                         level="error", category="自动订阅")
+                                         level="warning" if outcome["succeeded"] else "error", category="自动订阅")
             except Exception as exc:
                 ctx.log.warning("[自动订阅] 超时结果保存或通知失败：%s", request_error(exc))
             return message
@@ -842,8 +889,11 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
                 if missing_subs is not None:
                     await _save_interrupted(ctx, progress, f"榜单运行异常：{message}")
                 if cfg.get("notify", True):
-                    await ctx.notify({"状态": "运行异常", "详情": message},
-                                     level="error", category="自动订阅")
+                    outcome = _notification_outcome(result, missing_subs, extra_added=missing_added)
+                    await ctx.notify({"状态": "部分成功，运行异常" if outcome["succeeded"] else "运行异常", "详情": message,
+                                      "已完成": f"新增订阅{outcome['subscribed']}部，补缺触发{outcome['triggered']}部",
+                                      "失败": f"本轮未完成；已记录项目失败{outcome['failed']}项"},
+                                     level="warning" if outcome["succeeded"] else "error", category="自动订阅")
                 return f"运行异常：{message}"
 
             await _state_set(ctx, "handled", result.handled)
@@ -901,13 +951,13 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
         await _state_set(ctx, "last_stats", agg)
 
         summary = _summary(result, label, missing_subs=missing_subs, fill_stats=fill_stats, extra_added=missing_added)
-        has_err = bool(result.auth_error or result.errors or module_failures or agg.get("error"))
+        outcome = _notification_outcome(result, missing_subs, fill_stats, missing_added)
+        has_err = bool(outcome["failed"])
 
         # 通知是「尽力而为」：投递失败（无在线账号/Bot 无目标等）只告警，绝不让整轮运行失败
         # （订阅其实已经落地）。notifier.submit 无可用账号时会抛 RuntimeError。
         if cfg.get("notify", True):
-            has_add = result.added or missing_added or (fill_stats and fill_stats.get("triggered"))
-            level = "error" if has_err else ("success" if has_add else "info")
+            level = outcome["level"]
             try:
                 lines = [line.strip() for line in str(summary or "").splitlines() if line.strip()]
                 rows = [
@@ -1081,7 +1131,19 @@ async def setup(ctx):
     # ── 前端(Config.vue)用的后端接口 ──
     @ctx.on_api("/meta", methods=["GET"])
     async def _api_meta(req):
-        return {"countries": _country_options()}
+        from ._mp_compat import BASE_PATH, LOGIN_USER
+        return {"countries": _country_options(), "mp_base_path": BASE_PATH, "mp_username": LOGIN_USER}
+
+    @ctx.on_api("/mp/key", methods=["POST"])
+    async def _api_mp_key(req):
+        import secrets
+        # Only the authenticated admin API can generate a new credential.
+        # It is not active until explicitly saved in the plugin configuration.
+        return {"key": secrets.token_urlsafe(32)}
+
+    if _effective_cfg(ctx).get("mp_api_enabled") is True:
+        from ._mp_compat import MoviePilotCompat
+        MoviePilotCompat(ctx, lambda: _effective_cfg(ctx)).register()
 
     @ctx.on_api("/test", methods=["GET"])
     async def _api_test(req):
