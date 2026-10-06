@@ -929,7 +929,7 @@ return (_ctx, _cache) => {
                             ]),
                             _cache[93] || (_cache[93] = _createElementVNode("span", null, "接收第三方订阅，转交 NextFind（默认关闭）", -1))
                           ]),
-                          _cache[97] || (_cache[97] = _createElementVNode("div", { class: "hint flow-hint" }, "提供 MoviePilot v2 风格的登录、新增订阅和订阅列表接口。使用上方「全局设置」中已保存的 NextFind 连接；不需要安装 MoviePilot。", -1)),
+                          _cache[97] || (_cache[97] = _createElementVNode("div", { class: "hint flow-hint" }, "提供 MoviePilot v2 风格的登录、查询、新增和取消订阅接口。使用上方「全局设置」中已保存的 NextFind 连接；不需要安装 MoviePilot。取消订阅不会删除已入库文件。", -1)),
                           _cache[98] || (_cache[98] = _createElementVNode("div", { class: "hint flow-hint" }, "NextFind 按整部作品订阅，不按季限制。默认拒绝指定季的请求；如果接受追整部剧，请开启下方选项。画质、站点、下载目录等 MoviePilot 专属筛选不支持，不能把它当作完整 MoviePilot 服务。", -1)),
                           _createElementVNode("label", _hoisted_57, [
                             _withDirectives(_createElementVNode("input", {
@@ -938,9 +938,9 @@ return (_ctx, _cache) => {
                             }, null, 512), [
                               [_vModelCheckbox, cfg.mp_whole_series]
                             ]),
-                            _cache[94] || (_cache[94] = _createElementVNode("span", null, "允许把指定季的请求转为整部剧订阅（默认关闭）", -1))
+                            _cache[94] || (_cache[94] = _createElementVNode("span", null, "允许指定季的请求按整部剧订阅或取消（默认关闭）", -1))
                           ]),
-                          _cache[99] || (_cache[99] = _createElementVNode("div", { class: "hint flow-hint" }, "开启后，Forward 例如“只订阅第 2 季”的请求也会订阅整部剧；关闭时会明确拒绝，不会悄悄扩大范围。", -1)),
+                          _cache[99] || (_cache[99] = _createElementVNode("div", { class: "hint flow-hint" }, "开启后，Forward 订阅或移除某一季，会对应订阅或取消 NextFind 的整部剧追更。关闭时拒绝单季操作，不会悄悄扩大范围；媒体文件不会删除。", -1)),
                           _createElementVNode("label", _hoisted_58, [
                             _cache[96] || (_cache[96] = _createElementVNode("span", { class: "lbl" }, "接口专用密码 / API Key", -1)),
                             _createElementVNode("div", _hoisted_59, [
@@ -1004,8 +1004,8 @@ return (_ctx, _cache) => {
                               "aria-label": "Forward 用户名"
                             }, null, 8, _hoisted_68)
                           ]),
-                          _cache[105] || (_cache[105] = _createElementVNode("div", { class: "hint flow-hint" }, "开启「是否需要登录」。用户名填上面的值，密码填本页的接口专用密码。关闭「同步移除订阅」：此入口只新增和查询，不删除 NextFind 订阅。", -1)),
-                          _cache[106] || (_cache[106] = _createElementVNode("div", { class: "hint flow-hint" }, "已按 MoviePilot 官方源码校验协议；Forward 内置客户端未公开源码，仍需在你的设备点「测试连接」确认。若它请求了其他接口，请提供报错或请求日志，不会伪造未支持接口的成功结果。", -1))
+                          _cache[105] || (_cache[105] = _createElementVNode("div", { class: "hint flow-hint" }, "开启「是否需要登录」，用户名填上面的值，密码填本页的接口专用密码。需要同步取消追更时，可开启 Forward 的「同步移除订阅」；只取消 NextFind 订阅，不删除媒体文件。", -1)),
+                          _cache[106] || (_cache[106] = _createElementVNode("div", { class: "hint flow-hint" }, "Forward 带季号的订阅和移除请求，需要上方允许按整部剧处理。取消后会核对 NextFind 列表，确认已移除才返回成功。同一 TMDB 编号同时对应电影和剧集时会拒绝操作，避免误取消。", -1))
                         ])
                       ], 64))
                     : (group.value === 'douban')
@@ -1735,6 +1735,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-5ba4cc6e"]]);
+const Config = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-cbc0851d"]]);
 
 export { Config as default };

@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.2",
+    "version": "2.3.3",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.3 支持 Forward 同步移除订阅\n"
+    "- 接入按 TMDB 编号和订阅 ID 查询、取消订阅，只取消追更，不删除媒体文件\n"
+    "- 取消后核对 NextFind 活跃列表；拒绝媒体类型歧义，单季操作需明确允许整部处理\n"
+    "- 补齐 Forward 按用户查询接口，启动及订阅变化时通过平台 SDK 同步具体路由\n\n"
     "v2.3.2 适配 Forward 连接测试探针\n"
     "- 按 Forward 1.3.19 实际请求识别无效编号探针，返回 MoviePilot 结果结构\n"
     "- 测试连接只读取 NextFind 验证连通性，不新增订阅；鉴权或上游失败仍明确拒绝\n\n"
@@ -1150,7 +1154,9 @@ async def setup(ctx):
 
     if _effective_cfg(ctx).get("mp_api_enabled") is True:
         from ._mp_compat import MoviePilotCompat
-        MoviePilotCompat(ctx, lambda: _effective_cfg(ctx)).register()
+        mp_bridge = MoviePilotCompat(ctx, lambda: _effective_cfg(ctx))
+        mp_bridge.register()
+        ctx.create_task(mp_bridge.sync_routes(), name="MoviePilot 订阅路由同步")
 
     @ctx.on_api("/test", methods=["GET"])
     async def _api_test(req):

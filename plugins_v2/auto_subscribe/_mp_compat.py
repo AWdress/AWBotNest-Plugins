@@ -27,6 +27,7 @@ BASE_PATH = "/api/plugin/auto_subscribe/mp"
 _BODY_LIMIT = 32 * 1024
 _RESPONSE_LIMIT = 2 * 1024 * 1024
 _TIMEOUT = 30.0
+_ROUTE_LIMIT = 8192
 LOGIN_USER = "forward"
 _TOKEN_LIFETIME = 24 * 3600
 _TYPES = {"电影": "movie", "电视剧": "tv", "剧集": "tv", "movie": "movie", "tv": "tv", "series": "tv"}
@@ -217,12 +218,52 @@ class MoviePilotCompat:
     def __init__(self, ctx, config):
         self.ctx, self.config = ctx, config
         self._mutation_lock = asyncio.Lock()
+        self._registered = False
+        self._route_ids = set()
+        self._media_types = {}
 
     def register(self):
         # PluginRoutes normalizes trailing slashes, matching MP's /subscribe/.
         self.ctx.on_webhook("mp/api/v1/subscribe", self.subscribe)
         self.ctx.on_webhook("mp/api/v1/subscribe/list", self.list_subscriptions)
+        self.ctx.on_webhook(f"mp/api/v1/subscribe/user/{LOGIN_USER}", self.list_subscriptions)
         self.ctx.on_webhook("mp/api/v1/login/access-token", self.login)
+        self._registered = True
+
+    def _register_rows(self, rows):
+        if not self._registered:
+            return
+        if len(self._route_ids | {row["id"] for row in rows}) > _ROUTE_LIMIT:
+            raise NextFindError("兼容接口订阅路由已达上限，请重载插件")
+        # The host SDK supports exact webhook paths, not path parameters.
+        # Register verified works through the public SDK; never alter its router.
+        # Keep old paths for safe, idempotent retries until the plugin is stopped.
+        for row in rows:
+            sid, tmdb_id = row["id"], str(row["tmdbid"])
+            if sid in self._route_ids:
+                continue
+            async def by_id(req, sid=sid):
+                return await self.subscription_item(req, sid=sid)
+            self.ctx.on_webhook(f"mp/api/v1/subscribe/{sid}", by_id)
+            self._route_ids.add(sid)
+            if tmdb_id not in self._media_types:
+                self._media_types[tmdb_id] = set()
+                async def by_media(req, tmdb_id=tmdb_id):
+                    return await self.subscription_item(req, tmdb_id=tmdb_id)
+                self.ctx.on_webhook(f"mp/api/v1/subscribe/media/tmdb:{tmdb_id}", by_media)
+            self._media_types[tmdb_id].add(_media_type(row["type"]))
+
+    async def sync_routes(self):
+        cfg = self.config()
+        if self._configured(cfg) is not None:
+            return
+        try:
+            async with asyncio.timeout(_TIMEOUT):
+                await self._rows(cfg)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.ctx.log.warning("[MoviePilot 接口] 订阅路由同步失败（%s），查询订阅时将重新同步", type(exc).__name__)
 
     @staticmethod
     def response(payload, status=200):
@@ -301,7 +342,7 @@ class MoviePilotCompat:
         except (ValueError, UnicodeDecodeError):
             raise NextFindError("NextFind 返回了无效响应") from None
 
-    async def _rows(self, cfg):
+    async def _rows(self, cfg, *, register_routes=True):
         payload = await self._nf(cfg, "GET", "/subscriptions")
         rows = NextFindClient._list_data(payload, "/subscriptions")
         result = []
@@ -336,7 +377,72 @@ class MoviePilotCompat:
                            "year": row["year"] if isinstance(row.get("year"), str) else None,
                            "poster": row["poster"] if isinstance(row.get("poster"), str) else None,
                            "season": None, "state": "R"})
+        if register_routes:
+            self._register_rows(result)
         return result
+
+    async def subscription_item(self, req, *, sid=None, tmdb_id=None):
+        cfg = self.config()
+        rejected = self._authorized(req, cfg)
+        if rejected is not None:
+            return self.response({"success": False, "message": json.loads(rejected.body)["detail"], "data": None}, rejected.status_code)
+        method = str(getattr(req, "method", "")).upper()
+        if method not in ("GET", "DELETE"):
+            return self.response({"success": False, "message": "请求方法不支持", "data": None}, 405)
+        body = getattr(req, "body", b"")
+        if len(body) > _BODY_LIMIT:
+            return self.response({"success": False, "message": "请求内容超过 32 KB", "data": None}, 413)
+        query = getattr(req, "query", {}) or {}
+        if body.strip() or set(query) - {"apikey", "token", "season"}:
+            return self.response({"success": False, "message": "请通过订阅路径和可选季号指定作品，不支持其他筛选或请求体", "data": None}, 422)
+        season = query.get("season")
+        if "season" in query:
+            if not isinstance(season, str) or not re.fullmatch(r"[0-9]{1,4}", season):
+                return self.response({"success": False, "message": "季号格式无效", "data": None}, 422)
+            season = int(season)
+        try:
+            async with asyncio.timeout(_TIMEOUT):
+                async with self._mutation_lock:
+                    # A historical route is not evidence of an active subscription.
+                    # Do not register newly seen types during this identity check.
+                    rows = await self._rows(cfg, register_routes=False)
+                    matches = [row for row in rows if (row["id"] == sid if sid is not None
+                                                       else str(row["tmdbid"]) == tmdb_id)]
+                    if tmdb_id is not None and (len(matches) > 1 or len(self._media_types.get(tmdb_id, ())) != 1
+                            or matches and _media_type(matches[0]["type"]) not in self._media_types[tmdb_id]):
+                        return self.response({"success": False, "message": "TMDB 编号对应的媒体类型不明确，请使用订阅列表中的 ID 操作", "data": None}, 409)
+                    if matches:
+                        media_type = _media_type(matches[0]["type"])
+                    elif sid is not None:
+                        media_type = "tv" if sid % 2 else "movie"
+                    else:
+                        media_type = next(iter(self._media_types[tmdb_id]))
+                    if season is not None:
+                        if media_type == "movie" and season != 0:
+                            return self.response({"success": False, "message": "电影不能指定季号", "data": None}, 422)
+                        if media_type == "tv" and cfg.get("mp_whole_series") is not True:
+                            return self.response({"success": False, "message": "NextFind 不支持单季操作；请由管理员明确允许转为整部剧订阅或取消", "data": None}, 422)
+                    if method == "GET":
+                        return self.response(matches[0] if matches else dict(_SUBSCRIBE_DEFAULTS))
+                    if not matches:
+                        return self.response({"success": True, "message": "NextFind 已无该作品订阅", "data": None})
+                    item = matches[0]
+                    body = {"tmdb_id": str(item["tmdbid"]), "media_type": media_type}
+                    payload = await self._nf(cfg, "POST", "/subscriptions/remove", body)
+                    ok, _ = NextFindClient("", cfg["api_key"])._mutation_result(payload, "/subscriptions/remove")
+                    if not ok:
+                        return self.response({"success": False, "message": "NextFind 未接受取消订阅", "data": None})
+                    remaining = await self._rows(cfg, register_routes=False)
+                    if any(row["id"] == item["id"] for row in remaining):
+                        return self.response({"success": False, "message": "NextFind 尚未确认订阅已移除，请稍后重试", "data": None})
+                    self.ctx.log.info("[MoviePilot 接口] 订阅移除已由 NextFind 确认：%s TMDB %s", media_type, body["tmdb_id"])
+                    message = ("已取消 NextFind 整部剧订阅，媒体文件未删除" if media_type == "tv"
+                               else "已取消 NextFind 订阅，媒体文件未删除")
+                    return self.response({"success": True, "message": message, "data": None})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            return self._failure(exc, cfg)
 
     def _failure(self, exc, cfg):
         # Neither client input nor upstream messages/URLs enter logs/responses.
@@ -390,10 +496,13 @@ class MoviePilotCompat:
                     if any(row["id"] == sid for row in rows):
                         return self.response({"success": True, "message": "NextFind 已订阅该作品", "data": {"id": sid}})
                     body = {key: item[key] for key in ("tmdb_id", "media_type", "title")}
+                    if self._registered and sid not in self._route_ids and len(self._route_ids) >= _ROUTE_LIMIT:
+                        raise NextFindError("兼容接口订阅路由已达上限，请重载插件")
                     payload = await self._nf(cfg, "POST", "/subscriptions/add", body)
                     ok, _ = NextFindClient("", cfg["api_key"])._mutation_result(payload, "/subscriptions/add")
                     if not ok:
                         return self.response({"success": False, "message": "NextFind 未接受该订阅", "data": None})
+                    self._register_rows([{"id": sid, "tmdbid": int(item["tmdb_id"]), "type": item["media_type"]}])
                     self.ctx.log.info("[MoviePilot 接口] 订阅已由 NextFind 确认：%s TMDB %s", item["media_type"], item["tmdb_id"])
                     return self.response({"success": True, "message": "已向 NextFind 添加整部作品订阅", "data": {"id": sid}})
         except asyncio.CancelledError:

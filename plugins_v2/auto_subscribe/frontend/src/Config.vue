@@ -406,10 +406,10 @@ function switchTab(t) {
             <h3 class="det-title">MoviePilot 订阅接口</h3>
             <section class="card">
               <label class="row switch"><input v-model="cfg.mp_api_enabled" type="checkbox" /><span>接收第三方订阅，转交 NextFind（默认关闭）</span></label>
-              <div class="hint flow-hint">提供 MoviePilot v2 风格的登录、新增订阅和订阅列表接口。使用上方「全局设置」中已保存的 NextFind 连接；不需要安装 MoviePilot。</div>
+              <div class="hint flow-hint">提供 MoviePilot v2 风格的登录、查询、新增和取消订阅接口。使用上方「全局设置」中已保存的 NextFind 连接；不需要安装 MoviePilot。取消订阅不会删除已入库文件。</div>
               <div class="hint flow-hint">NextFind 按整部作品订阅，不按季限制。默认拒绝指定季的请求；如果接受追整部剧，请开启下方选项。画质、站点、下载目录等 MoviePilot 专属筛选不支持，不能把它当作完整 MoviePilot 服务。</div>
-              <label class="row switch"><input v-model="cfg.mp_whole_series" type="checkbox" /><span>允许把指定季的请求转为整部剧订阅（默认关闭）</span></label>
-              <div class="hint flow-hint">开启后，Forward 例如“只订阅第 2 季”的请求也会订阅整部剧；关闭时会明确拒绝，不会悄悄扩大范围。</div>
+              <label class="row switch"><input v-model="cfg.mp_whole_series" type="checkbox" /><span>允许指定季的请求按整部剧订阅或取消（默认关闭）</span></label>
+              <div class="hint flow-hint">开启后，Forward 订阅或移除某一季，会对应订阅或取消 NextFind 的整部剧追更。关闭时拒绝单季操作，不会悄悄扩大范围；媒体文件不会删除。</div>
               <label class="fld"><span class="lbl">接口专用密码 / API Key</span><div class="secret-field">
                 <input v-model="cfg.mp_api_key" class="inp" :type="secretVisible.mp_api_key ? 'text' : 'password'" autocomplete="new-password" placeholder="点击下方按钮生成；不是平台登录密码或 NextFind 密钥" />
                 <button type="button" :disabled="secretLoading.mp_api_key" :aria-label="secretVisible.mp_api_key ? '隐藏接口专用密码' : '显示接口专用密码'" @click="toggleSecret('mp_api_key')">
@@ -424,8 +424,8 @@ function switchTab(t) {
               <label class="fld"><span class="lbl">MoviePilot 服务器地址</span><input class="inp" :value="mpAddress" readonly aria-label="Forward MoviePilot 服务器地址" /></label>
               <div class="hint flow-hint">在 Forward「设置 → 服务 → 服务器订阅」填写这个完整地址，不再追加 /api/v1。请从你服务器的域名打开平台，再复制地址；手机须能访问该地址，外网请使用 HTTPS。</div>
               <label class="row"><span>用户名</span><input class="inp" :value="mpUsername" readonly aria-label="Forward 用户名" /></label>
-              <div class="hint flow-hint">开启「是否需要登录」。用户名填上面的值，密码填本页的接口专用密码。关闭「同步移除订阅」：此入口只新增和查询，不删除 NextFind 订阅。</div>
-              <div class="hint flow-hint">已按 MoviePilot 官方源码校验协议；Forward 内置客户端未公开源码，仍需在你的设备点「测试连接」确认。若它请求了其他接口，请提供报错或请求日志，不会伪造未支持接口的成功结果。</div>
+              <div class="hint flow-hint">开启「是否需要登录」，用户名填上面的值，密码填本页的接口专用密码。需要同步取消追更时，可开启 Forward 的「同步移除订阅」；只取消 NextFind 订阅，不删除媒体文件。</div>
+              <div class="hint flow-hint">Forward 带季号的订阅和移除请求，需要上方允许按整部剧处理。取消后会核对 NextFind 列表，确认已移除才返回成功。同一 TMDB 编号同时对应电影和剧集时会拒绝操作，避免误取消。</div>
             </section>
           </template>
 
