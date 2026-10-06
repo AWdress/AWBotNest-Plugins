@@ -364,8 +364,22 @@ class MoviePilotCompat:
                 raise
             except Exception as exc:
                 return self._failure(exc, cfg)
+        payload = req.json
+        # Forward 1.3.19 probes POST /subscribe/ with this exact invalid ID.
+        # A MoviePilot result envelope confirms the route; success=False
+        # honestly reports that no subscription was created by the probe.
+        if payload == {"tmdbid": "-1"}:
+            try:
+                async with asyncio.timeout(_TIMEOUT):
+                    await self._rows(cfg)
+                return self.response({"success": False,
+                                      "message": "连接正常，测试请求不会新增订阅", "data": None})
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                return self._failure(exc, cfg)
         try:
-            item = parse_subscription(req.json, allow_whole_series=cfg.get("mp_whole_series") is True)
+            item = parse_subscription(payload, allow_whole_series=cfg.get("mp_whole_series") is True)
         except ValueError as exc:
             return self.response({"detail": str(exc)}, 422)
         try:

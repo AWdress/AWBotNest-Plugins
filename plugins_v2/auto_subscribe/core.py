@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.1",
+    "version": "2.3.2",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,9 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.2 适配 Forward 连接测试探针\n"
+    "- 按 Forward 1.3.19 实际请求识别无效编号探针，返回 MoviePilot 结果结构\n"
+    "- 测试连接只读取 NextFind 验证连通性，不新增订阅；鉴权或上游失败仍明确拒绝\n\n"
     "v2.3.1 修复 MoviePilot 登录与订阅响应兼容\n"
     "- 支持 URL 编码表单、multipart 表单和 JSON 登录\n"
     "- 订阅列表补齐官方响应字段，未知信息保持为空\n"

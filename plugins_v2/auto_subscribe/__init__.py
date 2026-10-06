@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.3.1',
+ 'version': '2.3.2',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'python-multipart>=0.0.20'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -122,6 +122,9 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.3.2 适配 Forward 连接测试探针\n'
+    '- 按 Forward 1.3.19 实际请求识别无效编号探针，返回 MoviePilot 结果结构\n'
+    '- 测试连接只读取 NextFind 验证连通性，不新增订阅；鉴权或上游失败仍明确拒绝\n\n'
     'v2.3.1 修复 MoviePilot 登录与订阅响应兼容\n'
     '- 支持 URL 编码表单、multipart 表单和 JSON 登录\n'
     '- 订阅列表补齐官方响应字段，未知信息保持为空\n'
