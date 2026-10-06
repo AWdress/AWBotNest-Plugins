@@ -10,7 +10,9 @@ Forward 在「设置 → 服务 → 服务器订阅」填写：
 - 开启登录，用户名填 `forward`，密码填刚生成的专用密码；然后测试连接。
 - 关闭「同步移除订阅」。此入口只支持查询、新增，不支持远程删除或完整 MoviePilot 管理。
 
-当前实现参照 MoviePilot 软件 v2 的 `/api/v1` 订阅协议：表单登录 `POST /api/v1/login/access-token`，裸数组查询 `GET /api/v1/subscribe/`，JSON 新增 `POST /api/v1/subscribe/`。上述路径相对于完整服务器地址。登录返回 24 小时 Bearer JWT，也支持 MoviePilot 固定密钥鉴权 `X-API-KEY`、`?apikey=`、`?token=`；推荐登录或请求头，不建议把密码放 URL。公网请使用 HTTPS。
+当前实现参照 MoviePilot 软件 v2 的 `/api/v1` 订阅协议：登录 `POST /api/v1/login/access-token`，裸数组查询 `GET /api/v1/subscribe/`，JSON 新增 `POST /api/v1/subscribe/`。上述路径相对于完整服务器地址。登录支持 URL 编码表单、multipart 表单和 JSON 对象，按请求声明的 Content-Type 解析；用户名、密码必须各有一个字符串值，不接受文件、重复凭据或不完整表单。登录返回 24 小时 Bearer JWT，也支持 MoviePilot 固定密钥鉴权 `X-API-KEY`、`?apikey=`、`?token=`；推荐登录或请求头，不建议把密码放 URL。公网请使用 HTTPS。
+
+2.3.1 起，订阅列表返回官方 Subscribe 模型的完整 44 个字段，保留模型默认值；NextFind 未提供的元数据保持为空，不编造季号、年份或入库进度。插件声明表单解析依赖，由平台安装，无需修改平台。
 
 新增按 TMDB ID 与媒体类型去重，只有 NextFind 明确接受后才返回成功；重复作品返回已有订阅 ID，不重复提交。NextFind 活跃订阅以整部作品为单位，不是单季订阅：指定季的请求默认拒绝，只有管理员明确开启「允许把指定季的请求转为整部剧订阅」后才按整部剧处理。画质、站点、目录、指定集等高级限制不支持，非空时明确拒绝，不静默忽略。查询中的季号为空，返回 ID 是兼容入口按媒体类型与 TMDB ID 生成的稳定编号，不是 NextFind 数据库 ID。
 

@@ -13,8 +13,11 @@ import hmac
 import json
 import re
 import time
+from email.message import Message
 from urllib.parse import parse_qs, urlsplit
 
+from starlette.datastructures import Headers
+from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.responses import JSONResponse
 
 from ._nextfind import NextFindClient, NextFindError
@@ -32,6 +35,88 @@ _UNSUPPORTED = (
     "save_path", "directory", "download_setting", "best_version", "start_episode",
     "current_episode", "total_episode", "lack_episode", "episode", "episodes",
 )
+
+# MoviePilot v2 serializes the whole Subscribe response model, including
+# optional fields. Keep unknown metadata null instead of inventing a season,
+# release year, completion progress or downloader settings.
+_SUBSCRIBE_DEFAULTS = {
+    "id": None, "name": None, "year": None, "type": None, "keyword": None,
+    "tmdbid": None, "doubanid": None, "bangumiid": None, "anilistid": None,
+    "mediaid": None, "media_source": None, "media_id": None, "season": None,
+    "poster": None, "backdrop": None, "vote": 0.0, "description": None,
+    "filter": None, "include": None, "exclude": None, "quality": None,
+    "resolution": None, "effect": None, "total_episode": 0, "start_episode": 0,
+    "lack_episode": 0, "completed_episode": None, "note": None, "state": None,
+    "last_update": None, "username": None, "sites": [], "downloader": None,
+    "best_version": None, "best_version_full": None, "current_priority": None,
+    "episode_priority": None, "save_path": None, "search_imdbid": 0,
+    "date": None, "custom_words": None, "media_category": None,
+    "filter_groups": [], "episode_group": None,
+}
+
+
+def _unique_json_pairs(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("重复字段")
+        result[key] = value
+    return result
+
+
+class _LoginMultipartParser(MultiPartParser):
+    ended = False
+
+    def on_header_end(self):
+        if self._current_partial_header_name.lower() == b"content-disposition":
+            header = Message()
+            header["Content-Disposition"] = self._current_partial_header_value.decode("latin-1")
+            # Also reject RFC 2231 filename variants, which the form parser
+            # can otherwise ignore and treat as ordinary text credentials.
+            parameters = header.get_params(header="content-disposition") or []
+            if any(name.lower() == "filename" for name, _ in parameters):
+                raise MultiPartException("登录表单不能包含文件")
+        super().on_header_end()
+
+    def on_end(self):
+        self.ended = True
+        super().on_end()
+
+
+async def _login_fields(req):
+    """Parse only the explicitly declared format; never sniff/fall back."""
+    content_type = (getattr(req, "headers", {}) or {}).get("content-type", "")
+    kind = content_type.split(";", 1)[0].strip().lower()
+    if kind in ("", "application/x-www-form-urlencoded"):
+        return parse_qs(req.body.decode("utf-8"), keep_blank_values=True,
+                        strict_parsing=True, max_num_fields=8, errors="strict")
+    if kind == "application/json":
+        def reject_constant(value):
+            raise ValueError("非 JSON 数值")
+        payload = json.loads(req.body.decode("utf-8"), object_pairs_hook=_unique_json_pairs,
+                             parse_constant=reject_constant)
+        if not isinstance(payload, dict) or len(payload) > 8:
+            raise ValueError("登录内容格式无效")
+        return {key: [value] for key, value in payload.items()}
+    if kind == "multipart/form-data":
+        async def body_stream():
+            yield req.body
+        # max_files=0 rejects any uploaded part before a temporary file opens.
+        parser = _LoginMultipartParser(Headers({"content-type": content_type}), body_stream(),
+                                      max_files=0, max_fields=8, max_part_size=_BODY_LIMIT)
+        form = await parser.parse()
+        try:
+            if not parser.ended:
+                raise ValueError("登录表单未完整提交")
+            result = {}
+            for key, value in form.multi_items():
+                if not isinstance(value, str):
+                    raise ValueError("登录表单不能包含文件")
+                result.setdefault(key, []).append(value)
+            return result
+        finally:
+            await form.close()
+    raise ValueError("不支持的登录内容格式")
 
 
 def valid_key(value):
@@ -179,12 +264,13 @@ class MoviePilotCompat:
         if len(getattr(req, "body", b"")) > _BODY_LIMIT:
             return self.response({"detail": "请求内容超过 32 KB"}, 413)
         try:
-            data = parse_qs(req.body.decode("utf-8"), keep_blank_values=True, strict_parsing=True, max_num_fields=8)
+            data = await _login_fields(req)
             username, password = data.get("username", []), data.get("password", [])
-            if len(username) != 1 or len(password) != 1:
+            if (len(username) != 1 or len(password) != 1
+                    or not isinstance(username[0], str) or not isinstance(password[0], str)):
                 raise ValueError
             valid = hmac.compare_digest(username[0].encode(), LOGIN_USER.encode()) and hmac.compare_digest(password[0].encode(), cfg["mp_api_key"].encode())
-        except (ValueError, UnicodeError):
+        except (ValueError, UnicodeError, MultiPartException, RecursionError):
             valid = False
         if not valid:
             return self.response({"detail": "用户名或密码无效"}, 401)
@@ -242,8 +328,13 @@ class MoviePilotCompat:
                 continue
             seen.add(identity)
             name = row.get("title") or row.get("name") or ""
-            result.append({"id": _subscription_id(tmdb_id, media_type), "name": name if isinstance(name, str) else "",
+            result.append({**_SUBSCRIBE_DEFAULTS, "sites": [], "filter_groups": [],
+                           "id": _subscription_id(tmdb_id, media_type),
+                           "name": name if isinstance(name, str) else "",
                            "tmdbid": int(tmdb_id), "type": "电影" if media_type == "movie" else "电视剧",
+                           "media_source": "themoviedb", "media_id": tmdb_id,
+                           "year": row["year"] if isinstance(row.get("year"), str) else None,
+                           "poster": row["poster"] if isinstance(row.get("poster"), str) else None,
                            "season": None, "state": "R"})
         return result
 

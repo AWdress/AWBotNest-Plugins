@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.0",
+    "version": "2.3.1",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.1 修复 MoviePilot 登录与订阅响应兼容\n"
+    "- 支持 URL 编码表单、multipart 表单和 JSON 登录\n"
+    "- 订阅列表补齐官方响应字段，未知信息保持为空\n"
+    "- 拒绝重复凭据、文件和不完整表单，保留原有鉴权与请求大小限制\n\n"
     "v2.3.0 新增 MoviePilot 订阅接口并修正通知状态\n"
     "- 提供独立密码登录、订阅新增与查询，将 MoviePilot v2 风格请求转交 NextFind\n"
     "- 指定季请求默认拒绝，可明确允许转为整部订阅；不支持删除和高级限制\n"
