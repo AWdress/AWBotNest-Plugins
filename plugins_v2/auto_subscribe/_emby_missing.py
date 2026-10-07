@@ -25,6 +25,9 @@ _TV_CACHE_TTL = 6 * 3600
 _ENDED_TV_CACHE_TTL = 24 * 3600
 _SEASON_CACHE_TTL = 7 * 86400
 _APPEND_BATCH_SIZE = 20
+# A stale season summary may retain a few deleted tail episodes. Proving their
+# absence must remain a bounded exception, never a second full-library scan.
+_MAX_COUNT_MISMATCH_PROBES = 5
 # The current host HTTP SDK initializes TLS synchronously. On Windows a large
 # burst stalls handshakes without increasing throughput; keep its known-safe
 # limit. Linux/server hosts can overlap more of the actual network waiting.
@@ -42,6 +45,10 @@ class LibraryScanError(Exception):
 
 class TmdbSeriesNotFound(LibraryScanError):
     """Only a confirmed missing plain TMDB TV entry is an expected skip."""
+
+
+class _TmdbSeasonCountMismatch(LibraryScanError):
+    """A valid episode list disagrees with its separate season summary."""
 
 
 def _now_date() -> date:
@@ -289,7 +296,7 @@ def _season_meta(data, number, expected_count=None):
             raise LibraryScanError("TMDB 单集编号重复且播出日期冲突")
         by_number[episode_number] = aired
     if expected_count is not None and len(by_number) != expected_count:
-        raise LibraryScanError("TMDB 季集数与完整单集列表不一致")
+        raise _TmdbSeasonCountMismatch("TMDB 季集数与完整单集列表不一致")
     return {"season_number": number,
             "episodes": [[episode, by_number[episode]] for episode in sorted(by_number)]}
 
@@ -307,18 +314,46 @@ def _cached_season(data, number, expected_count):
             return None
         seen.add(episode)
         rows.append([episode, row[1]])
-    if expected_count is not None and len(rows) != expected_count:
+    result = {"season_number": number, "episodes": rows}
+    proof = data.get("count_verification")
+    if proof is not None:
+        # Cache integrity is checked by TmdbCache before this validator. The
+        # proof must still describe this exact contiguous list and summary;
+        # an old count exemption cannot cover truncation or a changed summary.
+        if not isinstance(proof, dict):
+            return None
+        summary_count = _integer(proof.get("summary_count"), 1)
+        absent = proof.get("absent_episodes")
+        if (summary_count is None or not 0 < summary_count - len(rows) <= _MAX_COUNT_MISMATCH_PROBES
+                or not rows or seen != set(range(1, len(rows) + 1))
+                or not isinstance(absent, list)
+                or any(not isinstance(ep, int) or isinstance(ep, bool) for ep in absent)
+                or absent != list(range(len(rows) + 1, summary_count + 1))):
+            return None
+        if expected_count is None or expected_count == summary_count:
+            result["count_verification"] = {"summary_count": summary_count, "absent_episodes": absent}
+        elif len(rows) != expected_count:
+            return None
+    if expected_count is not None and len(rows) != expected_count and "count_verification" not in result:
         return None
-    return {"season_number": number, "episodes": rows}
+    return result
 
 
-def _season_ttl(detail, data, today):
-    """Only demonstrably old, finished seasons get a long lifetime."""
+def _historical_finished_season(detail, data, today):
     dates = [_air_date(row[1]) for row in data["episodes"]]
     historical = (dates and all(aired is not None and aired <= today - timedelta(days=30) for aired in dates))
     finished = (detail["status"].lower() in ("ended", "canceled", "cancelled")
                 or any(row["season_number"] > data["season_number"] for row in detail["seasons"]))
-    return _SEASON_CACHE_TTL if historical and finished else _TV_CACHE_TTL
+    return bool(historical and finished)
+
+
+def _season_ttl(detail, data, today):
+    """Only demonstrably old, finished seasons get a long lifetime."""
+    # Recheck an upstream count discrepancy within six hours, even for ended
+    # shows, so a newly restored episode cannot inherit a seven-day exemption.
+    if data.get("count_verification"):
+        return _TV_CACHE_TTL
+    return _SEASON_CACHE_TTL if _historical_finished_season(detail, data, today) else _TV_CACHE_TTL
 
 
 def _detail_ttl(detail):
@@ -367,6 +402,7 @@ async def _expected_episodes(http, key, tmdb_id, cutoff, cache=None):
     seasons = {row["season_number"]: row for row in detail["seasons"]}
     season_meta = {}
     today = _now_date()
+    mismatch_probes = 0
 
     async def load_cached():
         for number, row in seasons.items():
@@ -379,14 +415,54 @@ async def _expected_episodes(http, key, tmdb_id, cutoff, cache=None):
             if value is not None:
                 season_meta[number] = value
 
+    async def verify_stale_count(number, appended_season, independent_season):
+        nonlocal mismatch_probes
+        data = _season_meta(independent_season, number)
+        observed = len(data["episodes"])
+        count = seasons[number]["episode_count"]
+        error = _TmdbSeasonCountMismatch("TMDB 季集数与完整单集列表不一致")
+        # Two independently addressed lists must agree in every episode field.
+        # Only an old, finished, nonempty, contiguous list without duplicate
+        # rows/IDs can establish a small missing tail. Sparse, ongoing, excess,
+        # or malformed lists remain failures rather than guessed completeness.
+        _season_meta(appended_season, number)
+        raw = independent_season["episodes"]
+        ids = [_integer(episode.get("id"), 1) for episode in raw]
+        if (not isinstance(count, int) or not 0 < count - observed <= _MAX_COUNT_MISMATCH_PROBES - mismatch_probes
+                or not observed or len(raw) != observed
+                or [episode for episode, _ in data["episodes"]] != list(range(1, observed + 1))
+                or None in ids or len(set(ids)) != observed
+                or any(_integer(episode.get("season_number")) != number for episode in raw)
+                or appended_season["episodes"] != raw
+                or not _historical_finished_season(detail, data, today)):
+            raise error
+        absent = list(range(observed + 1, count + 1))
+        for episode in absent:
+            mismatch_probes += 1
+            try:
+                await _tmdb_get(http, key, f"/tv/{tmdb_id}/season/{number}/episode/{episode}")
+            except LibraryScanError as exc:
+                # Auth, rate limits, timeouts and malformed successful bodies
+                # never establish absence; only this exact episode's 404 does.
+                if exc.status_code != 404:
+                    raise
+            else:
+                raise error
+        data["count_verification"] = {"summary_count": count, "absent_episodes": absent}
+        return data
+
     async def consume(number, payload):
         row = seasons[number]
+        appended_season = payload.get(f"season/{number}")
         try:
-            data = _season_meta(payload.get(f"season/{number}"), number, row["episode_count"])
+            data = _season_meta(appended_season, number, row["episode_count"])
         except LibraryScanError:
             # Missing/malformed appended children never mean an empty season.
-            data = _season_meta(await _tmdb_get(http, key, f"/tv/{tmdb_id}/season/{number}"),
-                                number, row["episode_count"])
+            independent_season = await _tmdb_get(http, key, f"/tv/{tmdb_id}/season/{number}")
+            try:
+                data = _season_meta(independent_season, number, row["episode_count"])
+            except _TmdbSeasonCountMismatch:
+                data = await verify_stale_count(number, appended_season, independent_season)
         season_meta[number] = data
         await cache.put(f"tmdb_meta:v1:season:{tmdb_id}:{number}", data,
                         _season_ttl(detail, data, today))

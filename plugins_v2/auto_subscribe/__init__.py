@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.3.4',
+ 'version': '2.3.5',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'python-multipart>=0.0.20'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -122,6 +122,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.3.5 修复多榜单超时与 TMDB 季摘要差异\n'
+    '- 猫眼按已选榜单数量分配限时，超时保留已验证结果，不重复报整批失败\n'
+    '- 历史季摘要多报少量尾集时，独立核实季列表和单集不存在后继续核对\n'
+    '- 保留不完整响应、鉴权及网络错误校验，修复六段及指定星期的定时任务\n\n'
     'v2.3.4 修正缺集核对与整轮结果\n'
     '- 已订阅、库中完整和规则过滤均算正常处理，无新增时不因个别异常误报整轮失败\n'
     '- TMDB 普通剧集详情确认不存在时正常跳过，季数据异常及真实请求失败仍保留\n'

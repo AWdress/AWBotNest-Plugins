@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import math
 from urllib.parse import parse_qs, urlsplit
 
 from ._base import RankProvider
@@ -44,6 +45,12 @@ def ranking_keys(options):
                          for media in media_types if media in SERIES_TYPE)
 
 
+def collection_timeout(options):
+    """Budget every requested batch, not just the first few combinations."""
+    batches = math.ceil(len(ranking_keys(options)) / _CONCURRENCY)
+    return max(45.0, _INITIALIZE_TIMEOUT_SECONDS + batches * (_REQUEST_TIMEOUT_SECONDS + 1) + 5)
+
+
 def _is_web_response(response):
     try:
         parsed = urlsplit(response.url)
@@ -65,7 +72,7 @@ def _show_date(url):
     return values[0]
 
 
-async def collect_web_rankings(page, options, *, timeout_seconds=45.0):
+async def collect_web_rankings(page, options, *, timeout_seconds=None, checkpoint=None):
     """Return JSON-only rankings/errors/cookies without owning the browser.
 
     The caller opens ``MAOYAN_WEB_URL`` with its configured ``ctx.browser`` and
@@ -73,10 +80,14 @@ async def collect_web_rankings(page, options, *, timeout_seconds=45.0):
     survive this helper's timeout; cancellation propagates to SDK cleanup.
     """
     keys = ranking_keys(options)
-    result = {"web_data": {}, "web_errors": {}, "cookies": {}}
+    # The caller owns this checkpoint too: SDK/outer timeouts must not erase
+    # combinations already validated before browser cleanup started.
+    result = checkpoint if checkpoint is not None else {"web_data": {}, "web_errors": {}, "cookies": {}}
     tasks = []
     if not keys:
         return result
+    if timeout_seconds is None:
+        timeout_seconds = collection_timeout(options)
     try:
         async with asyncio.timeout(timeout_seconds):
             try:

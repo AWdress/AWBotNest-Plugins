@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.4",
+    "version": "2.3.5",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.5 修复多榜单超时与 TMDB 季摘要差异\n"
+    "- 猫眼按已选榜单数量分配限时，超时保留已验证结果，不重复报整批失败\n"
+    "- 历史季摘要多报少量尾集时，独立核实季列表和单集不存在后继续核对\n"
+    "- 保留不完整响应、鉴权及网络错误校验，修复六段及指定星期的定时任务\n\n"
     "v2.3.4 修正缺集核对与整轮结果\n"
     "- 已订阅、库中完整和规则过滤均算正常处理，无新增时不因个别异常误报整轮失败\n"
     "- TMDB 普通剧集详情确认不存在时正常跳过，季数据异常及真实请求失败仍保留\n"
@@ -1030,14 +1034,20 @@ def _nf_client(cfg):
                           cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
 
 
-async def _fetch_maoyan_session(ctx, cfg, *, timeout_seconds: float = 75.0) -> dict:
+async def _fetch_maoyan_session(ctx, cfg, *, timeout_seconds: Optional[float] = None) -> dict:
     """Read signed public web rankings in one configured, host-owned session."""
-    from ._maoyan_browser import MAOYAN_WEB_URL, collect_web_rankings, ranking_keys
+    from ._maoyan_browser import MAOYAN_WEB_URL, collect_web_rankings, collection_timeout, ranking_keys
 
     expected = ranking_keys(cfg)
     empty = {"cookies": {}, "web_data": {}, "web_errors": {}}
     if not expected:
         return empty
+    callback_budget = collection_timeout(cfg)
+    # The SDK owns browser launch/navigation/cleanup. Give each requested
+    # batch time to complete and reserve setup time separately; the round's
+    # original deadline remains the final limit.
+    if timeout_seconds is None:
+        timeout_seconds = callback_budget + 60.0 + 5.0
     round_deadline = cfg.get("_run_deadline")
     if (isinstance(round_deadline, (int, float)) and not isinstance(round_deadline, bool)
             and math.isfinite(round_deadline)):
@@ -1048,22 +1058,33 @@ async def _fetch_maoyan_session(ctx, cfg, *, timeout_seconds: float = 75.0) -> d
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError
-        return await collect_web_rankings(page, cfg, timeout_seconds=min(45.0, remaining))
+        ctx.log.info("[自动订阅] 猫眼页面已加载，开始读取 %d 个网播榜单", len(expected))
+        return await collect_web_rankings(page, cfg, timeout_seconds=min(callback_budget, remaining), checkpoint=empty)
 
     def failed(message):
         # Browser errors may embed headers or licensing credentials. Only
         # controlled messages enter the provider, notification or logs.
-        ctx.log.warning("[自动订阅] %s", message)
-        return {"cookies": {}, "web_data": {}, "web_errors": dict.fromkeys(expected, message)}
+        ctx.log.warning("[自动订阅] %s；已保留 %d/%d 个榜单结果", message, len(empty["web_data"]), len(expected))
+        for key in expected:
+            if key not in empty["web_data"] and key not in empty["web_errors"]:
+                empty["web_errors"][key] = message
+        return empty
 
+    if timeout_seconds <= 0:
+        return failed("猫眼网播未开始读取：本轮剩余时间不足")
+    ctx.log.info("[自动订阅] 猫眼网播准备读取 %d 个榜单，本阶段限时 %g 秒", len(expected), timeout_seconds)
     try:
         async with asyncio.timeout(timeout_seconds):
             value = await ctx.browser.run(MAOYAN_WEB_URL, collect, headless=True,
-                                          timeout=min(60.0, max(0.01, timeout_seconds)))
+                                          timeout=min(max(60.0, callback_budget + 5.0), timeout_seconds))
         if (not isinstance(value, dict)
                 or any(not isinstance(value.get(key), dict) for key in empty)):
             return failed("猫眼网播浏览器返回无效结果")
-        ctx.log.info("[自动订阅] 猫眼网播读取：成功 %d/%d 个榜单", len(value["web_data"]), len(expected))
+        for key in expected:
+            if key not in value["web_data"] and key not in value["web_errors"]:
+                value["web_errors"][key] = "猫眼网播未返回此榜单结果"
+        log_result = ctx.log.warning if value["web_errors"] else ctx.log.info
+        log_result("[自动订阅] 猫眼网播读取：成功 %d/%d 个榜单，失败 %d 个", len(value["web_data"]), len(expected), len(value["web_errors"]))
         return {key: value[key] for key in empty}
     except asyncio.CancelledError:
         raise
@@ -1299,18 +1320,11 @@ async def setup(ctx):
     expr = str(_effective_cfg(ctx).get("schedule") or "").strip()
     if expr:
         try:
-            parts = expr.split()
-            if len(parts) != 5:
-                raise ValueError("Cron 必须包含分、时、日、月、星期五个字段")
-            minute, hour, day, month, day_of_week = parts
+            from ._cron import parse_cron
             ctx.schedule_cron(
                 "定时订阅(%s)" % expr,
                 _scheduled_run,
-                minute=minute,
-                hour=hour,
-                day=day,
-                month=month,
-                day_of_week=day_of_week,
+                **parse_cron(expr),
             )
             ctx.log.info("[自动订阅] 已注册定时任务：%s", expr)
         except Exception as e:  # noqa: BLE001
