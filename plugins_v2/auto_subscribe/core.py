@@ -16,6 +16,7 @@ import math
 import threading
 import time
 import traceback
+from contextlib import asynccontextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Optional
@@ -26,7 +27,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.6",
+    "version": "2.3.7",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +48,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.7 恢复到期退出的未完成订阅\n"
+    "- 每轮核对插件创建的旧订阅，未收齐且已退订的作品自动重新订阅，离榜后仍检查\n"
+    "- 区分活跃、已取消与已完成记录，已完成或已播集收齐时不重新订阅\n"
+    "- 取消意图独立保存，插件和 Forward 主动取消不自动订回；同轮不重复提交\n\n"
     "v2.3.6 修复入库期间缺集扫描中断\n"
     "- Emby 分页总数变化时丢弃本次库存，最多三次从头读取，保留完整性检查\n"
     "- 读取后轻量复核编号，检测总数相同但增删导致的分页错位\n"
@@ -142,6 +147,7 @@ DEFAULTS = {
 
 # 来源 id -> 展示名（通知汇总用）。
 SOURCE_NAMES = {
+    "restore": "退订恢复",
     "douban": "豆瓣榜单", "mikan": "Mikan新番", "netflix": "奈飞榜单", "maoyan": "猫眼榜单",
 }
 _ENABLE_KEYS = ("douban_enabled", "mikan_enabled", "netflix_enabled", "maoyan_enabled")
@@ -346,6 +352,41 @@ async def _state_set(ctx, key, value) -> None:
     _state[key] = value
 
 
+@asynccontextmanager
+async def _external_mutation():
+    from ._subscription_state import SubscriptionBusyError
+    if _is_running():
+        raise SubscriptionBusyError("自动订阅任务正在运行，请完成后再操作订阅")
+    async with _run_lock:
+        yield
+
+
+async def _remember_removed(ctx, media_type, tmdb_id):
+    from ._subscription_state import identity
+    kind, value = identity(tmdb_id, media_type)
+    removed = dict(_state_get("removed_subscriptions", {}) or {})
+    removed[f"{kind}:{value}"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    await _state_set(ctx, "removed_subscriptions", removed)
+
+
+async def _remember_explicit_add(ctx, item, created):
+    from ._subscription_state import identity
+    from ._models import make_history_key
+    kind, value = identity(item["tmdb_id"], item["media_type"])
+    key = make_history_key(value, kind, None)
+    if created:
+        handled = dict(_state_get("handled", {}) or {})
+        previous = handled.get(key) or {}
+        handled[key] = {**previous, "title": item.get("title") or previous.get("title") or value, "status": "subscribed", "tmdb_id": value,
+                        "media_type": kind, "created_by_plugin": True, "source": "Forward",
+                        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        await _state_set(ctx, "handled", handled)
+    removed = dict(_state_get("removed_subscriptions", {}) or {})
+    if key in removed:
+        removed.pop(key)
+        await _state_set(ctx, "removed_subscriptions", removed)
+
+
 class _PlatformHttpProxy:
     """同步榜单在线程中调用 ctx.http，继承平台代理并支持取消。"""
 
@@ -476,7 +517,8 @@ def _subscribed(item: dict) -> bool:
 def _media_key(item: dict) -> tuple[str, str]:
     # NextFind's active list is treated as whole-media subscriptions. Do not
     # change season granularity without a confirmed server-side contract.
-    return _media_type(item), _tmdb_id(item)
+    from ._subscription_state import identity
+    return identity(_tmdb_id(item), _media_type(item))
 
 
 def _request_error(exc: Exception) -> str:
@@ -556,11 +598,14 @@ def _fill_missing_round(cfg: dict, log=None, cancel_event=None) -> dict:
         log.info("[自动订阅] 自动补缺：开始检查 NextFind 活跃剧集订阅...")
     try:
         subscriptions = _response_items(client.list_subscriptions(), "订阅列表")
+        from ._subscription_state import subscription_active, suppressed
+        by_id = {_tmdb_id(item): item for item in subscriptions
+                 if _media_type(item) == "tv" and _tmdb_id(item)
+                 and subscription_active(item) and not suppressed(cfg, _media_key(item))}
     except Exception as exc:
         _round_error(stats, exc, "自动补缺：获取活跃订阅", log)
         return stats
 
-    by_id = {_tmdb_id(item): item for item in subscriptions if _media_type(item) == "tv" and _tmdb_id(item)}
     tv_items = list(by_id.values())
     stats["checked"] = len(tv_items)
     query = [{"tmdb_id": _tmdb_id(item), "media_type": "tv"} for item in tv_items]
@@ -631,7 +676,10 @@ def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None
     # blindly add files when it is unavailable or use it to replace the library.
     try:
         subscriptions = _response_items(client.list_subscriptions(), "订阅列表")
-        active_ids = {_media_key(item) for item in subscriptions if _tmdb_id(item) and _media_type(item) in ("movie", "tv")}
+        from ._subscription_state import subscription_active, subscription_completed
+        active_ids = {_media_key(item) for item in subscriptions
+                      if _tmdb_id(item) and _media_type(item) in ("movie", "tv")
+                      and (subscription_active(item) or subscription_completed(item))}
         if any(not _tmdb_id(item) or _media_type(item) not in ("movie", "tv") for item in subscriptions):
             from ._nextfind import NextFindError
             raise NextFindError("订阅列表缺少媒体类型或 TMDB ID，无法安全去重")
@@ -651,7 +699,14 @@ def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None
         if not tmdb_id or media_type not in ("tv", "movie"):
             stats["failed"] += 1
             continue
-        if _subscribed(item) or (media_type, tmdb_id) in active_ids:
+        from ._subscription_state import identity
+        try:
+            media_type, tmdb_id = identity(tmdb_id, media_type)
+        except Exception:
+            stats["failed"] += 1
+            continue
+        from ._subscription_state import suppressed
+        if suppressed(cfg, (media_type, tmdb_id)) or (media_type, tmdb_id) in active_ids:
             stats["skipped"] += 1
             continue
         pending.append((item, tmdb_id, title, media_type))
@@ -673,6 +728,7 @@ def _subscribe_missing_round(cfg: dict, items: list, log=None, cancel_event=None
             stats["skipped"] += 1
             continue
         attempted.add(key)
+        cfg.setdefault("_round_attempted", set()).add(key)
         try:
             ok, message = client.add(tmdb_id, media_type, item.get("season"))
             if ok:
@@ -710,6 +766,7 @@ def _merge_missing_history(handled, stats):
         handled[make_history_key(item["tmdb_id"], item["media_type"], None)] = {
             "title": item["title"], "status": "subscribed", "tmdb_id": item["tmdb_id"],
             "source": "Emby 缺集", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "media_type": item["media_type"], "created_by_plugin": True,
         }
     return handled
 
@@ -866,6 +923,7 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
         cfg = _effective_cfg(ctx)
         cfg["_cancel_event"] = cancel_event
         cfg["_run_deadline"] = deadline
+        cfg["_removed_subscriptions"] = dict(_state_get("removed_subscriptions", {}) or {})
         progress = progress if progress is not None else {"phase": "准备"}
         if not cfg.get("api_url") or not cfg.get("api_key"):
             msg = "未配置 NextFind 地址或密钥，跳过"
@@ -926,7 +984,7 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
                     {**handled, **dict(value.handled)}, missing_subs)
                 progress["result"] = value
 
-            progress["phase"] = "榜单查询与订阅"
+            progress["phase"] = "退订恢复与榜单订阅"
             try:
                 # Still run the empty pipeline when sources are disabled: this
                 # keeps its result contract and existing isolated SDK fixtures.
@@ -1024,7 +1082,7 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
         total_added_count = len(result.added) + len(missing_added)
         _check_round_running(cancel_event, deadline)
         log_round = ctx.log.warning if has_err else ctx.log.info
-        log_round("[自动订阅] %s(%s)：新增 %d 部（榜单 %d，缺集 %d），触发补缺 %d 部",
+        log_round("[自动订阅] %s(%s)：新增 %d 部（榜单/恢复 %d，缺集 %d），触发补缺 %d 部",
                   ("本轮失败" if outcome["level"] == "error" else "本轮存在项目异常") if has_err else "完成", label,
                   total_added_count, len(result.added), len(missing_added),
                   fill_stats.get("triggered", 0) if fill_stats else 0)
@@ -1152,7 +1210,7 @@ async def setup(ctx):
     _run_lock = asyncio.Lock()
     _state.clear()
     runtime_keys = ("last_run", "last_stats", "last_missing_subscription_stats", "last_fill_missing_stats")
-    state_keys = ("handled", "netflix_cache", *runtime_keys)
+    state_keys = ("handled", "netflix_cache", "removed_subscriptions", *runtime_keys)
     storage = getattr(ctx, "storage", None)
     if storage is not None:
         getter = getattr(storage, "get", None)
@@ -1210,7 +1268,9 @@ async def setup(ctx):
 
     if _effective_cfg(ctx).get("mp_api_enabled") is True:
         from ._mp_compat import MoviePilotCompat
-        mp_bridge = MoviePilotCompat(ctx, lambda: _effective_cfg(ctx))
+        mp_bridge = MoviePilotCompat(ctx, lambda: _effective_cfg(ctx), mutation_guard=_external_mutation,
+                                    on_removed=lambda kind, value: _remember_removed(ctx, kind, value),
+                                    on_added=lambda item, created: _remember_explicit_add(ctx, item, created))
         mp_bridge.register()
         ctx.create_task(mp_bridge.sync_routes(), name="MoviePilot 订阅路由同步")
 
@@ -1307,7 +1367,12 @@ async def setup(ctx):
         if not valid_id or media_type not in ("movie", "tv"):
             return {"ok": False, "message": "请提供有效的 TMDB ID 和媒体类型（movie/tv）"}
         try:
-            ok, msg = await asyncio.to_thread(lambda: _nf_client(cfg).remove(identity, media_type))
+            async with _external_mutation():
+                # The explicit opt-out survives an ambiguous upstream timeout.
+                await _remember_removed(ctx, media_type, identity)
+                cancel = threading.Event()
+                client = _nf_client({**cfg, "_cancel_event": cancel, "_run_deadline": time.monotonic() + 25})
+                ok, msg = await _run_sync(client.remove, identity, media_type, cancel_event=cancel)
             return {"ok": ok, "message": msg}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "message": _request_error(e)}

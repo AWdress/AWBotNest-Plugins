@@ -7,6 +7,7 @@ API. They use a separate plugin credential and never expose NextFind secrets.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import base64
 import hashlib
 import hmac
@@ -215,12 +216,21 @@ def _valid_token(token, key):
 
 
 class MoviePilotCompat:
-    def __init__(self, ctx, config):
+    def __init__(self, ctx, config, *, mutation_guard=None, on_added=None, on_removed=None):
         self.ctx, self.config = ctx, config
+        self._mutation_guard, self._on_added, self._on_removed = mutation_guard, on_added, on_removed
         self._mutation_lock = asyncio.Lock()
         self._registered = False
         self._route_ids = set()
         self._media_types = {}
+
+    @asynccontextmanager
+    async def _guard(self, write=True):
+        if write and self._mutation_guard is not None:
+            async with self._mutation_guard():
+                yield
+        else:
+            yield
 
     def register(self):
         # PluginRoutes normalizes trailing slashes, matching MP's /subscribe/.
@@ -364,6 +374,9 @@ class MoviePilotCompat:
                 media_type = types.pop()
             except ValueError:
                 raise NextFindError("NextFind 订阅列表包含无法核对的作品") from None
+            from ._subscription_state import subscription_active
+            if not subscription_active(row):
+                continue
             identity = media_type, tmdb_id
             if identity in seen:
                 continue
@@ -402,7 +415,7 @@ class MoviePilotCompat:
             season = int(season)
         try:
             async with asyncio.timeout(_TIMEOUT):
-                async with self._mutation_lock:
+                async with self._mutation_lock, self._guard(method == "DELETE"):
                     # A historical route is not evidence of an active subscription.
                     # Do not register newly seen types during this identity check.
                     rows = await self._rows(cfg, register_routes=False)
@@ -424,6 +437,9 @@ class MoviePilotCompat:
                             return self.response({"success": False, "message": "NextFind 不支持单季操作；请由管理员明确允许转为整部剧订阅或取消", "data": None}, 422)
                     if method == "GET":
                         return self.response(matches[0] if matches else dict(_SUBSCRIBE_DEFAULTS))
+                    if self._on_removed is not None:
+                        removed_id = str(matches[0]["tmdbid"]) if matches else str(sid // 2) if sid is not None else tmdb_id
+                        await self._on_removed(media_type, removed_id)
                     if not matches:
                         return self.response({"success": True, "message": "NextFind 已无该作品订阅", "data": None})
                     item = matches[0]
@@ -445,6 +461,9 @@ class MoviePilotCompat:
             return self._failure(exc, cfg)
 
     def _failure(self, exc, cfg):
+        from ._subscription_state import SubscriptionBusyError
+        if isinstance(exc, SubscriptionBusyError):
+            return self.response({"success": False, "message": str(exc), "data": None}, 409)
         # Neither client input nor upstream messages/URLs enter logs/responses.
         self.ctx.log.warning("[MoviePilot 接口] NextFind 请求失败（%s）", type(exc).__name__)
         return self.response({"success": False, "message": "NextFind 请求失败，请查看插件日志", "data": None}, 502)
@@ -490,10 +509,12 @@ class MoviePilotCompat:
             return self.response({"detail": str(exc)}, 422)
         try:
             async with asyncio.timeout(_TIMEOUT):
-                async with self._mutation_lock:
+                async with self._mutation_lock, self._guard():
                     rows = await self._rows(cfg)
                     sid = _subscription_id(item["tmdb_id"], item["media_type"])
                     if any(row["id"] == sid for row in rows):
+                        if self._on_added is not None:
+                            await self._on_added(item, False)
                         return self.response({"success": True, "message": "NextFind 已订阅该作品", "data": {"id": sid}})
                     body = {key: item[key] for key in ("tmdb_id", "media_type", "title")}
                     if self._registered and sid not in self._route_ids and len(self._route_ids) >= _ROUTE_LIMIT:
@@ -502,6 +523,8 @@ class MoviePilotCompat:
                     ok, _ = NextFindClient("", cfg["api_key"])._mutation_result(payload, "/subscriptions/add")
                     if not ok:
                         return self.response({"success": False, "message": "NextFind 未接受该订阅", "data": None})
+                    if self._on_added is not None:
+                        await self._on_added(item, True)
                     self._register_rows([{"id": sid, "tmdbid": int(item["tmdb_id"]), "type": item["media_type"]}])
                     self.ctx.log.info("[MoviePilot 接口] 订阅已由 NextFind 确认：%s TMDB %s", item["media_type"], item["tmdb_id"])
                     return self.response({"success": True, "message": "已向 NextFind 添加整部作品订阅", "data": {"id": sid}})

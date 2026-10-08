@@ -23,12 +23,14 @@ from . import _douban, _maoyan, _mikan, _netflix  # noqa: F401
 from ._models import (
     STATUS_ALREADY, STATUS_ERROR, STATUS_FILTERED, STATUS_IN_LIBRARY,
     STATUS_LABELS, STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
-    TERMINAL_STATUSES, make_history_key,
+    make_history_key, RankMediaItem,
 )
 from ._nextfind import (NextFindAuthError, NextFindClient, NextFindCancelledError,
                         NextFindDeadlineError, _true_flag)
 from ._bangumi import subject_titles
 from ._http_errors import request_error
+from ._subscription_state import (flag, history_identity, identity, owned, row_identity,
+                                  suppressed, explicit_missing, subscription_active, subscription_completed)
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -351,7 +353,7 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
 
 def _process_item(client: NextFindClient, item, filters: Filters, handled: dict, cfg: dict, log=None):
     """处理单条，返回 (status, title, detail)。detail 为可读原因（供运行日志逐条展示）。
-    终态写入 handled（跨轮去重）。"""
+    历史仅作记录；去重依据本轮状态与整部作品身份。"""
     title = item.title
     # A source-supplied year already takes precedence over the search year
     # below. Rejecting that same known year before searching avoids spending
@@ -408,45 +410,183 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
     if matched_query and matched_query != item.title:
         tag += f"，{assisted_by or '回退标题'}：{matched_query}"
 
-    # 跨轮去重：历史里已是终态则跳过。
-    prev = handled.get(key)
-    if prev and prev.get("status") in TERMINAL_STATUSES:
-        return STATUS_ALREADY, title, f"已处理过（{STATUS_LABELS.get(prev.get('status'), prev.get('status'))}）"
+    wanted = identity(tmdb_id, raw_type)
+    search_title = best.get("title") or best.get("name") or matched_query
+    if suppressed(cfg, wanted):
+        return STATUS_FILTERED, title, "已主动取消，不自动订回"
+    seen = cfg.setdefault("_round_attempted", set())
+    if wanted in seen:
+        return STATUS_ALREADY, title, "本轮已核对或提交，不重复订阅"
 
     # 库/订阅判定（来自 /search，无需额外请求）。
     if _true_flag(best.get("is_in_library")):
-        _record(handled, key, title, STATUS_IN_LIBRARY, item, tmdb_id)
+        seen.add(wanted)
+        _record(handled, key, title, STATUS_IN_LIBRARY, item, tmdb_id, search_title=search_title)
         return STATUS_IN_LIBRARY, title, tag
     if _true_flag(best.get("is_subscribed")):
-        _record(handled, key, title, STATUS_SUBSCRIBED_EXISTS, item, tmdb_id)
+        seen.add(wanted)
+        _record(handled, key, title, STATUS_SUBSCRIBED_EXISTS, item, tmdb_id, search_title=search_title)
         return STATUS_SUBSCRIBED_EXISTS, title, tag
 
     # 加订阅。
     _check_cancelled(cfg)
+    if flag(best.get("is_in_library")) is not False or flag(best.get("is_subscribed")) is not False:
+        return STATUS_ERROR, title, "NextFind 未明确返回入库/订阅状态，暂不新增"
+    seen.add(wanted)  # A timed-out POST may already have succeeded; no same-round retry.
     ok, msg = client.add(tmdb_id, raw_type, season)
     if ok:
-        _record(handled, key, title, STATUS_SUBSCRIBED, item, tmdb_id)
+        _record(handled, key, title, STATUS_SUBSCRIBED, item, tmdb_id, search_title=search_title)
         return STATUS_SUBSCRIBED, title, tag
     return STATUS_ERROR, title, f"订阅失败：{msg or '未知'}"
 
 
-def _record(handled: dict, key: str, title: str, status: str, item, tmdb_id) -> None:
-    """写入一条历史（终态，供跨轮去重与展示）。"""
+def _record(handled: dict, key: str, title: str, status: str, item, tmdb_id, *, search_title="") -> None:
+    """刷新历史状态时保留本插件的订阅所有权，避免活跃状态覆盖创建证据。"""
+    previous = handled.get(key) or {}
     handled[key] = {
+        **previous,
         "title": title,
         "status": status,
         "tmdb_id": str(tmdb_id),
         "source": item.source_meta.get("source") or "",
         "time": datetime.now().strftime(TIME_FORMAT),
+        "created_by_plugin": status == STATUS_SUBSCRIBED or owned(previous),
+        "search_title": search_title if isinstance(search_title, str) and search_title else previous.get("search_title", title),
     }
+
+
+def _restore_history(client, result, cfg, log=None):
+    """Reconcile owned history even after titles have dropped off rankings."""
+    managed = {}
+    for key, record in list(result.handled.items()):
+        if not owned(record):
+            continue
+        try:
+            wanted = history_identity(key, record)
+        except Exception:
+            continue  # Invalid old identities cannot authorize a subscription.
+        if suppressed(cfg, wanted):
+            continue
+        managed.setdefault(wanted, []).append((key, record))
+    if not managed:
+        return
+    stats = result.stats.setdefault("restore", {})
+    seen = cfg["_round_attempted"]
+    try:
+        _check_cancelled(cfg)
+        rows = client.list_subscriptions()
+        identities = [(row_identity(row), row) for row in rows]
+        active = {wanted for wanted, row in identities if subscription_active(row)}
+        completed = {wanted for wanted, row in identities if subscription_completed(row)}
+    except (NextFindAuthError, NextFindCancelledError, NextFindDeadlineError):
+        raise
+    except Exception as exc:
+        # Block these works for this round as well: a failed list is not empty.
+        seen.update(managed)
+        result.errors["restore"] = request_error(exc)
+        return
+    for wanted, records in managed.items():
+        _check_cancelled(cfg)
+        media_type, tmdb_id = wanted
+        status = STATUS_ALREADY
+        title = records[0][1].get("title") or ""
+        detail = "本轮已处理"
+        try:
+            if wanted in seen:
+                pass
+            elif wanted in completed:
+                status, detail = STATUS_IN_LIBRARY, "NextFind 已完成该订阅，不重新订阅"
+            elif wanted in active:
+                status, detail = STATUS_SUBSCRIBED_EXISTS, "当前仍在订阅，不重复添加"
+            else:
+                seen.add(wanted)
+                matches = None
+                for _, record in records:
+                    item = RankMediaItem(title=record.get("search_title") or record.get("title") or "", type_hint=media_type)
+                    queries, _ = _title_queries(item)
+                    if record.get("title") and record["title"] not in queries:
+                        queries.append(record["title"])
+                    for query in queries:
+                        _check_cancelled(cfg)
+                        rows = client.search(query, media_type)
+                        exact = [row for row in rows if row_identity(row, search=True) == wanted]
+                        if exact:
+                            matches = exact
+                            break
+                    if matches:
+                        break
+                if not matches or len(matches) != 1:
+                    status, detail = STATUS_UNRECOGNIZED, "历史作品身份未能唯一核对，暂不重订"
+                else:
+                    row = matches[0]
+                    library, subscribed = flag(row.get("is_in_library")), flag(row.get("is_subscribed"))
+                    if subscribed is True:
+                        status, detail = STATUS_SUBSCRIBED_EXISTS, "当前搜索仍显示已订阅"
+                    elif library is None or subscribed is None:
+                        status, detail = STATUS_ERROR, "NextFind 未明确返回入库/订阅状态，暂不重订"
+                    else:
+                        missing = library is False
+                        if media_type == "tv":
+                            # Library presence is not proof that an entire series is complete.
+                            progress = client.subscription_info([{"tmdb_id": tmdb_id, "media_type": media_type}])
+                            exact_progress = [p for p in progress if row_identity(p) == wanted]
+                            if len(exact_progress) != 1:
+                                raise ValueError("NextFind 未返回可唯一核对的入库进度，暂不重订")
+                            info = dict(exact_progress[0])
+                            if "aired_episodes" in row:
+                                info["aired_episodes"] = row["aired_episodes"]
+                            # If NF says currently complete but does not expose
+                            # aired counts, a larger planned total is not enough
+                            # to conclude that released episodes are missing.
+                            uncertain_airing = (library is True and "aired_episodes" not in info
+                                                and flag(row.get("is_ended")) is not True)
+                            missing = explicit_missing(info) and not uncertain_airing
+                        if not missing:
+                            status, detail = STATUS_IN_LIBRARY, "已入库或未确认缺集，不重新订阅"
+                        else:
+                            _check_cancelled(cfg)
+                            ok, message = client.add(tmdb_id, media_type)
+                            if ok:
+                                status, detail = STATUS_SUBSCRIBED, "已退出订阅且未收齐，已重新订阅"
+                                result.added.append(f"退订恢复·{title}")
+                            else:
+                                status, detail = STATUS_ERROR, f"重新订阅失败：{message or '未知'}"
+            seen.add(wanted)
+            if status in (STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_IN_LIBRARY):
+                for key, record in records:
+                    result.handled[key] = {**record, "status": status, "created_by_plugin": True,
+                                           "time": datetime.now().strftime(TIME_FORMAT)}
+        except (NextFindAuthError, NextFindCancelledError, NextFindDeadlineError):
+            raise
+        except Exception as exc:
+            status, detail = STATUS_ERROR, request_error(exc)
+        stats[status] = stats.get(status, 0) + 1
+        if log and status in (STATUS_SUBSCRIBED, STATUS_ERROR, STATUS_UNRECOGNIZED):
+            log.info("[自动订阅] 退订恢复 · %s(%s %s) → %s（%s）", title, media_type, tmdb_id,
+                     STATUS_LABELS.get(status, status), detail)
+    if log:
+        log.info("[自动订阅] 退订恢复：核对 %d 部，重新订阅 %d 部，暂不重订 %d 部，失败 %d 项",
+                 sum(stats.values()), stats.get(STATUS_SUBSCRIBED, 0),
+                 sum(stats.get(key, 0) for key in (STATUS_ALREADY, STATUS_IN_LIBRARY, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED)),
+                 stats.get(STATUS_ERROR, 0))
 
 
 def run(cfg: dict, handled: dict, nf_cache: dict, log=None) -> RunResult:
     """执行一轮：遍历启用来源，逐条落地。返回汇总（handled/nf_cache 已更新，供写回 kv）。"""
     result = RunResult(handled=dict(handled or {}), nf_cache=dict(nf_cache or {}))
+    cfg = {**cfg, "_round_attempted": set(cfg.get("_round_attempted") or ())}
     client = NextFindClient(cfg.get("api_url", ""), cfg.get("api_key", ""),
                             cancel_event=cfg.get("_cancel_event"), deadline=cfg.get("_run_deadline"))
     global_filters = _read_filters(cfg)
+
+    try:
+        _restore_history(client, result, cfg, log)
+    except NextFindAuthError as exc:
+        result.auth_error = str(exc)
+    except (NextFindCancelledError, NextFindDeadlineError) as exc:
+        result.interrupted = str(exc)
+    if result.auth_error or result.interrupted:
+        return result
 
     for source_id, options in _source_options(cfg, result.nf_cache):
         try:

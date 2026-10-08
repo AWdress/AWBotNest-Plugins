@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.3.6',
+ 'version': '2.3.7',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'python-multipart>=0.0.20'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -122,6 +122,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.3.7 恢复到期退出的未完成订阅\n'
+    '- 每轮核对插件创建的旧订阅，未收齐且已退订的作品自动重新订阅，离榜后仍检查\n'
+    '- 区分活跃、已取消与已完成记录，已完成或已播集收齐时不重新订阅\n'
+    '- 取消意图独立保存，插件和 Forward 主动取消不自动订回；同轮不重复提交\n\n'
     'v2.3.6 修复入库期间缺集扫描中断\n'
     '- Emby 分页总数变化时丢弃本次库存，最多三次从头读取，保留完整性检查\n'
     '- 读取后轻量复核编号，检测总数相同但增删导致的分页错位\n'
