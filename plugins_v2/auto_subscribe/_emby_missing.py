@@ -16,6 +16,8 @@ from ._scan_http import ScanHttp
 
 _PAGE_SIZE = 5000
 _MAX_PAGES = 5000
+_INVENTORY_ATTEMPTS = 3
+_INVENTORY_RETRY_DELAYS = (2.0, 4.0)
 _HTTP_TIMEOUT_SECONDS = 35.0
 _SCAN_TIMEOUT_SECONDS = 1500.0
 _PROGRESS_LOG_INTERVAL_SECONDS = 60.0
@@ -41,6 +43,21 @@ class LibraryScanError(Exception):
     def __init__(self, message, *, status_code=None):
         super().__init__(message)
         self.status_code = status_code
+
+
+class EmbyInventoryChanged(LibraryScanError):
+    """Discard this inventory; only a fresh, bounded read may recover it."""
+
+    def __init__(self, item_type, start, expected_total, observed_total, *, identities=False):
+        self.item_type = item_type
+        self.start = start
+        self.expected_total = expected_total
+        self.observed_total = observed_total
+        kind = "剧集" if item_type == "Series" else "单集"
+        before = "未提供" if expected_total is None else str(expected_total)
+        after = "未提供" if observed_total is None else str(observed_total)
+        reason = "库存编号列表发生变化" if identities else "分页总数发生变化"
+        super().__init__(f"Emby {reason}（{kind}，起始 {start}，原 {before}，现 {after}）")
 
 
 class TmdbSeriesNotFound(LibraryScanError):
@@ -101,6 +118,12 @@ async def _get_json(http, url, *, service, params=None, headers=None):
                      follow_redirects=False),
             timeout=_HTTP_TIMEOUT_SECONDS,
         )
+        # Older asyncio.wait_for may return a just-completed response while
+        # swallowing simultaneous caller cancellation. Do not let that race
+        # start a verification pass, retry, or TMDB request after scan stop.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError
     except asyncio.CancelledError:
         raise
     except TimeoutError:
@@ -121,9 +144,10 @@ async def _get_json(http, url, *, service, params=None, headers=None):
     return payload
 
 
-async def _emby_items(http, base, key, item_type, log=None):
+async def _emby_items(http, base, key, item_type, log=None, *, identities_only=False):
     """Read every page; a short page alone never proves completeness."""
-    fields = "ProviderIds,Path,SeriesId,ParentIndexNumber,IndexNumber,IndexNumberEnd,LocationType,IsMissing,IsVirtualItem"
+    fields = ("" if identities_only else
+              "ProviderIds,Path,SeriesId,ParentIndexNumber,IndexNumber,IndexNumberEnd,LocationType,IsMissing,IsVirtualItem")
     rows, seen = [], set()
     start = 0
     total = None
@@ -151,11 +175,11 @@ async def _emby_items(http, base, key, item_type, log=None):
         if total_present is None:
             total_present, total = present, page_total
         elif total_present != present or page_total != total:
-            raise LibraryScanError("Emby 分页总数发生变化，请稍后重新检查")
+            raise EmbyInventoryChanged(item_type, start, total, page_total)
         if not page:
             if total is not None and start != total:
                 raise LibraryScanError("Emby 分页提前结束，无法确认媒体库完整性")
-            return rows
+            return seen if identities_only else rows
         if total is not None and start + len(page) > total:
             raise LibraryScanError("Emby 分页条数与总数不一致")
         for row in page:
@@ -165,7 +189,8 @@ async def _emby_items(http, base, key, item_type, log=None):
             if item_id in seen:
                 raise LibraryScanError("Emby 分页重复，无法确认媒体库完整性")
             seen.add(item_id)
-            rows.append(row)
+            if not identities_only:
+                rows.append(row)
         # A server may cap a requested 5000-row page. Advance by its actual
         # length, never by the requested limit or a guessed fixed stride.
         start += len(page)
@@ -175,8 +200,47 @@ async def _emby_items(http, base, key, item_type, log=None):
                       str(total) if total is not None else "总数待确认")
             last_progress = monotonic()
         if total is not None and start == total:
-            return rows
+            return seen if identities_only else rows
     raise LibraryScanError("Emby 分页超过安全范围，无法确认媒体库完整性")
+
+
+async def _read_inventory(http, base, key, log, result):
+    """Recover short-lived churn without mixing pages from different attempts.
+
+    Re-read IDs before using the rows: a delete and an addition can keep the
+    total unchanged while offset pagination silently omits a current item.
+    This is a consistency check, not an atomic Emby snapshot. Persistent churn
+    still fails closed, within the scan's existing deadline/cancellation scope.
+    """
+    for attempt in range(1, _INVENTORY_ATTEMPTS + 1):
+        result["scanned"] = 0
+        try:
+            series = await _emby_items(http, base, key, "Series", log)
+            result["scanned"] = len(series)
+            _safe_log(log, "info", "[自动订阅] Emby 剧集读取完成：%d 条，开始读取单集", len(series))
+            episodes = await _emby_items(http, base, key, "Episode", log) if series else []
+            _safe_log(log, "info", "[自动订阅] Emby 库存读取完成，开始复核编号：剧集 %d 条，单集 %d 条",
+                      len(series), len(episodes))
+            for kind, rows in (("Series", series), ("Episode", episodes)):
+                if kind == "Episode" and not series:
+                    continue
+                identities = await _emby_items(http, base, key, kind, log, identities_only=True)
+                if identities != {str(row["Id"]) for row in rows}:
+                    raise EmbyInventoryChanged(kind, 0, len(rows), len(identities), identities=True)
+            if attempt > 1:
+                _safe_log(log, "info", "[自动订阅] Emby 库存重新读取完成（第 %d/%d 次）：剧集 %d 条，单集 %d 条",
+                          attempt, _INVENTORY_ATTEMPTS, len(series), len(episodes))
+            return series, episodes
+        except EmbyInventoryChanged as exc:
+            if attempt == _INVENTORY_ATTEMPTS:
+                raise LibraryScanError(f"{exc}；连续 {_INVENTORY_ATTEMPTS} 次读取未取得稳定库存，本轮未执行缺集订阅") from None
+            delay = _INVENTORY_RETRY_DELAYS[attempt - 1]
+            _safe_log(log, "warning", "[自动订阅] %s；丢弃本次库存，%g 秒后从头重新读取（第 %d/%d 次）",
+                      exc, delay, attempt + 1, _INVENTORY_ATTEMPTS)
+            # Never reuse a previous Series catalog or partial Episode rows;
+            # clear verification references too before the fresh attempt.
+            series, episodes, rows, identities = None, None, None, None
+            await asyncio.sleep(delay)
 
 
 def _tmdb_id(row):
@@ -548,12 +612,9 @@ async def _scan_missing(cfg, http, log, result, state, cache):
     try:
         base, emby_key, tmdb_key, delay = _settings(cfg)
         _safe_log(log, "info", "[自动订阅] Emby 缺集检查：开始完整读取剧集与单集库存")
-        series = await _emby_items(http, base, emby_key, "Series", log)
-        result["scanned"] = len(series)
-        _safe_log(log, "info", "[自动订阅] Emby 剧集读取完成：%d 条，开始读取单集", len(series))
+        series, episodes = await _read_inventory(http, base, emby_key, log, result)
         # Inventory completion precedes all comparisons, so an interrupted
         # Episode page can never turn partially collected coverage into gaps.
-        episodes = await _emby_items(http, base, emby_key, "Episode", log) if series else []
     except LibraryScanError as exc:
         result["error"] = str(exc)
         _safe_log(log, "warning", "[自动订阅] Emby 缺集检查失败：%s", result["error"])

@@ -26,7 +26,7 @@ from ._http_errors import one_line, request_error
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.5",
+    "version": "2.3.6",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -47,6 +47,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.3.6 修复入库期间缺集扫描中断\n"
+    "- Emby 分页总数变化时丢弃本次库存，最多三次从头读取，保留完整性检查\n"
+    "- 读取后轻量复核编号，检测总数相同但增删导致的分页错位\n"
+    "- 日志显示媒体类型、分页起始位置与变化前后总数，持续不稳定时不新增缺集订阅\n\n"
     "v2.3.5 修复多榜单超时与 TMDB 季摘要差异\n"
     "- 猫眼按已选榜单数量分配限时，超时保留已验证结果，不重复报整批失败\n"
     "- 历史季摘要多报少量尾集时，独立核实季列表和单集不存在后继续核对\n"
