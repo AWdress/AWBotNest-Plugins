@@ -57,5 +57,6 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | 44 | Telegram 助手 | 0.0.15 | 消息转发、删除消息、查询 ID、消息结构、消息贴图、自动换头像和自动报时昵称；使用 Vue 分组配置页。 | 是 |
 | 45 | AW115MST | 0.0.1 | 本地文件 SHA1 检测与 115 秒传入库，支持扫码登录、复制/移动分类、待秒传重检、可选真实上传、定时巡检与运行记录；需要 Python 3.12+。 | 是 |
 | 46 | [远程打印](plugins_v2/remote_print/README.md) | 0.0.14 | 通过平台 Telegram Bot、企业微信或微信微工作台发送 PDF、图片，回复“打印”即可；确认后即时处理，空闲维护不累计运行次数，Vue 分组设置，使用平台统一回调，支持 IPP 或 Windows 打印端。 | 是 |
+| 47 | [VPS-Widget](plugins_v2/vps_widget/README.md) | 0.0.1 | 聚合十类影视榜单并匹配 TMDB，生成受只读密钥保护的 Forward 格式 Widget；Vue 榜单状态、配置与地址页，使用平台网络与存储，无额外 Node 服务，自动更新默认关闭。 | 是 |
 
 `plugins/` 保留 V1 版本，`plugins_v2/` 为 V2 发布包。
