@@ -41,6 +41,7 @@ class RemotePrint:
         self.ipp_status = {}
         self.dispatch_lock = asyncio.Lock()
         self.dispatch_task = None
+        self.maintenance_task = None
         self.downloads = asyncio.Semaphore(2)
         self.receiving = 0
         self.stopped = False
@@ -135,13 +136,11 @@ class RemotePrint:
         self.ctx.action("archive_unknown", self.archive_unknown)
         self.ctx.action("test_ipp", self.test_ipp)
         self.ctx.action("show_wecom_setup", self.show_wecom_setup)
-        self.ctx.schedule_interval("打印文件清理", self.cleanup, seconds=900)
-        if self.config()["print_mode"] == "ipp":
-            self.ctx.schedule_interval("打印队列兜底检查", self.check_queue, seconds=300)
         await self.refresh_telegram()
         # Standalone plugins are not reloaded by the platform's Bot reconnect.
-        # Check the read-only selection and restore a managed handler ourselves.
-        self.ctx.schedule_interval("打印机器人连接检查", self.refresh_telegram, seconds=300)
+        # Keep idle maintenance managed, but outside scheduled business calls:
+        # the platform counts every schedule/job callback, including no-ops.
+        self.maintenance_task = self.spawn(self.maintenance_loop(), "print_maintenance")
         self.request_dispatch()
         self.ctx.log.info("远程打印已就绪，方式=%s", "直接连接网络打印机" if self.config()["print_mode"] == "ipp" else "通过 Windows 电脑打印")
 
@@ -693,6 +692,36 @@ class RemotePrint:
         for job in jobs:
             await self.notify_job(job)
 
+    async def maintenance_loop(self):
+        loop = asyncio.get_running_loop()
+        next_cleanup = loop.time() + 900
+        while not self.stopped:
+            await asyncio.sleep(300)
+            if self.stopped:
+                return
+            clean = loop.time() >= next_cleanup
+            await self.maintenance_once(cleanup=clean)
+            if clean:
+                # Do not catch up missed ticks after a slow operation/resume.
+                next_cleanup = loop.time() + 900
+
+    async def maintenance_once(self, *, cleanup=False):
+        callbacks = [("机器人连接检查", self.refresh_telegram)]
+        if cleanup:
+            callbacks.append(("文件清理", self.cleanup))
+        callbacks.append(("队列检查", self.check_queue))
+        for name, callback in callbacks:
+            if self.stopped:
+                return
+            try:
+                # Public SDK execution retains quotas, timeout and teardown
+                # protection without marking an empty check as a print job.
+                await self.ctx.execute(f"maintenance:{name}", callback)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.ctx.log.warning("打印%s未完成（%s），下次检查时重试", name, type(exc).__name__)
+
     @staticmethod
     def ipp_text(caps):
         states = {3: "空闲", 4: "正在处理", 5: "已停止"}
@@ -715,8 +744,8 @@ class RemotePrint:
             return {"ok": False, "message": str(exc)}
 
     async def check_queue(self):
-        # The platform runs synchronous scheduled callbacks in a thread;
-        # worker creation must stay on the event loop.
+        # Maintenance wakes a separate worker without waiting for it while
+        # holding its own SDK execution permit.
         self.request_dispatch()
 
     def request_dispatch(self):
@@ -754,61 +783,97 @@ class RemotePrint:
             grant = (await self.queue.poll("ipp"))["job"]
             if grant is None:
                 return False
-            job_id, claim = grant["id"], grant["claim_token"]
-            original = self.queue.file(job_id)
-            converted = original.with_suffix(".ipp.jpg")
-            started, status, spool_id = False, "failed", ""
-            message = ""
+            # Only a real, durably claimed task is a business execution. Its
+            # preparation, submission and result notice share one activity.
+            # Leave room for both HTTP deadlines and document preparation;
+            # applying the usual 180s limit could truncate two 120s requests.
+            entered = False
+
+            async def run():
+                nonlocal entered
+                entered = True
+                return await self.dispatch_grant(grant, cfg)
+
             try:
-                caps = await self.refresh_ipp()
-                metadata = await asyncio.to_thread(inspect_file, original, grant["filename"], cfg["max_file_mb"] * 1024 * 1024, cfg["max_pages"])
-                if metadata["sha256"] != grant["sha256"] or metadata["format"] != grant["format"] or metadata["size"] != grant["size"]:
-                    raise ValueError("打印文件内容与收件记录不一致，已停止提交")
-                if grant["copies"] > self.config()["max_copies"]:
-                    raise ValueError("打印份数超过当前安全上限，请重新发送并确认")
-                self.ipp.validate_document(grant["format"], grant["copies"], caps)
-                prepared, mime = await self.ipp.prepare(original, grant["format"], capabilities=caps)
-                latest = self.config()
-                if self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp" or grant["copies"] > latest["max_copies"]:
-                    raise ValueError("打印已关闭、连接方式或份数上限已更改，未提交任务")
-                permission = await self.queue.start(job_id, claim)
-                if not permission["proceed"]:
-                    return True
-                latest = self.config()
-                if (self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp"
-                        or grant["copies"] > latest["max_copies"]
-                        or not self.queue.route_matches(self.queue.state["jobs"][job_id])):
-                    raise ValueError("打印设置在准备期间已更改，未提交任务")
-                started = True
-                receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps)
-                spool_id, status = receipt["spool_id"], "submitted"
-                message = f"打印机已接收任务（编号 {spool_id}）；实际出纸请查看打印机"
+                await self.ctx.execute("job:打印任务", run,
+                                       timeout=max(180, 2 * cfg["ipp_timeout_seconds"] + 60),
+                                       event_data={"job_id": grant["id"]})
             except asyncio.CancelledError:
-                # 正在 POST 时取消无法证明打印机未收件。重启也不能再次发送。
-                try:
-                    await self.queue.result(job_id, claim, "unknown" if started else "failed",
-                                            message="提交中断，无法确认打印机是否已收件；不会自动重打" if started else "打印准备中断，未提交打印任务")
-                except Exception:
-                    pass  # 持久记录下次启用会恢复 unknown / failed。
+                if not entered:
+                    try:
+                        await self.queue.result(grant["id"], grant["claim_token"], "failed",
+                                                message="打印执行已停止，未提交打印任务")
+                    except Exception:
+                        pass  # Durable leased state is failed on restart.
                 raise
-            except IPPRejected as exc:
-                status, message = "failed", str(exc)
-            except IPPSubmissionUnknown as exc:
-                status, message = "unknown", str(exc)
-            except Exception as exc:
-                status = "unknown" if started else "failed"
-                message = str(exc) if isinstance(exc, ValueError) else ("IPP 提交结果不确定，请核查打印机；不会自动重打" if started else "IPP 准备失败，请检查连接和打印文件")
-            finally:
-                if converted.exists():
-                    await self.queue._unlink(converted)
-            result = await self.queue.result(job_id, claim, status, spool_id, message=message)
-            if result is not None:
-                if status in {"failed", "unknown"}:
-                    self.ctx.log.warning("IPP 打印任务 %s：%s，原因：%s", job_id, LABELS[status], failure_reason(message))
-                else:
-                    self.ctx.log.info("IPP 打印任务 %s：%s", job_id, LABELS[status])
-                await self.notify_job(result)
+            except Exception:
+                if entered:
+                    # Storage/teardown errors must not reset a claimed job or
+                    # retry a submission whose outcome could be uncertain.
+                    raise
+                result = await self.queue.result(grant["id"], grant["claim_token"], "failed",
+                                                 message="打印执行未获准，未提交打印任务，请稍后重新发送")
+                self.ctx.log.warning("IPP 打印任务 %s：执行未获准，未提交打印任务", grant["id"])
+                if result is not None:
+                    await self.notify_job(result)
             return True
+
+    async def dispatch_grant(self, grant, cfg):
+        job_id, claim = grant["id"], grant["claim_token"]
+        original = self.queue.file(job_id)
+        converted = original.with_suffix(".ipp.jpg")
+        started, status, spool_id = False, "failed", ""
+        message = ""
+        try:
+            caps = await self.refresh_ipp()
+            metadata = await asyncio.to_thread(inspect_file, original, grant["filename"], cfg["max_file_mb"] * 1024 * 1024, cfg["max_pages"])
+            if metadata["sha256"] != grant["sha256"] or metadata["format"] != grant["format"] or metadata["size"] != grant["size"]:
+                raise ValueError("打印文件内容与收件记录不一致，已停止提交")
+            if grant["copies"] > self.config()["max_copies"]:
+                raise ValueError("打印份数超过当前安全上限，请重新发送并确认")
+            self.ipp.validate_document(grant["format"], grant["copies"], caps)
+            prepared, mime = await self.ipp.prepare(original, grant["format"], capabilities=caps)
+            latest = self.config()
+            if self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp" or grant["copies"] > latest["max_copies"]:
+                raise ValueError("打印已关闭、连接方式或份数上限已更改，未提交任务")
+            permission = await self.queue.start(job_id, claim)
+            if not permission["proceed"]:
+                return {"ok": False}
+            latest = self.config()
+            if (self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp"
+                    or grant["copies"] > latest["max_copies"]
+                    or not self.queue.route_matches(self.queue.state["jobs"][job_id])):
+                raise ValueError("打印设置在准备期间已更改，未提交任务")
+            started = True
+            receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps)
+            spool_id, status = receipt["spool_id"], "submitted"
+            message = f"打印机已接收任务（编号 {spool_id}）；实际出纸请查看打印机"
+        except asyncio.CancelledError:
+            # 正在 POST 时取消无法证明打印机未收件。重启也不能再次发送。
+            try:
+                await self.queue.result(job_id, claim, "unknown" if started else "failed",
+                                        message="提交中断，无法确认打印机是否已收件；不会自动重打" if started else "打印准备中断，未提交打印任务")
+            except Exception:
+                pass  # 持久记录下次启用会恢复 unknown / failed。
+            raise
+        except IPPRejected as exc:
+            status, message = "failed", str(exc)
+        except IPPSubmissionUnknown as exc:
+            status, message = "unknown", str(exc)
+        except Exception as exc:
+            status = "unknown" if started else "failed"
+            message = str(exc) if isinstance(exc, ValueError) else ("IPP 提交结果不确定，请核查打印机；不会自动重打" if started else "IPP 准备失败，请检查连接和打印文件")
+        finally:
+            if converted.exists():
+                await self.queue._unlink(converted)
+        result = await self.queue.result(job_id, claim, status, spool_id, message=message)
+        if result is not None:
+            if status in {"failed", "unknown"}:
+                self.ctx.log.warning("IPP 打印任务 %s：%s，原因：%s", job_id, LABELS[status], failure_reason(message))
+            else:
+                self.ctx.log.info("IPP 打印任务 %s：%s", job_id, LABELS[status])
+            await self.notify_job(result)
+        return {"ok": status == "submitted"}
 
     def urls(self):
         base = self.config()["public_base_url"].rstrip("/")
