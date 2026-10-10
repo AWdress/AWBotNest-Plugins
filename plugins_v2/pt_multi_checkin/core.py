@@ -135,6 +135,14 @@ _CHANGELOG_V2_7_4 = (
 )
 
 
+_CHANGELOG_V2_7_5 = (
+    "v2.7.5 修复定时签到被正在运行的任务跳过\n"
+    "- 每日签到与 U2 签到遇到运行中的任务时排队，上一轮结束后自动执行\n"
+    "- 定时回调返回真实签到结果，等待超时不再取消已排队的签到\n"
+    "- 同类未完成的定时任务不重复创建，停用或重载时统一取消\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -147,7 +155,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.7.4",
+    "version": "2.7.5",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -175,11 +183,11 @@ __plugin__ = {
     "default_enabled": False,
     "render_mode": "vue",
     "resources": {
-        "timeout_seconds": 1800, "max_concurrency": 8, "max_background_tasks": 3,
+        "timeout_seconds": 1800, "max_concurrency": 8, "max_background_tasks": 8,
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_7_4 + _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_7_5 + _CHANGELOG_V2_7_4 + _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     # PT 社区常用的 12 个站点置于第一组；其余已有适配站点置于第二组。
@@ -223,7 +231,9 @@ DEFAULTS = {
 
 
 _run_lock: asyncio.Lock | None = None
+_active_run_task: asyncio.Task | None = None
 _tasks: set[asyncio.Task] = set()
+_scheduled_tasks: dict[str, asyncio.Task] = {}
 _failed_retry_tasks: dict[str, asyncio.Task] = {}
 _HISTORY_KEY = "history"
 _LAST_KEY = "last_result"
@@ -487,7 +497,12 @@ def _configured_sites(cfg: dict | None = None) -> dict[str, dict]:
 
 
 def _task_done(task: asyncio.Task) -> None:
+    global _active_run_task
     _tasks.discard(task)
+    # 排队任务可能先于上一轮的 done 回调拿到锁，旧回调不能覆盖新一轮状态。
+    if _active_run_task is not task:
+        return
+    _active_run_task = None
     if task.cancelled():
         _state.update({"running": False, "phase": "已取消", "message": "签到任务已取消", "current": ""})
         return
@@ -497,6 +512,43 @@ def _task_done(task: asyncio.Task) -> None:
         error = exc
     if error:
         _state.update({"running": False, "phase": "异常", "message": f"后台任务异常：{error}", "current": ""})
+
+
+async def _run_scheduled(ctx, source: str, selected: list[str]) -> dict:
+    """Keep a scheduled run alive if its callback times out while waiting."""
+    task = _scheduled_tasks.get(source)
+    if task is None or task.done():
+        try:
+            task = ctx.create_task(
+                _run(ctx, source, list(selected), wait_for_lock=True),
+                name=f"PT站{source}签到",
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = f"{source}签到任务提交失败：{str(exc).strip() or type(exc).__name__}"
+            _runtime_log(ctx, message, level="error")
+            return {"ok": False, "message": message}
+        _scheduled_tasks[source] = task
+        _tasks.add(task)
+
+        def done(finished: asyncio.Task) -> None:
+            if _scheduled_tasks.get(source) is finished:
+                _scheduled_tasks.pop(source, None)
+            _task_done(finished)
+            if not finished.cancelled() and finished.exception() is not None:
+                error = finished.exception()
+                _runtime_log(ctx, f"{source}签到异常：{str(error).strip() or type(error).__name__}", level="error")
+
+        task.add_done_callback(done)
+        if _run_lock and _run_lock.locked():
+            _runtime_log(ctx, f"{source}签到已到点，已排队，上一轮结束后自动执行")
+        else:
+            _runtime_log(ctx, f"{source}签到已到点，任务已提交")
+    else:
+        _runtime_log(ctx, f"{source}签到已有待完成任务，不重复创建，等待同一任务结果")
+
+    # 回调本身仍返回实际结果。平台只取消超时的回调时保留已登记的任务；
+    # 停用/重载则由 ctx.create_task 的生命周期托管及 teardown 统一取消。
+    return await asyncio.shield(task)
 
 
 def _schedule_failed_retry(ctx, failed_keys: list[str]) -> bool:
@@ -2389,12 +2441,13 @@ async def _run(
     wait_for_lock: bool = False,
     retry_count_override: int | None = None,
 ) -> dict:
-    global _run_lock
+    global _run_lock, _active_run_task
     if _run_lock is None:
         _run_lock = asyncio.Lock()
     if _run_lock.locked() and not wait_for_lock:
         return {"ok": False, "message": "签到任务正在运行"}
     async with _run_lock:
+        _active_run_task = asyncio.current_task()
         cfg = _cfg(ctx)
         configured = _configured_sites(cfg)
         selected = selected_override if selected_override is not None else cfg.get("selected_sites", list(configured))
@@ -2629,8 +2682,10 @@ async def _run(
 
 
 async def setup(ctx):
-    global _run_lock
+    global _run_lock, _active_run_task
     _run_lock = asyncio.Lock()
+    _active_run_task = None
+    _scheduled_tasks.clear()
     _failed_retry_tasks.clear()
     _state.update({"running": False, "started_at": "", "finished_at": "", "current": "", "phase": "", "message": "", "completed": 0, "total": 0})
     _runtime_logs.clear()
@@ -2748,13 +2803,15 @@ async def setup(ctx):
                 selected = list(configured)
             non_u2 = [str(key) for key in selected if str(key) in configured and str(key) != "u2"]
             if non_u2:
-                await _run(ctx, "定时", non_u2)
+                return await _run_scheduled(ctx, "定时", non_u2)
+            return {"ok": True, "skipped": True, "message": "没有启用非 U2 站点，未执行定时签到"}
 
         async def scheduled_u2():
             configured = _configured_sites(_cfg(ctx))
             selected = _cfg(ctx).get("selected_sites", list(configured))
             if not isinstance(selected, list) or "u2" in selected:
-                await _run(ctx, "定时(U2)", ["u2"])
+                return await _run_scheduled(ctx, "定时(U2)", ["u2"])
+            return {"ok": True, "skipped": True, "message": "未启用 U2，未执行 U2 定时签到"}
 
         # U2 站点只允许北京时间 09:00 后签到，单独注册定时任务，
         # 其他站点仍按原有全局时间执行。
@@ -2763,7 +2820,8 @@ async def setup(ctx):
 
 
 async def teardown(ctx):
-    global _xvfb_display, _xvfb_process
+    global _active_run_task, _xvfb_display, _xvfb_process
+    _active_run_task = None
     _state.update({"running": False, "current": "", "phase": "", "message": ""})
     for pending in list(_tjupt_pending.values()):
         pending["choice"] = None
@@ -2777,6 +2835,7 @@ async def teardown(ctx):
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+    _scheduled_tasks.clear()
     _failed_retry_tasks.clear()
     if _storage_tasks:
         await asyncio.gather(*list(_storage_tasks), return_exceptions=True)
