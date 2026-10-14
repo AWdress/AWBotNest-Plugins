@@ -23,6 +23,7 @@ VERSION = (1, 1)
 PRINT_JOB = 0x0002
 GET_PRINTER_ATTRIBUTES = 0x000B
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,127}$")
+_MEDIA = re.compile(r"^[a-z][a-z0-9._-]{0,254}$")
 _JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _GROUPS = {0x01, 0x02, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A}
 _JPEG_LIMITS = {
@@ -41,6 +42,7 @@ _EXPECTED_TAGS = {
     "print-scaling-supported": {0x44}, "print-scaling-default": {0x44},
     "print-scaling": {0x44},
     "sides-supported": {0x44}, "sides-default": {0x44}, "sides": {0x44},
+    "media": {0x44, 0x42, 0x36},
 }
 
 
@@ -329,6 +331,39 @@ def _sides_capabilities(supported, default):
     return sorted(set(supported))
 
 
+def _valid_media_name(value):
+    # IPP media values may be keywords or user-defined name(MAX) strings.
+    if (not isinstance(value, str) or not value
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)):
+        return False
+    try:
+        return len(value.encode("utf-8")) <= 255
+    except UnicodeError:
+        return False
+
+
+def _media_capabilities(supported, default):
+    if (not isinstance(supported, list)
+            or any(not _valid_media_name(item) for item in supported)
+            or (default is not None and (not _valid_media_name(default)
+                or (supported and default not in supported)))):
+        raise ValueError("打印机默认纸张能力无效，请检查纸张设置并重新检测连接")
+    return sorted(set(supported))
+
+
+def _duplex_media(sides, capabilities):
+    if not sides.startswith("two-sided"):
+        return None
+    if capabilities.get("media_error"):
+        raise ValueError("打印机默认纸张能力无效，无法确认双面打印；不会改单面打印")
+    default = capabilities.get("media_default")
+    supported = _media_capabilities(capabilities.get("media_supported", []), default)
+    # Some devices reject otherwise valid duplex requests if media is omitted,
+    # even though their media-default is correctly advertised. Bind only an
+    # advertised, supported default; never guess A4 or change legacy printers.
+    return default if default is not None and _MEDIA.fullmatch(default) and default in supported else None
+
+
 def _validate_sides(sides, capabilities):
     if not isinstance(sides, str) or sides not in _SIDES | {"default"}:
         raise ValueError("单双面选项无效，请选择跟随打印机、单面或双面")
@@ -344,6 +379,7 @@ def _validate_sides(sides, capabilities):
         if sides.startswith("two-sided"):
             raise ValueError("打印机未声明支持请求的自动双面方式；不会改单面打印")
         raise ValueError("打印机未声明支持单面打印，请重新检查打印机连接")
+    _duplex_media(sides, capabilities)
 
 
 class IPPPrinter:
@@ -408,6 +444,7 @@ class IPPPrinter:
         requested = ["printer-name", "printer-uri-supported", "document-format-supported",
                      "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported",
                      "print-scaling-supported", "print-scaling-default", "sides-supported", "sides-default",
+                     "media-default", "media-supported",
                      *_JPEG_LIMITS]
         message = encode_request(GET_PRINTER_ATTRIBUTES, request_id,
                                  self._base_attributes(initial_uri) + [(0x44, "requested-attributes", requested)])
@@ -447,6 +484,14 @@ class IPPPrinter:
             raise ValueError("打印机缩放能力无效")
         sides_default = _single(attrs, "sides-default")
         sides_supported = _sides_capabilities(attrs.get("sides-supported", []), sides_default)
+        media_supported, media_default, media_error = [], None, False
+        try:
+            media_default = _single(attrs, "media-default")
+            media_supported = _media_capabilities(attrs.get("media-supported", []), media_default)
+        except ValueError:
+            # Optional media data must not disable unchanged default/single-side
+            # printing. Explicit duplex will reject corrupt media capabilities.
+            media_default, media_error = None, True
         jpeg_limits = {key: None for key in _JPEG_LIMITS.values()}
         jpeg_limits_error = False
         for name, key in _JPEG_LIMITS.items():
@@ -468,6 +513,7 @@ class IPPPrinter:
                 "copies_supported": ranges, "copies_max": max(upper for _, upper in ranges),
                 "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default,
                 "sides_supported": sides_supported, "sides_default": sides_default,
+                "media_supported": media_supported, "media_default": media_default, "media_error": media_error,
                 **jpeg_limits, "jpeg_limits_error": jpeg_limits_error}
 
     @staticmethod
@@ -641,8 +687,11 @@ class IPPPrinter:
             (0x49, "document-format", mime),
         ]
         job_attributes = [(0x21, "copies", copies)]
+        media = _duplex_media(sides, capabilities)
         if sides != "default":
             job_attributes.append((0x44, "sides", sides))
+        if media is not None:
+            job_attributes.append((0x44, "media", media))
         if mime == "image/jpeg":
             # IPP fit preserves the whole image and its aspect ratio within the
             # printable area; a device default such as auto/fill may crop it.
@@ -666,6 +715,7 @@ class IPPPrinter:
             if (_attributes(result, 0x05) or _single(job_attrs, "copies", copies) != copies
                     or _single(job_attrs, "document-format", mime) != mime
                     or (sides != "default" and _single(job_attrs, "sides", sides) != sides)
+                    or (media is not None and _single(job_attrs, "media", media) != media)
                     or (mime == "image/jpeg" and _single(job_attrs, "print-scaling", "fit") != "fit")):
                 raise ValueError
             spool_id = _single(job_attrs, "job-id")

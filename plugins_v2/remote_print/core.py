@@ -14,7 +14,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from . import __plugin__
 from .channels import PlatformChannels
-from .chat import SIDE_LABELS, action_buttons, batch_cancel_command, display_filename, failure_reason, file_number, is_mutating_text, normalize_sides, parse_action, print_command, received_text, short_command, simple_command, status_text, wecom_received_text, welcome_text
+from .chat import SIDE_LABELS, action_buttons, batch_cancel_command, display_filename, failure_reason, file_heading, file_number, file_reference, is_mutating_text, normalize_sides, parse_action, print_command, received_text, short_command, simple_command, status_text, wecom_received_text, welcome_text
 from .files import inspect_file, safe_name
 from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
@@ -454,15 +454,16 @@ class RemotePrint:
                 return status_text(job)
             short = short_command(text)
             if short:
+                selection = {"number_batch": short["batch"]} if short["batch"] is not None else {}
                 if short["action"] == "print":
                     sides = await self.check_sides(short["sides"])
                     job = await self.queue.confirm(short["number"], owner, short["copies"], sides=sides,
-                                                   source_channel=channel, permission_check=permission_check)
+                                                   source_channel=channel, permission_check=permission_check, **selection)
                     self.request_dispatch()
                 elif short["action"] == "cancel":
-                    job = await self.queue.cancel(short["number"], owner, source_channel=channel, permission_check=permission_check)
+                    job = await self.queue.cancel(short["number"], owner, source_channel=channel, permission_check=permission_check, **selection)
                 else:
-                    job = await self.queue.get_job(short["number"], owner, source_channel=channel, permission_check=permission_check)
+                    job = await self.queue.get_job(short["number"], owner, source_channel=channel, permission_check=permission_check, **selection)
                 return status_text(job)
             simple = simple_command(text)
             if simple:
@@ -483,6 +484,8 @@ class RemotePrint:
                     job = await self.queue.confirm_single(owner, source_channel or "", copies=1, sides=sides, permission_check=permission_check)
                     self.request_dispatch()
                     return status_text(job)
+                if re.fullmatch(r"[1-9][0-9]{0,8}", values[0]):
+                    return "选文件请回复“打印文件1”；要两份请回复“打印文件1两份”。回复“任务”查看文件序号。"
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
                 job = await self.queue.confirm(values[0], owner, copies, printer, sides=sides, source_channel=source_channel, permission_check=permission_check)
@@ -492,11 +495,15 @@ class RemotePrint:
                 if not argument.strip():
                     job = await self.queue.cancel_single(owner, source_channel or "", permission_check=permission_check)
                 else:
+                    if re.fullmatch(r"[1-9][0-9]{0,8}", argument.strip()):
+                        return "请回复“取消文件1”；回复“任务”查看文件序号。"
                     job = await self.queue.cancel(argument.strip(), owner, source_channel=source_channel, permission_check=permission_check)
                 return status_text(job)
             if command in {"/print_jobs", "任务"}:
                 return self.jobs_text(await self.queue.jobs(owner, source_channel=channel))
             if command == "进度" and argument.strip():
+                if re.fullmatch(r"[1-9][0-9]{0,8}", argument.strip()):
+                    return "请回复“查看文件1”；回复“任务”查看文件序号。"
                 job = await self.queue.get_job(argument.strip(), owner, source_channel=source_channel,
                                                permission_check=permission_check)
                 return status_text(job)
@@ -512,8 +519,10 @@ class RemotePrint:
         if not advanced:
             return welcome_text()
         printer = " [打印机完整名称]" if self.config()["print_mode"] == "agent" else ""
-        return (f"先发送 PDF 或图片。\n只选文件1：打印1 / 双面打印1 / 取消1 / 进度1\n文件1要两份：打印1两份\n任务：查看你的最近任务\n打印机：查看设备状态"
-                + "\n多文件：全部打印 / 全部双面打印 / 全部取消\n短边翻页：短边双面打印1；序号以收件提示为准，不会重新分配。"
+        return (f"先发送 PDF 或图片。\n只选文件1：打印文件1 / 双面打印文件1 / 取消文件1 / 查看文件1\n文件1要两份：打印文件1两份\n任务：查看你的最近任务\n打印机：查看设备状态"
+                + "\n全部打印 / 全部双面打印 / 全部取消：本入口所有待处理文件（含旧批）。\n短边翻页：短边双面打印文件1。"
+                + "\n5分钟没收到新文件，下次从文件1开始；短口令只选当前批，旧批请用任务列表中的批次口令或原按钮。"
+                + "\n每个文件单独打印，单页图片不会自动拼成正反面；需要同一张纸正反面，请发送两页 PDF。"
                 + f"\n旧编号指令仍可用：打印 任务ID [份数]{printer}。"
                 + "\nTelegram 仅接受私聊，支持 /print、/print_cancel、/print_jobs、/printers。\n已提交仅表示打印队列接收，不保证实际出纸。")
 
@@ -524,10 +533,11 @@ class RemotePrint:
         entries = []
         for job in jobs:
             number = file_number(job)
-            entry = (f"文件{number} · {display_filename(job)} · {LABELS[job['status']]} · {job['copies']} 份\n"
+            reference = file_reference(job)
+            entry = (f"{file_heading(job)} · {display_filename(job)} · {LABELS[job['status']]} · {job['copies']} 份\n"
                      f"打印方式：{SIDE_LABELS.get(job.get('sides', 'default'), '未知')}")
             if number and job["status"] in {"receiving", "pending", "queued", "leased", "started", "unknown"}:
-                entry += f"\n打印{number} / 取消{number} / 进度{number}" if job["status"] == "pending" else f"\n进度{number}"
+                entry += f"\n打印{reference} / 取消{reference} / 查看{reference}" if job["status"] == "pending" else f"\n查看{reference}"
             if diagnostic:
                 entry += f"\n任务ID：{job['id']}"
             if job["status"] in {"failed", "unknown"}:
@@ -599,7 +609,7 @@ class RemotePrint:
                     return
             except Exception:
                 self.ctx.log.error("打印任务保存失败，请重载插件后检查队列")
-            await self.notify(job["source"], job["owner"], f"文件{file_number(job)}未进入打印队列：{reason}", job.get("source_channel", ""),
+            await self.notify(job["source"], job["owner"], f"{file_heading(job)}未进入打印队列：{reason}", job.get("source_channel", ""),
                               message=wecom_message)
             self.ctx.log.warning("打印文件未入队：任务 %s，原因：%s", job["id"], reason)
         finally:
