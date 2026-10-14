@@ -7,6 +7,7 @@ import hmac
 import hashlib
 import inspect
 import json
+import math
 import re
 import secrets
 import time
@@ -17,6 +18,7 @@ from .chat import normalize_sides
 
 ACTIVE = {"receiving", "pending", "queued", "leased", "started"}
 TERMINAL = {"submitted", "failed", "unknown", "cancelled", "archived"}
+MAX_NUMBER = 999_999_999
 LABELS = {"receiving": "正在收文件", "pending": "等待确认", "queued": "等待打印",
           "leased": "正在准备打印", "started": "正在提交打印", "submitted": "已提交打印队列",
           "failed": "失败", "unknown": "结果待核查（不会自动重打）", "cancelled": "已取消", "archived": "已核查归档（未重打）"}
@@ -46,7 +48,7 @@ class PrintQueue:
         self.ctx, self.config = ctx, config
         self.root = Path(ctx.data_dir) / "print_files"
         self.lock = asyncio.Lock()
-        self.state = {"jobs": {}, "seen": {}}
+        self.state = {"jobs": {}, "seen": {}, "next_number": 1}
         self.device = {}
         self.faulted = False
         self.process_lock = None
@@ -55,12 +57,12 @@ class PrintQueue:
         await asyncio.to_thread(self.root.mkdir, parents=True, exist_ok=True)
         self.process_lock = await asyncio.to_thread(instance_lock, self.root.parent / "print_server.lock")
         self.ctx.add_cleanup(self.close)
-        state = await self.ctx.storage.get("print_queue_v1", {"jobs": {}, "seen": {}})
+        state = await self.ctx.storage.get("print_queue_v1", {"jobs": {}, "seen": {}, "next_number": 1})
         if not isinstance(state, dict) or not isinstance(state.get("jobs"), dict) or not isinstance(state.get("seen"), dict):
             raise RuntimeError("打印队列数据损坏，未重建或自动重打，请先备份并检查")
-        self.state = state
         async with self.lock:
             snapshot = copy.deepcopy(state)
+            self._migrate_numbers(snapshot)
             for job in snapshot["jobs"].values():
                 if job["status"] == "started":
                     job.update(status="unknown", message="平台重启，需核查打印机队列", updated=time.time())
@@ -78,6 +80,44 @@ class PrintQueue:
         if self.process_lock is not None:
             self.process_lock.close()
             self.process_lock = None
+
+    @staticmethod
+    def _migrate_numbers(state):
+        """Upgrade legacy jobs once; never guess a damaged persistent counter."""
+        used = set()
+        missing = []
+        for identity, job in state["jobs"].items():
+            if (not isinstance(job, dict) or not isinstance(identity, str)
+                    or not re.fullmatch(r"[a-f0-9]{16}", identity) or job.get("id") != identity):
+                raise RuntimeError("打印队列数据损坏，未分配新编号，请先备份并检查")
+            if "number" not in job:
+                missing.append(job)
+                continue
+            number = job["number"]
+            if type(number) is not int or not 1 <= number <= MAX_NUMBER or number in used:
+                raise RuntimeError("打印任务编号损坏或重复，未分配新编号，请先备份并检查")
+            used.add(number)
+        if "next_number" not in state:
+            if used:
+                # A removed highest-number job cannot be reconstructed from the
+                # surviving records. Guessing max+1 could reuse an old number.
+                raise RuntimeError("打印编号计数缺失，未重新编号，请先备份并检查")
+            state["next_number"] = 1
+        number = state["next_number"]
+        if type(number) is not int or not 1 <= number <= MAX_NUMBER + 1 or (used and number <= max(used)):
+            raise RuntimeError("打印编号计数损坏，未重新编号，请先备份并检查")
+        if len(missing) > MAX_NUMBER + 1 - number:
+            raise RuntimeError("打印任务编号已用尽，旧任务未重新编号，请联系管理员")
+        # Old releases never exposed short numbers. This deterministic migration
+        # gives old files stable numbers while preserving their opaque IDs.
+        for job in missing:
+            created = job.get("created")
+            if type(created) not in (int, float) or not math.isfinite(created):
+                raise RuntimeError("打印队列创建时间损坏，未分配新编号，请先备份并检查")
+        for job in sorted(missing, key=lambda item: (item["created"], item["id"])):
+            job["number"] = number
+            number += 1
+        state["next_number"] = number
 
     def _remove_orphans(self, known):
         for path in self.root.iterdir():
@@ -142,7 +182,15 @@ class PrintQueue:
         return actual == requested
 
     def _find(self, state, job_id, owner=None, *, source_channel=None):
-        job = state["jobs"].get(str(job_id))
+        identity = str(job_id)
+        job = state["jobs"].get(identity)
+        if (job is None and owner is not None and source_channel is not None
+                and re.fullmatch(r"[1-9][0-9]{0,8}", identity)):
+            number = int(identity)
+            matches = [candidate for candidate in self._owned_jobs(state, owner, source_channel)
+                       if candidate.get("number") == number]
+            if len(matches) == 1:
+                job = matches[0]
         if (job is None or (owner is not None and not self._same_owner(job["owner"], owner))
                 or (source_channel is not None and job.get("source_channel", "") != source_channel)):
             raise ValueError("没有找到你的打印任务")
@@ -249,13 +297,25 @@ class PrintQueue:
                 raise ValueError("打印队列已满，请处理现有任务后重试")
             if total + allocation > cfg["max_storage_mb"] * 1024 * 1024:
                 raise ValueError("文件存储空间达到上限，请清理已结束任务")
+            number = snapshot.get("next_number")
+            if type(number) is not int or not 1 <= number <= MAX_NUMBER + 1:
+                self.faulted = True
+                raise ValueError("打印编号计数损坏，已停止收件，请重载插件后检查")
+            if number > MAX_NUMBER:
+                raise ValueError("打印任务编号已用尽，已停止收件，请联系管理员")
+            if any(type(job.get("number")) is not int or job["number"] >= number for job in snapshot["jobs"].values()):
+                self.faulted = True
+                raise ValueError("打印编号计数损坏，已停止收件，请重载插件后检查")
             job_id = secrets.token_hex(8)
-            snapshot["jobs"][job_id] = {"id": job_id, "owner": owner, "source": source, "source_channel": str(source_channel),
+            if job_id in snapshot["jobs"]:
+                raise ValueError("打印任务标识冲突，请稍后重新发送文件")
+            snapshot["jobs"][job_id] = {"id": job_id, "number": number, "owner": owner, "source": source, "source_channel": str(source_channel),
                 "filename": filename, "status": "receiving", "created": now, "updated": now,
                 "copies": min(cfg["default_copies"], cfg["max_copies"]), "sides": "default", "printer": "IPP" if cfg.get("print_mode") == "ipp" else cfg["printer_name"],
                 "device_id": cfg["device_id"], "size": allocation, "file_present": True,
                 "claim_token": "", "message": "", "backend": cfg.get("print_mode", "agent"),
                 "ipp_target": self.target_key(cfg) if cfg.get("print_mode") == "ipp" else ""}
+            snapshot["next_number"] = number + 1
             snapshot["seen"][source_key] = now
             # 去重缓存有硬上限；满额时拒绝而非移除仍可能被重放的记录。
             if len(snapshot["seen"]) > 2000:
@@ -271,6 +331,8 @@ class PrintQueue:
             job = self._find(snapshot, job_id)
             if job["status"] != "receiving":
                 raise ValueError("任务已取消或已过期")
+            if "number" in metadata and (type(metadata["number"]) is not int or metadata["number"] != job["number"]):
+                raise ValueError("打印任务编号不能更改")
             job.update(metadata)
             job.update(status="queued" if self.config()["auto_print"] else "pending", updated=time.time())
             await self._commit(snapshot)
@@ -281,11 +343,22 @@ class PrintQueue:
             self._check()
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id)
-            if job["status"] != "receiving":
-                return
-            job.update(status="failed", file_present=False, message=message, updated=time.time())
-            await self._commit(snapshot)
+            if job["status"] not in {"receiving", "cancelled"}:
+                return None
+            if job["status"] == "receiving":
+                job.update(status="failed", file_present=False, message=message, updated=time.time())
+                await self._commit(snapshot)
+            elif job.get("file_present"):
+                # The downloader is already finished here. Preserve the user's
+                # cancellation; only release its retained-file accounting.
+                job["file_present"] = False
+                await self._commit(snapshot)
+            result = copy.deepcopy(job)
+        # Cleanup may have removed a cancelled file before this downloader
+        # completed and replaced its .part file. Unlink even when accounting
+        # was already clear, without an unnecessary storage write.
         await self._unlink(self.file(job_id))
+        return result
 
     def _disk_sizes(self):
         return {path.name: path.stat().st_size for path in self.root.iterdir() if path.is_file()}
@@ -339,7 +412,7 @@ class PrintQueue:
             jobs = self._owned_jobs(snapshot, owner, source_channel)
             candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
             if len(candidates) > 1:
-                raise ValueError("有多个文件，请按对应文件的按钮或任务编号选择，不会自动选一个打印。")
+                raise ValueError("有多个文件。一起打印请回复“全部打印”；只选一个请使用收件提示的短序号，例如“打印1”。")
             if not candidates:
                 return copy.deepcopy(self._latest_job(jobs))
             job = candidates[0]
@@ -393,7 +466,7 @@ class PrintQueue:
             jobs = self._owned_jobs(snapshot, owner, source_channel)
             candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
             if len(candidates) > 1:
-                raise ValueError("有多个文件，请按对应文件的按钮或任务编号选择，不会自动选一个取消。")
+                raise ValueError("有多个文件。全部不要请回复“全部取消”；只取消一个请使用收件提示的短序号，例如“取消1”。")
             if not candidates:
                 return copy.deepcopy(self._latest_job(jobs))
             job = candidates[0]
@@ -403,23 +476,39 @@ class PrintQueue:
             await self._commit(snapshot)
             return copy.deepcopy(job)
 
+    async def cancel_all(self, owner, source_channel, *, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            snapshot = copy.deepcopy(self.state)
+            jobs = self._owned_jobs(snapshot, owner, source_channel)
+            cancelled = [job for job in jobs if job["status"] in {"receiving", "pending", "queued", "leased"}]
+            untouched = [job for job in jobs if job["status"] in {"started", "unknown"}]
+            for job in cancelled:
+                self._cancel(job)
+            self._permission(permission_check)
+            if cancelled:
+                await self._commit(snapshot)
+            return copy.deepcopy({"cancelled": cancelled, "untouched": untouched})
+
     async def status_single(self, owner, source_channel, *, permission_check=None):
         async with self.lock:
             self._permission(permission_check)
             jobs = self._owned_jobs(self.state, owner, source_channel)
             candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
             if len(candidates) > 1:
-                raise ValueError("有多个文件，请按对应文件的按钮或任务编号查看进度。")
+                raise ValueError("有多个文件，请回复“任务”查看短序号，再发送对应指令，例如“进度1”。")
             return copy.deepcopy(candidates[0] if candidates else self._latest_job(jobs))
 
-    async def jobs(self, owner=None):
+    async def jobs(self, owner=None, *, source_channel=None):
         async with self.lock:
             return [self.public(job) for job in sorted(self.state["jobs"].values(), key=lambda j: j["created"], reverse=True)
-                    if owner is None or self._same_owner(job["owner"], owner)][:20]
+                    if (owner is None or self._same_owner(job["owner"], owner))
+                    and (source_channel is None or job.get("source_channel", "") == source_channel)][:20]
 
     @staticmethod
     def public(job):
-        result = {key: job.get(key) for key in ("id", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
+        result = {key: job.get(key) for key in ("id", "number", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
         result["backend"] = job.get("backend", "agent")
         result["sides"] = job.get("sides", "default")
         return result

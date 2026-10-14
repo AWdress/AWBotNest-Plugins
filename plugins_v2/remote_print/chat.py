@@ -26,6 +26,29 @@ def print_command(text):
     return {"all": bool(match[1]), "copies": 2 if match[3] in {"两份", "二份", "2份"} else 1, "sides": sides}
 
 
+def short_command(text):
+    value = str(text or "").strip().rstrip("。！!").strip()
+    match = re.fullmatch(r"(打印|单面打印|长边双面打印|短边双面打印|双面打印|取消|进度)\s*"
+                         r"([1-9][0-9]{0,8})(?:\s+([1-5])(?:份)?|\s*(一份|两份|二份))?", value)
+    if not match or (match[1] in {"取消", "进度"} and (match[3] or match[4])):
+        return None
+    action = {"取消": "cancel", "进度": "status"}.get(match[1], "print")
+    copies = (int(match[3]) if match[3] else 2 if match[4] in {"两份", "二份"} else 1) if action == "print" else None
+    sides = {"单面打印": "one-sided", "长边双面打印": "two-sided-long-edge",
+             "双面打印": "two-sided-long-edge", "短边双面打印": "two-sided-short-edge"}.get(match[1], "default")
+    return {"action": action, "number": match[2], "copies": copies, "sides": sides}
+
+
+def batch_cancel_command(text):
+    value = re.sub(r"\s+", "", str(text or "")).rstrip("。！!")
+    return value in {"全部取消", "取消全部", "所有取消", "取消所有"}
+
+
+def file_number(job):
+    number = job.get("number")
+    return str(number) if type(number) is int and 1 <= number <= 999999999 else ""
+
+
 def action_key(action, job_id, copies=None):
     key = f"rp:{action}:{job_id}"
     return key + f":{copies}" if copies is not None else key
@@ -58,26 +81,26 @@ def action_buttons(job, max_copies):
 def received_text(job):
     if job["status"] != "pending":
         return status_text(job)
-    return (f"文件已收到\n{display_filename(job)} · 共 {job['pages']} 页\n\n"
+    number = file_number(job)
+    label = f"文件{number} · " if number else ""
+    return (f"文件已收到\n{label}{display_filename(job)} · 共 {job['pages']} 页\n\n"
             "点“打印一份”就开始，不想打印可点“取消打印”。\n"
-            "也可以回复“打印”“双面打印”或“取消”。\n"
-            "多个文件都收齐后，回复“全部打印”或“全部双面打印”。")
+            + (f"也可回复“打印{number}”“双面打印{number}”或“取消{number}”。\n" if number else "也可回复“打印”或“取消”。\n")
+            + "多个文件收齐后：全部打印 / 全部双面打印。\n全部不要：全部取消。")
 
 
 def wecom_received_text(job, max_copies):
     """One plain-text confirmation usable in both WeCom and WeChat."""
     if job["status"] != "pending":
         return status_text(job)
-    copies = "回复“打印两份” → 打两份\n" if max_copies >= 2 else ""
-    numbered_copies = f"打印 {job['id']} 2\n" if max_copies >= 2 else ""
-    return (f"文件已收到\n{display_filename(job)} · 共 {job['pages']} 页\n"
+    number = file_number(job)
+    label = f"文件{number} · " if number else ""
+    copies = f"\n这份要两份：打印{number}两份" if max_copies >= 2 else ""
+    return (f"文件已收到\n{label}{display_filename(job)} · 共 {job['pages']} 页\n"
             "等待确认，还没开始打印。\n\n"
-            f"回复“打印” → 打一份\n{copies}"
-            "回复“取消” → 取消打印\n回复“进度” → 查看状态\n\n"
-            "需要双面：回复“双面打印”（长边翻页）。\n"
-            "多个文件都收齐后，回复“全部打印”或“全部双面打印”。\n\n"
-            "同时有多个文件时，复制对应指令：\n"
-            f"打印 {job['id']} 1\n{numbered_copies}取消 {job['id']}\n进度 {job['id']}")
+            f"回复口令：打印{number} / 取消{number} / 进度{number}\n"
+            f"这份要双面：双面打印{number}{copies}\n\n"
+            "多个文件都收齐后：\n全部打印 / 全部双面打印\n全部不要：全部取消")
 
 
 def display_filename(job):
@@ -105,7 +128,7 @@ def failure_reason(message):
 def status_text(job):
     phrases = {
         "receiving": "正在收文件，请稍等。",
-        "pending": "还没开始打印，回复“打印”即可。",
+        "pending": f"还没开始打印，回复“打印{file_number(job)}”即可。",
         "queued": f"已确认打印 {job['copies']} 份，正在等待打印机。\n先不要重复发送文件。",
         "leased": "正在准备打印，请稍等。",
         "started": "正在发送到打印机，请稍等，不要重复操作。",
@@ -116,7 +139,7 @@ def status_text(job):
         "archived": "已结束核查，不会重新打印。",
     }
     mode = SIDE_LABELS.get(job.get("sides", "default"), "未知")
-    return f"文件：{display_filename(job)}\n打印方式：{mode}\n\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
+    return f"文件{file_number(job)}：{display_filename(job)}\n打印方式：{mode}\n\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
 
 
 def welcome_text():
@@ -124,6 +147,8 @@ def welcome_text():
             "收到提示后回复“打印”即可；Telegram 也可点“打印一份”。\n"
             "不想打印回复“取消”，想看进度回复“进度”。\n"
             "多文件都收齐后回复“全部打印”；需要双面可回复“双面打印”或“全部双面打印”。\n"
+            "全部不要可回复“全部取消”；已开始提交的任务不能保证远程取消。\n"
+            "只选一份时，用收件提示的短序号：打印1 / 取消1 / 进度1；回复“任务”查看序号。\n"
             "双面默认长边翻页，也可回复“短边双面打印”；不支持时明确提示，不改成单面。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 
@@ -142,8 +167,13 @@ def simple_command(text):
 
 
 def is_mutating_text(text):
+    if batch_cancel_command(text):
+        return True
     if print_command(text):
         return True
+    short = short_command(text)
+    if short:
+        return short["action"] in {"print", "cancel"}
     simple = simple_command(text)
     if simple:
         return simple[0] in {"print", "cancel"}
