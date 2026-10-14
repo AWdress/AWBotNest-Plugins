@@ -76,8 +76,8 @@ def parse_action(value):
             value = value.decode("ascii")
         except UnicodeError:
             raise ValueError("这个按钮无效，请重新发送文件。") from None
-    match = re.fullmatch(r"rp:(print|cancel|status):([a-f0-9]{16})(?::([1-5]))?", str(value))
-    if not match or (match[1] == "print") != bool(match[3]):
+    match = re.fullmatch(r"rp:(print|duplex|batch_duplex|cancel|status):([a-f0-9]{16})(?::([1-5]))?", str(value))
+    if not match or (match[1] in {"print", "duplex", "batch_duplex"}) != bool(match[3]):
         raise ValueError("这个按钮无效，请重新发送文件。")
     return match[1], match[2], int(match[3]) if match[3] else None
 
@@ -88,6 +88,11 @@ def action_buttons(job, max_copies):
         actions.append({"text": "打印一份", "key": action_key("print", job["id"], 1)})
         if max_copies >= 2:
             actions.append({"text": "打印两份", "key": action_key("print", job["id"], 2)})
+        actions.append({"text": "双面打印", "key": action_key("duplex", job["id"], 1)})
+        if max_copies >= 2:
+            actions.append({"text": "双面两份", "key": action_key("duplex", job["id"], 2)})
+        if type(job.get("number_batch")) is int and job["number_batch"] > 0:
+            actions.append({"text": "本批双面打印", "key": action_key("batch_duplex", job["id"], 1)})
     if job["status"] in {"receiving", "pending", "queued", "leased"}:
         actions.append({"text": "取消打印", "key": action_key("cancel", job["id"])})
     actions.append({"text": "查看进度", "key": action_key("status", job["id"])})
@@ -100,9 +105,11 @@ def received_text(job):
     reference = file_reference(job)
     label = file_heading(job) + " · "
     return (f"文件已收到\n{label}{display_filename(job)} · 共 {job['pages']} 页\n\n"
-            "点“打印一份”就开始，不想打印可点“取消打印”。\n"
+            "只打这份：点“打印一份”或“双面打印”。\n"
+            "同批文件都收齐后，点“本批双面打印”；两张图片会正反面打印。\n"
+            "不想打印可点“取消打印”。\n"
             + f"也可回复“打印{reference}”“双面打印{reference}”或“取消{reference}”。\n"
-            + "多个文件收齐后：全部打印 / 全部双面打印。\n全部不要：全部取消。")
+            + "所有待处理文件：全部打印 / 全部双面打印。\n全部不要：全部取消。")
 
 
 def wecom_received_text(job, max_copies):
@@ -175,7 +182,7 @@ def bundle_description(job):
 
 def welcome_text():
     return ("把照片或 PDF 文件发给我。\n"
-            "收到提示后回复“打印”即可；Telegram 也可点“打印一份”。\n"
+            "收到提示后回复“打印”即可；Telegram 也可点“打印一份”或“双面打印”。\n"
             "不想打印回复“取消”，想看进度回复“进度”。\n"
             "多文件都收齐后回复“全部打印”；需要双面可回复“双面打印”或“全部双面打印”。\n"
             "全部不要可回复“全部取消”；已开始提交的任务不能保证远程取消。\n"
@@ -184,6 +191,7 @@ def welcome_text():
             "双面会自动识别横竖方向，按左右翻阅选择翻边；也可回复“长边双面打印”或“短边双面打印”手动指定。\n"
             "横竖混合的 PDF 请手动指定长边或短边；旧文件方向未知时请重新发送。不支持时明确提示，不改单面。\n"
             "两张图片都收到后回复“全部双面打印”：第1张正面、第2张背面；不同批次不混合。\n"
+            "Telegram 可点“本批双面打印”，只处理按钮所在批次的待打印文件，不会选中其他批次。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 
 

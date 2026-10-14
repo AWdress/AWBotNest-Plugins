@@ -263,9 +263,13 @@ class RemotePrint:
         actions = action_buttons(job, max_copies)
         primary = [Button.inline(item["text"], item["key"].encode("ascii"))
                    for item in actions if item["key"].startswith("rp:print:")]
+        duplex = [Button.inline(item["text"], item["key"].encode("ascii"))
+                  for item in actions if item["key"].startswith("rp:duplex:")]
+        batch = [Button.inline(item["text"], item["key"].encode("ascii"))
+                 for item in actions if item["key"].startswith("rp:batch_duplex:")]
         secondary = [Button.inline(item["text"], item["key"].encode("ascii"))
-                     for item in actions if not item["key"].startswith("rp:print:")]
-        return [row for row in (primary, secondary) if row]
+                     for item in actions if item["key"].startswith(("rp:cancel:", "rp:status:"))]
+        return [row for row in (primary, duplex, batch, secondary) if row]
 
     def wecom_owner_allowed(self, owner, source_channel):
         if (self.wecom_generation is not None
@@ -332,8 +336,20 @@ class RemotePrint:
         action, job_id, copies = parse_action(value)
         job = await self.queue.get_job(job_id, owner, source_channel=source_channel, permission_check=permission_check)
         try:
-            if action == "print" and job["status"] == "pending":
-                job = await self.queue.confirm(job_id, owner, copies, source_channel=source_channel, permission_check=permission_check)
+            if action in {"print", "duplex"} and job["status"] == "pending":
+                options = {}
+                if action == "duplex":
+                    options = {"sides": "two-sided-auto", "option_check": await self.automatic_option_check("two-sided-auto")}
+                job = await self.queue.confirm(job_id, owner, copies, source_channel=source_channel,
+                                               permission_check=permission_check, **options)
+                self.request_dispatch()
+                return job
+            if action == "batch_duplex" and job["status"] == "pending":
+                jobs = await self.confirm_all_printing(owner, source_channel, copies, "two-sided-auto",
+                                                       permission_check, batch_anchor=job_id)
+                job = next(item for item in jobs if item["id"] == job_id)
+                job["button_message"] = (f"第{job['number_batch']}批双面打印\n"
+                                         + self.confirmation_text(jobs, copies, "two-sided-auto"))
                 self.request_dispatch()
                 return job
             if action == "cancel" and job["status"] in {"receiving", "pending", "queued", "leased"}:
@@ -354,6 +370,7 @@ class RemotePrint:
         if not event.is_private or sender not in members(cfg["telegram_users"]) or not sender.isdecimal():
             await event.answer("你没有打印权限，请联系家人。", alert=True)
             return
+        selected = None
         try:
             selected = self.channels.telegram_bot_id()
             if event.client is not self.ctx.get_bot(selected):
@@ -363,17 +380,31 @@ class RemotePrint:
             permission_check = lambda: self.owner_allowed(owner, selected, client=event.client, binding=binding)
             job = await self.button_action(owner, selected, event.data, permission_check=permission_check)
         except ValueError as exc:
-            await event.answer(str(exc)[:160], alert=True)
+            try:
+                await event.answer(str(exc)[:160], alert=True)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Probe/render can outlive Telegram's callback-query window.
+                # A visible error must not require a second click to surface.
+                if selected is not None:
+                    await self.notify("telegram", "telegram:" + sender, str(exc), selected)
             return
-        await event.answer("已取消" if job["status"] == "cancelled" else "已确认" if job["status"] == "queued" else "状态已更新")
         try:
-            await event.edit(status_text(job), parse_mode=None, buttons=self.telegram_buttons(job, self.config()["max_copies"]))
+            await event.answer("已取消" if job["status"] == "cancelled" else "已确认" if job["status"] == "queued" else "状态已更新")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass  # Expired callback toast must not suppress the durable result.
+        text = job.get("button_message") or status_text(job)
+        try:
+            await event.edit(text, parse_mode=None, buttons=self.telegram_buttons(job, self.config()["max_copies"]))
         except asyncio.CancelledError:
             raise
         except Exception:
             # Editing an old Telegram message is cosmetic, never a reason to
             # roll back a durable confirmation or resubmit the file.
-            await self.notify("telegram", job["owner"], status_text(job), selected)
+            await self.notify("telegram", job["owner"], text, selected)
 
     async def telegram(self, event):
         cfg = self.config()
@@ -446,14 +477,18 @@ class RemotePrint:
             raise ValueError(result)
         return result
 
-    async def confirm_all_printing(self, owner, channel, copies, sides, permission_check):
+    async def confirm_all_printing(self, owner, channel, copies, sides, permission_check, *, batch_anchor=None):
         """Prepare images off-lock, then atomically confirm all selected files."""
         if sides not in {"two-sided-auto", "two-sided-long-edge", "two-sided-short-edge"}:
+            if batch_anchor is not None:
+                raise ValueError("本批打印按钮的双面设置无效，未确认任何文件。")
             return await self.queue.confirm_all(owner, channel, copies=copies, sides=sides,
                                                 permission_check=permission_check)
         plan = await self.queue.prepare_bundle(owner, channel, copies=copies, sides=sides,
-                                               permission_check=permission_check)
+                                                permission_check=permission_check, batch_anchor=batch_anchor)
         if plan is None:
+            if batch_anchor is not None:
+                raise ValueError("本批打印准备已失效，未确认任何文件。")
             return await self.queue.confirm_all(owner, channel, copies=copies, sides=sides,
                                                 permission_check=permission_check)
         try:

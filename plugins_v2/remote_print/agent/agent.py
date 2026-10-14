@@ -20,7 +20,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import warnings
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 FORMATS = ("pdf", "png", "jpg", "jpeg", "webp", "bmp")
 SIDES = ("default", "one-sided", "two-sided-long-edge", "two-sided-short-edge")
 ORIENTATIONS = ("portrait", "landscape")

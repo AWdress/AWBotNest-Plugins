@@ -662,9 +662,11 @@ class PrintQueue:
             return [self._copy_job(job) for job in pending]
 
     async def prepare_bundle(self, owner, source_channel, *, copies=None, printer=None, sides,
-                             permission_check=None):
+                             permission_check=None, batch_anchor=None):
         """Plan all pending files; bundle images only within each receive batch.
 
+        A pending anchor restricts selection to its original receive batch.
+        Already-handled anchors cannot target later arrivals or newer batches.
         Rendering is performed outside the queue lock into unique scratch paths.
         The opaque plan is in-memory only: no job is queued until commit_bundle
         atomically validates and binds every prepared PDF plus independent files.
@@ -679,6 +681,11 @@ class PrintQueue:
             self._validate_bundles(self.state)
             cfg = copy.deepcopy(self.config())
             jobs = self._owned_jobs(self.state, owner, source_channel)
+            if batch_anchor is not None:
+                anchor = self._find(self.state, batch_anchor, owner, source_channel=source_channel)
+                if anchor["status"] != "pending":
+                    raise ValueError("这个文件已处理，本批双面打印按钮不会重新打印或选择其他文件。")
+                jobs = [job for job in jobs if job["number_batch"] == anchor["number_batch"]]
             if any(job["status"] == "receiving" for job in jobs):
                 raise ValueError("文件还在接收，请等所有文件都提示已收到，再回复全部双面打印。")
             pending = sorted((job for job in jobs if job["status"] == "pending"),
@@ -721,7 +728,7 @@ class PrintQueue:
                                "sources": [{"id": job["id"], "path": self.file(job["id"]),
                                             **{key: job[key] for key in ("filename", "sha256", "format", "size")}}
                                            for job in images], "target_path": target_path})
-            if not groups and not auto:
+            if not groups and not auto and batch_anchor is None:
                 return None
             for group in groups:
                 if group["auto_sides"]:
