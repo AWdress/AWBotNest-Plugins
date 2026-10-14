@@ -20,7 +20,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import warnings
 
-VERSION = "0.0.17"
+VERSION = "0.0.18"
 FORMATS = ("pdf", "png", "jpg", "jpeg", "webp", "bmp")
 SIDES = ("default", "one-sided", "two-sided-long-edge", "two-sided-short-edge")
 MAX_FILE_BYTES = 25 * 1024 * 1024

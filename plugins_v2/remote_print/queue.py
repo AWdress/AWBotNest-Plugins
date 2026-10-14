@@ -14,12 +14,14 @@ import time
 from pathlib import Path
 
 from .chat import normalize_sides
+from .files import inspect_file
 
 
 ACTIVE = {"receiving", "pending", "queued", "leased", "started"}
 TERMINAL = {"submitted", "failed", "unknown", "cancelled", "archived"}
 MAX_NUMBER = 999_999_999
 NUMBER_BATCH_IDLE = 300
+IMAGE_FORMATS = {"jpg", "jpeg", "png", "webp", "bmp"}
 LABELS = {"receiving": "正在收文件", "pending": "等待确认", "queued": "等待打印",
           "leased": "正在准备打印", "started": "正在提交打印", "submitted": "已提交打印队列",
           "failed": "失败", "unknown": "结果待核查（不会自动重打）", "cancelled": "已取消", "archived": "已核查归档（未重打）"}
@@ -53,6 +55,7 @@ class PrintQueue:
         self.device = {}
         self.faulted = False
         self.process_lock = None
+        self.bundle_plans = {}
 
     async def open(self):
         await asyncio.to_thread(self.root.mkdir, parents=True, exist_ok=True)
@@ -64,6 +67,7 @@ class PrintQueue:
         async with self.lock:
             snapshot = copy.deepcopy(state)
             self._migrate_numbers(snapshot)
+            self._validate_bundles(snapshot)
             for job in snapshot["jobs"].values():
                 if job["status"] == "started":
                     job.update(status="unknown", message="平台重启，需核查打印机队列", updated=time.time())
@@ -74,6 +78,7 @@ class PrintQueue:
             await self._commit(snapshot)
         # 文件名由任务随机 ID 生成，仅清理本插件目录内的未关联文件。
         known = {self.file(job["id"]).name for job in self.state["jobs"].values() if job.get("file_present")}
+        known.update(self.bundle_file(job["id"]).name for job in self.state["jobs"].values() if job.get("bundle_file_present"))
         await asyncio.to_thread(self._remove_orphans, known)
         await self.cleanup()
 
@@ -185,19 +190,107 @@ class PrintQueue:
         scope = self._number_scope(job["owner"], job.get("source_channel", ""))
         session = self.state["number_sessions"].get(scope)
         result["current_number_batch"] = bool(session and session["batch"] == job.get("number_batch"))
+        leader = self.state["jobs"].get(job.get("bundle_leader", ""))
+        if leader:
+            for key in ("bundle_members", "bundle_image_count", "bundle_input_pages"):
+                result[key] = copy.deepcopy(leader[key])
+            result["bundle_pages"] = leader["bundle_metadata"]["pages"]
         return result
+
+    @classmethod
+    def _validate_bundles(cls, state):
+        for job in state["jobs"].values():
+            leader_id = job.get("bundle_leader")
+            if leader_id is None:
+                if any(key in job for key in ("bundle_members", "bundle_metadata", "bundle_file_present")):
+                    raise RuntimeError("合并打印队列数据损坏，未自动重打，请先备份并检查")
+                continue
+            leader = state["jobs"].get(leader_id) if isinstance(leader_id, str) else None
+            members = leader.get("bundle_members") if leader else None
+            metadata = leader.get("bundle_metadata") if leader else None
+            if (leader is None or leader.get("bundle_leader") != leader_id
+                    or not isinstance(members, list) or not 2 <= len(members) <= 100
+                    or any(not isinstance(value, str) for value in members)
+                    or len(set(members)) != len(members) or members[0] != leader_id or job["id"] not in members
+                    or not isinstance(metadata, dict) or metadata.get("format") != "pdf"
+                    or type(metadata.get("size")) is not int or metadata["size"] <= 0
+                    or type(metadata.get("pages")) is not int or metadata["pages"] <= 0
+                    or not isinstance(metadata.get("filename"), str)
+                    or not isinstance(metadata.get("sha256"), str) or not re.fullmatch(r"[a-f0-9]{64}", metadata["sha256"])
+                    or type(leader.get("bundle_file_present")) is not bool
+                    or type(leader.get("copies")) is not int or leader["copies"] < 1
+                    or leader.get("bundle_image_count") != len(members)
+                    or leader.get("bundle_input_pages") != len(members)
+                    or metadata["pages"] != (len(members) + len(members) % 2) * leader["copies"]
+                    or leader.get("sides") not in {"two-sided-long-edge", "two-sided-short-edge"}
+                    or (leader["status"] in ACTIVE and not leader["bundle_file_present"])):
+                raise RuntimeError("合并打印队列数据损坏，未自动重打，请先备份并检查")
+            if job["id"] != leader_id:
+                if any(key in job for key in ("bundle_members", "bundle_metadata", "bundle_file_present")):
+                    raise RuntimeError("合并打印成员数据损坏，未自动重打，请先备份并检查")
+                continue
+            scope = cls._number_scope(leader["owner"], leader.get("source_channel", ""))
+            previous_number = 0
+            for identity in members:
+                member = state["jobs"].get(identity)
+                if (member is None or member.get("bundle_leader") != leader_id
+                        or cls._number_scope(member["owner"], member.get("source_channel", "")) != scope
+                        or member.get("number_batch") != leader["number_batch"]
+                        or member.get("format") not in IMAGE_FORMATS or member.get("pages") != 1
+                        or member["number"] <= previous_number
+                        or any(member.get(key) != leader.get(key) for key in
+                               ("status", "copies", "printer", "sides", "backend", "device_id", "ipp_target"))):
+                    raise RuntimeError("合并打印成员数据损坏，未自动重打，请先备份并检查")
+                previous_number = member["number"]
+
+    @staticmethod
+    def _bundle_leader(state, job):
+        return state["jobs"][job["bundle_leader"]] if job.get("bundle_leader") else job
+
+    @classmethod
+    def _group_jobs(cls, state, job):
+        leader = cls._bundle_leader(state, job)
+        return [state["jobs"][identity] for identity in leader.get("bundle_members", [leader["id"]])]
+
+    @classmethod
+    def _group_update(cls, state, job, **changes):
+        leader = cls._bundle_leader(state, job)
+        for member in cls._group_jobs(state, leader):
+            member.update({key: value for key, value in changes.items() if key != "claim_token" or member is leader})
+
+    @classmethod
+    def _distinct_jobs(cls, state, jobs):
+        leaders = {}
+        for job in jobs:
+            leader = cls._bundle_leader(state, job)
+            leaders[leader["id"]] = leader
+        return list(leaders.values())
+
+    @staticmethod
+    def _accounted_size(state):
+        return sum(job.get("size", 0) for job in state["jobs"].values() if job.get("file_present")) + sum(
+            job["bundle_metadata"]["size"] for job in state["jobs"].values() if job.get("bundle_file_present"))
 
     def _remove_orphans(self, known):
         for path in self.root.iterdir():
             scratch = re.fullmatch(r"\.ipp-[a-z0-9_]{8}\.jpg", path.name)
-            orphan = re.fullmatch(r"[a-f0-9]{16}\.(?:bin|part|ipp\.jpg)", path.name) and path.name not in known
-            if path.is_file() and (scratch or orphan):
+            bundle_scratch = re.fullmatch(r"\.bundle-(?:[a-f0-9]{32}|[a-z0-9_]{8})\.pdf", path.name)
+            orphan = re.fullmatch(r"[a-f0-9]{16}\.(?:bin|part|ipp\.jpg|bundle\.pdf)", path.name) and path.name not in known
+            if path.is_file() and (scratch or bundle_scratch or orphan):
                 path.unlink(missing_ok=True)
 
     def file(self, job_id):
         if not re.fullmatch(r"[a-f0-9]{16}", str(job_id)):
             raise ValueError("任务 ID 无效")
         return self.root / f"{job_id}.bin"
+
+    def bundle_file(self, job_id):
+        return self.file(job_id).with_suffix(".bundle.pdf")
+
+    def print_file(self, job_id):
+        job = self._find(self.state, job_id)
+        leader = self._bundle_leader(self.state, job)
+        return self.bundle_file(leader["id"]) if leader.get("bundle_metadata") else self.file(leader["id"])
 
     def _check(self):
         if self.faulted:
@@ -360,7 +453,7 @@ class PrintQueue:
             if sum(job["status"] == "receiving" for job in snapshot["jobs"].values()) >= 4:
                 raise ValueError("正在收取其他文件，请稍后重发")
             active = sum(job["status"] in ACTIVE | {"unknown"} for job in snapshot["jobs"].values())
-            total = sum(job.get("size", 0) for job in snapshot["jobs"].values() if job.get("file_present"))
+            total = self._accounted_size(snapshot)
             disk_sizes = await asyncio.to_thread(self._disk_sizes)
             reserved_extra = sum(max(0, job.get("size", 0) - disk_sizes.get(f"{job['id']}.part", 0) - disk_sizes.get(f"{job['id']}.bin", 0))
                                  for job in snapshot["jobs"].values() if job["status"] == "receiving")
@@ -459,6 +552,8 @@ class PrintQueue:
             raise
 
     def _confirm(self, job, copies=None, printer=None, *, sides=None):
+        if job.get("bundle_leader"):
+            raise ValueError("该文件已合并为双面打印任务，不会单独重复打印")
         if job["status"] != "pending":
             raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
         cfg = self.config()
@@ -497,7 +592,7 @@ class PrintQueue:
             self._check()
             snapshot = copy.deepcopy(self.state)
             jobs = self._owned_jobs(snapshot, owner, source_channel)
-            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            candidates = self._distinct_jobs(snapshot, [job for job in jobs if job["status"] in ACTIVE | {"unknown"}])
             if len(candidates) > 1:
                 raise ValueError("有多个文件。一起打印请回复“全部打印”；只选一个请使用收件提示的文件号，例如“打印文件1”。")
             if not candidates:
@@ -529,11 +624,212 @@ class PrintQueue:
             await self._commit(snapshot)
             return [self._copy_job(job) for job in pending]
 
+    async def prepare_bundle(self, owner, source_channel, *, copies=None, printer=None, sides,
+                             permission_check=None):
+        """Plan all pending files; bundle images only within each receive batch.
+
+        Rendering is performed outside the queue lock into unique scratch paths.
+        The opaque plan is in-memory only: no job is queued until commit_bundle
+        atomically validates and binds every prepared PDF plus independent files.
+        """
+        mode = normalize_sides(sides)
+        if mode not in {"two-sided-long-edge", "two-sided-short-edge"}:
+            return None
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            self._validate_bundles(self.state)
+            cfg = copy.deepcopy(self.config())
+            jobs = self._owned_jobs(self.state, owner, source_channel)
+            if any(job["status"] == "receiving" for job in jobs):
+                raise ValueError("文件还在接收，请等所有文件都提示已收到，再回复全部双面打印。")
+            pending = sorted((job for job in jobs if job["status"] == "pending"),
+                             key=lambda job: (job["number_batch"], job["number"]))
+            if not pending:
+                raise ValueError("没有待确认的文件，已排队或已打印的文件不会重复打印。")
+            confirmed = {}
+            candidates = {}
+            batch_targets = {}
+            for job in pending:
+                proposed = copy.deepcopy(job)
+                self._confirm(proposed, copies, printer, sides=mode)
+                confirmed[job["id"]] = proposed
+                if job.get("format") in IMAGE_FORMATS and job.get("pages") == 1:
+                    # Original per-file choices remain authoritative unless the
+                    # command explicitly overrides them. Never mix copy counts
+                    # or printer destinations into one physical document.
+                    key = (job["number_batch"], proposed["copies"], proposed["printer"])
+                    candidates.setdefault(key, []).append(job)
+                    batch_targets.setdefault(job["number_batch"], []).append((proposed["copies"], proposed["printer"]))
+            if any(len(targets) >= 2 and len(set(targets)) > 1 for targets in batch_targets.values()):
+                raise ValueError("同一批图片的打印份数或打印机不同，未提交任何文件；请指定统一份数和打印机后再全部双面打印。")
+            groups = []
+            for images in candidates.values():
+                if len(images) < 2:
+                    continue
+                leader = images[0]
+                requested_copies = confirmed[leader["id"]]["copies"]
+                actual_pages = (len(images) + len(images) % 2) * requested_copies
+                if actual_pages > cfg["max_pages"]:
+                    raise ValueError("合并双面打印的总页数超过上限，请减少图片或打印份数。")
+                if any(not job.get("file_present") for job in images):
+                    raise ValueError("待打印图片已清理，请重新发送文件。")
+                target_path = self.root / f".bundle-{secrets.token_hex(16)}.pdf"
+                if target_path.exists():
+                    raise ValueError("合并文件标识冲突，请稍后再试。")
+                groups.append({"leader_id": leader["id"], "job_ids": [job["id"] for job in images],
+                               "number_batch": leader["number_batch"], "requested_copies": requested_copies,
+                               "sources": [{"id": job["id"], "path": self.file(job["id"]),
+                                            **{key: job[key] for key in ("filename", "sha256", "format", "size")}}
+                                           for job in images], "target_path": target_path})
+            if not groups:
+                return None
+            disk_sizes = await asyncio.to_thread(self._disk_sizes)
+            reserved_extra = sum(max(0, job.get("size", 0) - disk_sizes.get(f"{job['id']}.part", 0)
+                                     - disk_sizes.get(f"{job['id']}.bin", 0))
+                                 for job in self.state["jobs"].values() if job["status"] == "receiving")
+            used_storage = max(self._accounted_size(self.state), sum(disk_sizes.values()) + reserved_extra)
+            remaining_storage = int(cfg["max_storage_mb"] * 1024 * 1024) - used_storage
+            if remaining_storage <= 0:
+                raise ValueError("合并 PDF 没有可用存储空间，未提交任何文件，请先清理已结束任务。")
+            token = secrets.token_hex(32)
+            if token in self.bundle_plans:
+                raise ValueError("合并准备标识冲突，请稍后再试。")
+            grouped = {identity for group in groups for identity in group["job_ids"]}
+            plan = {"token": token, "job_ids": [job["id"] for job in pending], "groups": groups,
+                    "independent_ids": [job["id"] for job in pending if job["id"] not in grouped],
+                    "remaining_storage_bytes": remaining_storage}
+            self._permission(permission_check)
+            if self.config() != cfg:
+                raise ValueError("打印设置已更改，请重新确认打印。")
+            self.bundle_plans[token] = {"plan": copy.deepcopy(plan), "jobs": copy.deepcopy(pending),
+                                        "config": cfg, "copies": copies, "printer": printer, "sides": mode}
+            return copy.deepcopy(plan)
+
+    def _prepared_bundle(self, plan):
+        if not isinstance(plan, dict) or not isinstance(plan.get("token"), str):
+            raise ValueError("合并打印准备已失效，请重新确认打印。")
+        prepared = self.bundle_plans.get(plan["token"])
+        if prepared is None or prepared["plan"] != plan:
+            raise ValueError("合并打印准备已失效，请重新确认打印。")
+        return prepared
+
+    @staticmethod
+    async def _inspect_bundle_file(path, max_bytes, max_pages):
+        # A cancelled confirmation must finish its read before finally removing
+        # scratch files, particularly on Windows where an open PDF cannot be
+        # unlinked. The executor future itself is never cancelled by the caller.
+        future = asyncio.get_running_loop().run_in_executor(None, inspect_file, path,
+                                                            "合并双面打印.pdf", max_bytes, max_pages)
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            while not future.done():
+                try:
+                    await asyncio.shield(future)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if future.done() and not future.cancelled():
+                future.exception()
+            raise
+
+    async def commit_bundle(self, plan, metadatas, *, permission_check=None):
+        """Publish prepared PDFs and queue the full selection in one commit.
+
+        A storage failure can mean the commit succeeded. Published artifacts are
+        then retained and queue issuance is frozen, never deleted or retried.
+        """
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            prepared = self._prepared_bundle(plan)
+            if not isinstance(metadatas, list) or len(metadatas) != len(plan["groups"]):
+                raise ValueError("合并打印文件数量不符，未提交任何文件。")
+            if self.config() != prepared["config"]:
+                raise ValueError("打印设置已更改，未提交任何文件，请重新确认。")
+            snapshot = copy.deepcopy(self.state)
+            for original in prepared["jobs"]:
+                if snapshot["jobs"].get(original["id"]) != original:
+                    raise ValueError("待打印文件状态已更改，未提交任何文件，请重新确认。")
+            observed = []
+            for group, supplied in zip(plan["groups"], metadatas):
+                if not isinstance(supplied, dict):
+                    raise ValueError("合并 PDF 信息无效，未提交任何文件。")
+                actual = await self._inspect_bundle_file(group["target_path"],
+                                                        prepared["config"]["max_file_mb"] * 1024 * 1024,
+                                                        prepared["config"]["max_pages"])
+                expected_pages = (len(group["job_ids"]) + len(group["job_ids"]) % 2) * group["requested_copies"]
+                if (actual["format"] != "pdf" or actual["pages"] != expected_pages
+                        or any(type(supplied.get(key)) is not type(actual[key]) or supplied[key] != actual[key]
+                               for key in ("format", "pages", "size", "sha256"))):
+                    raise ValueError("合并 PDF 的页数、大小或校验值不符，未提交任何文件。")
+                observed.append(actual)
+            self._permission(permission_check)
+            if self.config() != prepared["config"]:
+                raise ValueError("打印设置已更改，未提交任何文件，请重新确认。")
+            for original in prepared["jobs"]:
+                self._confirm(snapshot["jobs"][original["id"]], prepared["copies"],
+                              prepared["printer"], sides=prepared["sides"])
+            disk_sizes = await asyncio.to_thread(self._disk_sizes)
+            reserved_extra = sum(max(0, job.get("size", 0) - disk_sizes.get(f"{job['id']}.part", 0)
+                                     - disk_sizes.get(f"{job['id']}.bin", 0))
+                                 for job in snapshot["jobs"].values() if job["status"] == "receiving")
+            total = max(self._accounted_size(snapshot) + sum(item["size"] for item in observed),
+                        sum(disk_sizes.values()) + reserved_extra)
+            if total > prepared["config"]["max_storage_mb"] * 1024 * 1024:
+                raise ValueError("合并 PDF 后的文件存储空间超过上限，未提交任何文件。")
+            self._permission(permission_check)
+            if self.config() != prepared["config"]:
+                raise ValueError("打印设置已更改，未提交任何文件，请重新确认。")
+            published = []
+            try:
+                for group, metadata in zip(plan["groups"], observed):
+                    destination = self.bundle_file(group["leader_id"])
+                    if destination.exists():
+                        raise ValueError("合并 PDF 存储位置已有文件，未覆盖或提交，请重载插件后检查。")
+                    # Same-instance queue/file names are owned under this lock.
+                    # Rename is synchronous so cancellation cannot leave a
+                    # background move racing cleanup or a later reservation.
+                    group["target_path"].rename(destination)
+                    published.append((destination, group["target_path"]))
+                    leader = snapshot["jobs"][group["leader_id"]]
+                    for identity in group["job_ids"]:
+                        snapshot["jobs"][identity]["bundle_leader"] = leader["id"]
+                    leader.update(bundle_members=list(group["job_ids"]), bundle_metadata=metadata,
+                                  bundle_file_present=True, bundle_input_pages=len(group["job_ids"]),
+                                  bundle_image_count=len(group["job_ids"]))
+                self._validate_bundles(snapshot)
+                await self._commit(snapshot)
+            except BaseException:
+                if not self.faulted:
+                    try:
+                        for destination, scratch in reversed(published):
+                            destination.rename(scratch)
+                    except BaseException:
+                        self.faulted = True
+                raise
+            return [self._copy_job(self.state["jobs"][identity]) for identity in plan["job_ids"]]
+
+    async def discard_bundle(self, plan):
+        """Remove only known unbound scratch files, never a published artifact."""
+        async with self.lock:
+            prepared = self._prepared_bundle(plan)
+            self.bundle_plans.pop(plan["token"], None)
+            for group in prepared["plan"]["groups"]:
+                await self._unlink(group["target_path"])
+
     @staticmethod
     def _cancel(job):
         if job["status"] not in {"receiving", "pending", "queued", "leased"}:
             raise ValueError("任务已开始或已结束，不能保证取消；请在打印机或系统打印队列中查看")
         job.update(status="cancelled", updated=time.time())
+
+    def _cancel_group(self, state, job):
+        leader = self._bundle_leader(state, job)
+        self._cancel(leader)
+        self._group_update(state, leader, status="cancelled", updated=leader["updated"])
 
     async def cancel(self, job_id, owner, *, source_channel=None, number_batch=None, permission_check=None):
         async with self.lock:
@@ -541,7 +837,7 @@ class PrintQueue:
             self._check()
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id, owner, source_channel=source_channel, number_batch=number_batch)
-            self._cancel(job)
+            self._cancel_group(snapshot, job)
             await self._commit(snapshot)
             return self._copy_job(job)
 
@@ -551,7 +847,7 @@ class PrintQueue:
             self._check()
             snapshot = copy.deepcopy(self.state)
             jobs = self._owned_jobs(snapshot, owner, source_channel)
-            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            candidates = self._distinct_jobs(snapshot, [job for job in jobs if job["status"] in ACTIVE | {"unknown"}])
             if len(candidates) > 1:
                 raise ValueError("有多个文件。全部不要请回复“全部取消”；只取消一个请使用收件提示的文件号，例如“取消文件1”。")
             if not candidates:
@@ -559,7 +855,7 @@ class PrintQueue:
             job = candidates[0]
             if job["status"] not in {"receiving", "pending", "queued", "leased"}:
                 return self._copy_job(job)
-            self._cancel(job)
+            self._cancel_group(snapshot, job)
             await self._commit(snapshot)
             return self._copy_job(job)
 
@@ -571,8 +867,8 @@ class PrintQueue:
             jobs = self._owned_jobs(snapshot, owner, source_channel)
             cancelled = [job for job in jobs if job["status"] in {"receiving", "pending", "queued", "leased"}]
             untouched = [job for job in jobs if job["status"] in {"started", "unknown"}]
-            for job in cancelled:
-                self._cancel(job)
+            for job in self._distinct_jobs(snapshot, cancelled):
+                self._cancel_group(snapshot, job)
             self._permission(permission_check)
             if cancelled:
                 await self._commit(snapshot)
@@ -583,7 +879,7 @@ class PrintQueue:
         async with self.lock:
             self._permission(permission_check)
             jobs = self._owned_jobs(self.state, owner, source_channel)
-            candidates = [job for job in jobs if job["status"] in ACTIVE | {"unknown"}]
+            candidates = self._distinct_jobs(self.state, [job for job in jobs if job["status"] in ACTIVE | {"unknown"}])
             if len(candidates) > 1:
                 raise ValueError("有多个文件，请回复“任务”查看文件号，再发送对应指令，例如“查看文件1”。")
             return self._copy_job(candidates[0] if candidates else self._latest_job(jobs))
@@ -596,7 +892,8 @@ class PrintQueue:
 
     def public(self, job):
         copy_job = self._copy_job(job)
-        result = {key: copy_job.get(key) for key in ("id", "number", "number_batch", "current_number_batch", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
+        result = {key: copy_job.get(key) for key in ("id", "number", "number_batch", "current_number_batch", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message",
+                                                  "bundle_leader", "bundle_members", "bundle_image_count", "bundle_input_pages", "bundle_pages")}
         result["backend"] = job.get("backend", "agent")
         result["sides"] = job.get("sides", "default")
         return result
@@ -619,6 +916,7 @@ class PrintQueue:
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
+            self._validate_bundles(snapshot)
             cfg, now = self.config(), time.time()
             if backend != cfg.get("print_mode", "agent"):
                 return {"ok": True, "job": None}
@@ -628,25 +926,35 @@ class PrintQueue:
             if any(job["status"] in {"leased", "started"} for job in snapshot["jobs"].values()):
                 return {"ok": True, "job": None}
             for job in snapshot["jobs"].values():
+                if job.get("bundle_leader") and job["bundle_leader"] != job["id"]:
+                    continue
                 if job["status"] != "queued" or not self.route_matches(job):
                     continue
                 if now - job["created"] > cfg["retention_hours"] * 3600:
                     continue  # Slow cleanup must not make expired files printable.
-                if backend == "agent" and job.get("format") not in self.device.get("formats", []):
+                printable = job.get("bundle_metadata", job)
+                if backend == "agent" and printable.get("format") not in self.device.get("formats", []):
                     continue
                 # Bind this grant to the requesting receiver, not another poll's
                 # shared inventory while this call was waiting for the lock.
                 capabilities = self.device.get("capabilities", []) if agent_capabilities is None else agent_capabilities
                 if backend == "agent" and job.get("sides", "default") != "default" and "sides-v1" not in capabilities:
-                    job.update(status="failed", updated=now,
-                               message="打印电脑端未支持指定单双面，未提交打印；请更新电脑端后重新发送文件。")
+                    self._group_update(snapshot, job, status="failed", updated=now,
+                                       message="打印电脑端未支持指定单双面，未提交打印；请更新电脑端后重新发送文件。")
                     await self._commit(snapshot)
                     return {"ok": True, "job": None, "rejected": self._copy_job(job)}
-                job.update(status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
+                self._group_update(snapshot, job, status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
                 await self._commit(snapshot)
-                result = {key: job[key] for key in ("id", "claim_token", "filename", "size", "sha256", "format", "printer", "copies")}
+                result = {key: job[key] for key in ("id", "claim_token", "printer", "copies")}
+                result.update((key, printable[key]) for key in ("filename", "size", "sha256", "format"))
+                if "pages" in printable:
+                    result["pages"] = printable["pages"]
                 result["max_pages"] = cfg["max_pages"]
                 result["sides"] = job.get("sides", "default")
+                if job.get("bundle_metadata"):
+                    result["requested_copies"] = job["copies"]
+                    result["copies"] = 1
+                    result["bundle_image_count"] = job["bundle_image_count"]
                 numbered = self._copy_job(job)
                 result.update((key, numbered[key]) for key in ("number", "number_batch", "current_number_batch"))
                 return {"ok": True, "job": result}
@@ -654,7 +962,8 @@ class PrintQueue:
 
     def _claim(self, snapshot, job_id, token, check_route=True):
         job = self._find(snapshot, job_id)
-        if ((check_route and not self.route_matches(job)) or not isinstance(token, str)
+        if ((job.get("bundle_leader") and job["bundle_leader"] != job["id"])
+                or (check_route and not self.route_matches(job)) or not isinstance(token, str)
                 or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", token)
                 or not hmac.compare_digest(str(job.get("claim_token", "")), token)):
             raise ValueError("任务领取凭据无效")
@@ -664,9 +973,10 @@ class PrintQueue:
         async with self.lock:
             self._check()
             job = self._claim(self.state, job_id, token)
-            if job["status"] != "leased" or time.time() > job.get("lease_until", 0) or not job.get("file_present"):
+            file_present = job.get("bundle_file_present") if job.get("bundle_metadata") else job.get("file_present")
+            if job["status"] != "leased" or time.time() > job.get("lease_until", 0) or not file_present:
                 raise ValueError("任务已过期或不在准备阶段")
-            return self.file(job_id)
+            return self.print_file(job_id)
 
     async def start(self, job_id, token):
         async with self.lock:
@@ -677,7 +987,11 @@ class PrintQueue:
                 return {"ok": True, "proceed": False}
             if time.time() - job["created"] > self.config()["retention_hours"] * 3600:
                 raise ValueError("打印任务已过期，未提交打印，请重新发送文件")
-            job.update(status="started", updated=time.time())
+            cfg = self.config()
+            if (type(job.get("copies")) is not int or not 1 <= job["copies"] <= cfg["max_copies"]
+                    or (job.get("bundle_metadata") and job["bundle_metadata"]["pages"] > cfg["max_pages"])):
+                raise ValueError("打印份数或总页数已超过当前限制，未提交打印，请重新发送文件。")
+            self._group_update(snapshot, job, status="started", updated=time.time())
             await self._commit(snapshot)
             return {"ok": True, "proceed": True}
 
@@ -701,7 +1015,7 @@ class PrintQueue:
                 raise ValueError("未获得提交许可，不能标记打印已提交")
             message = message or {"submitted": "已提交到打印队列；实际出纸请查看打印机", "failed": "未能完成打印提交，请查看日志",
                        "unknown": "提交结果不确定，请核查打印机队列；不会自动重打"}[status]
-            job.update(status=status, message=message, spool_id=str(spool_id)[:64], updated=time.time())
+            self._group_update(snapshot, job, status=status, message=message, spool_id=str(spool_id)[:64], updated=time.time())
             await self._commit(snapshot)
             return self._copy_job(job)
 
@@ -710,10 +1024,10 @@ class PrintQueue:
             self._check()
             snapshot = copy.deepcopy(self.state)
             count = 0
-            for job in snapshot["jobs"].values():
+            for job in self._distinct_jobs(snapshot, list(snapshot["jobs"].values())):
                 if job["status"] == "unknown":
-                    job.update(status="archived", message="管理员确认已核查并归档；未重新打印", updated=time.time())
-                    count += 1
+                    self._group_update(snapshot, job, status="archived", message="管理员确认已核查并归档；未重新打印", updated=time.time())
+                    count += len(self._group_jobs(snapshot, job))
             if count:
                 await self._commit(snapshot)
             return count
@@ -722,31 +1036,48 @@ class PrintQueue:
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
+            self._validate_bundles(snapshot)
             now, horizon = time.time(), self.config()["retention_hours"] * 3600
             paths, notifications = [], []
-            for job in snapshot["jobs"].values():
+            for job in self._distinct_jobs(snapshot, list(snapshot["jobs"].values())):
                 status = job["status"]
                 if status == "leased" and now > job.get("lease_until", 0):
-                    job.update(status="failed", message="打印准备超时，未自动重新打印；请检查后重发", updated=now)
+                    self._group_update(snapshot, job, status="failed", message="打印准备超时，未自动重新打印；请检查后重发", updated=now)
                     notifications.append(self._copy_job(job))
                 elif status == "started" and now - job["updated"] > 600:
-                    job.update(status="unknown", message="未收到打印结果，需核查打印队列", updated=now)
+                    self._group_update(snapshot, job, status="unknown", message="未收到打印结果，需核查打印队列", updated=now)
                     notifications.append(self._copy_job(job))
                 if job["status"] in {"pending", "queued"} and now - job["created"] > horizon:
-                    job.update(status="cancelled", message="未及时打印，任务已过期", updated=now)
+                    self._group_update(snapshot, job, status="cancelled", message="未及时打印，任务已过期", updated=now)
                     notifications.append(self._copy_job(job))
                 status = job["status"]
                 if status in {"pending", "queued"} and not self.route_matches(job):
-                    job.update(status="failed", message="打印方式或目标已更改，旧任务未转发；请重新发送", updated=now)
+                    self._group_update(snapshot, job, status="failed", message="打印方式或目标已更改，旧任务未转发；请重新发送", updated=now)
                     notifications.append(self._copy_job(job))
                 status = job["status"]
-                if job.get("file_present") and status in TERMINAL and (now - job["updated"] > horizon or (completed_only and status != "unknown")):
-                    paths.append(self.file(job["id"]))
-                    job["file_present"] = False
-            # 保留最近 200 个已结束记录；未知结果不自动遗忘。
-            terminals = sorted((j for j in snapshot["jobs"].values() if j["status"] in {"submitted", "failed", "cancelled", "archived"} and not j.get("file_present")), key=lambda j: j["updated"], reverse=True)
-            for job in terminals[200:]:
-                snapshot["jobs"].pop(job["id"], None)
+                if status in TERMINAL and (now - job["updated"] > horizon or (completed_only and status != "unknown")):
+                    for member in self._group_jobs(snapshot, job):
+                        if member.get("file_present"):
+                            paths.append(self.file(member["id"]))
+                            member["file_present"] = False
+                    if job.get("bundle_file_present"):
+                        paths.append(self.bundle_file(job["id"]))
+                        job["bundle_file_present"] = False
+            # Retain recent records by whole physical task. A group must never
+            # leave behind orphan members whose leader was dropped at row 200.
+            terminals = sorted((job for job in self._distinct_jobs(snapshot, list(snapshot["jobs"].values()))
+                                if job["status"] in {"submitted", "failed", "cancelled", "archived"}
+                                and not job.get("bundle_file_present")
+                                and all(not member.get("file_present") for member in self._group_jobs(snapshot, job))),
+                               key=lambda job: job["updated"], reverse=True)
+            retained = 0
+            for job in terminals:
+                members = self._group_jobs(snapshot, job)
+                if retained + len(members) <= 200:
+                    retained += len(members)
+                else:
+                    for member in members:
+                        snapshot["jobs"].pop(member["id"], None)
             snapshot["seen"] = {key: stamp for key, stamp in snapshot["seen"].items() if now - stamp < 86400}
             if snapshot != self.state:
                 await self._commit(snapshot)

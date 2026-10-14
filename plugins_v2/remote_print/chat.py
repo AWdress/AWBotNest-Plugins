@@ -135,7 +135,7 @@ def display_filename(job):
 def failure_reason(message):
     """Only controlled, bounded diagnostics belong in chat or operation logs."""
     reason = re.sub(r"[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]", "", str(message or "")).strip()
-    if (not reason.startswith(("IPP", "打印", "文件", "图片", "PDF", "转换", "请求份数", "未能", "未收到", "平台重启", "提交", "下载"))
+    if (not reason.startswith(("IPP", "打印", "文件", "图片", "PDF", "转换", "合并", "请求份数", "未能", "未收到", "平台重启", "提交", "下载"))
             or re.search(r"(?i)(?:https?://|ipps?://|[a-z]:[\\/]|\\\\[^\\\s]+\\|(?:^|[\s：:（(])/(?!\s|$)|token|secret|cookie|password|authorization|api[_-]?key)", reason)):
         return "暂无详细原因，请联系管理员检查插件日志。"
     return reason[:200]
@@ -155,7 +155,18 @@ def status_text(job):
         "archived": "已结束核查，不会重新打印。",
     }
     mode = SIDE_LABELS.get(job.get("sides", "default"), "未知")
-    return f"{file_heading(job)}：{display_filename(job)}\n打印方式：{mode}\n\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
+    bundle = bundle_description(job)
+    if bundle and job["status"] == "cancelled":
+        phrases["cancelled"] = "已取消整组合并任务，这些图片都不会继续提交打印。"
+    return f"{file_heading(job)}：{display_filename(job)}\n打印方式：{mode}\n" + (bundle + "\n" if bundle else "") + "\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
+
+
+def bundle_description(job):
+    count = job.get("bundle_image_count")
+    if not job.get("bundle_leader") or type(count) is not int or count < 2:
+        return ""
+    return (f"本批 {count} 张图片已合并，共用同一个双面任务。\n"
+            + ("第1张正面，第2张背面。" if count == 2 else "按发送顺序打印；每份奇数张的最后背面留白。"))
 
 
 def welcome_text():
@@ -167,6 +178,7 @@ def welcome_text():
             "只选文件1：打印文件1 / 取消文件1 / 查看文件1；打印文件1两份才是两份。\n"
             "5分钟没收到新文件，下次收件从文件1开始；上述短口令只选当前批，旧批回复“任务”查看对应口令。\n"
             "双面默认长边翻页，也可回复“短边双面打印”；不支持时明确提示，不改成单面。\n"
+            "两张图片都收到后回复“全部双面打印”：第1张正面、第2张背面；不同批次不混合。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 
 
