@@ -20,9 +20,10 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import warnings
 
-VERSION = "0.0.18"
+VERSION = "1.0.0"
 FORMATS = ("pdf", "png", "jpg", "jpeg", "webp", "bmp")
 SIDES = ("default", "one-sided", "two-sided-long-edge", "two-sided-short-edge")
+ORIENTATIONS = ("portrait", "landscape")
 MAX_FILE_BYTES = 25 * 1024 * 1024
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_PAGE_PIXELS = 25_000_000
@@ -430,10 +431,12 @@ class WindowsPrinter:
             raise PrintError("failed", message="打印机双面能力无法确认，未打印。请检查 Windows 打印驱动。")
         return capability == 1
 
-    def document_settings(self, printer, sides="default"):
+    def document_settings(self, printer, sides="default", orientation=None):
         """Use a private per-document DEVMODE copy; never call SetPrinter."""
         if not isinstance(sides, str) or sides not in SIDES:
             raise PrintError("failed", message="打印方式无效，未打印。请选择单面或双面打印。")
+        if orientation is not None and (not isinstance(orientation, str) or orientation not in ORIENTATIONS):
+            raise PrintError("failed", message="打印方向无效，未打印。请选择纵向或横向打印。")
         handle = wintypes.HANDLE()
         if not self.spool.OpenPrinterW(printer, ctypes.byref(handle), None):
             raise PrintError("failed")
@@ -452,6 +455,10 @@ class WindowsPrinter:
                 raise PrintError("failed", message="打印机或当前驱动不支持自动双面，未打印。请改用单面打印。")
             mode.dmFields |= 0x100  # DM_COPIES
             mode.dmCopies = 1  # Copies are implemented by our complete-document loop.
+            direction = {"portrait": 1, "landscape": 2}.get(orientation)
+            if direction is not None:
+                mode.dmFields |= 0x1  # DM_ORIENTATION, private document setting only.
+                mode.dmOrientation = direction
             duplex = {"one-sided": 1, "two-sided-long-edge": 2, "two-sided-short-edge": 3}.get(sides)
             if duplex is not None:
                 mode.dmFields |= 0x1000  # DM_DUPLEX
@@ -462,6 +469,8 @@ class WindowsPrinter:
                 raise PrintError("failed")
             if duplex is not None and (not mode.dmFields & 0x1000 or mode.dmDuplex != duplex):
                 raise PrintError("failed", message="打印驱动未接受指定的单双面设置，未打印。请检查 Windows 驱动设置。")
+            if direction is not None and (not mode.dmFields & 0x1 or mode.dmOrientation != direction):
+                raise PrintError("failed", message="打印驱动未接受指定的打印方向，未打印。请检查 Windows 驱动设置。")
             return buffer
         except PrintError:
             raise
@@ -470,10 +479,15 @@ class WindowsPrinter:
         finally:
             self.spool.ClosePrinter(handle)
 
-    def print_pages(self, printer, pages, copies, job_id, stopped, sides="default"):
+    def print_pages(self, printer, pages, copies, job_id, stopped, sides="default", orientation=None):
         """Only rasterized pixels reach GDI. Printer defaults are never changed."""
         from PIL import Image
-        settings = self.document_settings(printer) if sides == "default" else self.document_settings(printer, sides)
+        if orientation is not None:
+            settings = self.document_settings(printer, sides, orientation)
+        elif sides == "default":
+            settings = self.document_settings(printer)
+        else:
+            settings = self.document_settings(printer, sides)
         hdc = self.gdi.CreateDCW("WINSPOOL", printer, None, settings)
         if not hdc:
             raise PrintError("failed")
@@ -565,7 +579,7 @@ def advertised(config, backend):
     elif default not in available:
         default = available[0]
     return {"printers": available, "default_printer": default,
-            "formats": list(FORMATS), "version": VERSION, "capabilities": ["sides-v1"]}
+            "formats": list(FORMATS), "version": VERSION, "capabilities": ["sides-v1", "orientation-v1"]}
 
 
 def validate_job(value, inventory):
@@ -593,6 +607,8 @@ def validate_job(value, inventory):
     if not isinstance(sides, str) or sides not in SIDES:
         raise AgentError("打印方式无效，未打印。请选择单面或双面打印。")
     job["sides"] = sides
+    if "orientation" in job and (not isinstance(job["orientation"], str) or job["orientation"] not in ORIENTATIONS):
+        raise AgentError("打印方向无效，未打印。请选择纵向或横向打印。")
     return job
 
 
@@ -732,6 +748,8 @@ class Receiver:
                     return
                 try:
                     options = {} if job["sides"] == "default" else {"sides": job["sides"]}
+                    if "orientation" in job:
+                        options["orientation"] = job["orientation"]
                     spool_id = self.backend.print_pages(
                         job["printer"], pages, job["copies"], job_id, lambda: self.stop_requested, **options)
                 except PrintError as error:

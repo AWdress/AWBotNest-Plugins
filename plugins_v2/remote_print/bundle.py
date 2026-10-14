@@ -31,11 +31,15 @@ _PAPERS = {
 _MARGIN = 5 * 72 / 25.4
 
 
-def validate_bundle_paper(path: Path, media: str) -> None:
+def validate_bundle_paper(path: Path, media: str, orientation: str = "portrait") -> None:
     """Reject paper changes before submission; never rewrite or rescale output."""
     if not isinstance(media, str) or media not in _PAPERS:
         raise ValueError("合并打印需要打印机明确声明 A4 或 Letter 默认纸张，未提交任务")
+    if not isinstance(orientation, str) or orientation not in ("portrait", "landscape"):
+        raise ValueError("合并打印的页面方向无效，未提交任务")
     paper = _PAPERS[media]
+    if orientation == "landscape":
+        paper = paper[::-1]
     try:
         path = Path(path)
         if not 0 < path.stat().st_size <= MAX_BYTES:
@@ -58,12 +62,13 @@ def validate_bundle_paper(path: Path, media: str) -> None:
         raise ValueError("合并打印 PDF 纸张校验失败，未提交任务") from None
 
 
-def _arguments(sources, max_bytes, max_pages, media, dpi, copies, duplex):
+def _arguments(sources, max_bytes, max_pages, media, orientation, dpi, copies, duplex):
     if (not isinstance(sources, list) or not sources
             or type(max_bytes) is not int or not 1 <= max_bytes <= MAX_BYTES
             or type(max_pages) is not int or not 1 <= max_pages <= MAX_PAGES
             or type(dpi) is not int or dpi not in (150, 300)
             or type(copies) is not int or not 1 <= copies <= 5
+            or not isinstance(orientation, str) or orientation not in ("portrait", "landscape")
             or type(duplex) is not bool):
         raise ValueError("合并打印参数无效，请检查文件、页数、大小和份数限制")
     pages_per_copy = len(sources) + (len(sources) % 2 if duplex else 0)
@@ -73,7 +78,8 @@ def _arguments(sources, max_bytes, max_pages, media, dpi, copies, duplex):
         media = "iso_a4_210x297mm"
     if not isinstance(media, str) or media not in _PAPERS:
         raise ValueError("图片合并目前支持 A4 或 Letter 纸张，请检查打印机默认纸张")
-    return _PAPERS[media], pages_per_copy
+    paper = _PAPERS[media]
+    return (paper[::-1] if orientation == "landscape" else paper), pages_per_copy
 
 
 def _sources(sources, destination, max_bytes):
@@ -145,16 +151,19 @@ def _image_page(content, format, paper, dpi):
 
 
 def build_image_bundle(sources: list[dict], destination: Path, max_bytes: int, max_pages: int,
-                       media: str | None = None, *, dpi: int = 150, copies: int = 1,
+                       media: str | None = None, *, orientation: str = "portrait",
+                       dpi: int = 150, copies: int = 1,
                        duplex: bool = True) -> dict:
     """Make complete, ordered paper-size pages, including copy-boundary blanks.
 
     Sources require id/path/filename/sha256/format/size. One image becomes one
     page; an odd duplex copy gets one trailing blank. Complete copies are then
     repeated in the PDF, allowing exactly one backend job with device copies=1.
+    Every page uses the selected paper orientation; source images remain
+    upright after EXIF correction and fit fully without cropping.
     The returned metadata uses inspect_file's actual output page count/hash.
     """
-    paper, pages_per_copy = _arguments(sources, max_bytes, max_pages, media, dpi, copies, duplex)
+    paper, pages_per_copy = _arguments(sources, max_bytes, max_pages, media, orientation, dpi, copies, duplex)
     temporary = None
     writer = master = None
     try:
@@ -200,7 +209,8 @@ def build_image_bundle(sources: list[dict], destination: Path, max_bytes: int, m
             handle.flush()
             os.fsync(handle.fileno())
         metadata = inspect_file(temporary, destination.name, max_bytes, max_pages)
-        if metadata["format"] != "pdf" or metadata["pages"] != pages_per_copy * copies:
+        if (metadata["format"] != "pdf" or metadata["pages"] != pages_per_copy * copies
+                or metadata["orientation"] != orientation or metadata["orientation_mixed"]):
             raise ValueError("合并 PDF 最终校验失败，未提交打印")
         # The queue exclusively owns this opaque destination. Check again after
         # preparation so existing outputs or source files are never replaced.

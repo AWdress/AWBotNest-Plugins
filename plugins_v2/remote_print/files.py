@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import warnings
 from pathlib import Path
@@ -16,6 +17,24 @@ FORMATS = {"pdf", "png", "jpg", "jpeg", "webp", "bmp"}
 def safe_name(name: str) -> str:
     name = re.split(r"[/\\]", str(name))[-1]
     return re.sub(r"[\x00-\x1f\x7f]", "", name).strip()[:160] or "document"
+
+
+def _pdf_orientation(page) -> str:
+    # CropBox describes the visible page. /Rotate changes its displayed
+    # orientation without changing those stored dimensions.
+    box = tuple(float(value) for value in page.cropbox)
+    rotation = page.rotation
+    if (not all(math.isfinite(value) for value in box)
+            or box[2] <= box[0] or box[3] <= box[1]
+            or not isinstance(rotation, int) or isinstance(rotation, bool)
+            or rotation % 90):
+        raise ValueError("PDF 页面尺寸或方向无效，请重新导出")
+    width, height = box[2] - box[0], box[3] - box[1]
+    if not math.isfinite(width) or not math.isfinite(height):
+        raise ValueError("PDF 页面尺寸或方向无效，请重新导出")
+    if rotation % 180:
+        width, height = height, width
+    return "landscape" if width > height else "portrait"
 
 
 def inspect_file(path: Path, name: str, max_bytes: int, max_pages: int) -> dict:
@@ -33,6 +52,9 @@ def inspect_file(path: Path, name: str, max_bytes: int, max_pages: int) -> dict:
                 pages = len(reader.pages)
                 if not 1 <= pages <= max_pages:
                     raise ValueError("PDF 页数超过上限或没有页面")
+                directions = [_pdf_orientation(page) for page in reader.pages]
+                orientation = directions[0]
+                orientation_mixed = any(value != orientation for value in directions[1:])
         except ValueError:
             raise
         except Exception:
@@ -50,6 +72,13 @@ def inspect_file(path: Path, name: str, max_bytes: int, max_pages: int) -> dict:
                         raise ValueError("图片分辨率过大，请缩小后重试")
                     # JPEG verify() alone does not decode truncated pixel data.
                     image.load()
+                    width, height = image.size
+                    # Match ImageOps.exif_transpose without allocating another
+                    # full-resolution raster merely to inspect its direction.
+                    if image.getexif().get(274) in (5, 6, 7, 8):
+                        width, height = height, width
+                    orientation = "landscape" if width > height else "portrait"
+                    orientation_mixed = False
             pages = 1
         except ValueError:
             raise
@@ -63,4 +92,6 @@ def inspect_file(path: Path, name: str, max_bytes: int, max_pages: int) -> dict:
     extension = Path(filename).suffix.lower().lstrip(".")
     if extension != kind and not (kind == "jpg" and extension == "jpeg"):
         filename = f"{Path(filename).stem}.{kind}"
-    return {"filename": filename, "format": kind, "pages": pages, "size": size, "sha256": digest.hexdigest()}
+    return {"filename": filename, "format": kind, "pages": pages, "size": size,
+            "sha256": digest.hexdigest(), "orientation": orientation,
+            "orientation_mixed": orientation_mixed}

@@ -22,6 +22,7 @@ TERMINAL = {"submitted", "failed", "unknown", "cancelled", "archived"}
 MAX_NUMBER = 999_999_999
 NUMBER_BATCH_IDLE = 300
 IMAGE_FORMATS = {"jpg", "jpeg", "png", "webp", "bmp"}
+ORIENTATION_SIDES = {"portrait": "two-sided-long-edge", "landscape": "two-sided-short-edge"}
 LABELS = {"receiving": "正在收文件", "pending": "等待确认", "queued": "等待打印",
           "leased": "正在准备打印", "started": "正在提交打印", "submitted": "已提交打印队列",
           "failed": "失败", "unknown": "结果待核查（不会自动重打）", "cancelled": "已取消", "archived": "已核查归档（未重打）"}
@@ -225,6 +226,11 @@ class PrintQueue:
                     or leader.get("sides") not in {"two-sided-long-edge", "two-sided-short-edge"}
                     or (leader["status"] in ACTIVE and not leader["bundle_file_present"])):
                 raise RuntimeError("合并打印队列数据损坏，未自动重打，请先备份并检查")
+            if leader.get("auto_sides") is True:
+                orientation = leader.get("print_orientation")
+                if (orientation not in ORIENTATION_SIDES or leader["sides"] != ORIENTATION_SIDES[orientation]
+                        or metadata.get("orientation") != orientation or metadata.get("orientation_mixed") is not False):
+                    raise RuntimeError("合并打印方向数据损坏，未自动重打，请先备份并检查")
             if job["id"] != leader_id:
                 if any(key in job for key in ("bundle_members", "bundle_metadata", "bundle_file_present")):
                     raise RuntimeError("合并打印成员数据损坏，未自动重打，请先备份并检查")
@@ -239,7 +245,7 @@ class PrintQueue:
                         or member.get("format") not in IMAGE_FORMATS or member.get("pages") != 1
                         or member["number"] <= previous_number
                         or any(member.get(key) != leader.get(key) for key in
-                               ("status", "copies", "printer", "sides", "backend", "device_id", "ipp_target"))):
+                               ("status", "copies", "printer", "sides", "backend", "device_id", "ipp_target", "auto_sides", "print_orientation"))):
                     raise RuntimeError("合并打印成员数据损坏，未自动重打，请先备份并检查")
                 previous_number = member["number"]
 
@@ -376,6 +382,20 @@ class PrintQueue:
             raise ValueError("打印权限检查必须同步执行")
         if result is False:
             raise ValueError("打印权限或消息渠道已更改，请重新发送文件。")
+
+    @staticmethod
+    def _option_check(job, callback):
+        if callback is None:
+            return
+        if not callable(callback):
+            raise ValueError("打印选项检查无效")
+        result = callback(copy.deepcopy(job))
+        if inspect.isawaitable(result):
+            if hasattr(result, "close"):
+                result.close()
+            raise ValueError("打印选项检查必须同步执行")
+        if result is False:
+            raise ValueError("打印机不支持所选翻边或方向，未提交任何文件。")
 
     async def get_job(self, job_id, owner, *, source_channel, number_batch=None, permission_check=None):
         async with self.lock:
@@ -572,21 +592,36 @@ class PrintQueue:
         if job.get("backend", "agent") == "agent" and target and self.device and target not in self.device.get("printers", []):
             raise ValueError("该打印机不在电脑端允许列表内，请先发送 /printers 查看")
         mode = normalize_sides(job.get("sides", "default") if sides is None else sides)
+        auto = mode == "two-sided-auto"
+        if auto:
+            orientation = job.get("orientation")
+            mixed = job.get("orientation_mixed", False)
+            if job.get("format") == "pdf" and mixed is True:
+                raise ValueError("PDF 含横竖混合页面，请使用长边双面打印或短边双面打印手动指定翻边。")
+            if orientation not in ORIENTATION_SIDES or type(mixed) is not bool:
+                raise ValueError("文件方向信息缺失或无效，请重新发送文件后再使用自动双面打印。")
+            mode = ORIENTATION_SIDES[orientation]
+            if job.get("backend", "agent") == "agent" and "orientation-v1" not in self.device.get("capabilities", []):
+                raise ValueError("打印电脑端尚未支持自动横竖方向，请先更新电脑端；也可手动指定长边或短边双面打印。")
+            job["print_orientation"] = orientation
+        else:
+            job.pop("print_orientation", None)
         if job.get("backend", "agent") == "agent" and mode != "default" and "sides-v1" not in self.device.get("capabilities", []):
             raise ValueError("打印电脑端尚未支持指定单双面，请先更新并连接 0.0.15 或更新版本的电脑端。")
-        job.update(status="queued", copies=value, printer=target, sides=mode, updated=time.time())
+        job.update(status="queued", copies=value, printer=target, sides=mode, auto_sides=auto, updated=time.time())
 
-    async def confirm(self, job_id, owner, copies=None, printer=None, *, sides=None, source_channel=None, number_batch=None, permission_check=None):
+    async def confirm(self, job_id, owner, copies=None, printer=None, *, sides=None, source_channel=None, number_batch=None, permission_check=None, option_check=None):
         async with self.lock:
             self._permission(permission_check)
             self._check()
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id, owner, source_channel=source_channel, number_batch=number_batch)
             self._confirm(job, copies, printer, sides=sides)
+            self._option_check(job, option_check)
             await self._commit(snapshot)
             return self._copy_job(job)
 
-    async def confirm_single(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None):
+    async def confirm_single(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None, option_check=None):
         async with self.lock:
             self._permission(permission_check)
             self._check()
@@ -603,10 +638,11 @@ class PrintQueue:
             if job["status"] != "pending":
                 return self._copy_job(job)
             self._confirm(job, copies, printer, sides=sides)
+            self._option_check(job, option_check)
             await self._commit(snapshot)
             return self._copy_job(job)
 
-    async def confirm_all(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None):
+    async def confirm_all(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None, option_check=None):
         async with self.lock:
             self._permission(permission_check)
             self._check()
@@ -620,6 +656,7 @@ class PrintQueue:
                 raise ValueError("没有待确认的文件，已排队或已打印的文件不会重复打印。")
             for job in pending:
                 self._confirm(job, copies, printer, sides=sides)
+                self._option_check(job, option_check)
             self._permission(permission_check)
             await self._commit(snapshot)
             return [self._copy_job(job) for job in pending]
@@ -633,7 +670,8 @@ class PrintQueue:
         atomically validates and binds every prepared PDF plus independent files.
         """
         mode = normalize_sides(sides)
-        if mode not in {"two-sided-long-edge", "two-sided-short-edge"}:
+        auto = mode == "two-sided-auto"
+        if mode not in {"two-sided-auto", "two-sided-long-edge", "two-sided-short-edge"}:
             return None
         async with self.lock:
             self._permission(permission_check)
@@ -679,18 +717,24 @@ class PrintQueue:
                     raise ValueError("合并文件标识冲突，请稍后再试。")
                 groups.append({"leader_id": leader["id"], "job_ids": [job["id"] for job in images],
                                "number_batch": leader["number_batch"], "requested_copies": requested_copies,
+                               "orientation": confirmed[leader["id"]].get("print_orientation", "portrait"), "auto_sides": auto,
                                "sources": [{"id": job["id"], "path": self.file(job["id"]),
                                             **{key: job[key] for key in ("filename", "sha256", "format", "size")}}
                                            for job in images], "target_path": target_path})
-            if not groups:
+            if not groups and not auto:
                 return None
+            for group in groups:
+                if group["auto_sides"]:
+                    for identity in group["job_ids"]:
+                        confirmed[identity].update(sides=ORIENTATION_SIDES[group["orientation"]],
+                                                   print_orientation=group["orientation"])
             disk_sizes = await asyncio.to_thread(self._disk_sizes)
             reserved_extra = sum(max(0, job.get("size", 0) - disk_sizes.get(f"{job['id']}.part", 0)
                                      - disk_sizes.get(f"{job['id']}.bin", 0))
                                  for job in self.state["jobs"].values() if job["status"] == "receiving")
             used_storage = max(self._accounted_size(self.state), sum(disk_sizes.values()) + reserved_extra)
             remaining_storage = int(cfg["max_storage_mb"] * 1024 * 1024) - used_storage
-            if remaining_storage <= 0:
+            if groups and remaining_storage <= 0:
                 raise ValueError("合并 PDF 没有可用存储空间，未提交任何文件，请先清理已结束任务。")
             token = secrets.token_hex(32)
             if token in self.bundle_plans:
@@ -698,7 +742,10 @@ class PrintQueue:
             grouped = {identity for group in groups for identity in group["job_ids"]}
             plan = {"token": token, "job_ids": [job["id"] for job in pending], "groups": groups,
                     "independent_ids": [job["id"] for job in pending if job["id"] not in grouped],
-                    "remaining_storage_bytes": remaining_storage}
+                    "remaining_storage_bytes": max(0, remaining_storage),
+                    "resolved_options": {identity: {"sides": job["sides"],
+                                                    **({"orientation": job["print_orientation"]} if job.get("auto_sides") else {})}
+                                         for identity, job in confirmed.items()}}
             self._permission(permission_check)
             if self.config() != cfg:
                 raise ValueError("打印设置已更改，请重新确认打印。")
@@ -735,7 +782,7 @@ class PrintQueue:
                 future.exception()
             raise
 
-    async def commit_bundle(self, plan, metadatas, *, permission_check=None):
+    async def commit_bundle(self, plan, metadatas, *, permission_check=None, option_check=None):
         """Publish prepared PDFs and queue the full selection in one commit.
 
         A storage failure can mean the commit succeeded. Published artifacts are
@@ -762,8 +809,9 @@ class PrintQueue:
                                                         prepared["config"]["max_pages"])
                 expected_pages = (len(group["job_ids"]) + len(group["job_ids"]) % 2) * group["requested_copies"]
                 if (actual["format"] != "pdf" or actual["pages"] != expected_pages
+                        or actual.get("orientation") != group["orientation"] or actual.get("orientation_mixed") is not False
                         or any(type(supplied.get(key)) is not type(actual[key]) or supplied[key] != actual[key]
-                               for key in ("format", "pages", "size", "sha256"))):
+                               for key in ("format", "pages", "size", "sha256", "orientation", "orientation_mixed"))):
                     raise ValueError("合并 PDF 的页数、大小或校验值不符，未提交任何文件。")
                 observed.append(actual)
             self._permission(permission_check)
@@ -772,6 +820,11 @@ class PrintQueue:
             for original in prepared["jobs"]:
                 self._confirm(snapshot["jobs"][original["id"]], prepared["copies"],
                               prepared["printer"], sides=prepared["sides"])
+            for group in plan["groups"]:
+                if group["auto_sides"]:
+                    for identity in group["job_ids"]:
+                        snapshot["jobs"][identity].update(sides=ORIENTATION_SIDES[group["orientation"]],
+                                                         print_orientation=group["orientation"])
             disk_sizes = await asyncio.to_thread(self._disk_sizes)
             reserved_extra = sum(max(0, job.get("size", 0) - disk_sizes.get(f"{job['id']}.part", 0)
                                      - disk_sizes.get(f"{job['id']}.bin", 0))
@@ -783,6 +836,8 @@ class PrintQueue:
             self._permission(permission_check)
             if self.config() != prepared["config"]:
                 raise ValueError("打印设置已更改，未提交任何文件，请重新确认。")
+            for identity in plan["job_ids"]:
+                self._option_check(snapshot["jobs"][identity], option_check)
             published = []
             try:
                 for group, metadata in zip(plan["groups"], observed):
@@ -892,7 +947,7 @@ class PrintQueue:
 
     def public(self, job):
         copy_job = self._copy_job(job)
-        result = {key: copy_job.get(key) for key in ("id", "number", "number_batch", "current_number_batch", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message",
+        result = {key: copy_job.get(key) for key in ("id", "number", "number_batch", "current_number_batch", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message", "auto_sides", "print_orientation",
                                                   "bundle_leader", "bundle_members", "bundle_image_count", "bundle_input_pages", "bundle_pages")}
         result["backend"] = job.get("backend", "agent")
         result["sides"] = job.get("sides", "default")
@@ -909,7 +964,7 @@ class PrintQueue:
         printers = [value for value in printers if isinstance(value, str) and 0 < len(value) <= 200 and not any(ord(c) < 32 for c in value)]
         self.device = {"printers": list(dict.fromkeys(printers)), "formats": [f for f in formats if isinstance(f, str) and f in {"pdf", "png", "jpg", "jpeg", "webp", "bmp"}],
                        "default_printer": str(payload.get("default_printer", ""))[:200], "last_seen": time.time(),
-                       "capabilities": [value for value in capabilities if value == "sides-v1"]}
+                       "capabilities": [value for value in capabilities if value in {"sides-v1", "orientation-v1"}]}
         return {"ok": True}
 
     async def poll(self, backend="agent", *, agent_capabilities=None):
@@ -933,14 +988,23 @@ class PrintQueue:
                 if now - job["created"] > cfg["retention_hours"] * 3600:
                     continue  # Slow cleanup must not make expired files printable.
                 printable = job.get("bundle_metadata", job)
+                orientation = job.get("print_orientation")
+                if (job.get("sides") == "two-sided-auto"
+                        or (job.get("auto_sides") is True
+                            and (orientation not in ORIENTATION_SIDES or job.get("sides") != ORIENTATION_SIDES[orientation]))):
+                    self._group_update(snapshot, job, status="failed", updated=now,
+                                       message="打印任务自动方向信息无效，未提交打印；请重新发送文件。")
+                    await self._commit(snapshot)
+                    return {"ok": True, "job": None, "rejected": self._copy_job(job)}
                 if backend == "agent" and printable.get("format") not in self.device.get("formats", []):
                     continue
                 # Bind this grant to the requesting receiver, not another poll's
                 # shared inventory while this call was waiting for the lock.
                 capabilities = self.device.get("capabilities", []) if agent_capabilities is None else agent_capabilities
-                if backend == "agent" and job.get("sides", "default") != "default" and "sides-v1" not in capabilities:
+                if backend == "agent" and ((job.get("sides", "default") != "default" and "sides-v1" not in capabilities)
+                                          or (job.get("auto_sides") is True and "orientation-v1" not in capabilities)):
                     self._group_update(snapshot, job, status="failed", updated=now,
-                                       message="打印电脑端未支持指定单双面，未提交打印；请更新电脑端后重新发送文件。")
+                                       message="打印电脑端未支持所选单双面或自动方向，未提交打印；请更新电脑端后重新发送文件。")
                     await self._commit(snapshot)
                     return {"ok": True, "job": None, "rejected": self._copy_job(job)}
                 self._group_update(snapshot, job, status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
@@ -951,6 +1015,8 @@ class PrintQueue:
                     result["pages"] = printable["pages"]
                 result["max_pages"] = cfg["max_pages"]
                 result["sides"] = job.get("sides", "default")
+                if job.get("auto_sides") is True:
+                    result["orientation"] = job["print_orientation"]
                 if job.get("bundle_metadata"):
                     result["requested_copies"] = job["copies"]
                     result["copies"] = 1

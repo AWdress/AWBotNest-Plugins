@@ -5,6 +5,7 @@ import re
 
 
 SIDE_LABELS = {"default": "打印机默认", "one-sided": "单面",
+               "two-sided-auto": "双面（自动识别横竖方向）",
                "two-sided-long-edge": "双面（长边翻页）", "two-sided-short-edge": "双面（短边翻页）"}
 
 
@@ -21,7 +22,7 @@ def print_command(text):
     match = re.fullmatch(r"(全部|所有)?(单面|长边双面|短边双面|双面)?打印(一份|1份|两份|二份|2份)?", value)
     if not match:
         return None
-    sides = {None: "default", "单面": "one-sided", "双面": "two-sided-long-edge",
+    sides = {None: "default", "单面": "one-sided", "双面": "two-sided-auto",
              "长边双面": "two-sided-long-edge", "短边双面": "two-sided-short-edge"}[match[2]]
     return {"all": bool(match[1]), "copies": 2 if match[3] in {"两份", "二份", "2份"} else 1, "sides": sides}
 
@@ -36,7 +37,7 @@ def short_command(text):
     action = {"取消": "cancel", "查看": "status", "进度": "status"}.get(match[1], "print")
     copies = (int(match[4]) if match[4] else 2 if match[5] in {"两份", "二份"} else 1) if action == "print" else None
     sides = {"单面打印": "one-sided", "长边双面打印": "two-sided-long-edge",
-             "双面打印": "two-sided-long-edge", "短边双面打印": "two-sided-short-edge"}.get(match[1], "default")
+             "双面打印": "two-sided-auto", "短边双面打印": "two-sided-short-edge"}.get(match[1], "default")
     return {"action": action, "number": match[3], "batch": int(match[2]) if match[2] else None,
             "copies": copies, "sides": sides}
 
@@ -155,6 +156,9 @@ def status_text(job):
         "archived": "已结束核查，不会重新打印。",
     }
     mode = SIDE_LABELS.get(job.get("sides", "default"), "未知")
+    if job.get("auto_sides") is True:
+        orientation = {"portrait": "竖向", "landscape": "横向"}.get(job.get("print_orientation"), "方向待核查")
+        mode += f" · 自动识别为{orientation}，按左右翻阅"
     bundle = bundle_description(job)
     if bundle and job["status"] == "cancelled":
         phrases["cancelled"] = "已取消整组合并任务，这些图片都不会继续提交打印。"
@@ -177,7 +181,8 @@ def welcome_text():
             "全部不要可回复“全部取消”；已开始提交的任务不能保证远程取消。\n"
             "只选文件1：打印文件1 / 取消文件1 / 查看文件1；打印文件1两份才是两份。\n"
             "5分钟没收到新文件，下次收件从文件1开始；上述短口令只选当前批，旧批回复“任务”查看对应口令。\n"
-            "双面默认长边翻页，也可回复“短边双面打印”；不支持时明确提示，不改成单面。\n"
+            "双面会自动识别横竖方向，按左右翻阅选择翻边；也可回复“长边双面打印”或“短边双面打印”手动指定。\n"
+            "横竖混合的 PDF 请手动指定长边或短边；旧文件方向未知时请重新发送。不支持时明确提示，不改单面。\n"
             "两张图片都收到后回复“全部双面打印”：第1张正面、第2张背面；不同批次不混合。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 

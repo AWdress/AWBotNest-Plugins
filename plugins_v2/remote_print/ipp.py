@@ -32,6 +32,12 @@ _JPEG_LIMITS = {
     "jpeg-k-octets-supported": "jpeg_k_octets_supported",
 }
 _SIDES = {"one-sided", "two-sided-long-edge", "two-sided-short-edge"}
+_ORIENTATIONS = {"portrait": 3, "landscape": 4}
+# IANA includes none=7 (PWG 5100.13). Preserve its advertised presence, but
+# explicit automatic jobs still request only portrait=3 or landscape=4.
+_ORIENTATION_ENUMS = {3, 4, 5, 6, 7}
+_ORIENTATION_CAPABILITIES = {"orientation-requested-supported", "orientation-requested-default"}
+_INVALID_ORIENTATION_CAPABILITY = object()
 _EXPECTED_TAGS = {
     "attributes-charset": {0x47}, "attributes-natural-language": {0x48},
     "printer-name": {0x42, 0x36}, "printer-uri-supported": {0x45},
@@ -43,6 +49,8 @@ _EXPECTED_TAGS = {
     "print-scaling": {0x44},
     "sides-supported": {0x44}, "sides-default": {0x44}, "sides": {0x44},
     "media": {0x44, 0x42, 0x36},
+    "orientation-requested-supported": {0x23}, "orientation-requested-default": {0x23, 0x13},
+    "orientation-requested": {0x23},
 }
 
 
@@ -268,11 +276,27 @@ def parse_response(data, request_id):
             current[name] = []
             previous, previous_tag = name, tag
         else:
-            if previous is None or previous_tag != tag:
+            if previous is None or (previous_tag != tag and not (
+                    current_group == 0x04 and previous in _ORIENTATION_CAPABILITIES)):
                 raise ValueError("IPP 响应的多值属性无效")
             name = previous
         if current_group != 0x05 and name in _EXPECTED_TAGS and tag not in _EXPECTED_TAGS[name]:
+            if current_group == 0x04 and name in _ORIENTATION_CAPABILITIES:
+                # Corrupt optional capability data rejects automatic direction,
+                # not unchanged legacy/manual jobs. Collections still need to
+                # be consumed so subsequent attributes remain correctly parsed.
+                if tag == 0x34:
+                    parser.value(tag, raw)
+                current[name].append(_INVALID_ORIENTATION_CAPABILITY)
+                continue
             raise ValueError("IPP 响应属性类型无效")
+        if current_group == 0x04 and name in _ORIENTATION_CAPABILITIES:
+            try:
+                value = parser.value(tag, raw)
+            except ValueError:
+                value = _INVALID_ORIENTATION_CAPABILITY
+            current[name].append(value)
+            continue
         current[name].append(parser.value(tag, raw))
     raise ValueError("IPP 响应缺少结束标记")
 
@@ -382,6 +406,28 @@ def _validate_sides(sides, capabilities):
     _duplex_media(sides, capabilities)
 
 
+def _orientation_capabilities(supported, default):
+    if (not isinstance(supported, list)
+            or any(type(item) is not int or item not in _ORIENTATION_ENUMS for item in supported)
+            or (default is not None and (type(default) is not int or default not in _ORIENTATION_ENUMS
+                or (supported and default not in supported)))):
+        raise ValueError("打印机方向能力无效，无法确认自动双面方向")
+    return sorted(set(supported))
+
+
+def _validate_orientation(orientation, capabilities):
+    if orientation is None:
+        return
+    if not isinstance(orientation, str) or orientation not in _ORIENTATIONS:
+        raise ValueError("打印方向无效，请使用纵向或横向")
+    if not isinstance(capabilities, dict) or capabilities.get("orientation_error"):
+        raise ValueError("打印机方向能力不可用，无法确认自动双面方向")
+    supported = _orientation_capabilities(capabilities.get("orientation_supported", []),
+                                          capabilities.get("orientation_default"))
+    if _ORIENTATIONS[orientation] not in supported:
+        raise ValueError("打印机未声明支持请求的打印方向，未提交自动双面任务")
+
+
 class IPPPrinter:
     def __init__(self, ctx, config_getter):
         self.ctx, self.config_getter = ctx, config_getter
@@ -445,6 +491,7 @@ class IPPPrinter:
                      "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported",
                      "print-scaling-supported", "print-scaling-default", "sides-supported", "sides-default",
                      "media-default", "media-supported",
+                     "orientation-requested-supported", "orientation-requested-default",
                      *_JPEG_LIMITS]
         message = encode_request(GET_PRINTER_ATTRIBUTES, request_id,
                                  self._base_attributes(initial_uri) + [(0x44, "requested-attributes", requested)])
@@ -492,6 +539,13 @@ class IPPPrinter:
             # Optional media data must not disable unchanged default/single-side
             # printing. Explicit duplex will reject corrupt media capabilities.
             media_default, media_error = None, True
+        orientation_supported, orientation_default, orientation_error = [], None, False
+        try:
+            orientation_default = _single(attrs, "orientation-requested-default")
+            orientation_supported = _orientation_capabilities(attrs.get("orientation-requested-supported", []),
+                                                              orientation_default)
+        except ValueError:
+            orientation_supported, orientation_default, orientation_error = [], None, True
         jpeg_limits = {key: None for key in _JPEG_LIMITS.values()}
         jpeg_limits_error = False
         for name, key in _JPEG_LIMITS.items():
@@ -514,12 +568,19 @@ class IPPPrinter:
                 "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default,
                 "sides_supported": sides_supported, "sides_default": sides_default,
                 "media_supported": media_supported, "media_default": media_default, "media_error": media_error,
+                "orientation_supported": orientation_supported, "orientation_default": orientation_default,
+                "orientation_error": orientation_error,
                 **jpeg_limits, "jpeg_limits_error": jpeg_limits_error}
 
     @staticmethod
     def validate_sides(sides, capabilities):
         """Reject unsupported explicit modes before granting any print job."""
         _validate_sides(sides, capabilities)
+
+    @staticmethod
+    def validate_orientation(orientation, capabilities):
+        """Require an explicitly advertised direction only for automatic jobs."""
+        _validate_orientation(orientation, capabilities)
 
     @staticmethod
     def validate_document(format, copies, capabilities, sides="default"):
@@ -664,10 +725,11 @@ class IPPPrinter:
             raise ValueError("IPP 文件为空或超过 25 MiB 上限")
         return data
 
-    async def print_job(self, path, mime, title, copies, capabilities, sides="default"):
+    async def print_job(self, path, mime, title, copies, capabilities, sides="default", orientation=None):
         if mime not in ("application/pdf", "image/jpeg"):
             raise ValueError("IPP 提交格式不支持")
         self.validate_document("pdf" if mime == "application/pdf" else "jpg", copies, capabilities, sides)
+        self.validate_orientation(orientation, capabilities)
         if not isinstance(title, str) or not _JOB_ID.fullmatch(title):
             raise ValueError("IPP 任务名称必须使用安全的任务 ID")
         url = _validated_url(capabilities.get("transport_url"), {"http", "https"}, "IPP HTTP 地址")
@@ -692,6 +754,8 @@ class IPPPrinter:
             job_attributes.append((0x44, "sides", sides))
         if media is not None:
             job_attributes.append((0x44, "media", media))
+        if orientation is not None:
+            job_attributes.append((0x23, "orientation-requested", _ORIENTATIONS[orientation]))
         if mime == "image/jpeg":
             # IPP fit preserves the whole image and its aspect ratio within the
             # printable area; a device default such as auto/fill may crop it.
@@ -716,6 +780,8 @@ class IPPPrinter:
                     or _single(job_attrs, "document-format", mime) != mime
                     or (sides != "default" and _single(job_attrs, "sides", sides) != sides)
                     or (media is not None and _single(job_attrs, "media", media) != media)
+                    or (orientation is not None
+                        and _single(job_attrs, "orientation-requested", _ORIENTATIONS[orientation]) != _ORIENTATIONS[orientation])
                     or (mime == "image/jpeg" and _single(job_attrs, "print-scaling", "fit") != "fit")):
                 raise ValueError
             spool_id = _single(job_attrs, "job-id")

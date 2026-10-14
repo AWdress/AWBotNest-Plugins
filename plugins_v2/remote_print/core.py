@@ -424,9 +424,21 @@ class RemotePrint:
 
     async def check_sides(self, sides):
         mode = normalize_sides(sides)
-        if mode != "default" and self.config()["print_mode"] == "ipp":
+        if mode not in {"default", "two-sided-auto"} and self.config()["print_mode"] == "ipp":
             self.ipp.validate_sides(mode, await self.refresh_ipp())
         return mode
+
+    def automatic_option_validator(self, caps):
+        def check(job):
+            self.ipp.validate_sides(job["sides"], caps)
+            if job.get("auto_sides"):
+                self.ipp.validate_orientation(job.get("print_orientation"), caps)
+        return check
+
+    async def automatic_option_check(self, sides):
+        if sides == "two-sided-auto" and self.config()["print_mode"] == "ipp":
+            return self.automatic_option_validator(await self.refresh_ipp())
+        return None
 
     async def bundle_io(self, function, *args):
         ok, result = await self.ipp._thread_call(controlled_document_io, function, *args)
@@ -436,7 +448,7 @@ class RemotePrint:
 
     async def confirm_all_printing(self, owner, channel, copies, sides, permission_check):
         """Prepare images off-lock, then atomically confirm all selected files."""
-        if sides not in {"two-sided-long-edge", "two-sided-short-edge"}:
+        if sides not in {"two-sided-auto", "two-sided-long-edge", "two-sided-short-edge"}:
             return await self.queue.confirm_all(owner, channel, copies=copies, sides=sides,
                                                 permission_check=permission_check)
         plan = await self.queue.prepare_bundle(owner, channel, copies=copies, sides=sides,
@@ -447,13 +459,17 @@ class RemotePrint:
         try:
             cfg = self.config()
             media = None
+            option_check = None
             if cfg["print_mode"] == "ipp":
                 caps = await self.refresh_ipp()
-                self.ipp.validate_sides(sides, caps)
-                if "application/pdf" not in caps.get("formats", []):
+                for options in plan["resolved_options"].values():
+                    self.ipp.validate_sides(options["sides"], caps)
+                    self.ipp.validate_orientation(options.get("orientation"), caps)
+                option_check = self.automatic_option_validator(caps)
+                if plan["groups"] and "application/pdf" not in caps.get("formats", []):
                     raise ValueError("打印机不支持合并图片所需的 PDF 格式，未确认打印")
                 media = caps.get("media_default")
-                if media not in {"iso_a4_210x297mm", "na_letter_8.5x11in"} or media not in caps.get("media_supported", []):
+                if plan["groups"] and (media not in {"iso_a4_210x297mm", "na_letter_8.5x11in"} or media not in caps.get("media_supported", [])):
                     raise ValueError("打印机未声明可用的 A4 或 Letter 默认纸张，未确认合并打印")
             metadatas = []
             remaining_bytes = plan["remaining_storage_bytes"]
@@ -462,12 +478,14 @@ class RemotePrint:
                     raise ValueError("合并打印没有足够的文件缓存空间，未确认任何文件")
                 render = partial(build_image_bundle, group["sources"], group["target_path"],
                                  min(cfg["max_file_mb"] * 1024 * 1024, remaining_bytes), cfg["max_pages"],
-                                 media, copies=group["requested_copies"], duplex=True)
+                                 media, copies=group["requested_copies"], duplex=True,
+                                 orientation=group["orientation"])
                 # Drain cancelled background writes before discarding scratch.
                 metadata = await self.bundle_io(render)
                 metadatas.append(metadata)
                 remaining_bytes -= metadata["size"]
-            return await self.queue.commit_bundle(plan, metadatas, permission_check=permission_check)
+            return await self.queue.commit_bundle(plan, metadatas, permission_check=permission_check,
+                                                   option_check=option_check)
         finally:
             await self.queue.discard_bundle(plan)
 
@@ -481,6 +499,9 @@ class RemotePrint:
         for job in groups:
             count = job["bundle_image_count"]
             lines.append(f"第{job['number_batch']}批：{count} 张图片合并为一个双面任务 · {copies} 份")
+            if job.get("auto_sides"):
+                direction = "横向" if job["print_orientation"] == "landscape" else "竖向"
+                lines.append(f"自动识别为{direction}排版 · {SIDE_LABELS[job['sides']]}")
             if count == 2:
                 lines.append("按发送顺序：第1张正面，第2张背面。")
             else:
@@ -519,7 +540,8 @@ class RemotePrint:
                     self.request_dispatch()
                     return self.confirmation_text(jobs, printing["copies"], sides)
                 job = await self.queue.confirm_single(owner, channel, copies=printing["copies"], sides=sides,
-                                                      permission_check=permission_check)
+                                                      permission_check=permission_check,
+                                                      option_check=await self.automatic_option_check(sides))
                 self.request_dispatch()
                 return status_text(job)
             short = short_command(text)
@@ -528,7 +550,8 @@ class RemotePrint:
                 if short["action"] == "print":
                     sides = await self.check_sides(short["sides"])
                     job = await self.queue.confirm(short["number"], owner, short["copies"], sides=sides,
-                                                   source_channel=channel, permission_check=permission_check, **selection)
+                                                   source_channel=channel, permission_check=permission_check,
+                                                   option_check=await self.automatic_option_check(sides), **selection)
                     self.request_dispatch()
                 elif short["action"] == "cancel":
                     job = await self.queue.cancel(short["number"], owner, source_channel=channel, permission_check=permission_check, **selection)
@@ -546,19 +569,21 @@ class RemotePrint:
                     job = await self.queue.status_single(owner, channel, permission_check=permission_check)
                 return status_text(job)
             if command in {"/print", "打印", "单面打印", "双面打印", "长边双面打印", "短边双面打印"}:
-                mode = {"单面打印": "one-sided", "双面打印": "two-sided-long-edge",
+                mode = {"单面打印": "one-sided", "双面打印": "two-sided-auto",
                         "长边双面打印": "two-sided-long-edge", "短边双面打印": "two-sided-short-edge"}.get(command, "default")
                 sides = await self.check_sides(mode)
                 values = argument.split(maxsplit=2)
                 if not values:
-                    job = await self.queue.confirm_single(owner, source_channel or "", copies=1, sides=sides, permission_check=permission_check)
+                    job = await self.queue.confirm_single(owner, source_channel or "", copies=1, sides=sides, permission_check=permission_check,
+                                                          option_check=await self.automatic_option_check(sides))
                     self.request_dispatch()
                     return status_text(job)
                 if re.fullmatch(r"[1-9][0-9]{0,8}", values[0]):
                     return "选文件请回复“打印文件1”；要两份请回复“打印文件1两份”。回复“任务”查看文件序号。"
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
-                job = await self.queue.confirm(values[0], owner, copies, printer, sides=sides, source_channel=source_channel, permission_check=permission_check)
+                job = await self.queue.confirm(values[0], owner, copies, printer, sides=sides, source_channel=source_channel, permission_check=permission_check,
+                                               option_check=await self.automatic_option_check(sides))
                 self.request_dispatch()
                 return status_text(job)
             if command in {"/print_cancel", "取消"}:
@@ -591,6 +616,7 @@ class RemotePrint:
         printer = " [打印机完整名称]" if self.config()["print_mode"] == "agent" else ""
         return (f"先发送 PDF 或图片。\n只选文件1：打印文件1 / 双面打印文件1 / 取消文件1 / 查看文件1\n文件1要两份：打印文件1两份\n任务：查看你的最近任务\n打印机：查看设备状态"
                 + "\n全部打印 / 全部双面打印 / 全部取消：本入口所有待处理文件（含旧批）。\n短边翻页：短边双面打印文件1。"
+                + "\n普通双面自动识别方向，按左右翻阅：竖向长边、横向短边；手动选择可用长边双面打印或短边双面打印。"
                 + "\n5分钟没收到新文件，下次从文件1开始；短口令只选当前批，旧批请用任务列表中的批次口令或原按钮。"
                 + "\n全部双面打印：同一批的图片按发送顺序合并，第1张正面、第2张背面；奇数张时每份末尾背面留白。不同批次和 PDF 独立打印。"
                 + f"\n旧编号指令仍可用：打印 任务ID [份数]{printer}。"
@@ -608,6 +634,9 @@ class RemotePrint:
                      f"打印方式：{SIDE_LABELS.get(job.get('sides', 'default'), '未知')}")
             if bundle_description(job):
                 entry += "\n" + bundle_description(job)
+            if job.get("auto_sides"):
+                direction = "横向" if job.get("print_orientation") == "landscape" else "竖向"
+                entry += f"\n方向：{direction}（自动识别，按左右翻阅）"
             if number and job["status"] in {"receiving", "pending", "queued", "leased", "started", "unknown"}:
                 entry += f"\n打印{reference} / 取消{reference} / 查看{reference}" if job["status"] == "pending" else f"\n查看{reference}"
             if diagnostic:
@@ -796,7 +825,7 @@ class RemotePrint:
                 capabilities = payload.get("capabilities", [])
                 if not isinstance(capabilities, list) or len(capabilities) > 10 or any(not isinstance(item, str) for item in capabilities):
                     raise ValueError("电脑端能力无效")
-                capabilities = [item for item in capabilities if item == "sides-v1"]
+                capabilities = [item for item in capabilities if item in {"sides-v1", "orientation-v1"}]
                 if "printers" in payload:
                     await self.queue.hello(payload)
                 else:
@@ -809,7 +838,8 @@ class RemotePrint:
                         self.spawn(self.notify_job(rejected), "print_result_notice")
                     except Exception:
                         self.ctx.log.warning("打印回执未发送，任务状态已保存")
-                    result["message"] = "指定单双面任务未提交，请更新电脑端至 0.0.15 或更新版本。"
+                    result["message"] = ("自动方向任务未提交，请更新电脑端至 1.0.0。" if rejected.get("auto_sides")
+                                         else "指定单双面任务未提交，请更新电脑端至 0.0.15 或更新版本。")
                 return result
             if op == "start":
                 return await self.queue.start(payload.get("job_id"), payload.get("claim_token"))
@@ -1003,12 +1033,16 @@ class RemotePrint:
             if metadata["sha256"] != grant["sha256"] or metadata["format"] != grant["format"] or metadata["size"] != grant["size"]:
                 raise ValueError("打印文件内容与收件记录不一致，已停止提交")
             if "requested_copies" in grant:
-                await self.bundle_io(validate_bundle_paper, original, caps.get("media_default"))
+                await self.bundle_io(validate_bundle_paper, original, caps.get("media_default"),
+                                     grant.get("orientation", "portrait"))
             if grant.get("requested_copies", grant["copies"]) > self.config()["max_copies"]:
                 raise ValueError("打印份数超过当前安全上限，请重新发送并确认")
             sides = grant.get("sides", "default")
             options = {"sides": sides} if sides != "default" else {}
-            self.ipp.validate_document(grant["format"], grant["copies"], caps, **options)
+            if "orientation" in grant:
+                self.ipp.validate_orientation(grant["orientation"], caps)
+                options["orientation"] = grant["orientation"]
+            self.ipp.validate_document(grant["format"], grant["copies"], caps, sides=sides)
             prepared, mime = await self.ipp.prepare(original, grant["format"], capabilities=caps)
             latest = self.config()
             if self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp" or grant.get("requested_copies", grant["copies"]) > latest["max_copies"]:
