@@ -20,8 +20,9 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 import warnings
 
-VERSION = "0.0.14"
+VERSION = "0.0.15"
 FORMATS = ("pdf", "png", "jpg", "jpeg", "webp", "bmp")
+SIDES = ("default", "one-sided", "two-sided-long-edge", "two-sided-short-edge")
 MAX_FILE_BYTES = 25 * 1024 * 1024
 MAX_RESPONSE_BYTES = 128 * 1024
 MAX_PAGE_PIXELS = 25_000_000
@@ -44,8 +45,8 @@ class SafeArgumentParser(argparse.ArgumentParser):
 
 
 class PrintError(AgentError):
-    def __init__(self, status: str, spool_id: int | None = None):
-        super().__init__("Printer submission failed; inspect the Windows print queue.")
+    def __init__(self, status: str, spool_id: int | None = None, message: str | None = None):
+        super().__init__(message or "打印提交失败，请检查 Windows 打印队列。")
         self.status = status
         self.spool_id = spool_id
 
@@ -309,6 +310,12 @@ class PRINTER_INFO_4(ctypes.Structure):
                 ("Attributes", wintypes.DWORD)]
 
 
+class PRINTER_INFO_5(ctypes.Structure):
+    _fields_ = [("pPrinterName", wintypes.LPWSTR), ("pPortName", wintypes.LPWSTR),
+                ("Attributes", wintypes.DWORD), ("DeviceNotSelectedTimeout", wintypes.DWORD),
+                ("TransmissionRetryTimeout", wintypes.DWORD)]
+
+
 class DOCINFO(ctypes.Structure):
     _fields_ = [("cbSize", ctypes.c_int), ("lpszDocName", wintypes.LPCWSTR),
                 ("lpszOutput", wintypes.LPCWSTR), ("lpszDatatype", wintypes.LPCWSTR),
@@ -316,14 +323,15 @@ class DOCINFO(ctypes.Structure):
 
 
 class DEVMODE_PRINTER_PREFIX(ctypes.Structure):
-    """Public DEVMODEW prefix, through its printer union; private bytes stay intact."""
+    """Public DEVMODEW prefix through dmDuplex; private bytes stay intact."""
     _fields_ = [("dmDeviceName", wintypes.WCHAR * 32), ("dmSpecVersion", wintypes.WORD),
                 ("dmDriverVersion", wintypes.WORD), ("dmSize", wintypes.WORD),
                 ("dmDriverExtra", wintypes.WORD), ("dmFields", wintypes.DWORD),
                 ("dmOrientation", ctypes.c_short), ("dmPaperSize", ctypes.c_short),
                 ("dmPaperLength", ctypes.c_short), ("dmPaperWidth", ctypes.c_short),
                 ("dmScale", ctypes.c_short), ("dmCopies", ctypes.c_short),
-                ("dmDefaultSource", ctypes.c_short), ("dmPrintQuality", ctypes.c_short)]
+                ("dmDefaultSource", ctypes.c_short), ("dmPrintQuality", ctypes.c_short),
+                ("dmColor", ctypes.c_short), ("dmDuplex", ctypes.c_short)]
 
 
 class BITMAPINFOHEADER(ctypes.Structure):
@@ -355,6 +363,12 @@ class WindowsPrinter:
         self.spool.OpenPrinterW.restype = wintypes.BOOL
         self.spool.ClosePrinter.argtypes = [wintypes.HANDLE]
         self.spool.ClosePrinter.restype = wintypes.BOOL
+        self.spool.GetPrinterW.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p,
+                                          wintypes.DWORD, ctypes.POINTER(wintypes.DWORD)]
+        self.spool.GetPrinterW.restype = wintypes.BOOL
+        self.spool.DeviceCapabilitiesW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.WORD,
+                                                   ctypes.c_void_p, ctypes.c_void_p]
+        self.spool.DeviceCapabilitiesW.restype = ctypes.c_int
         self.spool.DocumentPropertiesW.argtypes = [wintypes.HWND, wintypes.HANDLE, wintypes.LPWSTR,
                                                   ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD]
         self.spool.DocumentPropertiesW.restype = wintypes.LONG
@@ -400,8 +414,26 @@ class WindowsPrinter:
                 default = buffer.value
         return names, default
 
-    def document_settings(self, printer):
+    def _supports_duplex(self, printer, handle, settings):
+        required = wintypes.DWORD()
+        self.spool.GetPrinterW(handle, 5, None, 0, ctypes.byref(required))
+        if not ctypes.sizeof(PRINTER_INFO_5) <= required.value <= 1024 * 1024:
+            raise PrintError("failed", message="打印机双面能力无法确认，未打印。请检查 Windows 打印驱动。")
+        info_buffer = ctypes.create_string_buffer(required.value)
+        if not self.spool.GetPrinterW(handle, 5, info_buffer, len(info_buffer), ctypes.byref(required)):
+            raise PrintError("failed", message="打印机端口无法读取，未打印。请检查 Windows 打印驱动。")
+        info = ctypes.cast(info_buffer, ctypes.POINTER(PRINTER_INFO_5)).contents
+        if not info.pPortName:
+            raise PrintError("failed", message="打印机端口不可用，无法确认双面能力，未打印。")
+        capability = self.spool.DeviceCapabilitiesW(printer, info.pPortName, 7, None, settings)  # DC_DUPLEX
+        if capability < 0:
+            raise PrintError("failed", message="打印机双面能力无法确认，未打印。请检查 Windows 打印驱动。")
+        return capability == 1
+
+    def document_settings(self, printer, sides="default"):
         """Use a private per-document DEVMODE copy; never call SetPrinter."""
+        if not isinstance(sides, str) or sides not in SIDES:
+            raise PrintError("failed", message="打印方式无效，未打印。请选择单面或双面打印。")
         handle = wintypes.HANDLE()
         if not self.spool.OpenPrinterW(printer, ctypes.byref(handle), None):
             raise PrintError("failed")
@@ -416,12 +448,20 @@ class WindowsPrinter:
             if (mode.dmSize < ctypes.sizeof(DEVMODE_PRINTER_PREFIX)
                     or mode.dmSize + mode.dmDriverExtra > size):
                 raise PrintError("failed")
+            if sides.startswith("two-sided") and not self._supports_duplex(printer, handle, buffer):
+                raise PrintError("failed", message="打印机或当前驱动不支持自动双面，未打印。请改用单面打印。")
             mode.dmFields |= 0x100  # DM_COPIES
             mode.dmCopies = 1  # Copies are implemented by our complete-document loop.
+            duplex = {"one-sided": 1, "two-sided-long-edge": 2, "two-sided-short-edge": 3}.get(sides)
+            if duplex is not None:
+                mode.dmFields |= 0x1000  # DM_DUPLEX
+                mode.dmDuplex = duplex
             # Ask the driver to validate its private bytes without prompting or saving defaults.
             if (self.spool.DocumentPropertiesW(None, handle, printer, buffer, buffer, 2 | 8) != 1
                     or mode.dmCopies != 1):
                 raise PrintError("failed")
+            if duplex is not None and (not mode.dmFields & 0x1000 or mode.dmDuplex != duplex):
+                raise PrintError("failed", message="打印驱动未接受指定的单双面设置，未打印。请检查 Windows 驱动设置。")
             return buffer
         except PrintError:
             raise
@@ -430,16 +470,16 @@ class WindowsPrinter:
         finally:
             self.spool.ClosePrinter(handle)
 
-    def print_pages(self, printer, pages, copies, job_id, stopped):
+    def print_pages(self, printer, pages, copies, job_id, stopped, sides="default"):
         """Only rasterized pixels reach GDI. Printer defaults are never changed."""
         from PIL import Image
-        settings = self.document_settings(printer)
+        settings = self.document_settings(printer) if sides == "default" else self.document_settings(printer, sides)
         hdc = self.gdi.CreateDCW("WINSPOOL", printer, None, settings)
         if not hdc:
             raise PrintError("failed")
         spool_id = None
         attempted = False
-        finished = False
+        doc_open = False
         try:
             width = self.gdi.GetDeviceCaps(hdc, 8)   # HORZRES (printable area)
             height = self.gdi.GetDeviceCaps(hdc, 10)  # VERTRES
@@ -448,15 +488,21 @@ class WindowsPrinter:
             if min(width, height, dpi_x, dpi_y) <= 0:
                 raise PrintError("failed")
             doc = DOCINFO(ctypes.sizeof(DOCINFO), "AW remote print " + job_id, None, None, 0)
-            if stopped():
-                raise PrintError("failed")
-            attempted = True
-            result = self.gdi.StartDocW(hdc, ctypes.byref(doc))
-            if result <= 0:
-                attempted = False
-                raise PrintError("failed")
-            spool_id = result
             for _ in range(copies):
+                # Each copy is its own spool document so odd page counts never put
+                # the next copy's first page on the back of the previous copy.
+                if stopped():
+                    raise PrintError("unknown" if attempted else "failed", spool_id)
+                previous_attempt = attempted
+                attempted = True
+                doc_open = True
+                result = self.gdi.StartDocW(hdc, ctypes.byref(doc))
+                if result <= 0:
+                    attempted = previous_attempt
+                    doc_open = False
+                    raise PrintError("unknown" if previous_attempt else "failed", spool_id)
+                if spool_id is None:
+                    spool_id = result
                 for page in pages:
                     if stopped():
                         raise PrintError("unknown", spool_id)
@@ -487,16 +533,16 @@ class WindowsPrinter:
                         buffer, ctypes.byref(bitmap), 0, 0x00CC0020)
                     if result in (0, -1) or self.gdi.EndPage(hdc) <= 0:
                         raise PrintError("unknown", spool_id)
-            if self.gdi.EndDoc(hdc) <= 0:
-                raise PrintError("unknown", spool_id)
-            finished = True
+                if self.gdi.EndDoc(hdc) <= 0:
+                    raise PrintError("unknown", spool_id)
+                doc_open = False
             return spool_id
         except PrintError:
             raise
         except BaseException:
             raise PrintError("unknown" if attempted else "failed", spool_id) from None
         finally:
-            if attempted and not finished:
+            if doc_open:
                 self.gdi.AbortDoc(hdc)
             self.gdi.DeleteDC(hdc)
 
@@ -519,7 +565,7 @@ def advertised(config, backend):
     elif default not in available:
         default = available[0]
     return {"printers": available, "default_printer": default,
-            "formats": list(FORMATS), "version": VERSION}
+            "formats": list(FORMATS), "version": VERSION, "capabilities": ["sides-v1"]}
 
 
 def validate_job(value, inventory):
@@ -543,6 +589,10 @@ def validate_job(value, inventory):
         raise AgentError("The requested printer is not in the available local allowlist.")
     job = dict(value)
     job["printer"] = printer
+    sides = job.get("sides", "default")
+    if not isinstance(sides, str) or sides not in SIDES:
+        raise AgentError("打印方式无效，未打印。请选择单面或双面打印。")
+    job["sides"] = sides
     return job
 
 
@@ -681,20 +731,21 @@ class Receiver:
                     self.journal.outcome(job_id, claim, status, "Server did not authorize printing.")
                     return
                 try:
+                    options = {} if job["sides"] == "default" else {"sides": job["sides"]}
                     spool_id = self.backend.print_pages(
-                        job["printer"], pages, job["copies"], job_id, lambda: self.stop_requested)
+                        job["printer"], pages, job["copies"], job_id, lambda: self.stop_requested, **options)
                 except PrintError as error:
                     self.journal.outcome(job_id, claim, error.status,
-                                         "Printer submission failed; inspect the Windows print queue.", error.spool_id)
+                                         str(error), error.spool_id)
                 except BaseException:
                     self.journal.outcome(job_id, claim, "unknown", "Print attempt interrupted; inspect the Windows print queue.")
                     raise
                 else:
                     self.journal.outcome(job_id, claim, "submitted", "Submitted to the Windows print queue.", spool_id)
-        except AgentError:
+        except AgentError as error:
             # Never downgrade a started/unknown submission to a retryable local failure.
             if job_id not in self.journal.entries:
-                self.journal.outcome(job_id, claim, "failed", "Local validation, download or rendering failed.")
+                self.journal.outcome(job_id, claim, "failed", str(error))
             else:
                 raise
         except (OSError, ValueError):

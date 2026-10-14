@@ -12,6 +12,8 @@ import secrets
 import time
 from pathlib import Path
 
+from .chat import normalize_sides
+
 
 ACTIVE = {"receiving", "pending", "queued", "leased", "started"}
 TERMINAL = {"submitted", "failed", "unknown", "cancelled", "archived"}
@@ -250,7 +252,7 @@ class PrintQueue:
             job_id = secrets.token_hex(8)
             snapshot["jobs"][job_id] = {"id": job_id, "owner": owner, "source": source, "source_channel": str(source_channel),
                 "filename": filename, "status": "receiving", "created": now, "updated": now,
-                "copies": min(cfg["default_copies"], cfg["max_copies"]), "printer": "IPP" if cfg.get("print_mode") == "ipp" else cfg["printer_name"],
+                "copies": min(cfg["default_copies"], cfg["max_copies"]), "sides": "default", "printer": "IPP" if cfg.get("print_mode") == "ipp" else cfg["printer_name"],
                 "device_id": cfg["device_id"], "size": allocation, "file_present": True,
                 "claim_token": "", "message": "", "backend": cfg.get("print_mode", "agent"),
                 "ipp_target": self.target_key(cfg) if cfg.get("print_mode") == "ipp" else ""}
@@ -296,7 +298,7 @@ class PrintQueue:
             self.faulted = True
             raise
 
-    def _confirm(self, job, copies=None, printer=None):
+    def _confirm(self, job, copies=None, printer=None, *, sides=None):
         if job["status"] != "pending":
             raise ValueError(f"任务当前为：{LABELS[job['status']]}，不会重复打印")
         cfg = self.config()
@@ -314,19 +316,22 @@ class PrintQueue:
             raise ValueError("IPP 模式使用配置中的固定打印机，请不要在命令中另指定打印机")
         if job.get("backend", "agent") == "agent" and target and self.device and target not in self.device.get("printers", []):
             raise ValueError("该打印机不在电脑端允许列表内，请先发送 /printers 查看")
-        job.update(status="queued", copies=value, printer=target, updated=time.time())
+        mode = normalize_sides(job.get("sides", "default") if sides is None else sides)
+        if job.get("backend", "agent") == "agent" and mode != "default" and "sides-v1" not in self.device.get("capabilities", []):
+            raise ValueError("打印电脑端尚未支持指定单双面，请先更新并连接 0.0.15 或更新版本的电脑端。")
+        job.update(status="queued", copies=value, printer=target, sides=mode, updated=time.time())
 
-    async def confirm(self, job_id, owner, copies=None, printer=None, *, source_channel=None, permission_check=None):
+    async def confirm(self, job_id, owner, copies=None, printer=None, *, sides=None, source_channel=None, permission_check=None):
         async with self.lock:
             self._permission(permission_check)
             self._check()
             snapshot = copy.deepcopy(self.state)
             job = self._find(snapshot, job_id, owner, source_channel=source_channel)
-            self._confirm(job, copies, printer)
+            self._confirm(job, copies, printer, sides=sides)
             await self._commit(snapshot)
             return copy.deepcopy(job)
 
-    async def confirm_single(self, owner, source_channel, copies=None, printer=None, *, permission_check=None):
+    async def confirm_single(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None):
         async with self.lock:
             self._permission(permission_check)
             self._check()
@@ -342,9 +347,27 @@ class PrintQueue:
                 raise ValueError("文件还在接收，请等收到文件的提示后再打印。")
             if job["status"] != "pending":
                 return copy.deepcopy(job)
-            self._confirm(job, copies, printer)
+            self._confirm(job, copies, printer, sides=sides)
             await self._commit(snapshot)
             return copy.deepcopy(job)
+
+    async def confirm_all(self, owner, source_channel, copies=None, printer=None, *, sides=None, permission_check=None):
+        async with self.lock:
+            self._permission(permission_check)
+            self._check()
+            snapshot = copy.deepcopy(self.state)
+            jobs = self._owned_jobs(snapshot, owner, source_channel)
+            if any(job["status"] == "receiving" for job in jobs):
+                raise ValueError("文件还在接收，请等所有文件都提示已收到，再回复全部打印。")
+            pending = sorted((job for job in jobs if job["status"] == "pending"),
+                             key=lambda job: (job["created"], job["id"]))
+            if not pending:
+                raise ValueError("没有待确认的文件，已排队或已打印的文件不会重复打印。")
+            for job in pending:
+                self._confirm(job, copies, printer, sides=sides)
+            self._permission(permission_check)
+            await self._commit(snapshot)
+            return copy.deepcopy(pending)
 
     @staticmethod
     def _cancel(job):
@@ -398,19 +421,24 @@ class PrintQueue:
     def public(job):
         result = {key: job.get(key) for key in ("id", "source", "filename", "status", "copies", "printer", "pages", "created", "updated", "message")}
         result["backend"] = job.get("backend", "agent")
+        result["sides"] = job.get("sides", "default")
         return result
 
     async def hello(self, payload):
         printers = payload.get("printers", [])
         formats = payload.get("formats", [])
-        if not isinstance(printers, list) or not isinstance(formats, list) or len(printers) > 100 or len(formats) > 10:
+        capabilities = payload.get("capabilities", [])
+        if (not isinstance(printers, list) or not isinstance(formats, list) or len(printers) > 100 or len(formats) > 10
+                or not isinstance(capabilities, list) or len(capabilities) > 10
+                or any(not isinstance(value, str) for value in capabilities)):
             raise ValueError("电脑端信息无效")
         printers = [value for value in printers if isinstance(value, str) and 0 < len(value) <= 200 and not any(ord(c) < 32 for c in value)]
         self.device = {"printers": list(dict.fromkeys(printers)), "formats": [f for f in formats if isinstance(f, str) and f in {"pdf", "png", "jpg", "jpeg", "webp", "bmp"}],
-                       "default_printer": str(payload.get("default_printer", ""))[:200], "last_seen": time.time()}
+                       "default_printer": str(payload.get("default_printer", ""))[:200], "last_seen": time.time(),
+                       "capabilities": [value for value in capabilities if value == "sides-v1"]}
         return {"ok": True}
 
-    async def poll(self, backend="agent"):
+    async def poll(self, backend="agent", *, agent_capabilities=None):
         async with self.lock:
             self._check()
             snapshot = copy.deepcopy(self.state)
@@ -429,10 +457,19 @@ class PrintQueue:
                     continue  # Slow cleanup must not make expired files printable.
                 if backend == "agent" and job.get("format") not in self.device.get("formats", []):
                     continue
+                # Bind this grant to the requesting receiver, not another poll's
+                # shared inventory while this call was waiting for the lock.
+                capabilities = self.device.get("capabilities", []) if agent_capabilities is None else agent_capabilities
+                if backend == "agent" and job.get("sides", "default") != "default" and "sides-v1" not in capabilities:
+                    job.update(status="failed", updated=now,
+                               message="打印电脑端未支持指定单双面，未提交打印；请更新电脑端后重新发送文件。")
+                    await self._commit(snapshot)
+                    return {"ok": True, "job": None, "rejected": copy.deepcopy(job)}
                 job.update(status="leased", claim_token=secrets.token_urlsafe(32), lease_until=now + 300, updated=now)
                 await self._commit(snapshot)
                 result = {key: job[key] for key in ("id", "claim_token", "filename", "size", "sha256", "format", "printer", "copies")}
                 result["max_pages"] = cfg["max_pages"]
+                result["sides"] = job.get("sides", "default")
                 return {"ok": True, "job": result}
             return {"ok": True, "job": None}
 

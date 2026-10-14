@@ -30,6 +30,7 @@ _JPEG_LIMITS = {
     "jpeg-y-dimension-supported": "jpeg_y_dimension_supported",
     "jpeg-k-octets-supported": "jpeg_k_octets_supported",
 }
+_SIDES = {"one-sided", "two-sided-long-edge", "two-sided-short-edge"}
 _EXPECTED_TAGS = {
     "attributes-charset": {0x47}, "attributes-natural-language": {0x48},
     "printer-name": {0x42, 0x36}, "printer-uri-supported": {0x45},
@@ -39,6 +40,7 @@ _EXPECTED_TAGS = {
     "document-format": {0x49},
     "print-scaling-supported": {0x44}, "print-scaling-default": {0x44},
     "print-scaling": {0x44},
+    "sides-supported": {0x44}, "sides-default": {0x44}, "sides": {0x44},
 }
 
 
@@ -318,6 +320,32 @@ def _mime(format):
     raise ValueError("IPP 仅支持 PDF 和常见单张图片")
 
 
+def _sides_capabilities(supported, default):
+    if (not isinstance(supported, list)
+            or any(not isinstance(item, str) or item not in _SIDES for item in supported)
+            or (default is not None and (not isinstance(default, str) or default not in _SIDES
+                or (supported and default not in supported)))):
+        raise ValueError("打印机单双面能力无效，请重新检查打印机连接")
+    return sorted(set(supported))
+
+
+def _validate_sides(sides, capabilities):
+    if not isinstance(sides, str) or sides not in _SIDES | {"default"}:
+        raise ValueError("单双面选项无效，请选择跟随打印机、单面或双面")
+    if sides == "default":
+        # Older jobs and printers that do not advertise sides retain the
+        # device's existing default, rather than silently choosing single-side.
+        return
+    if not isinstance(capabilities, dict):
+        raise ValueError("打印机单双面能力不可用，请重新检查打印机连接")
+    supported = _sides_capabilities(capabilities.get("sides_supported", []),
+                                    capabilities.get("sides_default"))
+    if sides not in supported:
+        if sides.startswith("two-sided"):
+            raise ValueError("打印机未声明支持请求的自动双面方式；不会改单面打印")
+        raise ValueError("打印机未声明支持单面打印，请重新检查打印机连接")
+
+
 class IPPPrinter:
     def __init__(self, ctx, config_getter):
         self.ctx, self.config_getter = ctx, config_getter
@@ -379,7 +407,8 @@ class IPPPrinter:
         request_id = secrets.randbelow(0x7FFFFFFF) + 1
         requested = ["printer-name", "printer-uri-supported", "document-format-supported",
                      "printer-state", "printer-is-accepting-jobs", "operations-supported", "copies-supported",
-                     "print-scaling-supported", "print-scaling-default", *_JPEG_LIMITS]
+                     "print-scaling-supported", "print-scaling-default", "sides-supported", "sides-default",
+                     *_JPEG_LIMITS]
         message = encode_request(GET_PRINTER_ATTRIBUTES, request_id,
                                  self._base_attributes(initial_uri) + [(0x44, "requested-attributes", requested)])
         result = await self._request(url, message, request_id, timeout)
@@ -416,6 +445,8 @@ class IPPPrinter:
                     or not _NAME.fullmatch(scaling_default)
                     or (scaling and scaling_default not in scaling)))):
             raise ValueError("打印机缩放能力无效")
+        sides_default = _single(attrs, "sides-default")
+        sides_supported = _sides_capabilities(attrs.get("sides-supported", []), sides_default)
         jpeg_limits = {key: None for key in _JPEG_LIMITS.values()}
         jpeg_limits_error = False
         for name, key in _JPEG_LIMITS.items():
@@ -436,10 +467,17 @@ class IPPPrinter:
                 "accepting_jobs": accepting, "operations": sorted(set(operations)),
                 "copies_supported": ranges, "copies_max": max(upper for _, upper in ranges),
                 "print_scaling_supported": sorted(set(scaling)), "print_scaling_default": scaling_default,
+                "sides_supported": sides_supported, "sides_default": sides_default,
                 **jpeg_limits, "jpeg_limits_error": jpeg_limits_error}
 
     @staticmethod
-    def validate_document(format, copies, capabilities):
+    def validate_sides(sides, capabilities):
+        """Reject unsupported explicit modes before granting any print job."""
+        _validate_sides(sides, capabilities)
+
+    @staticmethod
+    def validate_document(format, copies, capabilities, sides="default"):
+        _validate_sides(sides, capabilities)
         mime = _mime(format)
         if mime not in capabilities.get("formats", []):
             if mime == "application/pdf":
@@ -580,10 +618,10 @@ class IPPPrinter:
             raise ValueError("IPP 文件为空或超过 25 MiB 上限")
         return data
 
-    async def print_job(self, path, mime, title, copies, capabilities):
+    async def print_job(self, path, mime, title, copies, capabilities, sides="default"):
         if mime not in ("application/pdf", "image/jpeg"):
             raise ValueError("IPP 提交格式不支持")
-        self.validate_document("pdf" if mime == "application/pdf" else "jpg", copies, capabilities)
+        self.validate_document("pdf" if mime == "application/pdf" else "jpg", copies, capabilities, sides)
         if not isinstance(title, str) or not _JOB_ID.fullmatch(title):
             raise ValueError("IPP 任务名称必须使用安全的任务 ID")
         url = _validated_url(capabilities.get("transport_url"), {"http", "https"}, "IPP HTTP 地址")
@@ -603,6 +641,8 @@ class IPPPrinter:
             (0x49, "document-format", mime),
         ]
         job_attributes = [(0x21, "copies", copies)]
+        if sides != "default":
+            job_attributes.append((0x44, "sides", sides))
         if mime == "image/jpeg":
             # IPP fit preserves the whole image and its aspect ratio within the
             # printable area; a device default such as auto/fill may crop it.
@@ -625,6 +665,7 @@ class IPPPrinter:
             job_attrs = _attributes(result, 0x02)
             if (_attributes(result, 0x05) or _single(job_attrs, "copies", copies) != copies
                     or _single(job_attrs, "document-format", mime) != mime
+                    or (sides != "default" and _single(job_attrs, "sides", sides) != sides)
                     or (mime == "image/jpeg" and _single(job_attrs, "print-scaling", "fit") != "fit")):
                 raise ValueError
             spool_id = _single(job_attrs, "job-id")

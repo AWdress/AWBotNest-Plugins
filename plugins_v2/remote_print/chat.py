@@ -4,6 +4,28 @@ from __future__ import annotations
 import re
 
 
+SIDE_LABELS = {"default": "打印机默认", "one-sided": "单面",
+               "two-sided-long-edge": "双面（长边翻页）", "two-sided-short-edge": "双面（短边翻页）"}
+
+
+def normalize_sides(value):
+    if not isinstance(value, str) or value not in SIDE_LABELS:
+        raise ValueError("打印单双面设置无效，请使用单面打印、双面打印或短边双面打印。")
+    return value
+
+
+def print_command(text):
+    value = re.sub(r"\s+", "", str(text or "")).rstrip("。！!")
+    if value in {"确认", "确认打印", "开始打印"}:
+        value = "打印"
+    match = re.fullmatch(r"(全部|所有)?(单面|长边双面|短边双面|双面)?打印(一份|1份|两份|二份|2份)?", value)
+    if not match:
+        return None
+    sides = {None: "default", "单面": "one-sided", "双面": "two-sided-long-edge",
+             "长边双面": "two-sided-long-edge", "短边双面": "two-sided-short-edge"}[match[2]]
+    return {"all": bool(match[1]), "copies": 2 if match[3] in {"两份", "二份", "2份"} else 1, "sides": sides}
+
+
 def action_key(action, job_id, copies=None):
     key = f"rp:{action}:{job_id}"
     return key + f":{copies}" if copies is not None else key
@@ -38,7 +60,8 @@ def received_text(job):
         return status_text(job)
     return (f"文件已收到\n{display_filename(job)} · 共 {job['pages']} 页\n\n"
             "点“打印一份”就开始，不想打印可点“取消打印”。\n"
-            "也可以回复“打印”或“取消”。")
+            "也可以回复“打印”“双面打印”或“取消”。\n"
+            "多个文件都收齐后，回复“全部打印”或“全部双面打印”。")
 
 
 def wecom_received_text(job, max_copies):
@@ -51,6 +74,8 @@ def wecom_received_text(job, max_copies):
             "等待确认，还没开始打印。\n\n"
             f"回复“打印” → 打一份\n{copies}"
             "回复“取消” → 取消打印\n回复“进度” → 查看状态\n\n"
+            "需要双面：回复“双面打印”（长边翻页）。\n"
+            "多个文件都收齐后，回复“全部打印”或“全部双面打印”。\n\n"
             "同时有多个文件时，复制对应指令：\n"
             f"打印 {job['id']} 1\n{numbered_copies}取消 {job['id']}\n进度 {job['id']}")
 
@@ -90,13 +115,16 @@ def status_text(job):
         "cancelled": "已取消，这份文件不会继续提交打印。",
         "archived": "已结束核查，不会重新打印。",
     }
-    return f"文件：{display_filename(job)}\n\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
+    mode = SIDE_LABELS.get(job.get("sides", "default"), "未知")
+    return f"文件：{display_filename(job)}\n打印方式：{mode}\n\n" + phrases.get(job["status"], "请查看打印机，或联系家人帮忙检查。")
 
 
 def welcome_text():
     return ("把照片或 PDF 文件发给我。\n"
             "收到提示后回复“打印”即可；Telegram 也可点“打印一份”。\n"
             "不想打印回复“取消”，想看进度回复“进度”。\n"
+            "多文件都收齐后回复“全部打印”；需要双面可回复“双面打印”或“全部双面打印”。\n"
+            "双面默认长边翻页，也可回复“短边双面打印”；不支持时明确提示，不改成单面。\n"
             "图片会完整缩放，不裁切；Word、Excel 请先转成 PDF。")
 
 
@@ -114,7 +142,9 @@ def simple_command(text):
 
 
 def is_mutating_text(text):
+    if print_command(text):
+        return True
     simple = simple_command(text)
     if simple:
         return simple[0] in {"print", "cancel"}
-    return bool(re.match(r"^(?:/(?:print|print_cancel)(?:@\w+)?(?:\s|$)|(?:打印|取消)\s+)", str(text or "").strip()))
+    return bool(re.match(r"^(?:/(?:print|print_cancel)(?:@\w+)?(?:\s|$)|(?:打印|单面打印|双面打印|长边双面打印|短边双面打印|取消)\s+)", str(text or "").strip()))

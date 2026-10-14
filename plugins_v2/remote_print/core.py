@@ -14,7 +14,7 @@ from starlette.responses import FileResponse, JSONResponse
 
 from . import __plugin__
 from .channels import PlatformChannels
-from .chat import action_buttons, display_filename, failure_reason, is_mutating_text, parse_action, received_text, simple_command, status_text, wecom_received_text, welcome_text
+from .chat import SIDE_LABELS, action_buttons, display_filename, failure_reason, is_mutating_text, normalize_sides, parse_action, print_command, received_text, simple_command, status_text, wecom_received_text, welcome_text
 from .files import inspect_file, safe_name
 from .ipp import IPPPrinter, IPPRejected, IPPSubmissionUnknown
 from .queue import LABELS, PrintQueue
@@ -402,7 +402,7 @@ class RemotePrint:
                 await event.reply(str(exc), parse_mode=None)
             return
         text = str(getattr(message, "raw_text", "") or "").strip()
-        if simple_command(text) or re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|任务|取消|进度|帮助|你好|开始)", text):
+        if print_command(text) or simple_command(text) or re.match(r"^(?:/(?:start|print(?:_help|_jobs|_cancel)?|printers)(?:@\w+)?(?:\s|$)|打印|单面打印|双面打印|长边双面打印|短边双面打印|任务|取消|进度|帮助|你好|开始)", text):
             channel = str(getattr(self.ctx, "bot_id", "") or "")
             if is_mutating_text(text) and not await self.queue.claim_message(f"tg-action:{channel}:{event.chat_id}:{message.id}"):
                 await event.reply("这条操作已经处理，不会重复打印。回复“进度”查看。", parse_mode=None)
@@ -411,6 +411,12 @@ class RemotePrint:
             permission_check = lambda: self.owner_allowed(owner, channel, client=event.client, binding=binding)
             answer = await self.command(owner, text, channel, permission_check=permission_check)
             await event.reply(answer, parse_mode=None)
+
+    async def check_sides(self, sides):
+        mode = normalize_sides(sides)
+        if mode != "default" and self.config()["print_mode"] == "ipp":
+            self.ipp.validate_sides(mode, await self.refresh_ipp())
+        return mode
 
     async def command(self, owner, text, source_channel=None, *, permission_check=None):
         parts = text.split(maxsplit=1)
@@ -422,6 +428,23 @@ class RemotePrint:
                 permission_check = lambda: self.owner_allowed(owner, source_channel)
             if permission_check is not None:
                 permission_check()
+            printing = print_command(text)
+            if printing:
+                channel = source_channel if source_channel is not None else (
+                    owner.split(":", 2)[1] if owner.startswith("wecom:") else str(getattr(self.ctx, "bot_id", "") or ""))
+                sides = await self.check_sides(printing["sides"])
+                if printing["all"]:
+                    jobs = await self.queue.confirm_all(owner, channel, copies=printing["copies"], sides=sides,
+                                                        permission_check=permission_check)
+                    self.request_dispatch()
+                    total_pages = sum(job.get("pages", 0) for job in jobs)
+                    return (f"已确认 {len(jobs)} 个文件，共 {total_pages} 页\n"
+                            f"每个文件 {printing['copies']} 份 · {SIDE_LABELS[sides]}\n\n"
+                            "将按顺序打印，每个文件单独开始；已排队或已打印的文件不会重复提交。")
+                job = await self.queue.confirm_single(owner, channel, copies=printing["copies"], sides=sides,
+                                                      permission_check=permission_check)
+                self.request_dispatch()
+                return status_text(job)
             simple = simple_command(text)
             if simple:
                 channel = source_channel if source_channel is not None else (
@@ -434,15 +457,18 @@ class RemotePrint:
                 else:
                     job = await self.queue.status_single(owner, channel, permission_check=permission_check)
                 return status_text(job)
-            if command in {"/print", "打印"}:
+            if command in {"/print", "打印", "单面打印", "双面打印", "长边双面打印", "短边双面打印"}:
+                mode = {"单面打印": "one-sided", "双面打印": "two-sided-long-edge",
+                        "长边双面打印": "two-sided-long-edge", "短边双面打印": "two-sided-short-edge"}.get(command, "default")
+                sides = await self.check_sides(mode)
                 values = argument.split(maxsplit=2)
                 if not values:
-                    job = await self.queue.confirm_single(owner, source_channel or "", copies=1, permission_check=permission_check)
+                    job = await self.queue.confirm_single(owner, source_channel or "", copies=1, sides=sides, permission_check=permission_check)
                     self.request_dispatch()
                     return status_text(job)
                 copies = int(values[1]) if len(values) > 1 else None
                 printer = values[2] if len(values) > 2 else None
-                job = await self.queue.confirm(values[0], owner, copies, printer, source_channel=source_channel, permission_check=permission_check)
+                job = await self.queue.confirm(values[0], owner, copies, printer, sides=sides, source_channel=source_channel, permission_check=permission_check)
                 self.request_dispatch()
                 return status_text(job)
             if command in {"/print_cancel", "取消"}:
@@ -470,6 +496,7 @@ class RemotePrint:
             return welcome_text()
         printer = " [打印机完整名称]" if self.config()["print_mode"] == "agent" else ""
         return (f"先发送 PDF 或图片。\n打印 任务ID [份数]{printer}\n取消 任务ID\n任务：查看你的最近任务\n打印机：查看设备状态"
+                + "\n多文件：全部打印 / 全部双面打印\n指定方式：单面打印 / 双面打印 / 短边双面打印，后面可带任务ID和份数。"
                 + "\nTelegram 仅接受私聊，支持 /print、/print_cancel、/print_jobs、/printers。\n已提交仅表示打印队列接收，不保证实际出纸。")
 
     @staticmethod
@@ -479,7 +506,7 @@ class RemotePrint:
         entries = []
         for job in jobs:
             entry = (f"{display_filename(job)} · {LABELS[job['status']]} · {job['copies']} 份\n"
-                     f"编号：{job['id']}")
+                     f"打印方式：{SIDE_LABELS.get(job.get('sides', 'default'), '未知')}\n编号：{job['id']}")
             if job["status"] in {"failed", "unknown"}:
                 entry += "\n原因：" + failure_reason(job.get("message"))
             entries.append(entry)
@@ -658,13 +685,30 @@ class RemotePrint:
             if op == "hello":
                 return await self.queue.hello(payload)
             if op == "poll":
+                capabilities = payload.get("capabilities", [])
+                if not isinstance(capabilities, list) or len(capabilities) > 10 or any(not isinstance(item, str) for item in capabilities):
+                    raise ValueError("电脑端能力无效")
+                capabilities = [item for item in capabilities if item == "sides-v1"]
                 if "printers" in payload:
                     await self.queue.hello(payload)
-                return await self.queue.poll()
+                else:
+                    self.queue.device["capabilities"] = capabilities
+                result = await self.queue.poll(agent_capabilities=capabilities)
+                rejected = result.pop("rejected", None)
+                if rejected:
+                    self.ctx.log.warning("打印任务 %s：失败，原因：%s", rejected["id"], failure_reason(rejected["message"]))
+                    try:
+                        self.spawn(self.notify_job(rejected), "print_result_notice")
+                    except Exception:
+                        self.ctx.log.warning("打印回执未发送，任务状态已保存")
+                    result["message"] = "指定单双面任务未提交，请更新电脑端至 0.0.15 或更新版本。"
+                return result
             if op == "start":
                 return await self.queue.start(payload.get("job_id"), payload.get("claim_token"))
             if op == "result":
-                job = await self.queue.result(payload.get("job_id"), payload.get("claim_token"), payload.get("status"), payload.get("spool_id", ""))
+                diagnostic = payload.get("message")
+                reason = failure_reason(diagnostic) if isinstance(diagnostic, str) and diagnostic and payload.get("status") in {"failed", "unknown"} else None
+                job = await self.queue.result(payload.get("job_id"), payload.get("claim_token"), payload.get("status"), payload.get("spool_id", ""), message=reason)
                 if job:
                     self.ctx.log.info("打印任务 %s：%s", job["id"], LABELS[job["status"]])
                     try:
@@ -728,6 +772,7 @@ class RemotePrint:
         return (f"IPP 打印机：{caps.get('name') or '未提供名称'}\n状态：{states.get(caps.get('state'), '未知')}"
                 + f"\n接受任务：{'是' if caps.get('accepting_jobs') else '否'}"
                 + "\n支持格式：" + "、".join(caps.get("formats", []))
+                + "\n单双面：" + ("、".join(SIDE_LABELS[mode] for mode in caps.get("sides_supported", []) if mode in SIDE_LABELS) or "设备未声明，不能指定单双面")
                 + ("\n图片排版：完整等比缩放，不裁切" if "fit" in caps.get("print_scaling_supported", [])
                    else "\n图片排版：设备未声明完整缩放能力，图片任务不会提交"))
 
@@ -831,7 +876,9 @@ class RemotePrint:
                 raise ValueError("打印文件内容与收件记录不一致，已停止提交")
             if grant["copies"] > self.config()["max_copies"]:
                 raise ValueError("打印份数超过当前安全上限，请重新发送并确认")
-            self.ipp.validate_document(grant["format"], grant["copies"], caps)
+            sides = grant.get("sides", "default")
+            options = {"sides": sides} if sides != "default" else {}
+            self.ipp.validate_document(grant["format"], grant["copies"], caps, **options)
             prepared, mime = await self.ipp.prepare(original, grant["format"], capabilities=caps)
             latest = self.config()
             if self.stopped or not latest["enabled"] or latest["print_mode"] != "ipp" or grant["copies"] > latest["max_copies"]:
@@ -845,7 +892,7 @@ class RemotePrint:
                     or not self.queue.route_matches(self.queue.state["jobs"][job_id])):
                 raise ValueError("打印设置在准备期间已更改，未提交任务")
             started = True
-            receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps)
+            receipt = await self.ipp.print_job(prepared, mime, job_id, grant["copies"], caps, **options)
             spool_id, status = receipt["spool_id"], "submitted"
             message = f"打印机已接收任务（编号 {spool_id}）；实际出纸请查看打印机"
         except asyncio.CancelledError:
