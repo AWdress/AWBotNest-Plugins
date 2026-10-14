@@ -1,0 +1,27 @@
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from ...api.deps import get_current_user
+from ...api.services import config_service
+from ...core.database import get_db
+from ...models import User
+from ...schemas.config import JsonPayload
+
+router = APIRouter()
+
+
+@router.get("/{key}")
+def list_option(key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if key == 'downloaders':
+        return config_service.list_all_downloader(db)
+    return config_service.get_option(key, db)
+
+
+@router.post('/')
+def save_option(payload: JsonPayload, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return config_service.save_option(payload, db)
+
+
+@router.delete("/{key}")
+def clear_config(key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return config_service.delete_option(key, db)

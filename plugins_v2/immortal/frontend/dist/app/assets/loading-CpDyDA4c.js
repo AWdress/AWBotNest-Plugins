@@ -1,0 +1,1 @@
+import{j as e}from"./index-BXoW1DzE.js";import{L as r}from"./loader-circle-DtEgUxyv.js";function i(){return e.jsxs("div",{className:"flex h-40 items-center justify-center text-muted-foreground",children:[e.jsx(r,{className:"h-5 w-5 animate-spin mr-2"}),"加载中..."]})}export{i as L};

@@ -1,0 +1,1 @@
+import{p as s,g as n}from"./config-kMzB7Mt4.js";const e="SubscribePreferenceConfig",_=[e],l={earliest_release_date:null,exclude_vr:!1,max_coactors:null,max_page:null,replace_max_page:null,is_single:!1,number_prefix_blacklist:[],keyword_blacklist:[]};function E(){return n(e)}function c(r){return s(e,r)}export{l as D,_ as S,E as g,c as s};

@@ -1,0 +1,1 @@
+import{r as o}from"./request-BXomaSTC.js";function e(t){return o({url:"/download-log/search",method:"post",data:t})}function r(){return o({url:"/download-log/state",method:"get"})}export{r as g,e as p};

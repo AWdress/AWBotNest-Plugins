@@ -1,0 +1,1 @@
+import{r as t}from"./request-BXomaSTC.js";function r(o){return t({url:`/config/${o}`,method:"get"})}function f(o){return t({url:`/config/${o}`,method:"delete"})}function i(o,e){return t({url:"/config/",method:"post",data:{key:o,payload:e}})}function u(){return t({url:"/config/downloaders",method:"get"})}export{f as d,u as f,r as g,i as p};
