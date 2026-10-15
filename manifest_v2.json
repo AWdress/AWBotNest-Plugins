@@ -3,7 +3,7 @@
     "immortal": {
       "id": "immortal",
       "name": "Immortal",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "author": "AWdress",
       "scope": "standalone",
       "instance_mode": "shared",
@@ -11,7 +11,7 @@
       "render_mode": "vue",
       "webhook": false,
       "description": "内置 Immortal 资源、影片、演员、订阅和下载管理；无需另行运行 Immortal 服务。",
-      "changelog": "v0.0.1 首次发布\n- 内置业务源码与管理界面，默认独立 SQLite，安装无需另配数据库\n- 平台管理员接口、平台任务与通知\n- 自动任务及下载默认关闭，不启动独立机器人或 HTTP 服务",
+      "changelog": "v0.0.2\n- 修复配置页开关行与平台全局样式冲突导致的文字挤压、重叠\n- 改善窄屏帮助文字换行，保留原配置和默认关闭状态\nv0.0.1 首次发布\n- 内置业务源码与管理界面，默认独立 SQLite，安装无需另配数据库\n- 平台管理员接口、平台任务与通知\n- 自动任务及下载默认关闭，不启动独立机器人或 HTTP 服务",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/immortal/icon.svg",
       "tags": ["资源管理", "订阅", "下载"],
       "requirements": ["SQLAlchemy>=2.0,<2.2", "pyquery>=2,<3", "requests>=2.32,<3", "bencoder>=0.2,<1", "jinja2>=3.1,<4", "croniter>=3,<7", "pandas>=2.2,<3", "openpyxl>=3.1,<4", "xlrd>=2,<3", "PySocks>=1.7,<2", "python-multipart>=0.0.20,<1"],

@@ -203,7 +203,7 @@ class Service:
 
     async def status_api(self, request):
         jobs = self.runtime.snapshot()
-        return {'ok': True, 'version': '0.0.1', 'database': self.database.get_engine().dialect.name,
+        return {'ok': True, 'version': '0.0.2', 'database': self.database.get_engine().dialect.name,
                 'auto_tasks': self.ctx.config.get('auto_tasks', False), 'allow_downloads': self.ctx.config.get('allow_downloads', False),
                 'notify_results': self.ctx.config.get('notify_results', False),
                 'running': [job for job in jobs if job['state'] in {'queued', 'running', 'stopping'}],

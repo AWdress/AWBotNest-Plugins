@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { createHostBridge } from './bridge.js'
 const props = defineProps({ host: { type: Object, required: true } })
-const VERSION = '0.0.1'
+const VERSION = '0.0.2'
 const tab = ref('admin')
 const tabs = [{ id: 'admin', label: '管理页面' }, { id: 'settings', label: '插件设置' }, { id: 'status', label: '运行状态' }]
 const defaults = { auto_tasks: false, allow_downloads: false, notify_results: false, database_url: '' }
@@ -113,9 +113,9 @@ onBeforeUnmount(() => { mounted = false; bridge?.close(); clearTimeout(connectTi
     <div v-show="tab === 'settings'" id="immortal-panel-settings" role="tabpanel" aria-labelledby="immortal-tab-settings">
       <header class="section-head"><div><h3>插件设置</h3><p>三个功能默认关闭。修改后保存，设置才会生效。</p></div></header>
       <fieldset :disabled="!loaded || saving" class="settings-fields">
-        <label class="toggle"><input v-model="values.auto_tasks" type="checkbox"><span><b>运行自动任务</b><small>允许运行 Immortal 内启用的定时采集和订阅任务；关闭时不自动执行。</small></span></label>
-        <label class="toggle"><input v-model="values.allow_downloads" type="checkbox"><span><b>允许提交下载</b><small>开启后才允许向已配置的下载器提交任务，可能产生下载流量。</small></span></label>
-        <label class="toggle"><input v-model="values.notify_results" type="checkbox"><span><b>任务结果通知</b><small>通过平台已有通知渠道发送，不需要重复填写 Telegram 或企业微信凭证。</small></span></label>
+        <label class="immortal-toggle-row"><input v-model="values.auto_tasks" type="checkbox"><span><b>运行自动任务</b><small>允许运行 Immortal 内启用的定时采集和订阅任务；关闭时不自动执行。</small></span></label>
+        <label class="immortal-toggle-row"><input v-model="values.allow_downloads" type="checkbox"><span><b>允许提交下载</b><small>开启后才允许向已配置的下载器提交任务，可能产生下载流量。</small></span></label>
+        <label class="immortal-toggle-row"><input v-model="values.notify_results" type="checkbox"><span><b>任务结果通知</b><small>通过平台已有通知渠道发送，不需要重复填写 Telegram 或企业微信凭证。</small></span></label>
         <label class="field"><span>数据库地址（可选）</span><input v-model="values.database_url" type="password" autocomplete="new-password" placeholder="留空：使用插件独立 SQLite 数据库"><small>默认空值，使用插件独立 SQLite 文件。外部 PostgreSQL 连接使用 postgresql:// 或 postgresql+psycopg2://；不接受外部 SQLite 文件路径。切换地址不会自动迁移旧数据。</small><small v-if="values.database_url === '********'">已保存的连接信息由平台保护。保持原样不会更改；需要更换时输入新地址。</small></label>
       </fieldset>
       <p :class="['save-message', { error: failed }]" :role="failed ? 'alert' : 'status'">{{ notice || (dirty ? '有未保存的修改。' : loaded ? '当前配置已保存。' : '配置尚未读取成功。') }}</p>
@@ -148,7 +148,12 @@ button:disabled, fieldset:disabled { opacity: .55; } button:disabled { cursor: n
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent, #14765e); outline-offset: 3px; }
 .admin-frame { display: block; width: 100%; height: min(80vh, 1000px); min-height: 610px; border: 1px solid var(--border-light, #d5dee3); border-radius: var(--radius-sm, 6px); background: var(--bg-elevated, #fff); }
 .message { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border-light, #d5dee3); margin: 12px 0; border-radius: var(--radius-sm, 6px); }.error { color: var(--danger, #b33232); }
-.settings-fields { border: 0; padding: 0; display: grid; gap: 24px; max-width: 760px; }.toggle { display: flex; align-items: start; gap: 12px; cursor: pointer; }.toggle input { width: 17px; height: 17px; accent-color: var(--accent, #14765e); margin: 3px 0 0; flex: 0 0 auto; }.toggle span { display: grid; gap: 5px; }.toggle b { font-size: 14px; font-weight: 600; } small { display: block; line-height: 1.6; max-width: 70ch; }
+.settings-fields { border: 0; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; min-width: 0; max-width: 760px; }
+/* The host's global .toggle styles a 44x24 switch, not an entire field row. */
+.immortal-toggle-row { display: flex; align-items: start; gap: 12px; min-width: 0; cursor: pointer; }
+.immortal-toggle-row input { width: 17px; height: 17px; accent-color: var(--accent, #14765e); margin: 3px 0 0; flex: 0 0 auto; }
+.immortal-toggle-row span { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.immortal-toggle-row b { font-size: 14px; font-weight: 600; } small { display: block; line-height: 1.6; max-width: 70ch; }
 .field { display: grid; gap: 8px; font-size: 14px; }.field input { width: 100%; box-sizing: border-box; border: 1px solid var(--border-light, #d5dee3); border-radius: var(--radius-sm, 6px); background: var(--bg-elevated, #fff); color: inherit; padding: 10px; font: inherit; caret-color: var(--accent, #14765e); }.field input::placeholder { color: var(--text-secondary, #52636e); opacity: 1; }
 .save-message { margin: 26px 0 12px; font-size: 13px; }.status-list { margin: 0; max-width: 680px; }.status-list div { display: grid; grid-template-columns: 130px 1fr; border-bottom: 1px solid var(--border-light, #d5dee3); padding: 12px 0; }.status-list dt { color: var(--text-secondary, #52636e); }.status-list dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }.jobs { list-style: none; padding: 0; }.jobs li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-light, #d5dee3); }.jobs span { overflow-wrap: anywhere; }
 ::selection { background: var(--accent-dim, #d2ece3); }
