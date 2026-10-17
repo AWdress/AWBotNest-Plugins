@@ -196,7 +196,7 @@ def render_messages(release):
     return chunks
 
 
-def _selected_token(ctx):
+def _selected_bot(ctx):
     settings = ctx.settings
     specs = {str(spec.id): str(spec.token or "").strip() for spec in settings.bot_specs()}
     routes = getattr(settings, "bot_routing", {}) or {}
@@ -204,13 +204,17 @@ def _selected_token(ctx):
     if route:
         for candidate in route.split(","):
             if specs.get(candidate.strip()):
-                return specs[candidate.strip()]
+                return candidate.strip(), specs[candidate.strip()]
         raise PublishError("插件指定的渠道没有可用 Telegram Bot，请在平台选择 Bot")
     selected = str(getattr(ctx, "bot_id", "") or getattr(settings, "default_bot_id", "default") or "default")
     token = specs.get(selected, "")
     if not token:
         raise PublishError("平台尚未配置当前 Telegram Bot，请先在平台添加 Bot")
-    return token
+    return selected, token
+
+
+def _selected_token(ctx):
+    return _selected_bot(ctx)[1]
 
 
 class ReleasePublisher:
@@ -274,7 +278,7 @@ class ReleasePublisher:
     async def _github_page(self, url, etag=""):
         if time.time() < self.state.get("github_retry_at", 0):
             raise PublishError("GitHub 请求限流，等待冷却后再检查；不会发布旧缓存")
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-platform-release/0.0.2",
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.3",
                    "X-GitHub-Api-Version": "2022-11-28"}
         if etag:
             headers["If-None-Match"] = etag
@@ -571,7 +575,11 @@ class ReleasePublisher:
 
 
 async def setup(ctx):
-    defaults = {"auto_check": False, "include_prereleases": False, "targets": "", "check_interval": 15, "last_result": "尚未检查"}
+    from . import __plugin__
+    from .interactions import DeveloperAssistant
+
+    defaults = {key: copy.deepcopy(field["default"]) for key, field in __plugin__["config_schema"].items()
+                if "default" in field}
     missing = {k: v for k, v in defaults.items() if k not in ctx.config or ctx.config[k] is None}
     if missing:
         ctx.update_config(missing)
@@ -580,10 +588,21 @@ async def setup(ctx):
     ctx.action("run_now", publisher.check)
     ctx.action("show_status", publisher.status)
     ctx.action("retry_uncertain", publisher.retry_uncertain)
+    assistant = DeveloperAssistant(ctx, publisher)
+    await assistant.load()
+    ctx.action("refresh_wiki", assistant.refresh_wiki)
+    if assistant.enabled:
+        # The platform's event registration uses ctx.bot_id, not bot_routing.
+        # Select the same Bot as Bot API delivery before registering the listener.
+        ctx.bot_id = _selected_bot(ctx)[0]
+        ctx.on_message(incoming=True, outgoing=False)(assistant.handle)
+    if assistant.enabled or assistant.state["replies"]:
+        assistant.start()
+        ctx.add_cleanup(assistant.close)
     if ctx.config.get("auto_check", False):
         try:
             minutes = max(5, min(1440, int(ctx.config.get("check_interval", 15))))
         except (ValueError, TypeError):
             minutes = 15
-        ctx.schedule_interval("平台发布通知·检查最新版本", publisher.check, seconds=minutes * 60)
+        ctx.schedule_interval("开发者助手·检查最新版本", publisher.check, seconds=minutes * 60)
         ctx.log.info("已启用最新版本检查：每 %s 分钟；仅通过平台 Bot 发布并置顶", minutes)

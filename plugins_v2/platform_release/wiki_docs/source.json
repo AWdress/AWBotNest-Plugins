@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "source": "https://github.com/AWdress/AWBotNest/wiki",
+  "snapshot_date": "2026-10-17",
+  "platform_version": "v2.0.1.6",
+  "hash_normalization": "utf8-lf-no-bom",
+  "pages": [
+    {
+      "slug": "Accounts-and-Notifications",
+      "file": "Accounts-and-Notifications.md",
+      "title": "账号登录与通知配置",
+      "sha256": "79b5434daa69dc3f362c76e55f13ba7acedcb021f4fffc0d891a566ad8d871ad"
+    },
+    {
+      "slug": "AI-Service",
+      "file": "AI-Service.md",
+      "title": "AI 服务：从接入到排错",
+      "sha256": "50b813b56377bfd6539f24c6b3c161f17de76a51d4df804cf6774dd81d10d21f"
+    },
+    {
+      "slug": "Cookies-and-Browser",
+      "file": "Cookies-and-Browser.md",
+      "title": "Cookie 同步与浏览器服务",
+      "sha256": "da8f3bc3745437285db5c6a725d103a159c1498759cb6687a88591684e8f02c4"
+    },
+    {
+      "slug": "First-Run",
+      "file": "First-Run.md",
+      "title": "首次使用",
+      "sha256": "82ce40d88a502d2b73d82c19bc72ae2035801ee57c88ee7731f71f4c20bbd721"
+    },
+    {
+      "slug": "Home",
+      "file": "Home.md",
+      "title": "AWBotNest V2 使用手册",
+      "sha256": "766e0280f3ac7c79beea1b8573a595122399448cb9b88a159ae544b108d33118"
+    },
+    {
+      "slug": "Installation",
+      "file": "Installation.md",
+      "title": "安装与部署",
+      "sha256": "df09dd7c3b78c4301d2302e81808ae05a2aabce494714c536e1a978e84324805"
+    },
+    {
+      "slug": "Maintenance",
+      "file": "Maintenance.md",
+      "title": "更新、备份与日常维护",
+      "sha256": "c34a4b792eeed970e1d439c819eada69c4e78cee65a7720252e1c964971dc1b3"
+    },
+    {
+      "slug": "Open-API",
+      "file": "Open-API.md",
+      "title": "开放 API",
+      "sha256": "96c0dae066e0605177b0b3b0f960380b619e33811fa6b0382575a36868a91c62"
+    },
+    {
+      "slug": "Plugin-Development",
+      "file": "Plugin-Development.md",
+      "title": "插件开发入门",
+      "sha256": "306dc2cea3cfd417e836112481ab8b335c739ad4cadb8f910b1a9473c93449bb"
+    },
+    {
+      "slug": "Plugins",
+      "file": "Plugins.md",
+      "title": "插件安装与使用",
+      "sha256": "a282ff3272c0700d76554c7f66cf87548720b513998552891c66c34e07723d3f"
+    },
+    {
+      "slug": "Troubleshooting",
+      "file": "Troubleshooting.md",
+      "title": "常见问题与故障排查",
+      "sha256": "1590fb02947cf69c5ce9cdab5d888f64e3033343958d25d3e903b5e73bc6bdf6"
+    }
+  ]
+}
