@@ -59,5 +59,6 @@ AWBotNest 官方插件仓库，包含 V1 兼容插件和 V2 插件。
 | 46 | [远程打印](plugins_v2/remote_print/README.md) | 1.0.1 | 通过平台 Telegram Bot、企业微信或微信微工作台发送 PDF、图片；自动识别横竖方向选择双面翻页，同批图片合并正反面打印，Telegram 支持双面及本批打印按钮，支持全部打印／取消及手动长短边，支持 IPP 或 Windows 打印端。 | 是 |
 | 47 | [VPS-Widget](plugins_v2/vps_widget/README.md) | 0.0.1 | 聚合十类影视榜单并匹配 TMDB，生成受只读密钥保护的 Forward 格式 Widget；Vue 榜单状态、配置与地址页，使用平台网络与存储，无额外 Node 服务，自动更新默认关闭。 | 是 |
 | 48 | [Immortal](plugins_v2/immortal/README.md) | 0.0.2 | 源码内置的资源、影片、演员、订阅及下载管理，默认独立 SQLite，无需另配数据库或运行 Immortal 服务；中文分组配置页，使用平台任务和通知，自动功能默认关闭。 | 是 |
+| 49 | [平台发布通知](plugins_v2/platform_release/README.md) | 0.0.1 | 监测 AWBotNest 最新正式 Release，通过平台 Telegram Bot 向指定群组或频道发布更新内容并置顶；缓存防倒退、逐目标防重，自动检查默认关闭，默认间隔 15 分钟。 | 是 |
 
 `plugins/` 保留 V1 版本，`plugins_v2/` 为 V2 发布包。
