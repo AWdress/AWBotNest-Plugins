@@ -1,7 +1,7 @@
 {
   "name": "awbotnest-telegram-assistant-fe",
   "private": true,
-  "version": "0.0.12",
+  "version": "0.0.16",
   "type": "module",
   "scripts": {
     "dev": "vite",

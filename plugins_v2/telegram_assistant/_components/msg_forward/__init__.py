@@ -88,6 +88,9 @@ __plugin__ = {
                 "nkw": {"type": "string", "label": "排除词"},
                 "sender": {"type": "string", "label": "只转谁发的"},
                 "copy": {"type": "boolean", "label": "复制搬运", "default": False},
+                "pin": {"type": "boolean", "label": "自动置顶", "default": False},
+                "history_enabled": {"type": "boolean", "label": "全量转发历史消息", "default": False},
+                "history_interval_sec": {"type": "number", "label": "全量发送间隔（秒）", "default": 3, "min": 1, "max": 3600},
             },
         },
         "backfill": {
@@ -113,6 +116,44 @@ __plugin__ = {
 }
 
 _URL_RE=re.compile(r"https?://",re.I)
+
+class _DeliveryHistory:
+    """保留最近成功投递的稳定顺序，防止检查点随机丢失新记录。"""
+    def __init__(self,values=(),limit=5000,ledger_path=None):
+        self.limit=limit
+        self._keys={}
+        self._ledger=None
+        if ledger_path is not None:
+            import sqlite3
+            self._ledger=sqlite3.connect(str(ledger_path),timeout=2)
+            self._ledger.execute("PRAGMA journal_mode=WAL")
+            self._ledger.execute("CREATE TABLE IF NOT EXISTS delivered (key TEXT PRIMARY KEY) WITHOUT ROWID")
+        for value in values:
+            prefix,sep,ids=value.rpartition(":")
+            if sep and "," in ids:
+                for message_id in ids.split(","):self.add(f"{prefix}:{message_id}")
+            else:self.add(value)
+        self.flush()
+
+    def __contains__(self,key):
+        return key in self._keys or bool(self._ledger is not None and self._ledger.execute("SELECT 1 FROM delivered WHERE key=?",(key,)).fetchone())
+    def __iter__(self):return iter(self._keys)
+    def __len__(self):return len(self._keys)
+    def add(self,key):
+        if self._ledger is not None:self._ledger.execute("INSERT OR IGNORE INTO delivered(key) VALUES (?)",(key,))
+        self._keys.pop(key,None)
+        self._keys[key]=None
+        if len(self._keys)>self.limit:self._keys.pop(next(iter(self._keys)))
+    def difference_update(self,values):
+        for key in values:
+            self._keys.pop(key,None)
+            if self._ledger is not None:self._ledger.execute("DELETE FROM delivered WHERE key=?",(key,))
+    def flush(self):
+        if self._ledger is not None:self._ledger.commit()
+    def close(self):
+        if self._ledger is not None:
+            self._ledger.close()
+            self._ledger=None
 def _split(raw):
     if isinstance(raw,(list,tuple,set)):return [str(x).strip() for x in raw if str(x).strip()]
     return [x.strip() for x in str(raw or "").replace("，",",").split(",") if x.strip()]
@@ -270,6 +311,66 @@ async def _copy(client,target,messages,reply_to=None,log=None,delivery=None):
         delivery["message_ids"]=_delivery_ids(result)
     return result
 
+async def _pin_delivery(client,target,message_ids,log):
+    """置顶已投递的第一条消息；失败不改变投递结果。"""
+    from telethon.tl.types import Channel, Chat, User
+
+    ids=[value for value in message_ids if isinstance(value,int) and value>0]
+    if not ids:return
+    try:
+        entity=await client.get_entity(target)
+        private=isinstance(entity,User)
+        if isinstance(entity,(Channel,Chat)):
+            permissions=await client.get_permissions(entity,"me")
+            if not (getattr(permissions,"is_creator",False) or getattr(permissions,"is_admin",False)):
+                log.warning("[消息转发助手] %s 未置顶：当前账号不是管理员或创建者",target)
+                return
+        elif not private:
+            raise ValueError("目标会话类型不支持置顶")
+        await client.pin_message(entity,ids[0],notify=False,pm_oneside=private)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:
+        log.warning("[消息转发助手] %s 消息 %s 置顶失败：%s: %s",target,ids[0],type(error).__name__,error)
+
+async def _canonical_peer(client,value):
+    from telethon import utils
+    try:return utils.get_peer_id(await client.get_input_entity(value))
+    except asyncio.CancelledError:raise
+    except Exception:return value
+
+async def _deliver_rule(client,target,messages,rule,sent,log,delivery_lock=None,persist_sent=None):
+    """实时、遗漏和全量共用投递锁，成功投递与置顶分开处理。"""
+    source=_peer(rule.get("source"))
+    ids=",".join(str(getattr(message,"id",0)) for message in messages)
+    legacy_key=f"{source}:{target}:{ids}"
+    async with delivery_lock if delivery_lock is not None else asyncio.Lock():
+        canonical_source=getattr(messages[0],"chat_id",None) or source
+        canonical_target=await _canonical_peer(client,target)
+        if not isinstance(canonical_source,int):canonical_source=await _canonical_peer(client,source)
+        key=f"{canonical_source}:{canonical_target}:{ids}"
+        if canonical_source==canonical_target or key in sent or legacy_key in sent:return None
+        # 相册边界可能落在遗漏回查的条数限制内，逐消息去重避免部分相册重复。
+        pending=[message for message in messages
+                 if f"{canonical_source}:{canonical_target}:{message.id}" not in sent
+                 and f"{source}:{target}:{message.id}" not in sent]
+        if not pending:return None
+        delivery={}
+        if rule.get("copy"):
+            await _copy(client,target,pending,log=log,delivery=delivery)
+        else:
+            await _forward(client,target,pending,log,delivery)
+        sent.add(key)
+        for message in pending:sent.add(f"{canonical_source}:{canonical_target}:{message.id}")
+        if persist_sent is not None:
+            try:await persist_sent()
+            except asyncio.CancelledError:raise
+            except Exception as error:
+                log.warning("[消息转发助手] 转发已完成，但去重检查点保存失败：%s",error)
+    if rule.get("pin",False):
+        await _pin_delivery(client,target,delivery.get("message_ids") or [],log)
+    return delivery
+
 def _repeat_topic(event,source):
     """取得论坛话题根消息；普通回复不被误当成话题。"""
     for message in (getattr(event,"message",None),source):
@@ -338,7 +439,7 @@ def _latest_legacy_copy_keys(rules,sent):
             if candidates:selected.add(max(candidates)[2])
     return selected
 
-async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True):
+async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True, delivery_lock=None, persist_sent=None):
     """回查来源历史并补发遗漏消息，返回 (sent_count, skipped_count)。"""
     sent_count = skipped = 0
     limit = max(1, min(int(limit or 100), 500))
@@ -373,12 +474,10 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
                         skipped += 1
                         continue
                     try:
-                        delivery={}
-                        if rule.get("copy"):
-                            await _copy(client,target,messages,log=log,delivery=delivery)
-                        else:
-                            await _forward(client,target,messages,log,delivery)
-                        sent.add(dedupe_key)
+                        delivery=await _deliver_rule(client,target,messages,rule,sent,log,delivery_lock,persist_sent)
+                        if delivery is None:
+                            skipped += 1
+                            continue
                         sent_count += 1
                         log.info("[消息转发助手] 补全 %s (%s) -> %s (%s)，来源消息=%s，目标消息=%s，模式=%s", await resolve(client, source), source_id, await resolve(client, target), target, ",".join(map(str, ids)),",".join(map(str,delivery.get("message_ids") or [])),delivery.get("mode","未知"))
                     except asyncio.CancelledError:
@@ -392,15 +491,22 @@ async def _backfill(client, rules, limit, sent, log, resolve, forward_album=True
     return sent_count, skipped
 
 async def setup(ctx):
+    from pathlib import Path
     _migrate_zf_config(ctx)
     _normalize_repeat_mode(ctx)
     seen={};names={}
-    sent = set(str(x) for x in (await ctx.storage.get("backfill_sent", []) or []))
+    data_dir=getattr(ctx,"data_dir",None)
+    ledger_path=Path(data_dir)/"forward_deliveries.sqlite3" if data_dir is not None else None
+    sent = _DeliveryHistory((str(x) for x in (await ctx.storage.get("backfill_sent", []) or [])),ledger_path=ledger_path)
+    ctx.add_cleanup(sent.close)
     backfill_task = None
     backfill_lock = asyncio.Lock()
+    delivery_lock = asyncio.Lock()
+    history_task = None
     async def persist_sent():
         # Keep the checkpoint bounded while surviving reloads.
-        await ctx.storage.set("backfill_sent", list(sent)[-5000:])
+        sent.flush()
+        await ctx.storage.set("backfill_sent", list(sent))
     try:
         migrated=bool(await ctx.storage.get("strict_copy_v214_migrated",False))
         pending=set(str(x) for x in (await ctx.storage.get("strict_copy_v214_pending",[]) or []))
@@ -436,6 +542,7 @@ async def setup(ctx):
             count,skipped=await _backfill(
                 ctx.user,rules,cfg.get("backfill_limit",100),sent,
                 ctx.log,resolve,bool(cfg.get("forward_album",True)),
+                delivery_lock,persist_sent,
             )
             await persist_sent()
             message=f"{trigger}遗漏检查完成：补发 {count} 组，跳过 {skipped} 组"
@@ -467,18 +574,9 @@ async def setup(ctx):
             if source is None or not _source_matches(event.chat_id,chat,source) or not _passes(rule,messages,text,sender):continue
             for target in filter(lambda x:x is not None,(_peer(x) for x in _split(rule.get("targets")))):
                 try:
-                    delivery={}
-                    if rule.get("copy"):
-                        await _copy(event.client,target,messages,log=ctx.log,delivery=delivery)
-                    else:
-                        await _forward(event.client,target,messages,ctx.log,delivery)
+                    delivery=await _deliver_rule(event.client,target,messages,rule,sent,ctx.log,delivery_lock,persist_sent)
+                    if delivery is None:continue
                     delivery_mode=delivery.get("mode","未知")
-                    ids = tuple(getattr(message, "id", 0) for message in messages)
-                    sent.add(f"{source}:{target}:{','.join(map(str, ids))}")
-                    try:
-                        await persist_sent()
-                    except Exception as error:
-                        ctx.log.warning("[消息转发助手] 转发已完成，但去重检查点保存失败: %r", error)
                     ctx.log.info("[消息转发助手] %s (%s) -> %s (%s)，目标消息=%s，模式=%s",_label(chat,event.chat_id),event.chat_id,await resolve(event.client,target),target,",".join(map(str,delivery.get("message_ids") or [])),delivery_mode)
                 except asyncio.CancelledError:raise
                 except Exception as error:ctx.log.warning("[消息转发助手] 转发失败 %s -> %s: %r",event.chat_id,target,error)
@@ -547,6 +645,38 @@ async def setup(ctx):
     async def api_backfill(request):
         return await action_backfill()
 
+    async def history_worker():
+        from .history import run_history
+        try:
+            cfg=ctx.config
+            result=await run_history(
+                ctx.user,cfg.get("rules") or [],ctx.storage,ctx.log,resolve,sent,
+                persist_sent,delivery_lock,forward_album=bool(cfg.get("forward_album",True)),
+            )
+            ctx.log.info("[消息转发助手] 全量转发结束：发送 %s 组，跳过 %s 组，暂停 %s 个目标",result["sent"],result["skipped"],result["failed"])
+        except asyncio.CancelledError:raise
+        except Exception as error:
+            ctx.log.warning("[消息转发助手] 全量转发已暂停，保留进度：%r",error)
+
+    @ctx.action("history")
+    async def action_history():
+        nonlocal history_task
+        if not ctx.config.get("enable",False):return {"ok":False,"message":"请先启用规则转发并保存"}
+        if not ctx.user:return {"ok":False,"message":"用户客户端尚未连接"}
+        if not any(isinstance(rule,dict) and rule.get("history_enabled",False) for rule in ctx.config.get("rules") or []):
+            return {"ok":False,"message":"请先在规则中开启全量转发并保存"}
+        if history_task is not None and not history_task.done():
+            return {"ok":False,"message":"全量转发正在运行，不会重复启动"}
+        history_task=ctx.create_task(history_worker(),name="消息转发助手：全量历史转发")
+        return {"ok":True,"message":"已开始全量转发；按已保存进度续传，已完成的目标不会重复转发"}
+
+    @ctx.on_api("/history",methods=["POST"])
+    async def api_history(request):
+        return await action_history()
+
+    if ctx.config.get("enable",False) and ctx.user and any(isinstance(rule,dict) and rule.get("history_enabled",False) for rule in ctx.config.get("rules") or []):
+        await action_history()
+
     if ctx.config.get("auto_backfill",True) and ctx.config.get("enable",False) and ctx.user:
         try:interval=max(1,min(int(ctx.config.get("backfill_interval_min",10) or 10),1440))
         except (TypeError,ValueError):interval=10
@@ -560,6 +690,8 @@ async def setup(ctx):
     def cleanup_backfill():
         if backfill_task is not None and not backfill_task.done():
             backfill_task.cancel()
+        if history_task is not None and not history_task.done():
+            history_task.cancel()
     ctx.add_cleanup(cleanup_backfill)
 
 async def teardown(ctx):ctx.log.info("[消息转发助手] 已停用")

@@ -68,6 +68,7 @@ const activeTab = ref('forward')
 const loading = ref(true)
 const saving = ref(false)
 const backfilling = ref(false)
+const startingHistory = ref(false)
 const loadError = ref('')
 const savedSnapshot = ref('')
 
@@ -76,6 +77,7 @@ function toast(type, message) {
 }
 
 function normalizeRule(rule = {}) {
+  const interval = Number(rule.history_interval_sec ?? 3)
   return {
     source: String(rule.source || ''),
     targets: String(rule.targets || ''),
@@ -84,6 +86,9 @@ function normalizeRule(rule = {}) {
     nkw: String(rule.nkw || ''),
     sender: String(rule.sender || ''),
     copy: Boolean(rule.copy),
+    pin: Boolean(rule.pin),
+    history_enabled: Boolean(rule.history_enabled),
+    history_interval_sec: Number.isFinite(interval) ? Math.min(3600, Math.max(1, interval)) : 3,
   }
 }
 
@@ -234,6 +239,22 @@ async function runBackfill() {
   }
 }
 
+async function runHistory() {
+  if (dirty.value) {
+    toast('error', '请先保存当前修改，再继续全量转发')
+    return
+  }
+  startingHistory.value = true
+  try {
+    const result = await props.host.callApi('/history', {method: 'POST', body: {}})
+    toast(result?.ok === false ? 'error' : 'success', result?.message || '全量转发已启动')
+  } catch (error) {
+    toast('error', `启动全量转发失败：${error.message || error}`)
+  } finally {
+    startingHistory.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -282,19 +303,24 @@ onMounted(load)
           <div class="subsection">
             <div class="subsection-head">
               <div><h4>转发规则</h4><span>{{ form.forward_rules.length }} 条</span></div>
-              <button class="secondary" type="button" @click="addRule">添加规则</button>
+              <div class="rule-actions"><button class="secondary" type="button" :disabled="!form.forward_enable || !form.forward_rules.some(rule => rule.history_enabled) || startingHistory" @click="runHistory">{{ startingHistory ? '正在启动…' : '继续全量转发' }}</button><button class="secondary" type="button" @click="addRule">添加规则</button></div>
             </div>
             <div v-if="!form.forward_rules.length" class="empty">尚未添加转发规则</div>
             <div v-else class="rule-list">
               <article v-for="(rule, index) in form.forward_rules" :key="index" class="rule-item">
                 <div class="rule-head"><b>规则 {{ index + 1 }}</b><button class="text-danger" type="button" @click="removeRule(index)">删除</button></div>
                 <div class="form-grid">
-                  <label><span>来源会话</span><input v-model.trim="rule.source" placeholder="群组 ID 或用户名"></label>
-                  <label><span>转发目标</span><input v-model.trim="rule.targets" placeholder="多个目标用逗号分隔"></label>
+                  <label><span>来源会话</span><input v-model.trim="rule.source" placeholder="群组/频道 ID 或 @用户名"></label>
+                  <label><span>转发目标</span><input v-model.trim="rule.targets" placeholder="用户、Bot、群组或频道，逗号分隔"></label>
                   <label><span>包含关键词</span><input v-model.trim="rule.kw" placeholder="留空为不限"></label>
                   <label><span>排除关键词</span><input v-model.trim="rule.nkw" placeholder="留空为不限"></label>
                   <label><span>限定发送者</span><input v-model.trim="rule.sender" placeholder="用户 ID 或用户名"></label>
                   <label class="inline-check"><input v-model="rule.copy" type="checkbox"><span>复制搬运，不显示转发来源</span></label>
+                  <label class="inline-check"><input v-model="rule.pin" type="checkbox"><span>自动置顶</span></label>
+                  <label class="inline-check"><input v-model="rule.history_enabled" type="checkbox"><span>全量转发历史消息</span></label>
+                  <label><span>全量发送间隔（秒）</span><input v-model.number="rule.history_interval_sec" type="number" min="1" max="3600" step="1" :disabled="!rule.history_enabled"></label>
+                  <p class="rule-help wide">自动置顶默认关闭。群组/频道需当前账号为管理员或创建者且有置顶权限；用户或 Bot 私聊仅置顶自己这一侧。相册只置顶第一条。</p>
+                  <p class="rule-help wide">全量转发默认关闭，间隔默认 3 秒（1～3600 秒）。开启并保存后，从旧到新转发当时的历史，遵守本规则筛选；已转发内容跳过，重启后续传，完成后不重跑。关闭并保存可暂停；失败后点“继续全量转发”。Telegram 限速时会延长等待。</p>
                 </div>
                 <fieldset class="type-field"><legend>消息类型</legend><label v-for="type in MESSAGE_TYPES" :key="type.value"><input v-model="rule.types" type="checkbox" :value="type.value"><span>{{ type.label }}</span></label></fieldset>
               </article>
@@ -393,5 +419,6 @@ onMounted(load)
 </template>
 
 <style scoped>
+.rule-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.rule-help{color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}.form-grid input:disabled{opacity:.55;cursor:not-allowed}@media(max-width:620px){.subsection-head{flex-wrap:wrap}.rule-actions{justify-content:flex-start}}
 *{box-sizing:border-box}.assistant-shell{--bg:#0c141f;--surface:#111c2a;--surface-2:#162334;--line:#29394e;--line-soft:#202f42;--text:#edf3fb;--muted:#9eacbd;--accent:#36a3e8;--accent-strong:#178bd4;--green:#61d6a2;--danger:#ff8f99;min-width:0;min-height:620px;padding:22px 22px max(18px,env(safe-area-inset-bottom));color:var(--text);background:var(--bg);font-family:inherit;font-size:14px;line-height:1.5;letter-spacing:0;accent-color:var(--accent)}.assistant-shell *{letter-spacing:0}.assistant-shell ::selection{color:#fff;background:#197db8}.page-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 2px 18px;border-bottom:1px solid var(--line)}h2,h3,h4,p{margin:0}h2{font-size:22px;line-height:1.25}h3{font-size:19px;line-height:1.3}h4{font-size:15px}.page-head p,.panel-head p{margin-top:4px;color:var(--muted);font-size:12px}.save-state{flex:0 0 auto;padding:6px 10px;border:1px solid #2e5748;border-radius:999px;color:#9ce5c2;background:#112a22;font-size:12px}.save-state.changed{border-color:#755f32;color:#f0ce83;background:#2b2416}.alert{margin-top:16px;padding:12px 14px;border:1px solid #773e48;border-radius:8px;color:#ffc2c8;background:#2a171d;overflow-wrap:anywhere}.loading{padding:56px 20px;color:var(--muted);text-align:center}.workspace{display:grid;grid-template-columns:188px minmax(0,1fr);gap:20px;margin-top:20px}.section-nav{display:flex;flex-direction:column;gap:6px;align-self:start;position:sticky;top:16px}.section-nav button{display:grid;grid-template-columns:1fr 8px;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 12px;border:1px solid transparent;border-radius:8px;color:#aebaca;background:transparent;font:inherit;text-align:left;cursor:pointer}.section-nav button:hover{color:var(--text);background:#121e2d}.section-nav button:focus-visible,.primary:focus-visible,.secondary:focus-visible,.text-danger:focus-visible,input:focus-visible,select:focus-visible,.switch:has(input:focus-visible),.feature-switch:has(input:focus-visible){outline:2px solid #77c5f4;outline-offset:2px}.section-nav button.active{border-color:#315575;color:#f3f8ff;background:#15283a}.section-nav i{width:7px;height:7px;border-radius:50%;background:#4b5a6c}.section-nav i.on{background:var(--green)}.panel{min-width:0;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}.panel-head{padding:20px 22px;border-bottom:1px solid var(--line-soft)}.switch-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:18px 22px}.switch,.feature-switch{display:flex;align-items:center;justify-content:space-between;gap:16px;min-width:0;cursor:pointer}.switch{min-height:64px;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:#0e1825}.switch span,.feature-switch span{min-width:0}.switch b,.switch small,.feature-switch b,.feature-switch small{display:block}.switch b,.feature-switch b{font-size:13px}.switch small,.feature-switch small{margin-top:3px;color:var(--muted);font-size:11px;line-height:1.4}.switch input,.feature-switch input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}.switch>i,.feature-switch>i{position:relative;flex:0 0 38px;width:38px;height:22px;border:1px solid #456078;border-radius:11px;background:#1b2938}.switch>i::after,.feature-switch>i::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#91a0b2;transition:left .16s ease-out,background-color .16s ease-out}.switch input:checked+i,.feature-switch input:checked+i{border-color:#3ba8eb;background:#187fbe}.switch input:checked+i::after,.feature-switch input:checked+i::after{left:19px;background:#fff}.subsection,.feature-group{padding:20px 22px;border-top:1px solid var(--line-soft)}.subsection-head,.rule-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.subsection-head{margin-bottom:14px}.subsection-head>div{display:flex;align-items:center;gap:8px}.subsection-head span{color:var(--muted);font-size:12px}.secondary,.primary{min-height:40px;padding:0 14px;border:1px solid #38506a;border-radius:8px;color:var(--text);background:#162538;font:inherit;font-weight:650;cursor:pointer}.secondary:hover:not(:disabled){border-color:#5795c4;background:#1a2e45}.primary{min-width:112px;border-color:var(--accent-strong);color:#fff;background:var(--accent-strong)}.primary:hover:not(:disabled){background:#2499dc}.secondary:disabled,.primary:disabled{opacity:.45;cursor:not-allowed}.empty{padding:24px;border:1px dashed #35485f;border-radius:8px;color:var(--muted);text-align:center}.rule-list{display:grid;gap:12px}.rule-item{padding:15px;border:1px solid var(--line);border-radius:8px;background:#0e1825}.rule-head{padding-bottom:12px}.text-danger{min-height:36px;padding:0 8px;border:0;color:var(--danger);background:transparent;font:inherit;cursor:pointer}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.form-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.form-grid label{min-width:0}.form-grid label>span,.type-field legend{display:block;margin-bottom:6px;color:#aebaca;font-size:12px}input:not([type=checkbox]),select{width:100%;height:42px;padding:0 11px;border:1px solid #344962;border-radius:7px;color:var(--text);background:#0a1420;font:inherit;outline:none}input[readonly]{color:#8f9dae;background:#101923}input::placeholder{color:#6f7e90;opacity:1}select{cursor:pointer}.inline-check{display:flex!important;align-items:center;gap:9px;min-height:42px;padding-top:19px;color:#c7d0dc;cursor:pointer}.inline-check input,.type-field input{flex:0 0 auto;width:18px;height:18px;margin:0}.inline-check span{margin:0!important;color:inherit!important;font-size:13px!important}.type-field{display:flex;align-items:center;flex-wrap:wrap;gap:8px 14px;margin:14px 0 0;padding:12px;border:1px solid var(--line-soft);border-radius:7px}.type-field legend{padding:0 5px;margin:0}.type-field label{display:flex;align-items:center;gap:6px;cursor:pointer}.type-field span{font-size:12px}.wide{grid-column:1/-1}.feature-group:first-of-type{border-top:0}.feature-switch{min-height:48px;margin-bottom:16px}.primary-switch{padding:18px 22px;margin:0;border-bottom:1px solid var(--line-soft)}.primary-switch+.form-grid{padding:20px 22px}.avatar-grid,.nickname-grid{align-items:end}.template-help{padding:10px 12px;border:1px solid var(--line-soft);border-radius:7px;color:#9fb0c3;background:#0e1825;font-size:12px;overflow-wrap:anywhere}.save-bar{position:sticky;z-index:3;bottom:0;display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-top:18px;padding:12px 0 max(4px,env(safe-area-inset-bottom));border-top:1px solid var(--line-soft);background:var(--bg)}.save-bar span{color:var(--muted);font-size:12px}button,input,select{font-family:inherit}@media(max-width:900px){.workspace{grid-template-columns:1fr}.section-nav{position:static;display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));overflow-x:auto;padding-bottom:3px}.section-nav button{white-space:nowrap}.form-grid.three{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:620px){.assistant-shell{min-height:0;padding:16px 12px max(14px,env(safe-area-inset-bottom))}.page-head{align-items:flex-start}.save-state{max-width:132px;text-align:center}.workspace{gap:14px;margin-top:14px}.section-nav{grid-template-columns:repeat(4,136px);margin-inline:-2px}.panel-head,.subsection,.feature-group,.switch-grid,.primary-switch,.primary-switch+.form-grid{padding-inline:14px}.switch-grid,.form-grid,.form-grid.three{grid-template-columns:1fr}.inline-check{padding-top:0}.wide{grid-column:auto}.rule-item{padding:12px}.save-bar{justify-content:space-between}.save-bar .primary{min-width:132px}}@media(pointer:coarse){.section-nav button,.secondary,.primary,.text-danger,input:not([type=checkbox]),select{min-height:46px}}@media(forced-colors:active){.panel,.rule-item,.switch,input,select,.secondary,.primary{border:1px solid CanvasText}.section-nav i.on{background:Highlight}}
 </style>
