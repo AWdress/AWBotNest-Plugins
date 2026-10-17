@@ -1,4 +1,4 @@
-"""Bot-only developer support; persistent deletion applies only to our replies."""
+"""Bot-only support; clean up our replies and successful keyword triggers only."""
 from __future__ import annotations
 
 import asyncio
@@ -6,6 +6,7 @@ import copy
 import html
 import re
 import time
+from datetime import datetime, timezone
 
 from .core import BotError, PublishError, _pieces, _selected_bot, parse_targets
 from .wiki import WIKI, WikiLibrary
@@ -52,6 +53,7 @@ class DeveloperAssistant:
         self.closed = False
         self.cooldown = {}
         self.clients = {}
+        self.bot_usernames = {}
         self.version_cache = None
 
     @property
@@ -70,13 +72,21 @@ class DeveloperAssistant:
                 or not isinstance(value.get("recent"), dict) or not isinstance(value.get("feedback"), dict)):
             raise PublishError("回复记录格式异常，请保留插件数据并检查存储；未执行自动删除")
         for record in value["replies"]:
-            if (not isinstance(record, dict) or record.get("kind") != "temporary_reply"
+            if (not isinstance(record, dict) or record.get("kind") not in {"temporary_reply", "keyword_trigger"}
                     or not isinstance(record.get("bot_spec"), str)
                     or not all(type(record.get(key)) is int and record[key] > 0 for key in ("bot_id", "message_id"))
                     or type(record.get("chat_id")) is not int or record["chat_id"] == 0
                     or not all(type(record.get(key)) in (int, float) and 0 < record[key] < 1e12
                                for key in ("created_at", "due_at"))):
                 raise PublishError("待删记录无效，已停止清理，避免删除无关消息")
+            if record["kind"] == "keyword_trigger":
+                reply_ids = record.get("reply_message_ids")
+                if (not isinstance(reply_ids, list) or not 1 <= len(reply_ids) <= 10
+                        or any(type(mid) is not int or mid <= 0 or mid == record["message_id"] for mid in reply_ids)
+                        or len(set(reply_ids)) != len(reply_ids)
+                        or type(record.get("source_sent_at")) not in (int, float)
+                        or not 0 < record["source_sent_at"] <= record["created_at"]):
+                    raise PublishError("关键词原消息清理记录无效，已停止清理，避免删除无关消息")
         self.state = value
         self._prune()
         await self.wiki.load()
@@ -145,7 +155,26 @@ class DeveloperAssistant:
             if not getattr(me, "bot", False) or getattr(me, "id", None) != bot_id:
                 raise PublishError("接收消息的 Bot 与平台指定 Bot 不一致，未作回复")
             self.clients[id(client)] = (bot_id, time.monotonic())
+            self.bot_usernames[bot_id] = str(getattr(me, "username", "") or "").casefold()
         return spec, token, bot_id
+
+    def _question_text(self, text, bot_id):
+        """Respect commands addressed to other Bots; strip only our own mention."""
+        username = self.bot_usernames.get(bot_id, "")
+        target = re.match(r"^/[^\s@]+@([A-Za-z0-9_]+)(?=\s|$)", text)
+        if target and target[1].casefold() != username:
+            return text, False, True
+        command = re.match(r"^/(?:wiki|问答|提问)(?:@[A-Za-z0-9_]+)?(?=\s|$)", text, re.I)
+        if command:
+            if self.ctx.config.get("wiki_enabled", False):
+                return text[command.end():].strip(), True, False
+            return text, False, False
+        addressed = False
+        if username:
+            pattern = r"(?<![A-Za-z0-9_@])@" + re.escape(username) + r"(?![A-Za-z0-9_])"
+            addressed = bool(re.search(pattern, text, re.I))
+            text = re.sub(pattern, " ", text, flags=re.I).strip(" \t\r\n:：,，")
+        return text, addressed, False
 
     async def _claim(self, key, sender_id, *, feedback=False):
         async with self.lock:
@@ -184,9 +213,9 @@ class DeveloperAssistant:
 
     async def _reply(self, event, identity, markup):
         async with self.reply_lock:
-            await self._reply_locked(event, identity, markup)
+            return await self._reply_locked(event, identity, markup)
 
-    async def _reply_locked(self, event, identity, markup):
+    async def _reply_locked(self, event, identity, markup, *, cleanup_delay=None):
         spec, token, bot_id = identity
         seconds = _int(self.ctx.config.get("reply_delete_seconds", 60), 60, 0, 86400)
         if seconds and len(self.state["replies"]) >= MAX_QUEUE:
@@ -205,13 +234,76 @@ class DeveloperAssistant:
                 now = time.time()
                 self.state["replies"].append({"kind": "temporary_reply", "bot_spec": spec, "bot_id": bot_id,
                                                "chat_id": event.chat_id, "message_id": sent["message_id"],
-                                               "created_at": now, "due_at": now + seconds, "attempts": 0})
+                                               "created_at": now, "due_at": now + (cleanup_delay or seconds), "attempts": 0})
                 try:
                     await self._save()
                 except Exception:
                     # Keep the in-memory entry so the worker can retry persistence/cleanup.
                     self.ctx.log.warning("临时回复已发送，但清理记录未保存；重启后可能需要手动删除")
                 self.wakeup.set()
+        return sent["message_id"]
+
+    async def _keyword_reply(self, event, identity, reply):
+        parts = list(_pieces(reply, 3500))
+        async with self.reply_lock:
+            seconds = _int(self.ctx.config.get("reply_delete_seconds", 60), 60, 0, 86400)
+            if seconds and len(self.state["replies"]) + len(parts) + 1 > MAX_QUEUE:
+                raise PublishError("关键词回复清理队列容量不足，暂停新回复，等待清理完成")
+            reply_ids = []
+            try:
+                for part in parts:
+                    # Leave crash-recoverable records, but don't let a short
+                    # timer delete the first fragment while sending the rest.
+                    reply_ids.append(await self._reply_locked(
+                        event, identity, html.escape(part), cleanup_delay=max(360, seconds)))
+            finally:
+                if seconds and reply_ids:
+                    async with self.lock:
+                        now = time.time()
+                        for record in self.state["replies"]:
+                            if (record["kind"] == "temporary_reply" and record["bot_id"] == identity[2]
+                                    and record["chat_id"] == event.chat_id and record["message_id"] in reply_ids):
+                                record["due_at"] = now + seconds
+                        await self._save()
+                        self.wakeup.set()
+            # No source deletion for a partial/ambiguous send, nor for version
+            # lookup errors. Only complete, acknowledged keyword replies get here.
+            await self._queue_keyword_source(event, identity, reply_ids, seconds=seconds)
+
+    async def _queue_keyword_source(self, event, identity, reply_ids, *, seconds=None):
+        seconds = _int(self.ctx.config.get("reply_delete_seconds", 60), 60, 0, 86400) if seconds is None else seconds
+        if not seconds or not reply_ids:
+            return
+        spec, _, bot_id = identity
+        now = time.time()
+        date = getattr(event.message, "date", None)
+        if isinstance(date, datetime):
+            source_sent_at = (date if date.tzinfo else date.replace(tzinfo=timezone.utc)).timestamp()
+            source_sent_at = min(now, source_sent_at)
+        else:
+            source_sent_at = now
+        if now + seconds - source_sent_at >= DELETE_WINDOW:
+            self.ctx.log.warning("关键词触发消息将在清理前超过可删除时限，保留原消息")
+            return
+        async with self.lock:
+            if len(self.state["replies"]) >= MAX_QUEUE:
+                raise PublishError("关键词原消息清理队列已满，保留原消息")
+            # Count the timer from completion of the complete reply, not its
+            # first fragment; all related messages share the same due time.
+            due_at = now + seconds
+            for record in self.state["replies"]:
+                if (record["kind"] == "temporary_reply" and record["bot_id"] == bot_id
+                        and record["chat_id"] == event.chat_id and record["message_id"] in reply_ids):
+                    record["due_at"] = due_at
+            self.state["replies"].append({"kind": "keyword_trigger", "bot_spec": spec, "bot_id": bot_id,
+                                           "chat_id": event.chat_id, "message_id": event.id,
+                                           "reply_message_ids": reply_ids, "source_sent_at": source_sent_at,
+                                           "created_at": now, "due_at": due_at, "attempts": 0})
+            try:
+                await self._save()
+            except Exception:
+                self.ctx.log.warning("关键词回复已发送，但原消息清理记录未保存；重启后可能需要手动删除")
+            self.wakeup.set()
 
     def _keyword(self, text):
         if not self.ctx.config.get("keyword_enabled", False):
@@ -325,7 +417,7 @@ class DeveloperAssistant:
         text = getattr(event, "raw_text", "")
         sender_id = getattr(event, "sender_id", None)
         if (message is None or not isinstance(text, str) or not text.strip() or len(text) > 16000
-                or type(sender_id) is not int or sender_id <= 0 or type(getattr(event, "id", None)) is not int
+                or type(sender_id) is not int or sender_id <= 0 or type(getattr(event, "id", None)) is not int or event.id <= 0
                 or getattr(message, "out", False) or getattr(event, "out", False) or getattr(message, "post", False)
                 or getattr(message, "action", None) or getattr(message, "edit_date", None)):
             return
@@ -340,13 +432,16 @@ class DeveloperAssistant:
             if sender_id == identity[2]:
                 return
             text = text.strip()
+            text, addressed, other_bot = self._question_text(text, identity[2])
+            if other_bot:
+                return
             feedback = bool(self.ctx.config.get("bug_feedback_enabled", False))
             is_feedback = feedback and text.startswith("#bug反馈")
             custom = None if is_feedback else self._keyword(text)
             bug_help = feedback and bool(re.search(r"(?i)\bbug\b|反馈|报错|无法|没反应|出错|失败|故障", text))
-            question = bool(getattr(event, "is_private", False) or re.search(
-                r"[?？]|怎么|如何|为何|为什么|哪里|什么|能否|是否|能不能|求助|请问|安装|部署|配置|设置|报错|错误|失败", text))
-            wiki = bool(self.ctx.config.get("wiki_enabled", False)) and question and not text.startswith("/")
+            wiki = bool(self.ctx.config.get("wiki_enabled", False)) and not text.startswith("/")
+            if wiki:
+                wiki = bool(addressed or getattr(event, "is_private", False) or self.wiki.should_answer(text))
             if not (is_feedback or custom is not None or bug_help or wiki):
                 return
             key = f"{identity[2]}:{event.chat_id}:{event.id}"
@@ -364,11 +459,13 @@ class DeveloperAssistant:
                 except PublishError:
                     await self._reply(event, identity, "暂时无法确认最新版本，请稍后再试；未使用旧版本作为答案。")
                     return
-                for part in _pieces(reply, 3500):
-                    await self._reply(event, identity, html.escape(part))
+                await self._keyword_reply(event, identity, reply)
             elif bug_help and not wiki:
                 await self._reply(event, identity, FORMAT_HELP)
             elif wiki:
+                if not text:
+                    await self._reply(event, identity, "请在后面写出问题，例如：<code>/wiki 企微回调怎么设置</code>。")
+                    return
                 answer = await self.wiki.answer(text)
                 status = self.wiki.status_text
                 if self.ctx.config.get("wiki_status") != status:
@@ -390,9 +487,10 @@ class DeveloperAssistant:
             for record in batch:
                 if record["bot_id"] in limited:
                     continue
-                done = now - record["created_at"] >= DELETE_WINDOW
+                label = "关键词触发消息" if record["kind"] == "keyword_trigger" else "Bot 临时答复"
+                done = now - record.get("source_sent_at", record["created_at"]) >= DELETE_WINDOW
                 if done:
-                    self.ctx.log.warning("临时回复已超出自动清理时限，请在原会话手动删除")
+                    self.ctx.log.warning("%s 已超出自动清理时限，请在原会话手动删除", label)
                 else:
                     try:
                         token = specs.get(record["bot_spec"], "")
@@ -406,9 +504,12 @@ class DeveloperAssistant:
                     except Exception as exc:
                         if isinstance(exc, BotError) and "message to delete not found" in str(exc).lower():
                             done = True
+                        elif isinstance(exc, BotError) and self._permanent_delete_error(exc):
+                            done = True
+                            self.ctx.log.warning("%s 未删除：Telegram 拒绝清理，请检查 Bot 凭据和删除消息权限；停止重试", label)
                         else:
                             retry = max(30, min(3600, 30 * 2 ** min(7, record.get("attempts", 0))))
-                            if isinstance(exc, BotError) and exc.retry_after:
+                            if isinstance(exc, BotError) and (exc.retry_after or exc.error_code == 429 or exc.http_status == 429):
                                 retry = max(retry, exc.retry_after)
                                 limited.add(record["bot_id"])
                                 for pending in self.state["replies"]:
@@ -422,6 +523,18 @@ class DeveloperAssistant:
                     if done and record in self.state["replies"]:
                         self.state["replies"].remove(record)
                     await self._save()
+
+    @staticmethod
+    def _permanent_delete_error(exc):
+        if exc.retry_after or exc.error_code == 429 or exc.http_status == 429:
+            return False
+        if exc.error_code in {400, 401, 403} or exc.http_status in {400, 401, 403}:
+            return True
+        description = str(exc).casefold()
+        return any(word in description for word in (
+            "message can't be deleted", "message cannot be deleted", "not enough rights",
+            "need administrator rights", "chat_admin_required", "not an administrator",
+            "bot is not a member", "bot was kicked", "bot was blocked", "forbidden"))
 
     async def worker(self):
         while not self.closed:

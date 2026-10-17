@@ -22,7 +22,10 @@ DOCS_DIR = Path(__file__).with_name("wiki_docs")
 MAX_PAGES = 64
 MAX_PAGE_BYTES = 96 * 1024
 MAX_TOTAL_BYTES = 1024 * 1024
-MAX_REPLY_UNITS = 3000
+MAX_REPLY_UNITS = 700
+_QUESTION = re.compile(r"[?？]|怎么|怎样|如何|咋|为啥|为什么|能否|能不能|是否|有没有|会不会|要不要|在哪|支持|求助|请问|哪里|区别|干什么|不懂|不回|没反应|没跑|没执行|没运行|不跑|不执行|不生效|失败|错误|报错|无效|收不到|打不开|timeout|invalid|error|\bis required\b|\brequired for\b", re.I)
+_TOPICS = ("awbotnest", "cookie", "cookiecloud", "telegram", "bot", "docker", "compose", "arm", "ai", "api", "cron", "cloakbrowser", "geoip", "oom",
+           "插件", "企微", "企业微信", "机器人", "账号", "定时", "备份", "日志", "管理员", "浏览器", "代理", "通知", "验证码", "模型", "密钥")
 
 
 def _units(text):
@@ -227,6 +230,7 @@ class WikiLibrary:
         self.state = None
         self.lock = asyncio.Lock()
         self.index = []
+        self.faqs = []
         self.last_refresh_error = False
         self.status_text = "尚未载入内置手册"
         self.load_attempted = False
@@ -238,6 +242,46 @@ class WikiLibrary:
 
     def _reindex(self):
         self.index = _sections({slug: self.state["documents"][slug] for slug in self.state["pages"]})
+
+    @staticmethod
+    def _read_faqs(documents, version):
+        path = Path(__file__).with_name("wiki_faq.json")
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+            raise ValueError("内置问答文件无效")
+        with path.open("rb") as stream:
+            data = stream.read(128 * 1024 + 1)
+        if len(data) > 128 * 1024:
+            raise ValueError("内置问答超过大小限制")
+        source = json.loads(data)
+        if not isinstance(source, dict) or source.get("schema") != 1 or source.get("platform_version") != version:
+            raise ValueError("内置问答版本无效")
+        entries = source.get("entries")
+        if not isinstance(entries, list) or not 1 <= len(entries) <= 120:
+            raise ValueError("内置问答数量无效")
+        seen = set()
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or entry["id"] in seen:
+                raise ValueError("内置问答标识无效")
+            seen.add(entry["id"])
+            if entry.get("page") not in documents or not isinstance(entry.get("question"), str) or len(entry["question"]) > 100:
+                raise ValueError("内置问答来源或标题无效")
+            for key, low, high, max_chars in (("aliases", 1, 30, 120), ("points", 2, 4, 240), ("evidence", 1, 8, 240)):
+                values = entry.get(key)
+                if not isinstance(values, list) or not low <= len(values) <= high or any(not isinstance(v, str) or not v.strip() or len(v) > max_chars for v in values):
+                    raise ValueError("内置问答字段无效")
+            section = entry.get("section")
+            if not isinstance(section, str):
+                raise ValueError("内置问答章节无效")
+            page = documents[entry["page"]]["text"]
+            heading = re.search(r"^(#{1,6})\s+" + re.escape(section) + r"\s*$", page, re.M)
+            if heading is None:
+                raise ValueError("内置问答章节不存在：" + entry["id"])
+            rest = page[heading.end():]
+            end = next((match.start() for match in re.finditer(r"^(#{1,6})\s+", rest, re.M) if len(match[1]) <= len(heading[1])), len(rest))
+            original = _normal(_plain(rest[:end]))
+            if any(_normal(evidence) not in original for evidence in entry["evidence"]):
+                raise ValueError("内置问答原文依据未匹配：" + entry["id"])
+        return entries
 
     @staticmethod
     def _read_builtin():
@@ -294,6 +338,7 @@ class WikiLibrary:
             raise ValueError("内置手册缺少首页")
         state = {"schema": 1, "documents": documents, "pages": sorted(documents),
                  "platform_version": version, "snapshot_date": snapshot}
+        state["faq"] = WikiLibrary._read_faqs(documents, version)
         return state, _sections(documents)
 
     async def refresh(self, force=False):
@@ -304,6 +349,7 @@ class WikiLibrary:
             try:
                 candidate, index = await asyncio.to_thread(self._read_builtin)
                 self.state, self.index = candidate, index
+                self.faqs = candidate["faq"]
                 self.last_refresh_error = False
                 self.status_text = "内置手册 %s · %s 篇 · 快照 %s（离线检索）" % (
                     candidate["platform_version"], len(candidate["pages"]), candidate["snapshot_date"])
@@ -380,27 +426,98 @@ class WikiLibrary:
         scored.sort(key=lambda row: (-row[0], row[1]["slug"], row[1]["heading"]))
         return [{**item, "score": round(score, 3)} for score, item in scored[:3]]
 
+    @staticmethod
+    def _compact(text):
+        return re.sub(r"[\W_]+", "", _normal(text))
+
+    def _best_faq(self, question):
+        if not isinstance(question, str) or not question.strip() or len(question) > 2000:
+            return None
+        text = _normal(question)
+        compact = self._compact(text)
+        # Fillers may separate topic and action in ordinary Chinese questions.
+        spoken = re.sub(r"为什么|怎么|怎样|如何|为啥|请问|一直|突然|已经|还是|我的|这个|那个|咋|啊|呢|呀", "", compact)
+        found = []
+        for entry in self.faqs:
+            # A plugin's lifecycle is not an instruction to redeploy the platform.
+            if "插件" in compact and entry["id"] in {"install", "update"}:
+                continue
+            for alias in entry["aliases"] + [entry["question"]]:
+                needle = self._compact(alias)
+                exact = compact == needle
+                if re.fullmatch(r"[a-z0-9_]+", alias, re.I):
+                    present = bool(re.search(r"(?<![a-z0-9_])" + re.escape(_normal(alias)) + r"(?![a-z0-9_])", text))
+                else:
+                    present = len(needle) >= 3 and (needle in compact or needle in spoken)
+                if exact or present:
+                    found.append((250 + len(needle) if exact else 100 + min(40, len(needle)), exact, entry))
+        if not found:
+            return None
+        found.sort(key=lambda item: (-item[0], item[2]["id"]))
+        score, exact, entry = found[0]
+        return {"entry": entry, "score": score, "exact": exact}
+
+    def should_answer(self, text):
+        """Recognize supported short topics/questions, without answering group chat."""
+        if not isinstance(text, str) or not text.strip() or len(text) > 2000 or not self.index:
+            return False
+        match = self._best_faq(text)
+        if match and match["exact"]:
+            return True  # e.g. "CookieCloud", "ARM", "企微回调".
+        question = bool(_QUESTION.search(text))
+        if not question:
+            return False
+        if match:
+            return True
+        normalized = _normal(text)
+        if not any(re.search(r"(?<![a-z0-9_])" + re.escape(topic) + r"(?![a-z0-9_])", normalized)
+                   if re.fullmatch(r"[a-z0-9]+", topic) else topic in normalized for topic in _TOPICS):
+            return False
+        results = self.search(text)
+        return bool(results and results[0]["score"] >= 25)
+
+    def _render_short(self, title, points, page, *, excerpt=False):
+        url = WIKI + "/" + quote(page, safe="")
+        prefix = "<b>" + html.escape(_cut(title, 70)) + "</b>\n"
+        version = html.escape(self.state["platform_version"])
+        footer = '\n\n<i>内置手册 ' + version + '</i> · <a href="' + url + '">Wiki 原文</a>'
+        if self.last_refresh_error:
+            footer += "\n<i>重读失败，使用已加载手册。</i>"
+        output = []
+        for point in points[:4]:
+            rendered = "• " + html.escape(point)
+            if _units(prefix + "\n".join(output + [rendered]) + footer) <= MAX_REPLY_UNITS:
+                output.append(rendered)
+                continue
+            budget = MAX_REPLY_UNITS - _units(prefix + "\n".join(output) + footer) - 5
+            if budget >= 25:
+                # Escape one character at a time to keep entities and Unicode whole.
+                fragment, units = [], 0
+                for char in point:
+                    escaped = html.escape(char)
+                    if units + _units(escaped) > budget:
+                        break
+                    fragment.append(escaped)
+                    units += _units(escaped)
+                output.append("• " + "".join(fragment).rstrip() + "…")
+            break
+        return prefix + "\n".join(output) + footer
+
     async def answer(self, question):
         await self.refresh()
         if not self.index:
             return '<b>内置手册暂不可用</b>\n请重新载入手册或重新安装插件。\n<a href="' + WIKI + '">打开官方 Wiki</a>'
+        matched = self._best_faq(question)
+        if matched:
+            entry = matched["entry"]
+            return self._render_short(entry["question"], entry["points"], entry["page"])
         results = self.search(question)
-        source_note = "\n<i>内置手册 · 适用 " + html.escape(self.state["platform_version"]) + "</i>"
-        if self.last_refresh_error:
-            source_note += "\n<i>重新读取失败，以下继续使用已加载的手册。</i>"
-        if not results:
-            return '<b>内置手册中未找到明确答案</b>' + source_note + '\n请补充功能名称或完整错误提示，我不会猜测答案。\n<a href="' + WIKI + '">打开官方 Wiki</a>'
+        if not results or results[0]["score"] < 25:
+            return '<b>手册里暂未找到明确答案</b>\n请补充功能名称或完整报错，我不会猜测。\n<i>内置手册 ' + html.escape(self.state["platform_version"]) + '</i> · <a href="' + WIKI + '">查看 Wiki</a>'
         item = results[0]
-        url = WIKI + "/" + quote(item["slug"], safe="")
-        heading = _cut(item["title"] + (" · " + item["heading"] if item["heading"] != item["title"] else ""), 240)
-        prefix = "<b>根据内置手册：</b>" + source_note + "\n\n<b>" + html.escape(heading) + "</b>\n"
-        footer = '\n\n<i>Wiki 原文摘录</i> · <a href="' + url + '">查看完整说明</a>'
-        budget = MAX_REPLY_UNITS - _units(prefix + footer) - 2
-        body = item["text"]
-        escaped = html.escape(body)
-        if _units(escaped) > budget:
-            # Budget escaped HTML, not only visible characters (& can expand five-fold).
-            while _units(html.escape(body)) > budget - 1:
-                body = _cut(body, max(0, _units(body) - max(1, (_units(html.escape(body)) - budget) // 2)))
-            escaped = html.escape(body.rstrip()) + "…"
-        return prefix + escaped + footer
+        tokens, _ = _query_tokens(question)
+        sentences = [part.strip(" •\t") for part in re.split(r"\n+|(?<=[。！？])", item["text"]) if part.strip(" •\t")]
+        ranked = sorted(enumerate(sentences), key=lambda pair: (-sum(token in _normal(pair[1]) for token in tokens), pair[0]))
+        selected = sorted(ranked[:3], key=lambda pair: pair[0])
+        points = [_cut(value, 140) + ("…" if _units(value) > 140 else "") for _, value in selected]
+        return self._render_short(item["heading"], points, item["slug"], excerpt=True)

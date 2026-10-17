@@ -32,10 +32,12 @@ class PublishError(ValueError):
 
 
 class BotError(PublishError):
-    def __init__(self, message, *, uncertain=False, retry_after=0):
+    def __init__(self, message, *, uncertain=False, retry_after=0, error_code=0, http_status=0):
         super().__init__(message)
         self.uncertain = uncertain
         self.retry_after = retry_after
+        self.error_code = error_code if type(error_code) is int else 0
+        self.http_status = http_status if type(http_status) is int else 0
 
 
 def _stamp():
@@ -278,7 +280,7 @@ class ReleasePublisher:
     async def _github_page(self, url, etag=""):
         if time.time() < self.state.get("github_retry_at", 0):
             raise PublishError("GitHub 请求限流，等待冷却后再检查；不会发布旧缓存")
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.3",
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.4",
                    "X-GitHub-Api-Version": "2022-11-28"}
         if etag:
             headers["If-None-Match"] = etag
@@ -373,7 +375,8 @@ class ReleasePublisher:
         try:
             data = json.loads(body)
         except (ValueError, UnicodeDecodeError):
-            raise BotError("Telegram %s 返回非 JSON（HTTP %s）" % (method, status), uncertain=method == "sendMessage") from None
+            raise BotError("Telegram %s 返回非 JSON（HTTP %s）" % (method, status),
+                           uncertain=method == "sendMessage", http_status=status) from None
         if not isinstance(data, dict) or data.get("ok") is not True or status != 200:
             description = str(data.get("description") or "响应异常") if isinstance(data, dict) else "响应异常"
             description = description.replace(token, "***")[:220]
@@ -384,7 +387,8 @@ class ReleasePublisher:
                 retry = 0
             explicit_rejection = isinstance(data, dict) and data.get("ok") is False and status < 500
             raise BotError("Telegram %s：%s" % (method, description),
-                           uncertain=method == "sendMessage" and not explicit_rejection, retry_after=retry)
+                           uncertain=method == "sendMessage" and not explicit_rejection, retry_after=retry,
+                           error_code=data.get("error_code", 0) if isinstance(data, dict) else 0, http_status=status)
         return data.get("result")
 
     async def _bot_id(self, token):
