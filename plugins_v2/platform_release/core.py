@@ -280,7 +280,7 @@ class ReleasePublisher:
     async def _github_page(self, url, etag=""):
         if time.time() < self.state.get("github_retry_at", 0):
             raise PublishError("GitHub 请求限流，等待冷却后再检查；不会发布旧缓存")
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.4",
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.5",
                    "X-GitHub-Api-Version": "2022-11-28"}
         if etag:
             headers["If-None-Match"] = etag

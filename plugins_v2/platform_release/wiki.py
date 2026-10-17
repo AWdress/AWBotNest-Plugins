@@ -27,6 +27,81 @@ _QUESTION = re.compile(r"[?？]|怎么|怎样|如何|咋|为啥|为什么|能否
 _TOPICS = ("awbotnest", "cookie", "cookiecloud", "telegram", "bot", "docker", "compose", "arm", "ai", "api", "cron", "cloakbrowser", "geoip", "oom",
            "插件", "企微", "企业微信", "机器人", "账号", "定时", "备份", "日志", "管理员", "浏览器", "代理", "通知", "验证码", "模型", "密钥")
 
+# Topic + intent pairs recognize ordinary group questions, not a growing list
+# of exact sentences. Specific symptoms outrank generic product-name aliases.
+# Answers still come only from the verified, bundled FAQ entries.
+_NATURAL_FAQS = tuple((key, re.compile(topic, re.I), re.compile(intent, re.I), score)
+                     for key, topic, intent, score in (
+    ("cookie-sync", r"(?<![a-z0-9_])cookie(?:cloud)?(?![a-z0-9_])",
+     r"同步(?:不|没)|同步.{0,8}(?:不上|不了|失败)", 220),
+    ("cookie-missing", r"(?<![a-z0-9_])cookie(?:cloud)?(?![a-z0-9_])",
+     r"失效|过期|读不到|没登录|未登录|不生效", 225),
+    ("bot", r"(?<![a-z0-9_])bot(?![a-z0-9_])|机器人",
+     r"收不到|没收到|(?:不|没)(?:再)?(?:发|推送|回)|发不出|发不了|没反应|不工作", 210),
+    ("wecom-callback", r"企业微信|企微|微工作台",
+     r"回调|(?:收|发|接收|发送).{0,8}(?:图片|文件|指令)|(?:图片|文件).{0,8}(?:收|发)", 225),
+    ("save", r"配置|设置|保存",
+     r"(?:存|保存)(?:不|没)|保存.{0,12}(?:没了|丢|原样|恢复)|(?:配置|设置).{0,8}(?:丢|没了|不生效)", 220),
+    ("schedule", r"定时|任务|时间.{0,3}到|到点",
+     r"不跑|没跑|没运行|没执行|不执行|没触发|不触发|没签到|不签到|没反应|不生效", 225),
+    ("browser-queue", r"cloakbrowser|chromium|浏览器",
+     r"排队|等.{0,8}名额|被占用|单会话", 225),
+    ("page-down", r"网页|页面|界面|面板|端口|反代",
+     r"进不去|打不开|开不了|连不上|访问不了|连接失败|不通|\b50[0234]\b", 220),
+    ("password", r"管理员|网页|登录|密码",
+     r"忘.{0,8}密码|密码.{0,8}忘|重置.{0,8}密码", 220),
+    ("routes", r"通知|推送|渠道",
+     r"绑定|关联|路由|目的地|指定|选.{0,6}渠道|发到哪|发给谁", 210),
+    ("proxy", r"代理|(?<![a-z0-9_])socks5(?![a-z0-9_])",
+     r"配|设置|填|弄|接入|连不上|不通|用不了", 205),
+    ("full-backup", r"备份|迁移|搬家|还原|恢复",
+     r"备份.{0,8}(?:数据|系统|平台)|数据.{0,8}备份|迁移.{0,12}(?:服务器|机器|设备)|(?:如何|怎么|办法|想|求).{0,8}(?:备份|迁移|还原|恢复)", 190),
+    ("install", r"安装|部署|平台|系统|awbotnest|docker|compose",
+     r"(?:求|要|发).{0,8}(?:安装|部署).{0,8}(?:教程|步骤|文档|方法)|(?:怎么|如何|咋|怎样).{0,8}(?:安装|部署|装)|(?:安装|部署).{0,8}(?:教程|步骤)", 185),
+    ("update", r"平台|系统|awbotnest|docker|compose", r"更新|升级", 185),
+    ("plugin-update", r"插件", r"更新|升级|重载", 210),
+    ("plugin-install", r"插件", r"装好|装完|装上|安装|启用|配置|设置|下一步", 180),
+    ("arm", r"(?<![a-z0-9_])(?:nas|arm(?:64)?|aarch64|amd64|x86_64)(?![a-z0-9_])|树莓派",
+     r"装|运行|支持|架构", 205),
+    ("cron", r"定时|运行|执行|签到|cron",
+     r"每天.{0,10}(?:[零一二三四五六七八九十0-9].{0,2}(?:点|时)|早上|晚上)|每周|时间怎么设|执行周期", 200),
+    ("api", r"(?<![a-z0-9_])api(?![a-z0-9_])|开放接口",
+     r"鉴权|认证|请求头|密钥|文档", 205),
+    ("ai-setup", r"(?<![a-z0-9_])ai(?![a-z0-9_])|模型|服务商",
+     r"模型列表.{0,12}(?:没有|找不到|不全)|(?:添加|接入|配).{0,8}(?:ai|服务商)|ai.{0,8}(?:添加|接入|配)", 200),
+    ("wecom", r"企业微信|企微", r"配置|设置|接入|连不上|不通|通知", 180),
+))
+_SPOKEN_QUESTION = re.compile(
+    r"哪儿|上哪|何处|请教|求教|求.{0,8}(?:教程|步骤|方法|文档)|"
+    r"^(?:安装|部署|备份|迁移)(?:教程|步骤|用法)\s*[?？]*$|"
+    r"(?:有|哪位).{0,8}(?:大佬|大神|人).{0,6}(?:知道|会|懂)|"
+    r"(?:想|不会|不太会|不懂).{0,18}(?:设置|配置|配|安装|部署|备份|迁移|运行)|"
+    r"(?:不会|不太会).{0,8}(?:弄|用).{0,6}(?:代理|插件|配置)|干啥|下一步|"
+    r"同步不上|同步不了|进不去|保存不了|存不住|发不出|发不了|不发消息|连不上|掉线|离线|没签到|不签到|没登录|未登录|读不到|没生效|"
+    r"保存.{0,12}(?:没了|丢|原样|恢复)|找不到|忘.{0,8}密码|排队|网页.{0,8}50[0234]|"
+    r"模型列表.{0,12}(?:没有|不全)|"
+    r"(?:吗|么|不)[啊呀呢]?\s*[?？!！。]*$", re.I)
+_RESOLVED = re.compile(
+    r"(?:解决了|搞定了|成功了|恢复正常了?|修好了|同步好了|安装好了|更新好了|配置好了|保存成功|正常运行了?|已经好了|现在好了|没问题了)"
+    r"(?:[啊呀呢哈\s!！。，,]|谢谢|感谢.{0,12})*$")
+_EXPERIENCE_CHAT = re.compile(r"(?:有人|谁|大家).{0,8}(?:用过|试过|听说过)|(?:这个|哪个)模型.{0,8}(?:好用|便宜)")
+
+
+def _question_intent(text):
+    # A resolution announcement is not a new request for help. A later problem
+    # ("同步好了，但插件还是没登录") does not match this end-of-message guard.
+    if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+        return False
+    if _RESOLVED.search(text):
+        return False
+    if _EXPERIENCE_CHAT.search(text) and not re.search(r"配置|设置|安装|部署|报错|失败|怎么|如何", text):
+        return False
+    return bool(_QUESTION.search(text) or _SPOKEN_QUESTION.search(text))
+
+
+def _needs_setting_detail(text):
+    return bool(re.search(r"(?:找不到|不知道|不清楚).{0,6}(?:设置|配置).{0,4}(?:入口|在哪|页面)", text))
+
 
 def _units(text):
     return len(text.encode("utf-16-le")) // 2
@@ -438,6 +513,22 @@ class WikiLibrary:
         # Fillers may separate topic and action in ordinary Chinese questions.
         spoken = re.sub(r"为什么|怎么|怎样|如何|为啥|请问|一直|突然|已经|还是|我的|这个|那个|咋|啊|呢|呀", "", compact)
         found = []
+        entries = {entry["id"]: entry for entry in self.faqs}
+        for key, topic, intent, score in _NATURAL_FAQS:
+            if key not in entries or not topic.search(text) or not intent.search(text):
+                continue
+            if key in {"install", "update"} and "插件" in text:
+                continue
+            if key == "bot" and re.search(r"企业微信|企微|微工作台", text):
+                continue
+            if key == "api" and re.search(r"(?<![a-z0-9_])ai(?![a-z0-9_])|模型", text):
+                continue
+            if key == "full-backup" and re.search(r"配置包|导入配置|导出配置|配置备份", text):
+                continue
+            if key == "plugin-install" and re.search(
+                    r"cookie|(?<![a-z0-9_])ai(?![a-z0-9_])|企微|企业微信|代理|依赖|pip|cron|开发|源码|schema|vue|ctx\.", text):
+                continue
+            found.append((score, False, entries[key]))
         for entry in self.faqs:
             # A plugin's lifecycle is not an instruction to redeploy the platform.
             if "插件" in compact and entry["id"] in {"install", "update"}:
@@ -464,17 +555,33 @@ class WikiLibrary:
         match = self._best_faq(text)
         if match and match["exact"]:
             return True  # e.g. "CookieCloud", "ARM", "企微回调".
-        question = bool(_QUESTION.search(text))
+        question = _question_intent(text)
         if not question:
             return False
+        if _needs_setting_detail(text):
+            return True
         if match:
             return True
         normalized = _normal(text)
         if not any(re.search(r"(?<![a-z0-9_])" + re.escape(topic) + r"(?![a-z0-9_])", normalized)
                    if re.fullmatch(r"[a-z0-9]+", topic) else topic in normalized for topic in _TOPICS):
             return False
-        results = self.search(text)
+        results = self._answer_sections(text)
         return bool(results and results[0]["score"] >= 25)
+
+    def _answer_sections(self, question):
+        results = self.search(question)
+        if not results:
+            return []
+        if re.search(r"图片|文件|打印", question) and not re.search(r"企微|企业微信|微工作台|微信", question):
+            results = [item for item in results if "企业微信" not in item["heading"]]
+        # "这个插件支持图片吗" is not evidence that the question concerns the
+        # WeCom callback merely because that page mentions plugins and pictures.
+        if "插件" in question and not re.search(
+                r"cookie|telegram|(?<![a-z0-9_])(?:bot|ai|api)(?![a-z0-9_])|企微|企业微信|通知|代理|模型|浏览器|备份", question, re.I):
+            results = [item for item in results if item["slug"] in {"Plugins", "Plugin-Development"}
+                       or (item["slug"] == "Troubleshooting" and "插件" in item["heading"])]
+        return results
 
     def _render_short(self, title, points, page, *, excerpt=False):
         url = WIKI + "/" + quote(page, safe="")
@@ -507,11 +614,13 @@ class WikiLibrary:
         await self.refresh()
         if not self.index:
             return '<b>内置手册暂不可用</b>\n请重新载入手册或重新安装插件。\n<a href="' + WIKI + '">打开官方 Wiki</a>'
+        if _question_intent(question) and _needs_setting_detail(question) and not self._best_faq(question):
+            return "你想设置哪一项？例如 Bot 通知、企微回调、Cookie、AI 或插件。\n说一下具体功能，我再给你操作步骤。"
         matched = self._best_faq(question)
         if matched:
             entry = matched["entry"]
             return self._render_short(entry["question"], entry["points"], entry["page"])
-        results = self.search(question)
+        results = self._answer_sections(question)
         if not results or results[0]["score"] < 25:
             return '<b>手册里暂未找到明确答案</b>\n请补充功能名称或完整报错，我不会猜测。\n<i>内置手册 ' + html.escape(self.state["platform_version"]) + '</i> · <a href="' + WIKI + '">查看 Wiki</a>'
         item = results[0]
