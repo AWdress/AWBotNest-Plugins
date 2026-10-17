@@ -19,6 +19,7 @@ from urllib.parse import quote, urlsplit
 
 
 API = "https://api.github.com/repos/AWdress/AWBotNest/releases/latest"
+LIST_API = "https://api.github.com/repos/AWdress/AWBotNest/releases"
 RELEASES = "https://github.com/AWdress/AWBotNest/releases"
 STATE_KEY = "release_publisher_v1"
 TZ = timezone(timedelta(hours=8))
@@ -94,9 +95,9 @@ def parse_targets(raw):
     return result
 
 
-def normalize_release(data):
-    if not isinstance(data, dict) or data.get("draft") or data.get("prerelease"):
-        raise PublishError("GitHub 没有返回可发布的最新正式版")
+def normalize_release(data, *, allow_prereleases=False):
+    if not isinstance(data, dict) or data.get("draft") or (data.get("prerelease") and not allow_prereleases):
+        raise PublishError("GitHub 没有返回符合所选类型的已发布版本")
     release_id = data.get("id")
     tag = data.get("tag_name")
     published = data.get("published_at")
@@ -118,6 +119,7 @@ def normalize_release(data):
         name = tag
     return {"id": release_id, "tag": tag.strip(), "name": name.strip(),
             "published_at": date.isoformat(), "timestamp": date.timestamp(),
+            "prerelease": bool(data.get("prerelease")),
             "body": body.replace("\r\n", "\n").replace("\r", "\n"),
             "url": RELEASES + "/tag/" + quote(tag.strip(), safe="")}
 
@@ -160,7 +162,7 @@ def _inline(text):
 
 def render_messages(release):
     """Chunk source lines before HTML formatting, keeping every output tag balanced."""
-    title = "AWBotNest " + release["tag"] + " 发布"
+    title = "AWBotNest " + release["tag"] + (" · 预发行版" if release.get("prerelease") else " 发布")
     date = datetime.fromisoformat(release["published_at"]).astimezone(TZ).strftime("%Y-%m-%d %H:%M")
     header = "<b>" + html.escape(title) + "</b>\n发布时间：" + date + "（北京时间）"
     if release["name"] not in {release["tag"], title}:
@@ -228,16 +230,28 @@ class ReleasePublisher:
         candidate = state or {"schema": 1, "latest": None, "etag": "", "targets": {}, "aliases": {}}
         if not isinstance(candidate.get("targets"), dict) or not isinstance(candidate.get("aliases"), dict):
             raise PublishError("发送记录格式异常，已停止发布，避免重复发送")
-        latest = candidate.get("latest")
-        if latest is not None:
+        def restore_release(latest):
             try:
+                original = {**latest, "prerelease": latest.get("prerelease", False)}
                 checked = normalize_release({"id": latest["id"], "tag_name": latest["tag"],
                                              "published_at": latest["published_at"],
-                                             "name": latest["name"], "body": latest["body"]})
-                if checked != latest:
+                                             "name": latest["name"], "body": latest["body"],
+                                             "prerelease": original["prerelease"]}, allow_prereleases=True)
+                if checked != original:
                     raise ValueError
-            except (KeyError, TypeError, ValueError):
+                return checked
+            except (AttributeError, KeyError, TypeError, ValueError):
                 raise PublishError("最新版本缓存异常，已停止发布，避免误发旧版") from None
+        if candidate.get("latest") is not None:
+            candidate["latest"] = restore_release(candidate["latest"])
+        pages = candidate.get("list_pages", {})
+        if not isinstance(pages, dict):
+            raise PublishError("预发行列表缓存异常，已停止发布")
+        for page in pages.values():
+            if not isinstance(page, dict) or not isinstance(page.get("has_next"), bool):
+                raise PublishError("预发行分页缓存异常，已停止发布")
+            if page.get("candidate") is not None:
+                page["candidate"] = restore_release(page["candidate"])
         for record in candidate["targets"].values():
             if not isinstance(record, dict) or not isinstance(record.get("message_ids"), list) or not isinstance(record.get("parts"), list):
                 raise PublishError("发送记录异常，已停止发布，避免重复发送")
@@ -257,24 +271,25 @@ class ReleasePublisher:
                     raise PublishError("接口响应过大，已停止处理")
             return response.status_code, dict(response.headers), bytes(body)
 
-    async def _fetch_latest(self):
+    async def _github_page(self, url, etag=""):
         if time.time() < self.state.get("github_retry_at", 0):
             raise PublishError("GitHub 请求限流，等待冷却后再检查；不会发布旧缓存")
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-platform-release/0.0.1",
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-platform-release/0.0.2",
                    "X-GitHub-Api-Version": "2022-11-28"}
-        if self.state.get("etag") and self.state.get("latest"):
-            headers["If-None-Match"] = self.state["etag"]
+        if etag:
+            headers["If-None-Match"] = etag
         try:
-            status, response_headers, body = await self._read("GET", API, limit=2 * 1024 * 1024, headers=headers)
+            status, response_headers, body = await self._read("GET", url, limit=2 * 1024 * 1024, headers=headers)
         except PublishError:
             raise
         except Exception as exc:
             raise PublishError("GitHub 请求失败（%s），请检查平台代理和网络；不会发布旧缓存" % type(exc).__name__) from None
         response_headers = {k.lower(): v for k, v in response_headers.items()}
         self.state["checked_at"] = _stamp()
-        if status == 304 and self.state.get("latest"):
-            await self._save()
-            return self.state["latest"]
+        if status == 304:
+            if not etag:
+                raise PublishError("GitHub 返回 304 但没有对应类型的缓存，已停止发布")
+            return status, response_headers, None
         if status in {403, 429}:
             try:
                 reset = float(response_headers.get("x-ratelimit-reset", 0))
@@ -285,22 +300,62 @@ class ReleasePublisher:
             await self._save()
             raise PublishError("GitHub 返回 HTTP %s，可能请求限流；冷却后再检查，不会发布旧缓存" % status)
         if status != 200:
-            raise PublishError("GitHub 最新正式版接口返回 HTTP %s，已停止发布" % status)
+            raise PublishError("GitHub 版本接口返回 HTTP %s，已停止发布" % status)
         try:
-            release = normalize_release(json.loads(body))
-        except (ValueError, UnicodeDecodeError) as exc:
-            if isinstance(exc, PublishError):
-                raise
+            return status, response_headers, json.loads(body)
+        except (ValueError, UnicodeDecodeError):
             raise PublishError("GitHub 返回的内容不是有效版本 JSON，已停止发布") from None
+
+    async def _fetch_latest(self):
+        include = bool(self.ctx.config.get("include_prereleases", False))
+        if include:
+            previous_pages, pages, candidates = self.state.get("list_pages", {}), {}, []
+            for number in range(1, 11):
+                key = str(number)
+                cached = previous_pages.get(key, {})
+                status, headers, data = await self._github_page(
+                    LIST_API + f"?per_page=100&page={number}", cached.get("etag", ""))
+                if status == 304:
+                    if not cached:
+                        raise PublishError("GitHub 预发行列表缺少对应分页缓存，已停止发布")
+                    page = copy.deepcopy(cached)
+                    if re.search(r'rel="next"', headers.get("link", "")):
+                        page["has_next"] = True
+                else:
+                    if not isinstance(data, list):
+                        raise PublishError("GitHub 发布列表格式异常，已停止发布")
+                    eligible = [normalize_release(item, allow_prereleases=True) for item in data
+                                if not isinstance(item, dict) or not item.get("draft")]
+                    page = {"etag": headers.get("etag", ""),
+                            "has_next": len(data) == 100 or bool(re.search(r'rel="next"', headers.get("link", ""))),
+                            "candidate": max(eligible, key=lambda item: (item["timestamp"], item["id"])) if eligible else None}
+                pages[key] = page
+                if page["candidate"] is not None:
+                    candidates.append(page["candidate"])
+                if not page["has_next"]:
+                    break
+            else:
+                raise PublishError("GitHub 发布列表已达到 1000 条扫描上限，无法确认完整性；已停止发布而非发送不完整结果")
+            if not candidates:
+                raise PublishError("GitHub 暂无可发布版本（草稿不会发送）")
+            release = max(candidates, key=lambda item: (item["timestamp"], item["id"]))
+            self.state["list_pages"] = pages
+        else:
+            matching_cache = self.state.get("etag_mode", "stable") == "stable" and self.state.get("latest") and not self.state["latest"].get("prerelease")
+            status, headers, data = await self._github_page(API, self.state.get("etag", "") if matching_cache else "")
+            release = self.state["latest"] if status == 304 else normalize_release(data)
         previous = self.state.get("latest")
         if previous:
             before, after = _version(previous["tag"]), _version(release["tag"])
             older_number = before is not None and after is not None and after < before
             repeated_tag = release["id"] != previous["id"] and release["tag"] == previous["tag"]
             renamed_release = release["id"] == previous["id"] and release["tag"] != previous["tag"]
-            if release["timestamp"] < previous["timestamp"] or older_number or repeated_tag or renamed_release:
+            older_publication = (release["timestamp"], release["id"]) < (previous["timestamp"], previous["id"])
+            if older_publication or older_number or repeated_tag or renamed_release:
                 raise PublishError("GitHub 最新版本比本地记录更旧或版本号重复，已阻止回退发布（缓存 %s，接口 %s）" % (previous["tag"], release["tag"]))
-        self.state.update(latest=release, etag=response_headers.get("etag", ""), github_retry_at=0)
+        self.state.update(latest=release, etag_mode="all" if include else "stable", github_retry_at=0)
+        if not include and status != 304:
+            self.state["etag"] = headers.get("etag", "")
         await self._save()
         return release
 
@@ -466,8 +521,9 @@ class ReleasePublisher:
                     self.state["telegram_retry_at"] = time.time() + max(1, exc.retry_after)
                     await self._save()
                     break
-        message = "最新正式版 %s：已发布并置顶 %s 个目标%s" % (
-            release["tag"], completed, "（本轮未重复发送）" if not used else "")
+        message = "最新%s %s：已发布并置顶 %s 个目标%s" % (
+            "预发行版" if release.get("prerelease") else "正式版", release["tag"],
+            completed, "（本轮未重复发送）" if not used else "")
         if errors:
             message += "\n" + "\n".join(errors)
         return await self._outcome(not errors, message)
@@ -475,7 +531,7 @@ class ReleasePublisher:
     async def status(self):
         await self.load()
         latest = self.state.get("latest")
-        lines = ["尚未检查 GitHub 最新版本" if not latest else "缓存最新正式版：" + latest["tag"],
+        lines = ["尚未检查 GitHub 最新版本" if not latest else "缓存最新%s：%s" % ("预发行版" if latest.get("prerelease") else "正式版", latest["tag"]),
                  "最近检查：" + self.state.get("checked_at", "尚未检查")]
         for record in self.state["targets"].values():
             if record.get("inflight") is not None:
@@ -515,7 +571,7 @@ class ReleasePublisher:
 
 
 async def setup(ctx):
-    defaults = {"auto_check": False, "targets": "", "check_interval": 15, "last_result": "尚未检查"}
+    defaults = {"auto_check": False, "include_prereleases": False, "targets": "", "check_interval": 15, "last_result": "尚未检查"}
     missing = {k: v for k, v in defaults.items() if k not in ctx.config or ctx.config[k] is None}
     if missing:
         ctx.update_config(missing)
@@ -529,5 +585,5 @@ async def setup(ctx):
             minutes = max(5, min(1440, int(ctx.config.get("check_interval", 15))))
         except (ValueError, TypeError):
             minutes = 15
-        ctx.schedule_interval("平台发布通知·检查最新正式版", publisher.check, seconds=minutes * 60)
+        ctx.schedule_interval("平台发布通知·检查最新版本", publisher.check, seconds=minutes * 60)
         ctx.log.info("已启用最新版本检查：每 %s 分钟；仅通过平台 Bot 发布并置顶", minutes)
