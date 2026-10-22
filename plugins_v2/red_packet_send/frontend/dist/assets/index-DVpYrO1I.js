@@ -1,5 +1,5 @@
 import { importShared } from './__federation_fn_import-JrT3xvdd.js';
-import Config from './__federation_expose_Config-BLWLkNh8.js';
+import Config from './__federation_expose_Config-CuppIyvA.js';
 
 true              &&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -44,7 +44,7 @@ const {createApp,h} = await importShared('vue');
 
 let store = {
   enabled: true, create_word: '创建红包', status_word: '红包状态', end_word: '结束红包',
-  code_length: 4, rotate_code: false,
+  code_length: 4, text_mode: false, rotate_code: false,
   max_amount: 0, max_count: 0, activity_timeout_minutes: 30, end_delete_delay: 10,
   transfer_prefix: '+', congrats_text: '恭喜 {name} 抢到 {amount} 魔力！',
   blacklist_ids: '',

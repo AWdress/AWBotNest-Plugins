@@ -1,15 +1,15 @@
 # =============================================================================
 # AWBotNest 插件：发红包（red_packet_send）
 #
-# 用你的「用户账号」在群里发拼手气红包（验证码防脚本版）：
+# 用你的「用户账号」在群里发拼手气红包：
 #   1. 你发命令 `创建红包 总额 个数` 创建活动；
-#   2. 系统随机生成一张扭曲验证码图片发到群里作为参与口令；
-#   3. 群友肉眼识别验证码、发送图中字符（不区分大小写）参与，脚本无法自动匹配；
+#   2. 随机口令默认以验证码图片公布，也可开启文字模式直接复制；
+#   3. 群友发送完整口令参与；可选每领取一份就换新口令，旧码立即失效；
 #   4. 按拼手气随机分配，用 `+金额` reply 给每个参与者（群转账bot实际打款）；
 #   5. 抢完或超时后自动结算公布；创建者可发 `结束红包` 提前结束、`红包状态` 查看进度。
 #
 # 迁移自 AWLottery plugins/user/games/red_packet.py（InstantRedPacketMonitor）的
-# 发包侧。原「固定文本口令 / 贴图口令」参与方式脚本可秒匹配，已重构为验证码图片。
+# 发包侧。文字模式方便复制，不具有验证码图片的防复制作用。
 # 验证码用 PIL 纯 Python 绘制（平台 venv 已装 Pillow），见 _captcha.py。
 #
 # 不依赖平台 service / DB / libs.others：
@@ -29,12 +29,12 @@ from ._activity import (
 __plugin__ = {
     "name": "发红包",
     "id": "red_packet_send",
-    "version": "1.0.15",
+    "version": "2.0.3",
     "author": "AWdress",
     "scope": "user",
     "default_enabled": False,
     "render_mode": "vue",
-    "description": "用你的账号在群里发拼手气红包：口令（可自定义前缀）+随机防挂码渲染成验证码图片，群友识别并输入完整字符才算参与（防脚本）；可选每抢一个换码，命令消息秒删，按拼手气随机分配并自动发放魔力，每个红包带递增编号便于对照。自带 Vue 配置界面 + 红包监控。",
+    "description": "用你的账号在群里发拼手气红包，支持验证码图片或可复制的文字口令，可选每领取一份后更换口令、旧码立即失效。按拼手气随机分配魔力，自带 Vue 配置页和红包监控。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/family_redpacket.png",
     "changelog": "v1.0.13 重复参与反馈\n- 用户再次发送当前有效参与口令时，回复重复参与无效提示\n- 提示 8 秒后自动删除，普通聊天不会被误判为重复参与\n\nv1.0.12 显示群组名称\n- 红包监控和历史记录显示群组名称并保留 UID\n- 创建、超时和结算日志显示群组名称\n\nv1.0.11 修复红包金额\n- 统一用整数魔力分配，避免按分切再取整导致小份额打成 0 或扣发不符\n- 总额不足以每个红包至少 1 魔力时拒绝创建",
 }
@@ -43,7 +43,7 @@ __plugin__ = {
 # 前端 Config.vue 用同一套默认初始化表单）。
 DEFAULTS = {
     "enabled": True, "create_word": "创建红包", "status_word": "红包状态", "end_word": "结束红包",
-    "code_length": 4, "rotate_code": False,
+    "code_length": 4, "text_mode": False, "rotate_code": False,
     "max_amount": 0, "max_count": 0, "activity_timeout_minutes": 30, "end_delete_delay": 10,
     "transfer_prefix": "+", "congrats_text": "恭喜 {name} 抢到 {amount} 魔力！",
     "blacklist_ids": "",

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+from html import escape
 import os
 import random
 import re
@@ -121,10 +122,10 @@ def is_create_command(
 ) -> Optional[Tuple[float, int, Optional[str]]]:
     """检查是否是创建红包命令。
 
-    格式（验证码模式，不再需要贴图）：
-      <命令词> 总金额 红包数量                → 系统随机生成验证码图片
-      <命令词> 总金额 红包数量 自定义口令      → 用自定义口令渲染成验证码图片
-    口令均以图片形式呈现（防复制粘贴脚本），群友肉眼识别后打出内容才算参与。
+    格式：
+      <命令词> 总金额 红包数量                → 随机验证码
+      <命令词> 总金额 红包数量 自定义口令      → 自定义前缀 + 随机验证码
+    根据活动设置，以验证码图片或可复制的文字口令公布。
     返回 (总金额, 红包数量, 自定义口令或None) 或 None。
     """
     text = (text or "").strip()
@@ -230,6 +231,57 @@ class ActivityManager:
         suffix = generate_code(to_int(self._cfg("code_length", 4), 4))
         return f"{prefix}{suffix}" if prefix else suffix
 
+    @staticmethod
+    def _code_caption(activity: Dict, *, kind: str = "create", as_text: bool = False) -> str:
+        suffix = {"create": "", "rotate": " · 新口令", "status": " · 进行中"}[kind]
+        lines = [f"🧧 幸运红包  #{activity['rp_id']}{suffix}", "━━━━━━━━━━━━━"]
+        if kind != "rotate":
+            lines.append(f"💰 总金额    {activity['total_amount']} 魔力")
+        if kind == "create":
+            lines.append(f"🎁 数量      {activity['packet_count']} 个")
+        else:
+            lines.append(f"🎁 剩余      {activity['remaining_count']} / {activity['packet_count']} 个")
+            lines.append(f"💵 剩余金额  {int(round(activity['remaining_amount']))} 魔力")
+        if kind == "status":
+            lines.append(f"👥 已参与    {len(activity['participants'])} 人")
+        lines.append("━━━━━━━━━━━━━")
+        if kind == "rotate":
+            lines.append("⚠️ 上一个口令已失效")
+        if as_text:
+            lines.extend([
+                f"🔑 参与口令：<code>{escape(activity['keyword'])}</code>",
+                "👉 点击或长按口令复制，再发送到群里参与（不区分大小写）",
+            ])
+        else:
+            lines.append("👉 识别上图验证码，发送图中完整字符参与（不区分大小写）")
+        lines.append("每领取一份会换新口令，每人限领一次。" if activity.get("rotate_code") else "同一口令可供多人领取，每人限领一次。")
+        return "\n".join(lines)
+
+    async def _publish_code(self, client, activity: Dict, *, kind: str = "create", reply_to=None):
+        """文字模式不生成或发送图片；图片不可用时仍用可复制文字公布口令。"""
+        sent = None
+        path = activity.get("captcha_path")
+        if not activity.get("text_mode") and path and os.path.exists(path):
+            try:
+                sent = await client.send_file(
+                    activity["chat_id"], path,
+                    caption=self._code_caption(activity, kind=kind),
+                    reply_to=reply_to, parse_mode="html",
+                )
+            except Exception as e:  # noqa: BLE001
+                self.ctx.log.warning("[发红包] 验证码图片发送失败，改发文字口令: %r", e)
+        if sent is None:
+            sent = await client.send_message(
+                activity["chat_id"], self._code_caption(activity, kind=kind, as_text=True),
+                reply_to=reply_to, parse_mode="html",
+            )
+        if sent is None:
+            raise RuntimeError("未能发布参与口令")
+        activity["msg_ids"].append(sent.id)
+        activity["code_msg_ids"].append(sent.id)
+        activity["captcha_msg_id"] = sent.id
+        return sent
+
     # —— 创建活动 ——
     async def create_redpacket(self, client, message, params: Tuple[float, int, Optional[str]], sender=None, chat=None) -> bool:
         total_amount, packet_count, custom_code = params
@@ -260,11 +312,11 @@ class ActivityManager:
         if key not in self.locks:
             self.locks[key] = asyncio.Lock()
 
-        # 口令即参与凭证：自定义口令做「固定前缀」，后面永远拼一段随机「防挂码」，
-        # 整体渲染成扭曲图片防脚本。无自定义口令时整个就是随机验证码。
+        # 显示方式与一次性规则在创建时固定，修改配置仅影响下一轮红包。
         prefix = custom_code or ""
         code = self._make_code(prefix)
-        captcha_path = render_captcha(code, self._data_dir())
+        text_mode = bool(self._cfg("text_mode", False))
+        captcha_path = None if text_mode else render_captcha(code, self._data_dir())
         rp_id = self._next_id()
 
         activity = {
@@ -279,6 +331,10 @@ class ActivityManager:
             "remaining_count": packet_count,
             "remaining_amount": total_amount,
             "keyword": code,            # 参与口令 = 前缀 + 随机防挂码（大小写不敏感匹配）
+            "text_mode": text_mode,
+            "rotate_code": bool(self._cfg("rotate_code", False)),
+            "used_codes": {code.lower()},
+            "code_msg_ids": [],
             "prefix": prefix,           # 自定义口令固定前缀，轮换时保留
             "captcha_path": captcha_path,
             "captcha_msg_id": None,      # 当前验证码图片消息ID（轮换时删旧发新）
@@ -297,46 +353,23 @@ class ActivityManager:
         # 命令本身待会儿删掉，只有当创建者是「回复某条消息」发的命令时才保留回复指向
         reply_target_id = getattr(message, "reply_to_msg_id", None)
 
-        caption = (
-            f"🧧 幸运红包  #{rp_id}\n"
-            f"━━━━━━━━━━━━━\n"
-            f"💰 总金额    {total_amount} 魔力\n"
-            f"🎁 数量      {packet_count} 个\n"
-            f"━━━━━━━━━━━━━\n"
-            f"👉 识别上方验证码图片\n"
-            f"　  发送图中完整字符即可参与（含随机防挂码，不区分大小写）"
-        )
-
-        sent_msg = None
-        if captcha_path:
-            try:
-                sent_msg = await client.send_file(
-                    chat_id,
-                    captcha_path,
-                    caption=caption,
-                    reply_to=reply_target_id,
-                )
-            except Exception as e:  # noqa: BLE001
-                self.ctx.log.warning("[发红包] 发送验证码图片失败，回退文本: %r", e)
-
-        if sent_msg is None:
-            # PIL 缺失或发图失败：降级为文本公布验证码（仍可玩，防脚本能力下降）
-            sent_msg = await client.send_message(
-                chat_id,
-                (
-                    f"🧧 幸运红包  #{rp_id}\n"
-                    f"━━━━━━━━━━━━━\n"
-                    f"💰 总金额    {total_amount} 魔力\n"
-                    f"🎁 数量      {packet_count} 个\n"
-                    f"🔑 口令      {code}\n"
-                    f"━━━━━━━━━━━━━\n"
-                    f"👉 发送与口令一致的消息即可参与（不区分大小写）"
-                ),
-                reply_to=reply_target_id,
-            )
-        if sent_msg:
-            activity["msg_ids"].append(sent_msg.id)
-            activity["captcha_msg_id"] = sent_msg.id
+        try:
+            async with self.locks[key]:
+                await self._publish_code(client, activity, reply_to=reply_target_id)
+        except BaseException:
+            # 公告未发出不能留下一个占用群组、无人可领的活动。
+            activity["keyword"] = ""
+            self.active.pop(key, None)
+            self.locks.pop(key, None)
+            task = self.cleanup_tasks.pop(key, None)
+            if task:
+                task.cancel()
+            if captcha_path:
+                try:
+                    os.remove(captcha_path)
+                except OSError:
+                    pass
+            raise
 
         self.ctx.log.info(
             "[发红包] 群 %s (%s) 创建活动 #%s：%s魔力/%s个，验证码=%s",
@@ -344,57 +377,38 @@ class ActivityManager:
         )
         return True
 
-    # —— 轮换验证码（每抢一个换一个，防复制粘贴）——
+    # —— 轮换验证码（图片/文字模式均支持）——
     async def _rotate_captcha(self, client, chat_id: int, activity: Dict):
-        """删掉旧验证码消息/图片，随机生成新验证码并重新发图。仅随机模式生效。"""
-        # 删旧消息 + 旧图
-        old_mid = activity.get("captcha_msg_id")
-        if old_mid:
-            try:
-                await client.delete_messages(chat_id, old_mid)
-            except Exception:  # noqa: BLE001
-                pass
-            if old_mid in activity.get("msg_ids", []):
-                try:
-                    activity["msg_ids"].remove(old_mid)
-                except ValueError:
-                    pass
+        """旧码先失效，再公布不曾用过的新码；发送失败也不恢复旧码。"""
+        activity["keyword"] = ""
+        old_ids = activity["code_msg_ids"]
+        activity["code_msg_ids"] = []
         old_path = activity.get("captcha_path")
-        if old_path:
-            try:
-                os.remove(old_path)
-            except OSError:
-                pass
-
-        code = self._make_code(activity.get("prefix", ""))
-        activity["keyword"] = code
-        path = render_captcha(code, self._data_dir())
-        activity["captcha_path"] = path
-        rp_id = activity.get("rp_id", 0)
-        caption = (
-            f"🧧 幸运红包  #{rp_id} · 新验证码\n"
-            f"━━━━━━━━━━━━━\n"
-            f"⚠️ 上一个验证码已失效\n"
-            f"🎁 剩余      {activity['remaining_count']} / {activity['packet_count']} 个\n"
-            f"━━━━━━━━━━━━━\n"
-            f"👉 识别上图新验证码，发送图中字符参与（不区分大小写）"
-        )
-        sent = None
-        if path:
-            try:
-                sent = await client.send_file(chat_id, path, caption=caption)
-            except Exception as e:  # noqa: BLE001
-                self.ctx.log.warning("[发红包] 轮换验证码发图失败，回退文本: %r", e)
-        if sent is None:
-            sent = await client.send_message(
-                chat_id,
-                f"🧧 幸运红包  #{rp_id} · 新验证码\n"
-                f"⚠️ 上一个已失效\n🔑 新口令：{code}\n"
-                f"🎁 剩余 {activity['remaining_count']} / {activity['packet_count']} 个",
-            )
-        if sent:
-            activity["captcha_msg_id"] = sent.id
-            activity["msg_ids"].append(sent.id)
+        activity["captcha_path"] = None
+        try:
+            for _ in range(32):
+                code = self._make_code(activity.get("prefix", ""))
+                if code.lower() not in activity["used_codes"]:
+                    break
+            else:
+                raise RuntimeError("未能生成未使用过的新口令")
+            activity["used_codes"].add(code.lower())
+            activity["keyword"] = code
+            if not activity["text_mode"]:
+                activity["captcha_path"] = render_captcha(code, self._data_dir())
+            await self._publish_code(client, activity, kind="rotate")
+        finally:
+            if old_path:
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+            if old_ids:
+                try:
+                    await client.delete_messages(chat_id, old_ids)
+                except Exception:  # noqa: BLE001
+                    # 删不掉的状态消息仍可能显示旧口令，但后端已经拒绝旧码。
+                    pass
 
     # —— 自动超时结算 ——
     async def _schedule_cleanup(self, client, chat_id: int):
@@ -425,7 +439,8 @@ class ActivityManager:
     async def handle_participation(self, client, message, sender=None) -> bool:
         chat_id = message.chat_id
         key = self._key(client, chat_id)
-        if key not in self.active:
+        expected_activity = self.active.get(key)
+        if expected_activity is None:
             return False
 
         sender = sender or getattr(message, "sender", None)
@@ -446,10 +461,10 @@ class ActivityManager:
 
         async with self.locks[key]:
             activity = self.active.get(key)
-            if not activity or activity["status"] != "进行中":
+            if activity is not expected_activity or activity["status"] != "进行中":
                 return False
             # 验证码匹配（不区分大小写、去首尾空白）
-            if activity["keyword"].strip().lower() != text.strip().lower():
+            if not activity["keyword"] or activity["keyword"].strip().lower() != text.strip().lower():
                 return False
 
             # 仅在用户再次发送当前有效参与口令时提示，避免已参与用户的普通聊天
@@ -476,14 +491,29 @@ class ActivityManager:
             activity["remaining_amount"] = max(0, round(activity["remaining_amount"] - amount, 2))
             activity["distributed_amount"] += amount
 
-            await self._send_redpacket(client, message, username, amount)
+            if activity["rotate_code"]:
+                activity["keyword"] = ""
 
-            if activity["remaining_count"] <= 0:
-                await self.end_activity(client, chat_id)
-            elif self._cfg("rotate_code", False):
-                # 每抢一个换一个防挂码：上一个立即失效，防复制粘贴/脚本
-                # （有自定义口令时保留口令前缀，只换后面的随机段）
-                await self._rotate_captcha(client, chat_id, activity)
+            try:
+                await self._send_redpacket(client, message, username, amount)
+
+                if activity["remaining_count"] <= 0:
+                    await self._end_activity(client, chat_id)
+                elif activity["rotate_code"]:
+                    # 自定义口令保留前缀，只更换后面的随机验证码。
+                    try:
+                        await self._rotate_captcha(client, chat_id, activity)
+                    except Exception as e:  # noqa: BLE001
+                        activity["keyword"] = ""
+                        self.ctx.log.error("[发红包] 新口令发布失败，本轮红包已结束，剩余 %s 个未发放: %r", activity["remaining_count"], e)
+                        await self._end_activity(client, chat_id)
+            except asyncio.CancelledError:
+                if self.active.get(key) is activity:
+                    # 转账请求可能已送达，不能恢复口令或重试发款。
+                    activity["keyword"] = ""
+                    self.ctx.log.warning("[发红包] 领取任务中断，本轮红包已结束，未发放部分不再继续")
+                    await self._end_activity(client, chat_id)
+                raise
             return True
 
     # —— 发放红包（reply +金额 触发转账bot打款）——
@@ -525,10 +555,20 @@ class ActivityManager:
     # —— 结束活动（结算公布 + 延迟批量删消息）——
     async def end_activity(self, client, chat_id: int):
         key = self._key(client, chat_id)
+        expected_activity = self.active.get(key)
+        lock = self.locks.get(key)
+        if lock:
+            async with lock:
+                if self.active.get(key) is expected_activity:
+                    await self._end_activity(client, chat_id)
+
+    async def _end_activity(self, client, chat_id: int):
+        key = self._key(client, chat_id)
         activity = self.active.get(key)
         if not activity:
             return
         activity["status"] = "已结束"
+        activity["keyword"] = ""
         # client 可能为超时任务保存的引用
         client = client or activity.get("client")
 
@@ -596,7 +636,7 @@ class ActivityManager:
             self.active.pop(key, None)
             self.locks.pop(key, None)
             t = self.cleanup_tasks.pop(key, None)
-            if t and not t.done():
+            if t and t is not asyncio.current_task() and not t.done():
                 t.cancel()
             # 清理验证码临时图片
             cpath = activity.get("captcha_path")
@@ -629,43 +669,25 @@ class ActivityManager:
     # —— 查询状态 ——
     async def get_activity_status(self, client, chat_id: int):
         key = self._key(client, chat_id)
+        expected_activity = self.active.get(key)
+        lock = self.locks.get(key)
+        if lock:
+            async with lock:
+                if self.active.get(key) is expected_activity:
+                    await self._get_activity_status(client, chat_id)
+                else:
+                    await client.send_message(chat_id, "红包活动已变化，请重新查询状态。")
+        else:
+            await client.send_message(chat_id, "当前群组没有进行中的红包活动")
+
+    async def _get_activity_status(self, client, chat_id: int):
+        key = self._key(client, chat_id)
         activity = self.active.get(key)
         if not activity:
             await client.send_message(chat_id, "当前群组没有进行中的红包活动")
             return
-        participants = activity["participants"]
-        rp_id = activity.get("rp_id", 0)
-
-        header = f"🧧 幸运红包  #{rp_id} · 进行中"
-        stat_lines = (
-            f"━━━━━━━━━━━━━\n"
-            f"💰 总金额    {activity['total_amount']} 魔力\n"
-            f"🎁 剩余      {activity['remaining_count']} / {activity['packet_count']} 个\n"
-            f"💵 剩余金额  {int(round(activity['remaining_amount']))} 魔力\n"
-            f"👥 已参与    {len(participants)} 人"
-        )
-        captcha_path = activity.get("captcha_path")
-
-        # 优先重发验证码图片（让后来者也能看清），不在文本里泄露验证码
-        if captcha_path and os.path.exists(captcha_path):
-            caption = (
-                f"{header}\n{stat_lines}\n"
-                f"━━━━━━━━━━━━━\n"
-                f"👉 识别上图验证码，发送图中字符参与（不区分大小写）"
-            )
-            try:
-                await client.send_file(chat_id, captcha_path, caption=caption)
-                return
-            except Exception as e:  # noqa: BLE001
-                self.ctx.log.warning("[发红包] 状态重发验证码图失败，回退文本: %r", e)
-
-        # 图片不可用：文本模式下公布口令
-        status_msg = (
-            f"{header}\n{stat_lines}\n"
-            f"🔑 参与口令  {activity['keyword']}"
-        )
         try:
-            await client.send_message(chat_id, status_msg)
+            await self._publish_code(client, activity, kind="status")
         except Exception as e:  # noqa: BLE001
             self.ctx.log.error("[发红包] 发送状态消息失败: %r", e)
 
