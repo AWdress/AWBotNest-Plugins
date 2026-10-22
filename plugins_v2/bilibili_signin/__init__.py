@@ -14,11 +14,36 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "author": "AWdress",
-    "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
+    "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到，逐项显示结果和失败原因并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
-    "changelog": "v0.0.1 首次发布\n- 接入分享、观看心跳、直播签到和漫画签到接口\n- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n- 仅依据 B 站接口 code 与明确重复签到提示判断结果",
+    "changelog": (
+        "v0.1.1 显示具体失败项目\n"
+        "- 通知、立即执行、最近结果和历史逐项显示签到状态、HTTP 状态及业务错误码\n"
+        "- 分享、观看、直播和漫画独立处理，单项异常或缺少 bili_jct 不再中断其他项目\n"
+        "- 漫读券查询失败仅提示查询异常，不再覆盖已完成的签到结果\n"
+        "- 修复历史时间和明细丢失，收紧成功、已签到及活动下线判定\n\n"
+        "v0.1.0 修复 B 站综合签到\n"
+        "- 动态视频接口为空时使用公开视频详情兜底，补齐 cid 与观看心跳参数\n"
+        "- 直播签到活动下线时标记为跳过，不再导致整轮失败\n\n"
+        "v0.0.9 修复保存后账号列表恢复\n"
+        "- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n"
+        "- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\n"
+        "v0.0.8 修复残留 Cookie 导致保存失败\n"
+        "- 兼容清理旧配置中的顶层 Cookie 键，避免平台提示包含未声明配置项\n"
+        "- 旧 Cookie 启动时自动转入首个账号并清空隐藏旧字段，界面仍保持逐账号配置\n\n"
+        "v0.0.7 修复原生配置保存\n"
+        "- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n"
+        "- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\n"
+        "v0.0.6 修复账号配置界面\n"
+        "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
+        "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"
+        "v0.0.1 首次发布\n"
+        "- 接入分享、观看心跳、直播签到和漫画签到接口\n"
+        "- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n"
+        "- 仅依据 B 站接口 code 与明确重复签到提示判断结果"
+    ),
     "scope": "standalone",
     "plugin_api_version": 2,
     "render_mode": "schema",
@@ -53,25 +78,6 @@ __plugin__ = {
         "history": {"type": "info", "default": "暂无记录", "label": "最近签到记录", "section": "运行状态", "cols": 12, "order": 51},
     },
 }
-
-__plugin__["changelog"] = (
-    "v0.1.0 修复 B 站综合签到\n"
-    "- 动态视频接口为空时使用公开视频详情兜底，补齐 cid 与观看心跳参数\n"
-    "- 直播签到活动下线时标记为跳过，不再导致整轮失败\n\n"
-    "v0.0.9 修复保存后账号列表恢复\n"
-    "- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n"
-    "- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\n"
-    "v0.0.8 修复残留 Cookie 导致保存失败\n"
-    "- 兼容清理旧配置中的顶层 Cookie 键，避免平台提示包含未声明配置项\n"
-    "- 旧 Cookie 启动时自动转入首个账号并清空隐藏旧字段，界面仍保持逐账号配置\n\n"
-    "v0.0.7 修复原生配置保存\n"
-    "- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n"
-    "- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\n"
-    "v0.0.6 修复账号配置界面\n"
-    "- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n"
-    "- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\n"
-    + __plugin__["changelog"]
-)
 
 API = "https://api.bilibili.com"
 LIVE_SIGN = "https://api.live.bilibili.com/xlive/web-ucenter/v1/sign/DoSign"
@@ -135,13 +141,78 @@ def _message(body: dict, text: str = "") -> str:
     return str(text or "").strip()[:180]
 
 
-def _api_ok(body: dict, text: str = "", allow_duplicate: bool = True) -> bool:
-    if body.get("code") == 0:
+def _already_done(body: dict) -> bool:
+    code = body.get("code")
+    if "code" in body and (type(code) not in (int, str) or code == ""):
+        return False
+    if str(code) in {"-101", "-111", "-400", "-403", "-412", "-509"}:
+        return False
+    message = _message(body).lower()
+    if any(word in message for word in ("未登录", "未完成", "未签到", "尚未", "不能", "禁止", "not signed", "not logged")):
+        return False
+    return any(word in message for word in (
+        "已签到", "已经签到", "今日已完成", "今天已完成", "今日已分享", "已经分享", "今日已观看",
+        "already signed", "already checked in", "already shared", "already watched",
+    ))
+
+
+def _api_ok(body: dict, text: str = "", allow_duplicate: bool = True, *, http_status: int = 200) -> bool:
+    if http_status not in (200, 201):
+        return False
+    code = body.get("code")
+    if type(code) in (int, str) and code in (0, "0"):
         return True
-    message = _message(body, text).lower()
-    if allow_duplicate and any(word in message for word in ("已签到", "已完成", "重复", "duplicate", "already")):
-        return True
-    return False
+    # Only a structured business receipt can confirm a repeated check-in.
+    # An HTML error/login page mentioning "already" is not a receipt.
+    return allow_duplicate and _already_done(body)
+
+
+def _response_detail(response, body: dict) -> str:
+    code = body.get("code")
+    if _api_ok(body, http_status=response.status_code):
+        return "今天已签到" if _already_done(body) else "签到成功"
+    hints = {"-101": "未登录或 Cookie 已失效", "-111": "CSRF 校验失败，请重新获取完整 Cookie",
+             "-400": "请求参数错误", "-403": "访问权限不足", "-412": "请求被风控拦截，请稍后重试",
+             "-509": "请求过于频繁，请稍后重试"}
+    message = _message(body) or hints.get(str(code)) or ("缺少明确的业务结果" if body else "接口未返回有效 JSON")
+    message = re.sub(r"\s+", " ", message)[:180]
+    code_text = f"，code={code}" if "code" in body else "，缺少 code"
+    return f"HTTP {response.status_code}{code_text}：{message}"
+
+
+def _request_error(error: Exception) -> str:
+    # Do not echo request headers/cookies or a complete raw response to users.
+    if isinstance(error, requests.Timeout):
+        return "请求超时，请稍后重试"
+    if isinstance(error, requests.ConnectionError):
+        return "网络连接失败，请检查服务器网络或代理"
+    return f"请求处理失败（{type(error).__name__}）"
+
+
+def _finish_result(result: dict) -> dict:
+    actions = result.get("actions", [])
+    failed = [item["项目"] for item in actions if item["状态"] == "失败"]
+    result["ok"] = bool(actions) and not failed
+    result["message"] = ("部分签到失败：" + "、".join(failed) if failed else
+                         "综合签到完成" if actions else "未启用任何签到项目")
+    return result
+
+
+def _result_details(item: dict) -> str:
+    lines = []
+    for action in item.get("actions", []):
+        detail = action.get("详情", "")
+        suffix = f"（{detail}）" if detail and detail not in {"签到成功", "今天已签到"} else ""
+        lines.append(f"{action['项目']}：{action['状态']}{suffix}")
+    if not lines:
+        lines.append(str(item.get("message") or "未返回签到结果"))
+    for warning in item.get("warnings", []):
+        lines.append(f"{warning['项目']}：{warning['详情']}（不影响签到结果）")
+    return "；".join(lines)
+
+
+def _display_result(item: dict) -> str:
+    return f"{item.get('name', '账号')} · {item.get('message', '')}\n{_result_details(item)}"
 
 
 def _cookie_jar(raw: str) -> requests.cookies.RequestsCookieJar:
@@ -157,6 +228,9 @@ def _cookie_jar(raw: str) -> requests.cookies.RequestsCookieJar:
 
 def _signin_one(account: Dict[str, str], enabled: Dict[str, bool], delay: int, timeout: int, log=None) -> Dict[str, Any]:
     name = account.get("name") or "默认账号"
+    result: Dict[str, Any] = {"name": name, "ok": False, "actions": [], "warnings": []}
+    if not any(enabled.get(key) for key in ("share", "heartbeat", "live", "manga")):
+        return _finish_result(result)
     session = requests.Session()
     session.cookies.update(_cookie_jar(account.get("cookie", "")))
     session.headers.update({
@@ -166,79 +240,115 @@ def _signin_one(account: Dict[str, str], enabled: Dict[str, bool], delay: int, t
         "Origin": "https://www.bilibili.com",
         "Referer": "https://www.bilibili.com/",
     })
-    result: Dict[str, Any] = {"name": name, "ok": True, "actions": []}
     try:
         nav = session.get(f"{API}/x/web-interface/nav", timeout=timeout)
         nav_body = _json(nav)
         nav_data = nav_body.get("data") if isinstance(nav_body.get("data"), dict) else {}
-        if nav.status_code != 200 or nav_body.get("code") != 0 or nav_data.get("isLogin") is False:
-            return {"name": name, "ok": False, "message": "Cookie 已失效或 B 站未登录"}
-        result.update({"uid": nav_data.get("mid", "-"), "uname": nav_data.get("uname", name), "level": nav_data.get("level_info", {}).get("current_level", "-"), "coin": nav_data.get("money", "-"), "exp": nav_data.get("level_exp", {}).get("current_exp", "-")})
+        if not _api_ok(nav_body, allow_duplicate=False, http_status=nav.status_code):
+            return {**result, "message": "账号校验失败：" + _response_detail(nav, nav_body)}
+        if nav_data.get("isLogin") is not True:
+            return {**result, "message": "Cookie 已失效或 B 站未登录，未取得登录确认"}
+        level_info = nav_data.get("level_info") if isinstance(nav_data.get("level_info"), dict) else {}
+        level_exp = nav_data.get("level_exp") if isinstance(nav_data.get("level_exp"), dict) else {}
+        result.update({"uid": nav_data.get("mid", "-"), "uname": nav_data.get("uname", name),
+                       "level": level_info.get("current_level", "-"), "coin": nav_data.get("money", "-"),
+                       "exp": level_exp.get("current_exp", "-")})
         csrf = next((c.value for c in session.cookies if c.name == "bili_jct"), "")
-        if not csrf and enabled.get("share") or not csrf and enabled.get("heartbeat"):
-            return {**result, "ok": False, "message": "Cookie 中缺少 bili_jct，无法完成分享/观看签到"}
 
-        def record(label: str, ok: bool, message: str, *, skipped: bool = False):
-            result["actions"].append({"项目": label, "状态": "跳过" if skipped else ("已完成" if ok else "失败"), "详情": message})
+        def record(label: str, status: str, message: str):
+            result["actions"].append({"项目": label, "状态": status, "详情": message})
             if log:
-                log.info("[B站每日综合签到] [%s] %s：%s（%s）", name, label, "完成" if ok else "失败", message)
+                (log.warning if status == "失败" else log.info)(
+                    "[B站每日综合签到] [%s] %s：%s（%s）", name, label, status, message)
+
+        def perform(label: str, callback, *, live: bool = False):
+            try:
+                response = callback()
+                body = _json(response)
+                message = _message(body)
+                live_offline = (live and response.status_code == 200 and type(body.get("code")) in (int, str)
+                                and str(body["code"]) not in {"-101", "-111", "-400", "-403", "-412", "-509"} and any(
+                    word in message for word in ("签到活动已下线", "签到活动已结束", "签到活动未开放", "签到活动暂未开放"))
+                                )
+                if live_offline:
+                    record(label, "跳过", message)
+                elif _api_ok(body, http_status=response.status_code):
+                    record(label, "已签到" if _already_done(body) else "已完成", _response_detail(response, body))
+                else:
+                    record(label, "失败", _response_detail(response, body))
+            except Exception as exc:  # One task must not prevent other independent check-ins.
+                record(label, "失败", _request_error(exc))
+            if delay:
+                time.sleep(delay)
 
         bvid = ""
-        if enabled.get("share") or enabled.get("heartbeat"):
-            dynamic = session.get(f"{API}/x/web-interface/dynamic/region", params={"pn": 1, "ps": 12, "rid": 0}, timeout=timeout)
-            matches = re.findall(r"BV[A-Za-z0-9]{10}", dynamic.text or "")
+        video_error = "Cookie 中缺少 bili_jct，请重新获取完整 Cookie"
+        if csrf and (enabled.get("share") or enabled.get("heartbeat")):
+            matches = []
+            video_errors = []
+            try:
+                dynamic = session.get(f"{API}/x/web-interface/dynamic/region", params={"pn": 1, "ps": 12, "rid": 0}, timeout=timeout)
+                if dynamic.status_code == 200:
+                    matches = re.findall(r"BV[A-Za-z0-9]{10}", dynamic.text or "")
+                else:
+                    video_errors.append(_response_detail(dynamic, _json(dynamic)))
+            except Exception as exc:
+                video_errors.append(_request_error(exc))
             candidates = list(dict.fromkeys(matches + list(FALLBACK_BVIDS)))
-            # 动态接口在部分账号/地区会返回空壳数据，逐个用公开视频详情接口兜底。
+            # A broken dynamic endpoint or candidate must not stop the fallback list.
             for candidate in candidates:
-                view = session.get(f"{API}/x/web-interface/view", params={"bvid": candidate}, timeout=timeout)
-                view_body = _json(view)
-                if view_body.get("code") == 0 and isinstance(view_body.get("data"), dict):
-                    bvid = candidate
-                    result["cid"] = (view_body.get("data") or {}).get("cid") or 0
-                    break
-            if not bvid:
-                if enabled.get("share"):
-                    record("分享签到", False, "未找到可用视频 BV 号")
-                if enabled.get("heartbeat"):
-                    record("观看签到", False, "未找到可用视频 BV 号")
-        if enabled.get("share") and bvid:
-            response = session.post(f"{API}/x/web-interface/share/add", data={"bvid": bvid, "csrf": csrf}, timeout=timeout)
-            body = _json(response)
-            record("分享签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
-            if delay: time.sleep(delay)
-        if enabled.get("heartbeat") and bvid:
-            response = session.post(f"{API}/x/click-interface/web/heartbeat", data={
-                "bvid": bvid, "cid": result.get("cid", 0), "csrf": csrf,
-                "played_time": 2, "realtime": 2, "start_ts": int(time.time()) - 2,
-                "type": 3, "dt": 2, "play_type": 1,
-            }, timeout=timeout)
-            body = _json(response)
-            record("观看签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
-            if delay: time.sleep(delay)
+                try:
+                    view = session.get(f"{API}/x/web-interface/view", params={"bvid": candidate}, timeout=timeout)
+                    view_body = _json(view)
+                    data = view_body.get("data") if isinstance(view_body.get("data"), dict) else {}
+                    cid = data.get("cid")
+                    valid_cid = type(cid) in (int, str) and str(cid).isdigit() and int(cid) > 0
+                    if _api_ok(view_body, allow_duplicate=False, http_status=view.status_code) and valid_cid:
+                        bvid = candidate
+                        result["cid"] = int(cid)
+                        break
+                    video_errors.append(_response_detail(view, view_body) if not _api_ok(
+                        view_body, allow_duplicate=False, http_status=view.status_code) else "视频详情缺少有效 cid")
+                except Exception as exc:
+                    video_errors.append(_request_error(exc))
+            video_error = "未找到可用视频" + ("：" + "；".join(dict.fromkeys(video_errors[-2:])) if video_errors else "")
+        if enabled.get("share"):
+            if bvid:
+                perform("分享签到", lambda: session.post(f"{API}/x/web-interface/share/add", data={"bvid": bvid, "csrf": csrf}, timeout=timeout))
+            else:
+                record("分享签到", "失败", video_error)
+        if enabled.get("heartbeat"):
+            if bvid:
+                perform("观看签到", lambda: session.post(f"{API}/x/click-interface/web/heartbeat", data={
+                    "bvid": bvid, "cid": result["cid"], "csrf": csrf,
+                    "played_time": 2, "realtime": 2, "start_ts": int(time.time()) - 2,
+                    "type": 3, "dt": 2, "play_type": 1,
+                }, timeout=timeout))
+            else:
+                record("观看签到", "失败", video_error)
         if enabled.get("live"):
-            response = session.get(LIVE_SIGN, timeout=timeout)
-            body = _json(response)
-            live_message = _message(body, response.text) or f"HTTP {response.status_code}"
-            live_offline = any(word in live_message for word in ("下线", "不存在", "未开放", "活动已结束", "无法使用"))
-            record("直播签到", _api_ok(body, response.text), live_message, skipped=live_offline)
-            if delay: time.sleep(delay)
+            perform("直播签到", lambda: session.get(LIVE_SIGN, timeout=timeout), live=True)
         if enabled.get("manga"):
-            response = session.post(MANGA_CLOCKIN, data={"platform": "ios"}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=timeout)
-            body = _json(response)
-            record("漫画签到", _api_ok(body, response.text), _message(body, response.text) or f"HTTP {response.status_code}")
-            if delay: time.sleep(delay)
-        if enabled.get("manga"):
-            response = session.post(MANGA_COUPONS, json={"notExpired": True, "pageNum": 1, "pageSize": 20, "tabType": 1, "type": 0}, headers={"Content-Type": "application/json; charset=utf-8"}, timeout=timeout)
-            body = _json(response)
-            data = body.get("data") if isinstance(body.get("data"), dict) else {}
-            result["manga"] = data.get("total_remain_amount", "-")
-        result["ok"] = bool(result["actions"]) and all(item["状态"] in {"已完成", "跳过"} for item in result["actions"])
-        result["message"] = "综合签到完成" if result["ok"] else "部分签到失败"
-        return result
+            perform("漫画签到", lambda: session.post(MANGA_CLOCKIN, data={"platform": "ios"}, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=timeout))
+            try:
+                response = session.post(MANGA_COUPONS, json={"notExpired": True, "pageNum": 1, "pageSize": 20, "tabType": 1, "type": 0}, headers={"Content-Type": "application/json; charset=utf-8"}, timeout=timeout)
+                body = _json(response)
+                data = body.get("data") if isinstance(body.get("data"), dict) else {}
+                if not _api_ok(body, allow_duplicate=False, http_status=response.status_code):
+                    raise ValueError(_response_detail(response, body))
+                result["manga"] = data.get("total_remain_amount", "-")
+            except Exception as exc:
+                message = str(exc) if isinstance(exc, ValueError) else _request_error(exc)
+                result["warnings"].append({"项目": "漫读券查询", "详情": message})
+                if log:
+                    log.warning("[B站每日综合签到] [%s] 漫读券查询失败，不影响签到结果：%s", name, message)
+        return _finish_result(result)
     except requests.RequestException as exc:
-        return {**result, "ok": False, "message": f"网络请求失败：{exc}"}
+        return {**result, "ok": False, "message": "账号校验失败：" + _request_error(exc)}
     except Exception as exc:  # noqa: BLE001
-        return {**result, "ok": False, "message": f"签到处理失败：{exc}"}
+        return {**result, "ok": False, "message": f"账号信息处理失败（{type(exc).__name__}）"}
+    finally:
+        session.close()
 
 
 async def setup(ctx):
@@ -277,7 +387,20 @@ async def setup(ctx):
         await ctx.storage.set("history", history)
         await ctx.storage.set("last_result", {"time": stamp, "source": source, "results": results})
         ok_count = sum(bool(item.get("ok")) for item in results)
-        ctx.update_config({"last_result": f"{stamp} · 成功 {ok_count}/{len(results)}", "history": "\n".join(f"{stamp} · {item.get('name', '')} · {item.get('message', '')}" for item in reversed(history[-10:]))})
+        history_lines = []
+        for run in reversed(history[-10:]):
+            if not isinstance(run, dict):
+                continue
+            saved_results = run.get("results", [])
+            if not isinstance(saved_results, list):
+                continue
+            for item in saved_results:
+                if isinstance(item, dict):
+                    history_lines.append(f"{run.get('time', '-')} · {_display_result(item)}")
+        ctx.update_config({
+            "last_result": f"{stamp} · 成功 {ok_count}/{len(results)}\n" + "\n\n".join(_display_result(item) for item in results),
+            "history": "\n\n".join(history_lines),
+        })
 
     async def run_once(source: str):
         assert _run_lock is not None
@@ -297,12 +420,13 @@ async def setup(ctx):
             if ctx.config.get("notify", True):
                 rows = []
                 for item in results:
-                    rows.append({"账号": item.get("name", "-"), "状态": "成功" if item.get("ok") else "失败", "等级": item.get("level", "-"), "硬币": item.get("coin", "-"), "漫读券": item.get("manga", "-"), "详情": item.get("message", "")})
+                    rows.append({"账号": item.get("name", "-"), "状态": "成功" if item.get("ok") else "失败", "等级": item.get("level", "-"), "硬币": item.get("coin", "-"), "漫读券": item.get("manga", "-"), "详情": _result_details(item)})
                 try: await asyncio.wait_for(ctx.notify(rows, category="B站每日综合签到"), timeout=30)
                 except Exception as exc: ctx.log.warning("[B站每日综合签到] 通知发送失败：%r", exc)
             ok_count = sum(bool(item.get("ok")) for item in results)
             (ctx.log.info if ok_count == len(results) else ctx.log.warning)("[B站每日综合签到] 完成：成功 %d/%d", ok_count, len(results))
-            return {"ok": ok_count == len(results), "results": results, "message": f"成功 {ok_count}/{len(results)}"}
+            return {"ok": ok_count == len(results), "results": results,
+                    "message": f"成功 {ok_count}/{len(results)}\n" + "\n\n".join(_display_result(item) for item in results)}
 
     @ctx.action("run_now")
     async def run_now(): return await run_once("手动")

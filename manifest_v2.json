@@ -4007,14 +4007,14 @@
     "bilibili_signin": {
       "name": "B站每日综合签到",
       "id": "bilibili_signin",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": "AWdress",
       "scope": "standalone",
       "plugin_api_version": 2,
       "requirements": ["requests>=2.28"],
-      "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到并推送账号状态。",
+      "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到，逐项显示结果和失败原因并推送账号状态。",
       "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
-      "changelog": "v0.0.8 修复残留 Cookie 导致保存失败\n- 清理旧配置中的顶层 Cookie 键并转入逐账号列表，避免保存接口拒绝未声明字段\n\nv0.0.7 修复原生配置保存\n- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\nv0.0.6 修复账号配置界面\n- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\nv0.0.1 首次发布\n- 接入分享、观看心跳、直播签到和漫画签到接口\n- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n- 仅依据 B 站接口 code 与明确重复签到提示判断结果",
+      "changelog": "v0.1.1 显示具体失败项目\n- 通知、立即执行、最近结果和历史逐项显示签到状态、HTTP 状态及业务错误码\n- 分享、观看、直播和漫画独立处理，单项异常或缺少 bili_jct 不再中断其他项目\n- 漫读券查询失败仅提示查询异常，不再覆盖已完成的签到结果\n- 修复历史时间和明细丢失，收紧成功、已签到及活动下线判定\n\nv0.1.0 修复 B 站综合签到\n- 动态视频接口为空时使用公开视频详情兜底，补齐 cid 与观看心跳参数\n- 直播签到活动下线时标记为跳过，不再导致整轮失败\n\nv0.0.9 修复保存后账号列表恢复\n- 不再对整个账号列表做脱敏，避免平台读取时变成 ******** 导致账号行消失\n- 每行 Cookie 继续使用 password 字段默认隐藏并支持眼睛查看\n\nv0.0.8 修复残留 Cookie 导致保存失败\n- 兼容清理旧配置中的顶层 Cookie 键，避免平台提示包含未声明配置项\n- 旧 Cookie 启动时自动转入首个账号并清空隐藏旧字段，界面仍保持逐账号配置\n\nv0.0.7 修复原生配置保存\n- 显式声明使用平台原生 schema 渲染，确保保存按钮绑定标准配置提交流程\n- 保持逐账号名称与 Cookie 字段及独立显隐功能\n\nv0.0.6 修复账号配置界面\n- 使用平台原生逐账号列表配置，账号名称与 Cookie 分开填写\n- Cookie 默认隐藏，每个账号独立支持眼睛显示/隐藏、添加与删除\n\nv0.0.1 首次发布\n- 接入分享、观看心跳、直播签到和漫画签到接口\n- 支持多账号 Cookie、定时 Cron、立即执行、硬币/等级/漫读券信息和富文本通知\n- 仅依据 B 站接口 code 与明确重复签到提示判断结果",
       "config_schema": {
         "enabled": {"type": "boolean", "default": false, "label": "启用自动签到", "section": "功能开关", "order": 1},
         "notify": {"type": "boolean", "default": true, "label": "推送签到结果", "section": "功能开关", "order": 2},
