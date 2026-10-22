@@ -198,6 +198,26 @@ def render_messages(release):
     return chunks
 
 
+def _target_parts(release, parts, record):
+    """Reuse every existing message ID, even when a changelog becomes shorter.
+
+    Telegram cannot always delete older messages. Replace surplus continuation
+    text instead, and reuse those slots if a later edit grows the changelog.
+    """
+    surplus = max(0, len(record.get("message_ids", [])) - len(parts))
+    notice = ("<b>AWBotNest " + html.escape(release["tag"]) + " · 更新内容已调整</b>\n"
+              "本续段已不再使用，请查看首条公告。\n"
+              '<a href="' + html.escape(release["url"], quote=True) + '">查看最新发布详情</a>')
+    return parts + [notice] * surplus
+
+
+def _record_complete(record, release, parts):
+    return (record.get("release_id") == release["id"] and record.get("pinned")
+            and record.get("inflight") is None and not record.get("error")
+            and len(record.get("message_ids", [])) == len(parts)
+            and record.get("parts") == parts and record.get("sent_parts") == parts)
+
+
 def _selected_bot(ctx):
     settings = ctx.settings
     specs = {str(spec.id): str(spec.token or "").strip() for spec in settings.bot_specs()}
@@ -263,6 +283,14 @@ class ReleasePublisher:
                 raise PublishError("发送记录异常，已停止发布，避免重复发送")
             if len(record["message_ids"]) > len(record["parts"]) or not record["parts"]:
                 raise PublishError("发送进度异常，已停止发布，避免重复发送")
+            # Previous releases kept the originally sent text in parts. Migrate
+            # it before any current GitHub content replaces that desired text.
+            if "sent_parts" not in record:
+                record["sent_parts"] = list(record["parts"][:len(record["message_ids"])])
+            if (not isinstance(record["sent_parts"], list)
+                    or len(record["sent_parts"]) != len(record["message_ids"])
+                    or any(not isinstance(part, str) for part in record["sent_parts"])):
+                raise PublishError("正文同步进度异常，已停止发布，避免误改消息")
         self.state = candidate
 
     async def _save(self):
@@ -280,7 +308,7 @@ class ReleasePublisher:
     async def _github_page(self, url, etag=""):
         if time.time() < self.state.get("github_retry_at", 0):
             raise PublishError("GitHub 请求限流，等待冷却后再检查；不会发布旧缓存")
-        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.5",
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "AWBotNest-developer-assistant/0.0.6",
                    "X-GitHub-Api-Version": "2022-11-28"}
         if etag:
             headers["If-None-Match"] = etag
@@ -380,6 +408,12 @@ class ReleasePublisher:
         if not isinstance(data, dict) or data.get("ok") is not True or status != 200:
             description = str(data.get("description") or "响应异常") if isinstance(data, dict) else "响应异常"
             description = description.replace(token, "***")[:220]
+            if (method == "editMessageText" and status == 400 and isinstance(data, dict)
+                    and data.get("ok") is False and data.get("error_code") == 400
+                    and description.lower().startswith("bad request: message is not modified")):
+                # The previous edit may have reached Telegram before a timeout
+                # or restart. This is an acknowledgement, not a new send.
+                return {"message_id": payload["message_id"]}
             parameters = data.get("parameters", {}) if isinstance(data, dict) else {}
             try:
                 retry = int(parameters.get("retry_after", 0)) if isinstance(parameters, dict) else 0
@@ -446,17 +480,18 @@ class ReleasePublisher:
     async def _check_locked(self):
         targets = parse_targets(self.ctx.config.get("targets", ""))
         release = await self._fetch_latest()
+        release_parts = render_messages(release)
         if time.time() < self.state.get("telegram_retry_at", 0):
             return await self._outcome(False, "Telegram 正在限流，冷却后再继续最新版本；不会重复已发送内容")
         token = _selected_token(self.ctx)
         bot_id = await self._bot_id(token)
-        completed, errors, seen, used = 0, [], set(), 0
+        completed, errors, seen, used, edited_count = 0, [], set(), 0, 0
         for target in targets:
             known = self.state["aliases"].get(f"{bot_id}:{target}")
             previous = self.state["targets"].get(known, {})
             if target.startswith("-") and known in seen:
                 continue
-            if target.startswith("-") and previous.get("release_id") == release["id"] and previous.get("pinned"):
+            if target.startswith("-") and _record_complete(previous, release, _target_parts(release, release_parts, previous)):
                 seen.add(known)
                 completed += 1
                 continue
@@ -468,17 +503,40 @@ class ReleasePublisher:
                 record = self.state["targets"].get(key)
                 if not record or record.get("release_id") != release["id"]:
                     record = {"release_id": release["id"], "tag": release["tag"], "title": title,
-                              "parts": render_messages(release), "message_ids": [], "inflight": None,
+                              "parts": list(release_parts), "message_ids": [], "sent_parts": [], "inflight": None,
                               "pinned": False, "error": ""}
                     self.state["targets"][key] = record
                     await self._save()
-                if record.get("pinned"):
-                    completed += 1
-                    continue
                 if record.get("inflight") is not None:
                     raise PublishError("上一条发送结果不明确，已暂停此目标以防重复；请先在群/频道核对")
+                desired = _target_parts(release, release_parts, record)
+                if record["parts"] != desired:
+                    record["parts"] = desired
+                    await self._save()
+                if _record_complete(record, release, desired):
+                    completed += 1
+                    continue
                 record["error"] = ""
-                for part_index in range(len(record["message_ids"]), len(record["parts"])):
+                for part_index, part in enumerate(record["parts"]):
+                    if part_index < len(record["message_ids"]):
+                        if record["sent_parts"][part_index] == part:
+                            continue
+                        if used >= MESSAGE_BUDGET:
+                            break
+                        message_id = record["message_ids"][part_index]
+                        edited = await self._bot(token, "editMessageText", {
+                            "chat_id": chat_id, "message_id": message_id,
+                            "text": part, "parse_mode": "HTML", "link_preview_options": {"is_disabled": True},
+                        })
+                        if not isinstance(edited, dict) or type(edited.get("message_id")) is not int or edited["message_id"] != message_id:
+                            raise BotError("Telegram 未确认原消息编辑，下次将继续编辑，不会重发公告")
+                        record["sent_parts"][part_index] = part
+                        record["updated_at"] = _stamp()
+                        used += 1
+                        edited_count += 1
+                        await self._save()
+                        await asyncio.sleep(0.4)
+                        continue
                     if used >= MESSAGE_BUDGET:
                         break
                     record["inflight"] = part_index
@@ -498,13 +556,14 @@ class ReleasePublisher:
                         await self._save()
                         raise
                     record["message_ids"].append(sent["message_id"])
+                    record["sent_parts"].append(part)
                     record["inflight"] = None
                     record["updated_at"] = _stamp()
                     used += 1
                     await self._save()
                     await asyncio.sleep(0.4)
-                if len(record["message_ids"]) != len(record["parts"]):
-                    raise PublishError("更新内容较长，本轮已达发送上限；下次只继续未发送部分")
+                if len(record["message_ids"]) != len(record["parts"]) or record["sent_parts"] != record["parts"]:
+                    raise PublishError("更新内容较长，本轮已达处理上限；下次只继续尚未发送或编辑的部分")
                 if not record["pinned"]:
                     pinned = await self._bot(token, "pinChatMessage", {
                         "chat_id": chat_id, "message_id": record["message_ids"][0], "disable_notification": True,
@@ -532,6 +591,8 @@ class ReleasePublisher:
         message = "最新%s %s：已发布并置顶 %s 个目标%s" % (
             "预发行版" if release.get("prerelease") else "正式版", release["tag"],
             completed, "（本轮未重复发送）" if not used else "")
+        if edited_count:
+            message += "，本轮已编辑原消息 %s 段" % edited_count
         if errors:
             message += "\n" + "\n".join(errors)
         return await self._outcome(not errors, message)
@@ -544,7 +605,9 @@ class ReleasePublisher:
         for record in self.state["targets"].values():
             if record.get("inflight") is not None:
                 state = "发送结果待核对，已暂停"
-            elif record.get("pinned"):
+            elif record.get("message_ids") and record.get("sent_parts") != record["parts"][:len(record["message_ids"])]:
+                state = "正文更新未完成，下次继续编辑原消息"
+            elif record.get("pinned") and len(record["message_ids"]) == len(record["parts"]):
                 state = "已发送并置顶"
             elif len(record.get("message_ids", [])) == len(record.get("parts", [])):
                 state = "已发送，等待置顶"
