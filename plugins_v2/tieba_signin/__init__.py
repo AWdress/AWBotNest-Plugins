@@ -16,11 +16,14 @@ import requests
 __plugin__ = {
     "name": "百度贴吧签到",
     "id": "tieba_signin",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "author": "AWdress",
-    "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行，按吧名显示本次签到、此前已签到及失败结果。",
+    "description": "使用百度贴吧 Cookie 自动完成关注贴吧签到，支持多账号、定时执行，通知显示简洁统计，完整吧名及结果保留在记录中。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/tieba_signin/logo.png",
     "changelog": (
+        "v0.1.5 精简签到通知\n"
+        "- 通知改为紧凑文字，保留状态和本次/此前已签到数量，不再铺开成功贴吧名单\n"
+        "- 失败/未确认仅预览最多 3 个吧名和一条原因，完整明细仍保留在插件记录中\n\n"
         "v0.1.4 显示已签到贴吧\n"
         "- 结果通知、日志和最近记录列出本次签到、此前已签到及失败/未确认的吧名与数量\n"
         "- 以逐吧回执统计已签到数量，避免一键接口返回 0 时覆盖已签到结果\n"
@@ -290,6 +293,34 @@ def _display_result(item: dict) -> str:
     return "\n".join(lines)
 
 
+def _notice_text(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def _notice_result(item: dict) -> str:
+    """Keep push notifications short; full forum receipts stay in the records."""
+    status = ("已签到" if item.get("already") else "签到成功") if item.get("ok") else "签到失败"
+    lines = [f"{_notice_text(item.get('name') or '账号', 40)} · {status}"]
+    if not item.get("bars"):
+        lines.append(_notice_text(item.get("message") or "未取得签到结果", 120))
+        return "\n".join(lines)
+    lines.append(f"已签到 {item.get('signed', 0)}/{item['bars']}"
+                 f"（本次 {item.get('new_signed', 0)}，此前 {item.get('already_count', 0)}）"
+                 f" · 失败/未确认 {item.get('failed', 0)}")
+    failed = item.get("failed_bars", [])
+    if failed:
+        names = "、".join(_notice_text(name, 16) for name in failed[:3])
+        if len(failed) > 3:
+            names += f" 等 {len(failed)} 个"
+        lines.append("失败/未确认：" + names)
+        reason = next((entry.get("message") for entry in item.get("bar_results", [])
+                       if entry.get("status") == "failed" and entry.get("message")), "")
+        if reason:
+            lines.append("原因：" + _notice_text(reason, 80))
+    return "\n".join(lines)
+
+
 def _merge_signin_results(previous: dict, retry: dict) -> dict:
     """Preserve confirmed HTTP receipts when the browser retries the account."""
     if not previous.get("bar_results"):
@@ -551,20 +582,13 @@ async def setup(ctx):
                 retry = await _browser_signin_one(accounts[index], delay, timeout, ctx.browser, ctx.log)
                 results[index] = _merge_signin_results(result, retry)
             await save_results(results, source)
-            rows = []
             for item in results:
                 (ctx.log.info if item.get("ok") else ctx.log.warning)("[百度贴吧签到] %s", _display_result(item))
-                row = {"账号": item.get("name", "-"),
-                       "状态": ("已签到" if item.get("already") else "签到成功") if item.get("ok") else "签到失败",
-                       "已签到": item.get("signed", "-"), "详情": item.get("message", "")}
-                if "bar_results" in item:
-                    row.update({"本次签到": _bar_names(item.get("newly_signed_bars", [])),
-                                "此前已签到": _bar_names(item.get("already_bars", [])),
-                                "失败/未确认": _bar_names(item.get("failed_bars", []))})
-                rows.append(row)
             if ctx.config.get("notify", True):
+                # Explicit rich text bypasses the platform's automatic table conversion.
+                notice = "<br><br>".join(html.escape(_notice_result(item)).replace("\n", "<br>") for item in results)
                 try:
-                    await asyncio.wait_for(ctx.notify(rows, category="百度贴吧签到"), timeout=30)
+                    await asyncio.wait_for(ctx.notify(notice, category="百度贴吧签到", format="rich"), timeout=30)
                 except Exception as exc:  # noqa: BLE001
                     ctx.log.warning("[百度贴吧签到] 通知发送失败：%r", exc)
             ok_count = sum(bool(item.get("ok")) for item in results)
