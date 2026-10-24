@@ -2,7 +2,7 @@
 // 自动订阅助手 · 配置/管理界面（模块联邦暴露为 ./Config）。
 // 平台注入 props { pluginId, host }；host: getConfig/saveConfig/callApi/toast/token。
 // 三个页签：配置（左侧分组 + 右侧明细，宽屏 master-detail）/ 历史 / 订阅。
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, nextTick } from 'vue'
 
 const props = defineProps({
   pluginId: { type: String, required: true },
@@ -53,12 +53,13 @@ const GROUPS = [
   { key: 'global', label: '全局设置' },
   { key: 'missing', label: '本地缺集', en: 'auto_subscribe_missing' },
   { key: 'moviepilot', label: 'MoviePilot 接口', en: 'mp_api_enabled' },
+  { key: 'charts', label: '内置影视榜单', en: 'charts_enabled' },
   { key: 'douban', label: '豆瓣榜单', en: 'douban_enabled' },
   { key: 'mikan', label: 'Mikan 新番', en: 'mikan_enabled' },
   { key: 'netflix', label: '奈飞榜单', en: 'netflix_enabled' },
   { key: 'maoyan', label: '猫眼榜单', en: 'maoyan_enabled' },
 ]
-const SOURCE_ENABLE_KEYS = ['douban_enabled', 'mikan_enabled', 'netflix_enabled', 'maoyan_enabled']
+const SOURCE_ENABLE_KEYS = ['charts_enabled', 'douban_enabled', 'mikan_enabled', 'netflix_enabled', 'maoyan_enabled']
 
 const DEFAULTS = {
   api_url: '', api_key: '', schedule: '0 8 * * *', notify: true, ai_assist_recognition: false,
@@ -67,6 +68,8 @@ const DEFAULTS = {
   auto_subscribe_missing: false, auto_subscribe_missing_limit: 0,
   emby_server: '', emby_api_key: '', tmdb_key: '', missing_air_delay_days: 1,
   min_year: 0, min_vote: 0, min_popularity: 0, media_type: 'all',
+  charts_enabled: false, charts_boards: ['guduo:剧集', 'tmdb:tv'], charts_limit: 20, charts_cache_hours: 6,
+  charts_trakt_client_id: '', charts_filter_custom: false, charts_min_year: 0, charts_min_vote: 0, charts_media_type: 'all',
   douban_enabled: false, douban_ranks: ['movie-hot-gaia', 'tv-hot'],
   douban_rsshub: 'https://rsshub.app', douban_rss_custom: '',
   douban_filter_custom: false, douban_min_year: 0, douban_min_vote: 0, douban_media_type: 'all',
@@ -88,8 +91,8 @@ const configReady = ref(false)
 const saving = ref(false)
 const running = ref(false)
 const testing = ref(false)
-const secretVisible = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false })
-const secretLoading = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false })
+const secretVisible = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false, charts_trakt_client_id: false })
+const secretLoading = reactive({ api_key: false, emby_api_key: false, tmdb_key: false, mp_api_key: false, charts_trakt_client_id: false })
 const mpGenerating = ref(false)
 const mpBasePath = ref('/api/plugin/auto_subscribe/mp')
 const mpUsername = ref('forward')
@@ -97,8 +100,13 @@ const mpAddress = computed(() => `${globalThis.location?.origin || ''}${mpBasePa
 const libraryTesting = ref(false)
 const libraryTestOutput = ref('')
 const missingStats = ref({})
-const cfg = reactive({ ...DEFAULTS })
+const cfg = reactive({ ...DEFAULTS, charts_boards: [...DEFAULTS.charts_boards] })
 const countries = ref([])
+const chartsCatalog = ref([])
+const chartsLoading = ref(true)
+const chartsLoadError = ref('')
+const chartsErrors = ref({})
+const chartsErrorSummary = ref(null)
 const runOutput = ref('')
 
 const history = ref([])
@@ -111,24 +119,78 @@ const subsLoading = ref(false)
 const subsError = ref('')
 
 const enabledCount = computed(() => SOURCE_ENABLE_KEYS.filter(k => cfg[k]).length)
+const selectedCharts = computed(() => Array.isArray(cfg.charts_boards) ? cfg.charts_boards : [])
+const knownCharts = computed(() => new Set(chartsCatalog.value.flatMap(source => source.boards.map(board => board.id))))
+const unknownCharts = computed(() => selectedCharts.value.filter(id => !knownCharts.value.has(id)))
+const usesTmdbCharts = computed(() => selectedCharts.value.some(id => String(id).startsWith('tmdb:')))
+const usesAnimationCharts = computed(() => selectedCharts.value.some(id =>
+  ['bangumi', 'bili', 'mal', 'anilist'].includes(String(id).split(':')[0]) || ['guduo:动漫', 'douban:tv_animation'].includes(id)
+))
+const needsChartsTmdb = computed(() => usesTmdbCharts.value || usesAnimationCharts.value)
+const usesTraktCharts = computed(() => selectedCharts.value.some(id => String(id).startsWith('trakt:')))
 
 onMounted(async () => {
   try {
     const saved = await props.host.getConfig()
     Object.assign(cfg, DEFAULTS, saved || {})
+    cfg.charts_boards = Array.isArray(saved?.charts_boards) ? [...saved.charts_boards] : [...DEFAULTS.charts_boards]
     configReady.value = true
   } catch (e) {
     props.host.toast.error('读取配置失败：' + (e.message || e))
   } finally {
     loading.value = false
   }
+  await loadMeta()
+})
+
+async function loadMeta() {
+  if (!chartsLoading.value) chartsLoading.value = true
+  chartsLoadError.value = ''
   try {
     const meta = await props.host.callApi('/meta')
     countries.value = meta.countries || []
     mpBasePath.value = meta.mp_base_path || mpBasePath.value
     mpUsername.value = meta.mp_username || mpUsername.value
-  } catch (e) { /* 国家选项拉取失败不致命 */ }
-})
+    const catalog = meta.charts_catalog
+    if (!Array.isArray(catalog) || !catalog.length || catalog.some(source =>
+      !source || typeof source.id !== 'string' || typeof source.name !== 'string' || !Array.isArray(source.boards) || !source.boards.length ||
+      source.boards.some(board => !board || typeof board.id !== 'string' || typeof board.name !== 'string')
+    )) throw new Error('未收到有效的榜单目录，请确认插件已更新')
+    chartsCatalog.value = catalog
+  } catch (e) {
+    chartsLoadError.value = '榜单目录读取失败：' + (e.message || e)
+  } finally { chartsLoading.value = false }
+}
+
+function selectedInSource(source) {
+  return source.boards.filter(board => selectedCharts.value.includes(board.id)).length
+}
+
+function toggleChart(id) {
+  if (!Array.isArray(cfg.charts_boards)) cfg.charts_boards = []
+  toggle(cfg.charts_boards, id)
+  chartsErrors.value = {}
+}
+
+function validateCharts() {
+  const errors = {}
+  if (cfg.charts_enabled) {
+    if (chartsLoading.value || chartsLoadError.value || !chartsCatalog.value.length) errors.catalog = '请先成功读取榜单目录，再启用并保存。'
+    else if (unknownCharts.value.length) errors.boards = '有已失效的榜单，请移除后重新选择。'
+    if (!selectedCharts.value.length) errors.boards = '请至少选择一个榜单。'
+    if (needsChartsTmdb.value && !String(cfg.tmdb_key || '').trim()) errors.tmdb = '所选 TMDB 或动画榜单需要 TMDB 密钥，请填写后保存。'
+    if (usesTraktCharts.value && !String(cfg.charts_trakt_client_id || '').trim()) errors.trakt = '选择 Trakt 榜单时，请填写 Trakt Client ID。'
+  }
+  if (!Number.isInteger(cfg.charts_limit) || cfg.charts_limit < 1 || cfg.charts_limit > 100) errors.limit = '每榜条数请填写 1～100 的整数。'
+  if (!Number.isInteger(cfg.charts_cache_hours) || cfg.charts_cache_hours < 1 || cfg.charts_cache_hours > 24) errors.cache = '缓存时间请填写 1～24 的整数。'
+  if (cfg.charts_filter_custom) {
+    if (!Number.isInteger(cfg.charts_min_year) || cfg.charts_min_year < 0 || cfg.charts_min_year > 9999) errors.year = '最低年份请填写 0～9999 的整数，0 表示不限。'
+    if (!Number.isFinite(cfg.charts_min_vote) || cfg.charts_min_vote < 0 || cfg.charts_min_vote > 10) errors.vote = '最低评分请填写 0～10 的数字，0 表示不限。'
+    if (!MEDIA_TYPES.some(option => option.v === cfg.charts_media_type)) errors.media = '请选择有效的媒体类型。'
+  }
+  chartsErrors.value = errors
+  return !Object.keys(errors).length
+}
 
 function toggle(arr, val) {
   const i = arr.indexOf(val)
@@ -143,6 +205,13 @@ async function save() {
   }
   saving.value = true
   try {
+    if (!validateCharts()) {
+      tab.value = 'settings'
+      group.value = 'charts'
+      await nextTick()
+      chartsErrorSummary.value?.focus()
+      throw new Error('内置影视榜单设置有误，请按页面提示修改')
+    }
     if (cfg.auto_subscribe_missing && (!String(cfg.emby_server || '').trim() || !String(cfg.emby_api_key || '').trim() || !String(cfg.tmdb_key || '').trim())) {
       throw new Error('请在「本地缺集」填写 Emby 地址、Emby API Key 和 TMDB 密钥')
     }
@@ -319,7 +388,7 @@ function switchTab(t) {
             <span>{{ g.label }}</span>
             <span v-if="g.en && cfg[g.en]" class="dot"></span>
           </button>
-          <div class="side-foot">启用来源 {{ enabledCount }} / 4</div>
+          <div class="side-foot">启用来源 {{ enabledCount }} / {{ SOURCE_ENABLE_KEYS.length }}</div>
         </aside>
 
         <div class="detail">
@@ -426,6 +495,81 @@ function switchTab(t) {
               <label class="row"><span>用户名</span><input class="inp" :value="mpUsername" readonly aria-label="Forward 用户名" /></label>
               <div class="hint flow-hint">开启「是否需要登录」，用户名填上面的值，密码填本页的接口专用密码。需要同步取消追更时，可开启 Forward 的「同步移除订阅」；只取消 NextFind 订阅，不删除媒体文件。</div>
               <div class="hint flow-hint">Forward 带季号的订阅和移除请求，需要上方允许按整部剧处理。取消后会核对 NextFind 列表，确认已移除才返回成功。同一 TMDB 编号同时对应电影和剧集时会拒绝操作，避免误取消。</div>
+            </section>
+          </template>
+
+          <!-- 内置影视榜单：独立于 VPS-Widget，沿用全局定时与订阅去重。 -->
+          <template v-else-if="group === 'charts'">
+            <h3 class="det-title">内置影视榜单</h3>
+            <div class="hint flow-hint">榜单已内置在 NextFind 助手，无需安装 VPS-Widget。按「全局设置」的定时运行，复用榜单缓存；同一电影或剧集按 TMDB 编号跨来源去重，已订阅和库中已有的项目不重复添加。</div>
+            <div v-if="Object.keys(chartsErrors).length" ref="chartsErrorSummary" class="charts-error" role="alert" tabindex="-1">未保存：请修改下方标出的榜单设置。</div>
+            <section class="card charts-card">
+              <label class="row switch"><input v-model="cfg.charts_enabled" type="checkbox" /><span>启用内置影视榜单（默认关闭）</span></label>
+              <div class="hint flow-hint">关闭时只保存设置，不新增订阅。默认选中骨朵剧集和 TMDB 周趋势剧集；启用后按所选榜单处理。</div>
+              <div class="grid charts-grid">
+                <div class="fld">
+                  <label class="row" for="charts-limit"><span>每榜前几名</span><input id="charts-limit" v-model.number="cfg.charts_limit" class="inp" type="number" min="1" max="100" :aria-invalid="!!chartsErrors.limit" aria-describedby="charts-limit-hint" /></label>
+                  <div id="charts-limit-hint" class="hint flow-hint">每个选中分类取前 1～100 名，默认 20 名。</div>
+                  <div v-if="chartsErrors.limit" class="charts-error" role="alert">{{ chartsErrors.limit }}</div>
+                </div>
+                <div class="fld">
+                  <label class="row" for="charts-cache"><span>缓存小时</span><input id="charts-cache" v-model.number="cfg.charts_cache_hours" class="inp" type="number" min="1" max="24" :aria-invalid="!!chartsErrors.cache" aria-describedby="charts-cache-hint" /></label>
+                  <div id="charts-cache-hint" class="hint flow-hint">1～24 小时，默认 6 小时；期间运行复用缓存。</div>
+                  <div v-if="chartsErrors.cache" class="charts-error" role="alert">{{ chartsErrors.cache }}</div>
+                </div>
+              </div>
+            </section>
+            <section class="card charts-card">
+              <div class="charts-heading"><div class="card-h">选择榜单</div><span class="muted">已选 {{ selectedCharts.length }} 个分类</span></div>
+              <div v-if="chartsLoading" class="hint flow-hint" role="status">正在读取可选榜单…</div>
+              <div v-else-if="chartsLoadError" class="charts-load-error" role="alert">
+                <div class="charts-error">{{ chartsLoadError }}</div>
+                <div class="hint flow-hint">已有选择已保留，未清空。可以重试读取，或关闭本功能后保存其他设置。</div>
+                <button type="button" class="btn" @click="loadMeta">重新读取榜单</button>
+              </div>
+              <template v-else>
+                <div class="hint flow-hint">展开来源选择分类；只处理勾选项，不会自动订阅全部榜单。</div>
+                <details v-for="source in chartsCatalog" :key="source.id" class="charts-source" :open="selectedInSource(source) > 0">
+                  <summary><span>{{ source.name }}</span><span class="muted">{{ selectedInSource(source) ? `已选 ${selectedInSource(source)} / ${source.boards.length}` : `${source.boards.length} 个分类` }}</span></summary>
+                  <div class="chips">
+                    <label v-for="board in source.boards" :key="board.id" class="chip"><input type="checkbox" :checked="selectedCharts.includes(board.id)" @change="toggleChart(board.id)" />{{ board.name }}</label>
+                  </div>
+                </details>
+                <div v-if="unknownCharts.length" class="fld">
+                  <span class="charts-error">这些已有选择已不在当前目录，请移除后重新选择：</span>
+                  <div class="chips"><button v-for="id in unknownCharts" :key="id" type="button" class="btn" @click="toggleChart(id)">移除 {{ id }}</button></div>
+                </div>
+              </template>
+              <div v-if="chartsErrors.catalog || chartsErrors.boards" class="charts-error" role="alert">{{ chartsErrors.catalog || chartsErrors.boards }}</div>
+            </section>
+            <section class="card charts-card">
+              <div class="card-h">来源密钥</div>
+              <label class="fld"><span class="lbl">TMDB 密钥{{ needsChartsTmdb ? '（所选榜单需要）' : '（当前所选榜单可不填）' }}</span><div class="secret-field">
+                <input v-model="cfg.tmdb_key" class="inp" :type="secretVisible.tmdb_key ? 'text' : 'password'" autocomplete="off" placeholder="与「本地缺集」共用同一个 TMDB 密钥" :aria-invalid="!!chartsErrors.tmdb" />
+                <button type="button" :disabled="secretLoading.tmdb_key" :aria-label="secretVisible.tmdb_key ? '隐藏 TMDB 密钥' : '显示 TMDB 密钥'" @click="toggleSecret('tmdb_key')">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button></div>
+              </label>
+              <div v-if="chartsErrors.tmdb" class="charts-error" role="alert">{{ chartsErrors.tmdb }}</div>
+              <div class="hint flow-hint">TMDB 榜单及动画类榜单需要此密钥；动画类用它核对作品类型，避免误订阅。其他榜单可不填。修改这里也会同步到「本地缺集」。</div>
+              <template v-if="usesTraktCharts">
+                <label class="fld"><span class="lbl">Trakt Client ID（所选榜单需要）</span><div class="secret-field">
+                  <input v-model="cfg.charts_trakt_client_id" class="inp" :type="secretVisible.charts_trakt_client_id ? 'text' : 'password'" autocomplete="off" placeholder="Trakt 应用的 Client ID，不是 Client Secret" :aria-invalid="!!chartsErrors.trakt" />
+                  <button type="button" :disabled="secretLoading.charts_trakt_client_id" :aria-label="secretVisible.charts_trakt_client_id ? '隐藏 Trakt Client ID' : '显示 Trakt Client ID'" @click="toggleSecret('charts_trakt_client_id')">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button></div>
+                </label>
+                <div v-if="chartsErrors.trakt" class="charts-error" role="alert">{{ chartsErrors.trakt }}</div>
+              </template>
+            </section>
+            <section class="card charts-card">
+              <label class="row switch"><input v-model="cfg.charts_filter_custom" type="checkbox" /><span>使用独立过滤（默认关闭，沿用全局过滤）</span></label>
+              <div v-if="!cfg.charts_filter_custom" class="hint flow-hint">年份、评分和类型沿用「全局设置」。开启后可单独设置下方三项；各来源热度单位不同，不使用全局热度阈值。</div>
+              <div v-else class="grid subfilter charts-grid">
+                <div class="fld"><label class="row"><span>最低年份</span><input v-model.number="cfg.charts_min_year" class="inp" type="number" min="0" max="9999" :aria-invalid="!!chartsErrors.year" /></label><span class="hint flow-hint">0 表示不限年份</span><span v-if="chartsErrors.year" class="charts-error" role="alert">{{ chartsErrors.year }}</span></div>
+                <div class="fld"><label class="row"><span>最低评分</span><input v-model.number="cfg.charts_min_vote" class="inp" type="number" min="0" max="10" step="0.5" :aria-invalid="!!chartsErrors.vote" /></label><span class="hint flow-hint">0 表示不限评分</span><span v-if="chartsErrors.vote" class="charts-error" role="alert">{{ chartsErrors.vote }}</span></div>
+                <div class="fld"><label class="row"><span>媒体类型</span><select v-model="cfg.charts_media_type" class="inp" :aria-invalid="!!chartsErrors.media"><option v-for="option in MEDIA_TYPES" :key="option.v" :value="option.v">{{ option.l }}</option></select></label><span v-if="chartsErrors.media" class="charts-error" role="alert">{{ chartsErrors.media }}</span></div>
+              </div>
             </section>
           </template>
 
@@ -537,7 +681,7 @@ function switchTab(t) {
             </section>
           </template>
 
-          <div class="savebar"><button class="btn primary lg" :disabled="saving || !configReady" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
+          <div class="savebar" :class="{ 'charts-savebar': group === 'charts' }"><button class="btn primary lg" :disabled="saving || !configReady" @click="save">{{ saving ? '保存中…' : '保存配置' }}</button></div>
         </div>
       </div>
 
@@ -663,6 +807,18 @@ function switchTab(t) {
 .secret-field button { position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted, #7a8291); cursor: pointer; }
 .secret-field button:hover { color: var(--accent, #6ea8fe); background: var(--accent-dim, #1e3a5f); }
 .secret-field svg { width: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.charts-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.charts-source { border-top: 1px solid var(--border-light, #2a2e3a); }
+.charts-source summary { padding: 11px 0; cursor: pointer; color: var(--text-primary, #e8ebf0); font-size: 13px; }
+.charts-source summary > span:first-child { margin-inline-start: 6px; }
+.charts-source summary > .muted { margin-inline-start: 12px; }
+.charts-source .chips { padding-bottom: 12px; }
+.charts-source .chip { min-height: 34px; box-sizing: border-box; }
+.charts-error { color: var(--danger, #ff8e8e); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.charts-load-error { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.charts-card [aria-invalid="true"] { border-color: var(--danger, #ff8e8e); }
+.charts-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); }
+.charts-source summary:focus-visible, .charts-error:focus-visible { outline: 2px solid var(--accent, #6ea8fe); outline-offset: 3px; }
 .inp {
   flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; font-size: 13px;
   background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0);
@@ -692,6 +848,7 @@ textarea.inp { resize: vertical; font-family: inherit; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .inp:focus-visible, button:focus-visible { outline: 2px solid var(--accent, #6ea8fe); outline-offset: 2px; }
 .savebar { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding-top: 4px; }
+.savebar.charts-savebar { position: static; padding-top: 12px; }
 .output { margin: 0; padding: 10px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; background: var(--bg-card, #12141c); color: var(--text-primary, #e8ebf0); border: 1px solid var(--border-light, #2a2e3a); }
 
 /* 历史统计卡：横向铺开 */

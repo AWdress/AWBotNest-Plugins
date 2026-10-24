@@ -23,11 +23,12 @@ from typing import Optional
 
 from ._models import STATUS_LABELS
 from ._http_errors import one_line, request_error
+from ._charts import DEFAULTS as CHART_DEFAULTS, CATALOG as CHART_CATALOG, SOURCE_NAMES as CHART_SOURCE_NAMES
 
 __plugin__ = {
     "name": "NextFind 助手",
     "id": "auto_subscribe",
-    "version": "2.3.7",
+    "version": "2.4.0",
     "author": "AWdress",
     "description": "NextFind 资源、订阅与本地媒体库助手，支持榜单订阅、缺集补订、资源查询和管理。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/auto_subscribe/logo.png",
@@ -48,6 +49,10 @@ __plugin__ = {
 }
 
 __plugin__["changelog"] = (
+    "v2.4.0 内置多来源影视榜单\n"
+    "- 内置骨朵、豆瓣直采、芒果 TV、剧场、Bangumi、TMDB、B站、MAL、AniList、Trakt\n"
+    "- 按分类选择和数量采集，使用平台代理与独立缓存，无需安装 VPS-Widget\n"
+    "- 保留全局与独立过滤，按 TMDB 编号及类型严格匹配、跨榜去重\n\n"
     "v2.3.7 恢复到期退出的未完成订阅\n"
     "- 每轮核对插件创建的旧订阅，未收齐且已退订的作品自动重新订阅，离榜后仍检查\n"
     "- 区分活跃、已取消与已完成记录，已完成或已播集收齐时不重新订阅\n"
@@ -112,6 +117,7 @@ __plugin__["changelog"] = (
 # 配置默认值（vue 模式无 config_schema，默认值集中在此，供定时任务/后端读取；
 # 前端 Config.vue 也用同一套默认初始化表单）。
 DEFAULTS = {
+    **CHART_DEFAULTS,
     "api_url": "", "api_key": "",
     "mp_api_enabled": False, "mp_api_key": "", "mp_whole_series": False,
     "schedule": "0 8 * * *", "notify": True, "ai_assist_recognition": False,
@@ -147,10 +153,11 @@ DEFAULTS = {
 
 # 来源 id -> 展示名（通知汇总用）。
 SOURCE_NAMES = {
+    **CHART_SOURCE_NAMES,
     "restore": "退订恢复",
     "douban": "豆瓣榜单", "mikan": "Mikan新番", "netflix": "奈飞榜单", "maoyan": "猫眼榜单",
 }
-_ENABLE_KEYS = ("douban_enabled", "mikan_enabled", "netflix_enabled", "maoyan_enabled")
+_ENABLE_KEYS = ("douban_enabled", "mikan_enabled", "netflix_enabled", "maoyan_enabled", "charts_enabled")
 
 
 def _effective_cfg(ctx) -> dict:
@@ -961,6 +968,11 @@ async def _run_round(ctx, label: str, cancel_event, *, deadline=None, progress=N
             # Local missing subscriptions take priority over ranking browsers,
             # provider fetches and title recognition within the same deadline.
             _check_round_running(cancel_event, deadline)
+            if cfg.get("charts_enabled"):
+                from ._charts import prepare
+                progress["phase"] = "内置影视榜单采集"
+                cfg.update(await prepare(ctx, cfg))
+                _check_round_running(cancel_event, deadline)
             if cfg.get("maoyan_enabled"):
                 progress["phase"] = "猫眼浏览器"
                 from ._maoyan_browser import ranking_keys
@@ -1257,7 +1269,8 @@ async def setup(ctx):
     @ctx.on_api("/meta", methods=["GET"])
     async def _api_meta(req):
         from ._mp_compat import BASE_PATH, LOGIN_USER
-        return {"countries": _country_options(), "mp_base_path": BASE_PATH, "mp_username": LOGIN_USER}
+        return {"countries": _country_options(), "mp_base_path": BASE_PATH, "mp_username": LOGIN_USER,
+                "charts_catalog": CHART_CATALOG}
 
     @ctx.on_api("/mp/key", methods=["POST"])
     async def _api_mp_key(req):

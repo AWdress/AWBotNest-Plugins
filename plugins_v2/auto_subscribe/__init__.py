@@ -5,7 +5,7 @@ from .core import setup as _core_setup, teardown as _core_teardown
 
 __plugin__ = {'name': 'NextFind 助手',
  'id': 'auto_subscribe',
- 'version': '2.3.7',
+ 'version': '2.4.0',
  'requirements': ['httpx>=0.27', 'beautifulsoup4>=4.12', 'python-multipart>=0.0.20'],
  'author': 'AWdress',
  'description': 'NextFind 资源订阅与本地媒体库联动，支持榜单订阅、缺集补全、缺集自动订阅、资源查询和管理。',
@@ -102,6 +102,8 @@ __plugin__ = {'name': 'NextFind 助手',
                                 'secret': True, 'default': ''},
                    'mp_api_key': {'title': 'MoviePilot 接口专用密码', 'type': 'password',
                                   'secret': True, 'default': ''},
+                   'charts_trakt_client_id': {'title': 'Trakt Client ID', 'type': 'password',
+                                             'secret': True, 'default': ''},
                    'missing_air_delay_days': {'type': 'integer', 'default': 1,
                                               'min': 0, 'max': 30, 'title': '播出缓冲天数'},
                    'schedule': {'type': 'string',
@@ -122,6 +124,10 @@ async def teardown(ctx):
 
 __plugin__["name"] = 'NextFind 助手'
 __plugin__["changelog"] = (
+    'v2.4.0 内置多来源影视榜单\n'
+    '- 内置骨朵、豆瓣直采、芒果 TV、剧场、Bangumi、TMDB、B站、MAL、AniList、Trakt\n'
+    '- 按分类选择和数量采集，使用平台代理与独立缓存，无需安装 VPS-Widget\n'
+    '- 保留全局与独立过滤，按 TMDB 编号及类型严格匹配、跨榜去重\n\n'
     'v2.3.7 恢复到期退出的未完成订阅\n'
     '- 每轮核对插件创建的旧订阅，未收齐且已退订的作品自动重新订阅，离榜后仍检查\n'
     '- 区分活跃、已取消与已完成记录，已完成或已播集收齐时不重新订阅\n'

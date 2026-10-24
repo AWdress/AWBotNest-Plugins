@@ -19,14 +19,14 @@ from typing import Dict, List, Optional
 
 from ._base import get_provider
 # 导入各来源模块以触发 @register 自注册。
-from . import _douban, _maoyan, _mikan, _netflix  # noqa: F401
+from . import _douban, _maoyan, _mikan, _netflix, _charts  # noqa: F401
 from ._models import (
     STATUS_ALREADY, STATUS_ERROR, STATUS_FILTERED, STATUS_IN_LIBRARY,
     STATUS_LABELS, STATUS_SUBSCRIBED, STATUS_SUBSCRIBED_EXISTS, STATUS_UNRECOGNIZED,
     make_history_key, RankMediaItem,
 )
 from ._nextfind import (NextFindAuthError, NextFindClient, NextFindCancelledError,
-                        NextFindDeadlineError, _true_flag)
+                        NextFindDeadlineError, NextFindResponseError, _true_flag)
 from ._bangumi import subject_titles
 from ._http_errors import request_error
 from ._subscription_state import (flag, history_identity, identity, owned, row_identity,
@@ -113,6 +113,8 @@ def _source_options(cfg: dict, nf_cache: dict) -> List:
             "web_errors": cfg.get("maoyan_web_errors"),
             "_http": cfg.get("_platform_http"),
         }))
+    if cfg.get("charts_enabled"):
+        out.extend(_charts.source_options(cfg))
     return out
 
 
@@ -146,6 +148,8 @@ def _effective_filters(cfg: dict, src: str, global_f: Filters) -> Filters:
     热度（min_popularity）无独立项，恒沿用全局；媒体类型无 {src}_media_type 键
     （如 mikan tv-only）时默认 all（不额外限制）。
     """
+    if src.startswith("charts_"):
+        src = "charts"
     if not cfg.get(f"{src}_filter_custom"):
         return global_f
     return Filters(
@@ -221,7 +225,63 @@ def _title_queries(item) -> tuple[List[str], Optional[int]]:
             for candidate in (right, left):
                 if len(candidate) >= 2 and candidate not in queries:
                     queries.append(candidate)
-    return queries, season
+    aliases = item.source_meta.get("search_titles")
+    if isinstance(aliases, list):
+        for alias in aliases[:4]:
+            if isinstance(alias, str) and 1 < len(alias.strip()) <= 300 and alias.strip() not in queries:
+                queries.append(alias.strip())
+    return queries[:8], season
+
+
+def _genre_ids(candidate):
+    """Return explicit TMDB genre evidence; missing metadata is not a negative."""
+    for key in ("genre_ids", "_genre_ids", "genres", "_genres"):
+        raw = candidate.get(key)
+        if not isinstance(raw, list) or not raw:
+            continue
+        values = set()
+        for value in raw:
+            value = value.get("id") if isinstance(value, dict) else value
+            if not isinstance(value, bool) and str(value).isdigit():
+                values.add(int(value))
+        if values:
+            return values
+    return None
+
+
+def _confirm_chart_genre(candidate, item, cfg):
+    required = item.source_meta.get("require_genre")
+    if required != 16:
+        return True
+    known = _genre_ids(candidate)
+    if known is not None:
+        return required in known
+    cfg = cfg if cfg is not None else {}
+    wanted = identity(candidate.get("id"), candidate.get("raw_type"))
+    verified = cfg.setdefault("_chart_genre_verified", {})
+    if wanted not in verified:
+        key = str(cfg.get("tmdb_key") or "").strip()
+        http = cfg.get("_platform_http")
+        if not key or key == "********" or http is None:
+            raise ValueError("番剧榜单需要 TMDB 密钥核对动画类型，请在「内置影视榜单」填写")
+        _check_cancelled(cfg)
+        params, headers = {"language": "zh-CN"}, {}
+        if key.startswith("eyJ"):
+            headers["Authorization"] = "Bearer " + key
+        else:
+            params["api_key"] = key
+        response = http.get(f"https://api.themoviedb.org/3/{wanted[0]}/{wanted[1]}",
+                            params=params, headers=headers, timeout=20, follow_redirects=False)
+        if response.status_code != 200:
+            raise ValueError(f"TMDB 动画类型核对失败（HTTP {response.status_code}）")
+        data = response.json()
+        if not isinstance(data, dict) or str(data.get("id")) != wanted[1] or not isinstance(data.get("genres"), list):
+            raise ValueError("TMDB 动画类型响应无效，本次不订阅")
+        genres = _genre_ids(data)
+        if genres is None:
+            raise ValueError("TMDB 未提供作品流派，本次不订阅")
+        verified[wanted] = required in genres
+    return verified[wanted]
 
 
 def _search_best(client: NextFindClient, item, cfg=None):
@@ -229,7 +289,13 @@ def _search_best(client: NextFindClient, item, cfg=None):
     queries, season = _title_queries(item)
     for query in queries:
         _check_cancelled(cfg)
-        best = _pick_best(client.search(query, item.type_hint), item)
+        results = client.search(query, item.type_hint)
+        # Only verify viable identity/name candidates, not unrelated search hits.
+        remaining = list(results)
+        best = _pick_best(remaining, item)
+        while best and not _confirm_chart_genre(best, item, cfg):
+            remaining = [candidate for candidate in remaining if candidate is not best]
+            best = _pick_best(remaining, item)
         if best:
             return best, query, season
     return None, "", season
@@ -336,6 +402,27 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
         if not typed:
             return None
         candidates = typed
+    expected_id = item.source_meta.get("tmdb_id")
+    if expected_id is not None:
+        try:
+            expected = identity(expected_id, item.type_hint)
+        except NextFindResponseError:
+            return None
+        fixed = []
+        for candidate in candidates:
+            try:
+                if row_identity(candidate, search=True) == expected:
+                    fixed.append(candidate)
+            except NextFindResponseError:
+                continue
+        # Duplicate identity rows can disagree about subscription/library state.
+        # An ambiguous live response cannot authorize a new subscription.
+        return fixed[0] if len(fixed) == 1 else None
+    if item.source_meta.get("require_genre") == 16:
+        candidates = [candidate for candidate in candidates
+                      if _genre_ids(candidate) is None or 16 in _genre_ids(candidate)]
+        if not candidates:
+            return None
     want_year = _year_int(item.year)
     if want_year:
         exact = [r for r in candidates if _year_int(r.get("year")) == want_year]
@@ -348,7 +435,7 @@ def _pick_best(results: List[dict], item) -> Optional[dict]:
         # 宁可判为未识别，也不能误订旧作。剧集年份通常是首播年，续季不适用此限制。
         if item.type_hint == "movie" and any(_year_int(r.get("year")) for r in candidates):
             return None
-    return candidates[0]
+    return candidates[0] if candidates else None
 
 
 def _process_item(client: NextFindClient, item, filters: Filters, handled: dict, cfg: dict, log=None):
@@ -379,7 +466,7 @@ def _process_item(client: NextFindClient, item, filters: Filters, handled: dict,
             client, item, log, http=cfg.get("_platform_http"), cfg=cfg,
         )
         assisted_by = "Bangumi别名" if best else ""
-    if not best:
+    if not best and item.source_meta.get("tmdb_id") is None:
         best, matched_query, detected_season = _ai_assisted_search(client, item, cfg, log)
         assisted_by = "AI识别" if best else ""
     if not best:
