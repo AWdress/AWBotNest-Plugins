@@ -14,11 +14,14 @@ import requests
 __plugin__ = {
     "name": "B站每日综合签到",
     "id": "bilibili_signin",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "author": "AWdress",
     "description": "使用 B 站 Cookie 完成分享、观看心跳、直播、漫画等每日签到，逐项显示结果和失败原因并推送账号状态。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins_v2/bilibili_signin/logo.png",
     "changelog": (
+        "v0.1.2 精简签到通知\n"
+        "- 通知仅显示失败项目、简短错误码和完成/跳过数量，避免长错误日志撑开表格\n"
+        "- 限制通知详情长度，完整原因继续保留在运行日志、最近结果和历史记录中\n\n"
         "v0.1.1 显示具体失败项目\n"
         "- 通知、立即执行、最近结果和历史逐项显示签到状态、HTTP 状态及业务错误码\n"
         "- 分享、观看、直播和漫画独立处理，单项异常或缺少 bili_jct 不再中断其他项目\n"
@@ -209,6 +212,67 @@ def _result_details(item: dict) -> str:
     for warning in item.get("warnings", []):
         lines.append(f"{warning['项目']}：{warning['详情']}（不影响签到结果）")
     return "；".join(lines)
+
+
+def _notification_error_suffix(detail: str) -> str:
+    code = re.search(r"\bcode\s*=\s*(-?\d{1,6})(?!\d)", detail, re.IGNORECASE)
+    if code and int(code[1]) != 0:
+        return f"({code[1]})"
+    status = re.search(r"\bHTTP\s+([1-5]\d{2})\b", detail, re.IGNORECASE)
+    if status and not 200 <= int(status[1]) < 300:
+        return f"(HTTP{status[1]})"
+    if "超时" in detail or "timeout" in detail.lower():
+        return "(超时)"
+    if "网络连接失败" in detail:
+        return "(网络异常)"
+    if "缺少 bili_jct" in detail:
+        return "(缺bili_jct)"
+    return ""
+
+
+def _notification_details(item: dict) -> str:
+    # Notifications use a bounded summary; logs/history keep _result_details.
+    actions = item.get("actions") or []
+    parts = []
+    if actions:
+        labels = {"分享签到": "分享", "观看签到": "观看", "直播签到": "直播", "漫画签到": "漫画"}
+        failed = [action for action in actions if action.get("状态") == "失败"]
+        for action in failed[:2]:
+            label = labels.get(action.get("项目"), "项目")
+            parts.append(f"{label}失败{_notification_error_suffix(str(action.get('详情') or ''))}")
+        if len(failed) > 2:
+            parts.append(f"另{len(failed) - 2}项失败")
+        completed = sum(action.get("状态") in {"已完成", "已签到"} for action in actions)
+        skipped = sum(action.get("状态") == "跳过" for action in actions)
+        counts = []
+        if completed:
+            counts.append(f"完成{completed}项")
+        if skipped:
+            counts.append(f"跳过{skipped}项")
+        if counts:
+            parts.append("，".join(counts))
+    else:
+        message = str(item.get("message") or "")
+        suffix = _notification_error_suffix(message)
+        if "未配置" in message and "Cookie" in message:
+            parts.append("未配置Cookie")
+        elif "已失效" in message or "未登录" in message:
+            parts.append("Cookie失效" + suffix)
+        elif "未启用" in message:
+            parts.append("未启用签到项目")
+        elif suffix == "(超时)":
+            parts.append("请求超时")
+        elif suffix == "(网络异常)":
+            parts.append("网络连接失败")
+        elif "账号校验失败" in message:
+            parts.append("账号校验失败" + suffix)
+        else:
+            parts.append("签到完成" if item.get("ok") else "签到失败")
+    if item.get("warnings"):
+        coupon_warning = any(warning.get("项目") == "漫读券查询" for warning in item["warnings"])
+        parts.append("漫读券查询失败" if coupon_warning else "附加查询失败")
+    summary = "；".join(parts) or "结果待确认"
+    return summary if len(summary) <= 48 else summary[:47] + "…"
 
 
 def _display_result(item: dict) -> str:
@@ -420,7 +484,7 @@ async def setup(ctx):
             if ctx.config.get("notify", True):
                 rows = []
                 for item in results:
-                    rows.append({"账号": item.get("name", "-"), "状态": "成功" if item.get("ok") else "失败", "等级": item.get("level", "-"), "硬币": item.get("coin", "-"), "漫读券": item.get("manga", "-"), "详情": _result_details(item)})
+                    rows.append({"账号": item.get("name", "-"), "状态": "成功" if item.get("ok") else "失败", "等级": item.get("level", "-"), "硬币": item.get("coin", "-"), "漫读券": item.get("manga", "-"), "详情": _notification_details(item)})
                 try: await asyncio.wait_for(ctx.notify(rows, category="B站每日综合签到"), timeout=30)
                 except Exception as exc: ctx.log.warning("[B站每日综合签到] 通知发送失败：%r", exc)
             ok_count = sum(bool(item.get("ok")) for item in results)
