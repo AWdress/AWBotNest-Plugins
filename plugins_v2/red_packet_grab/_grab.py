@@ -21,10 +21,103 @@ import re
 import time as _time
 from decimal import Decimal, InvalidOperation
 from typing import Optional
+from urllib.parse import parse_qs, urlsplit
 
 
 def extract_text(message) -> str:
     return (getattr(message, "raw_text", None) or getattr(message, "text", None) or "").strip()
+
+
+def _packet_author_link(url: str):
+    """只接受可核实账号身份的 Telegram 链接，不请求外部地址。"""
+    try:
+        link = urlsplit(url)
+        if link.scheme == "tg" and link.netloc in {"user", "openmessage"}:
+            key = "id" if link.netloc == "user" else "user_id"
+            values = parse_qs(link.query).get(key, [])
+            if len(values) == 1 and re.fullmatch(r"[1-9][0-9]{0,18}", values[0]):
+                return "id", int(values[0])
+        if link.scheme in {"http", "https"} and link.netloc.lower() in {"t.me", "telegram.me", "www.t.me"}:
+            username = link.path.strip("/")
+            if re.fullmatch(r"[A-Za-z0-9_]{1,32}", username):
+                return "username", username.lower()
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def packet_sender_matches(message, sender) -> bool:
+    """红包发起句必须对应实际发送者；不把昵称、转发来源或 via-bot 当身份证明。"""
+    # entities 使用原始正文的 UTF-16 偏移，不能先 strip() 或用格式化文本。
+    text = (getattr(message, "raw_text", None) or getattr(message, "message", None)
+            or getattr(message, "text", None) or "")
+    header = re.split(r"发送下方口令领取|发送财富密码即可领取|(?m:^\s*(?:口令|财富密码)\s*[:：])", text, maxsplit=1)[0]
+    identity_types = {"MessageEntityMention", "MessageEntityMentionName", "MessageEntityTextUrl"}
+    authors = list(re.finditer(
+        r"(?m)^(?P<author>[^\r\n]+?)\s*发(?:起|出|送|放)?了?\s*(?:一个\s*)?(?:拼手气|幸运|普通|口令|验证码)?\s*红包",
+        text,
+    ))
+    if any(author.end() > len(header) for author in authors):
+        return False  # 发起人/标题放在口令区域的异常格式不能绕过校验。
+    if not authors:
+        if "红包" not in header:
+            return "红包" not in text  # 不能把口令标记提前来隐藏红包头部。
+        title = header.split("红包", 1)[0]
+        title_units = len(title.encode("utf-16-le")) // 2
+        has_identity = "@" in title or any(
+            type(entity).__name__ in identity_types and isinstance(getattr(entity, "offset", None), int)
+            and 0 <= entity.offset < title_units for entity in getattr(message, "entities", None) or []
+        )
+        if not has_identity:
+            return True  # 没有发起人字段的既有验证码红包保持原有识别方式。
+        authors = [re.match(r"(?P<author>[\s\S]*)", title)]
+    sender_id = getattr(sender, "id", None)
+    if not sender_id or getattr(message, "sender_id", sender_id) not in (None, sender_id):
+        return False
+    names = {str(getattr(sender, "username", "") or "").lower()} - {""}
+    names.update(str(alias.username).lower() for alias in (getattr(sender, "usernames", None) or [])
+                 if getattr(alias, "active", False) and getattr(alias, "username", None))
+    encoded = text.encode("utf-16-le")
+    for author in authors:
+        label = author["author"]
+        usernames = re.findall(r"@([A-Za-z0-9_]{1,32})(?![\w\u200b-\u200f\u202a-\u202e\u2060-\u206f])", label)
+        if "@" in label and (len(usernames) != label.count("@") or any(name.lower() not in names for name in usernames)):
+            return False
+        verified = bool(usernames)
+        start = len(text[:author.start("author")].encode("utf-16-le")) // 2
+        end = len(text[:author.end("author")].encode("utf-16-le")) // 2
+        for entity in getattr(message, "entities", None) or []:
+            kind = type(entity).__name__
+            if kind not in identity_types:
+                continue
+            offset, length = getattr(entity, "offset", None), getattr(entity, "length", None)
+            if (type(offset) is not int or type(length) is not int or offset < 0 or length <= 0
+                    or offset + length > len(encoded) // 2):
+                return False
+            if offset >= end or offset + length <= start:
+                continue
+            if offset < start or offset + length > end:
+                return False
+            try:
+                inner = encoded[offset * 2:(offset + length) * 2].decode("utf-16-le")
+            except UnicodeDecodeError:
+                return False
+            if kind == "MessageEntityMention":
+                if not re.fullmatch(r"@[A-Za-z0-9_]{1,32}", inner) or inner[1:].lower() not in names:
+                    return False
+            elif kind == "MessageEntityMentionName":
+                if getattr(entity, "user_id", None) != sender_id:
+                    return False
+            else:
+                target = _packet_author_link(getattr(entity, "url", ""))
+                if not target or (target[0] == "id" and target[1] != sender_id) or (
+                    target[0] == "username" and target[1] not in names
+                ):
+                    return False
+            verified = True
+        if not verified:
+            return False
+    return True
 
 
 def prepare_answer_text(code: str, protect: bool = True) -> str:
@@ -174,11 +267,21 @@ class Grabber:
     def _chat_label(self, group_id: int) -> str:
         return f"{self._chat_names.get(group_id, group_id)} ({group_id})"
 
+    def _accept_packet_sender(self, message, sender) -> bool:
+        if packet_sender_matches(message, sender):
+            return True
+        self._active.pop((message.chat_id, message.id), None)
+        self._log.info("[自动抢红包] 发起人与消息发送者不符或无法核实，疑似虚假红包，已跳过 group=%s msg=%s",
+                       message.chat_id, message.id)
+        return False
+
     async def handle_plaintext_packet(
         self, client, message, sender, chat, sender_name: str, command: str,
         join_delay: float, notify: bool, ttl_secs: int,
     ) -> None:
         """收到正文已直接给出口令的拼手气红包后立即参与。"""
+        if not self._accept_packet_sender(message, sender):
+            return
         group_id = message.chat_id
         chat_label = self._remember_chat(chat)
         packet_id = message.id
@@ -207,6 +310,8 @@ class Grabber:
         ocr_enabled: bool, copy_enabled: bool, notify: bool,
         min_len: int, max_len: int, ttl_secs: int, keep_for_retry: bool = False,
     ) -> None:
+        if not self._accept_packet_sender(message, sender):
+            return
         group_id = message.chat_id
         chat_label = self._remember_chat(chat)
         packet_id = message.id
@@ -388,6 +493,8 @@ class Grabber:
 
     async def _send_answer(self, client, pkt: _Packet, code: str,
                            join_delay: float, notify: bool) -> None:
+        if self._active.get((pkt.group_id, pkt.packet_id)) is not pkt:
+            return
         if pkt.answered:
             return
         if not self._amount_allowed(pkt, code):
@@ -399,6 +506,8 @@ class Grabber:
         if delay > 0:
             await asyncio.sleep(delay)
 
+        if self._active.get((pkt.group_id, pkt.packet_id)) is not pkt:
+            return
         # 等待期间用户可调整门槛，提交前再次按当前配置检查。
         if not self._amount_allowed(pkt, code):
             pkt.answered = False
@@ -452,8 +561,7 @@ class Grabber:
         """
         if packet_hint:
             hinted = self._active.get((group_id, packet_hint))
-            if hinted is not None and not hinted.answered:
-                return hinted
+            return hinted if hinted is not None and not hinted.answered else None
 
         matched = []
         fallback = None
@@ -480,7 +588,8 @@ class Grabber:
 
     def _packet_hint_from_reply(self, replied, group_id: int) -> int:
         parent_id = int(getattr(replied, "reply_to_msg_id", 0) or 0) if replied else 0
-        return parent_id if (group_id, parent_id) in self._active else 0
+        # 明确回复的红包即使已被作废，也不能回退到同群的另一个红包。
+        return parent_id
 
     async def _read_replied_candidate(
         self, client, message, min_len: int, max_len: int,
