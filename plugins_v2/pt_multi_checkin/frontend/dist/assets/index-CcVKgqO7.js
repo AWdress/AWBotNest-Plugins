@@ -44,9 +44,8 @@ const {createApp} = await importShared('vue');
 const demoHost = {
   getConfig: async () => ({}),
   callApi: async path => path === '/meta' ? {
-    defaults: { selected_sites: ['audiences', 'ourbits', 'piggo', 'hhan', 'tjupt', 'chdbits', 'opencd', 'u2', 'btschool', 'hdsky', 'pterclub', 'zhuque'], custom_sites: [] },
+    defaults: { selected_sites: ['ourbits', 'piggo', 'hhan', 'tjupt', 'chdbits', 'opencd', 'u2', 'btschool', 'hdsky', 'pterclub', 'zhuque'], custom_sites: [] },
     sites: [
-      { key: 'audiences', name: '观众', domain: 'audiences.me', group: '12大站点' },
       { key: 'ourbits', name: '我堡', domain: 'ourbits.club', group: '12大站点' },
       { key: 'piggo', name: '猪猪', domain: 'piggo.me', group: '其他站点' },
       { key: 'hhan', name: '憨憨', domain: 'hhanclub.net', group: '12大站点' },

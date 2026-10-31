@@ -143,6 +143,14 @@ _CHANGELOG_V2_7_5 = (
 )
 
 
+_CHANGELOG_V2_7_6 = (
+    "v2.7.6 移除观众签到\n"
+    "- 观众已关闭官方签到，移除站点选项、默认勾选和 Cookie 域名声明\n"
+    "- 自动清理旧配置中的观众勾选，通用签到及失败补签不再访问观众站点\n"
+    "- 保留其他站点设置与历史签到记录\n\n"
+)
+
+
 _CHANGELOG_V2_0_12 = (
     "v2.0.12 修复 CloakBrowser 首次安装超时\n"
     "- 启用插件后在后台预装 CloakBrowser 内核，签到时仍会自动补检\n"
@@ -155,7 +163,7 @@ _CHANGELOG_V2_0_12 = (
 __plugin__ = {
     "name": "PT站自动签到",
     "id": "pt_multi_checkin",
-    "version": "2.7.5",
+    "version": "2.7.6",
     "author": "AWdress",
     "description": "多 PT 站自动签到中心，统一使用平台 Cookie 与 CloakBrowser，提供 Vue 管理界面。",
     "icon": "https://raw.githubusercontent.com/AWdress/AWBotNest-Plugins/main/plugins/icons/pt_checkin_v2.svg",
@@ -165,7 +173,7 @@ __plugin__ = {
     "plugin_api_version": 2,
     "requirements": ["httpx>=0.27", "beautifulsoup4>=4.12", "cloakbrowser>=0.5.10", "geoip2>=4.8", "socksio>=1.0", "packaging>=24.0"],
     "cookie_domains": [
-        "audiences.me", "*.audiences.me", "ourbits.club", "*.ourbits.club",
+        "ourbits.club", "*.ourbits.club",
         "hhanclub.net", "*.hhanclub.net",
         "piggo.me", "*.piggo.me", "tjupt.org", "*.tjupt.org", "52pt.site", "*.52pt.site",
         "pt.btschool.club", "*.pt.btschool.club", "ptchdbits.co", "*.ptchdbits.co",
@@ -187,11 +195,10 @@ __plugin__ = {
         "failure_threshold": 3, "recovery_seconds": 120,
     },
 }
-__plugin__["changelog"] = _CHANGELOG_V2_7_5 + _CHANGELOG_V2_7_4 + _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
+__plugin__["changelog"] = _CHANGELOG_V2_7_6 + _CHANGELOG_V2_7_5 + _CHANGELOG_V2_7_4 + _CHANGELOG_V2_7_3 + _CHANGELOG_V2_7_2 + _CHANGELOG_V2_7_1 + _CHANGELOG_V2_7_0 + _CHANGELOG_V2_6_4 + _CHANGELOG_V2_6_3 + _CHANGELOG_V2_6_2 + _CHANGELOG_V2_6_1 + _CHANGELOG_V2_6_0 + _CHANGELOG_V2_5_55 + _CHANGELOG_V2_0_16 + _CHANGELOG_V2_0_15 + _CHANGELOG_V2_0_14 + _CHANGELOG_V2_0_13 + _CHANGELOG_V2_0_12 + __plugin__["changelog"]
 
 SITES = {
     # PT 社区常用的 12 个站点置于第一组；其余已有适配站点置于第二组。
-    "audiences": {"name": "观众", "domain": "audiences.me", "url": "https://audiences.me/attendance.php", "group": "12大站点"},
     "ourbits": {"name": "我堡", "domain": "ourbits.club", "url": "https://ourbits.club/attendance.php", "group": "12大站点"},
     "piggo": {"name": "猪猪", "domain": "piggo.me", "url": "https://piggo.me/attendance.php", "group": "其他站点"},
     "hhan": {"name": "憨憨", "domain": "hhanclub.net", "url": "https://hhanclub.net/attendance.php", "group": "12大站点"},
@@ -473,7 +480,7 @@ def _custom_sites(cfg: dict | None = None) -> dict[str, dict]:
         domain = (parsed.hostname or "").lower().strip(".")
         if domain.startswith("www."):
             domain = domain[4:]
-        if not domain:
+        if not domain or domain == "audiences.me" or domain.endswith(".audiences.me"):
             continue
         # name is intentionally user-controlled (it can be a site name or account label).
         name = str(item.get("name") or item.get("username") or domain).strip()[:80]
@@ -553,18 +560,18 @@ async def _run_scheduled(ctx, source: str, selected: list[str]) -> dict:
 
 def _schedule_failed_retry(ctx, failed_keys: list[str]) -> bool:
     """Schedule one delayed, single-attempt pass for each failed site."""
+    configured = _configured_sites(_cfg(ctx))
     batch = tuple(dict.fromkeys(
         str(key) for key in failed_keys
-        if str(key) and not (
+        if str(key) in configured and not (
             _failed_retry_tasks.get(str(key)) is not None
             and not _failed_retry_tasks[str(key)].done()
         )
     ))
     if not batch:
-        _runtime_log(ctx, "失败站点均已有待执行的 30 分钟补签任务，不重复安排")
+        _runtime_log(ctx, "没有需要安排补签的有效站点，不重复安排")
         return False
 
-    configured = _configured_sites(_cfg(ctx))
     names = [configured[key]["name"] for key in batch if key in configured]
     label = "、".join(names) or "、".join(batch)
 
@@ -2683,6 +2690,9 @@ async def _run(
 
 async def setup(ctx):
     global _run_lock, _active_run_task
+    selected = (ctx.config or {}).get("selected_sites")
+    if isinstance(selected, list) and "audiences" in selected:
+        ctx.update_config({"selected_sites": [key for key in selected if key != "audiences"]})
     _run_lock = asyncio.Lock()
     _active_run_task = None
     _scheduled_tasks.clear()
